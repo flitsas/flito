@@ -1,3 +1,16 @@
+---
+resumen: Qué puede hacer cada rol dentro de FLITO.
+palabras_clave:
+  - roles
+  - permisos
+  - acceso
+  - usuarios
+consultas:
+  - qué puede hacer cada rol
+  - cómo doy acceso a una pantalla
+version: 1.1
+fecha: 2026-10-22
+---
 ## Qué es
 
 La pantalla donde se decide **qué puede ver y hacer cada rol** dentro de FLITO. Muestra la lista de roles con cuántos permisos tiene cada uno y, al lado, los **Permisos del rol** seleccionado, ordenados igual que el menú: cada **elemento del menú** (Gestión, Finanzas, Administración…) contiene sus **ítems** (las pantallas), y cada ítem sus **acciones** (ver, crear, exportar…). Todo lo que se reparte está dentro del menú: no hay permisos sueltos aparte. Desde aquí también se crean, editan y borran roles.
@@ -12,28 +25,35 @@ Menú **Administración**, ítem **Roles y permisos**, junto a **Usuarios**.
 
 ## Pasos
 
-1. Elija el rol en la lista de la izquierda (o en el selector **Rol** en pantallas pequeñas).
-2. Despliegue el elemento del menú y el ítem que quiera y marque o desmarque. Un permiso vale solo si están marcados el elemento, el ítem y la acción. Una casilla con unas marcas sí y otras no se ve como **parcial**.
+1. Elija el rol en la lista de la izquierda (o en el selector **Rol** en pantallas pequeñas). A la derecha verá su enlace, cuántos usuarios lo tienen y sus **Permisos del rol**. ![Roles y permisos con el rol Gestor demo elegido en la lista y su cabecera](./roles_permisos/01-roles.png)
+2. Despliegue el elemento del menú y el ítem que quiera y marque o desmarque. Un permiso vale solo si están marcados el elemento, el ítem y la acción. Una casilla con unas marcas sí y otras no se ve como **parcial**. ![Árbol del rol desplegado en Gestión y SOAT, con elementos completos y parciales](./roles_permisos/02-arbol.png)
 3. Si desmarca un elemento o un ítem, lo de adentro **no se pierde**: queda visible, apagado y con sus marcas, con la nota «… está desmarcado: lo de adentro no aplica, pero sus marcas se conservan para cuando lo vuelvas a marcar». Al volver a marcarlo, las marcas reaparecen activas.
-4. Algunos casos llevan su propia nota:
-   - Los ítems de módulos anteriores a FLITO no se dividen en acciones: marcarlos da acceso a todo lo de la pantalla. En PESV, crear y editar los registros pide además la acción **Administrar**.
-   - Las operaciones **Opcional** (por ejemplo, ver el documento del propietario sin enmascarar) no vienen con su ítem: se marcan aparte.
-   - Un ítem marcado sin ninguna acción avisa «Marcado sin ninguna acción: …»; marque al menos una o desmarque el ítem.
-   - **Ayuda** no se marca: cada usuario la ve sola, con los capítulos de lo que puede usar.
-   - En un rol con enlace, los ítems de las pantallas que ese enlace cierra salen deshabilitados con la nota «Cerrado por el enlace «Compañía»: este rol no lo verá aunque lo marque». Tampoco aparecen en el menú de quien tenga el rol, y **Marcar todo** no los marca.
-   - Algunas operaciones se usan desde varias pantallas y **vienen con el módulo donde se usan**, sin casilla propia: consultar vehículos viene con **Vehículos**, **SOAT antiguo**, **Flota** y **Trámite Digital**; consultar una persona en el RUNT, leer la cédula y buscar en Fasecolda vienen con **Trámite Digital**, que incluye Traspaso. Basta con marcar el ítem.
-   - El resumen de rendimiento de FLITO es el ítem **Rendimiento** de **Administración**: quien lo tenga lo verá en el menú, dentro de Administración.
-5. Pulse **Guardar cambios**. El cambio queda aplicado en la siguiente acción de cada usuario con ese rol; nadie tiene que volver a entrar. La barra **Sin guardar** cuenta lo pendiente y **Descartar** lo devuelve a lo guardado.
-6. Para repartirlo todo de una vez use **Marcar todo**, que marca todos los ítems y acciones del árbol, pero **no** los opcionales; **Desmarcar todo** quita todo. Ninguno de los dos guarda por sí solo.
-7. **Nuevo rol** abre el formulario: nombre, descripción y **Enlace**, que decide qué datos ven las personas con ese rol. Elija una de cuatro opciones; cada una explica debajo lo que verá el rol:
-   - **Ninguno** (viene marcado): ve todos los datos de los módulos que el rol tenga marcados.
-   - **Compañía**: ve solo lo de su compañía en el Tablero, Gestión Trámites, SOAT, Impuestos, Bolsas, Comprobantes y Logística. No ve catálogos ni configuración; el resto le queda cerrado.
-   - **Proveedor**: ve solo lo asignado a su proveedor. Hoy aplica a SOAT.
-   - **Organismos**: ve solo lo de sus secretarías de tránsito en Impuestos, Derechos y la Bandeja de trámites. El resto le queda cerrado.
+4. Pulse **Guardar cambios**. El cambio queda aplicado en la siguiente acción de cada usuario con ese rol; nadie tiene que volver a entrar. La barra **Sin guardar** cuenta lo pendiente y **Descartar** lo devuelve a lo guardado. ![Barra Sin guardar con una marca pendiente, Descartar y Guardar cambios](./roles_permisos/03-sin-guardar.png)
+5. Para repartirlo todo de una vez use **Marcar todo**, que marca todos los ítems y acciones del árbol, pero **no** los opcionales; **Desmarcar todo** quita todo. Ninguno de los dos guarda por sí solo.
+6. **Nuevo rol** abre el formulario: **Nombre del rol**, **Descripción** y **Enlace**, que decide qué datos ven las personas con ese rol (las cuatro opciones se explican debajo de esta lista). El rol nuevo nace con **Perfil** marcado (ver sus datos y cambiar su contraseña) para que nadie se quede sin poder cambiarla; si no lo quiere, desmárquelo y guarde. ![Formulario Nuevo rol vacío con las cuatro opciones de Enlace](./roles_permisos/04-nuevo-rol.png)
+7. **Editar rol** permite corregir nombre, descripción, enlace y si **Se puede asignar a usuarios nuevos**. El enlace solo se puede cambiar mientras ningún usuario tenga el rol; si lo tiene alguien, el formulario lo avisa y hay que cambiarles el rol primero en **Usuarios**.
+8. **Borrar rol** solo está disponible cuando ningún usuario lo tiene y no es un rol del sistema; la cabecera dice por qué cuando no se puede.
 
-   La compañía, el proveedor o las secretarías concretas de cada persona se eligen en **Usuarios**, no aquí. El código del rol se genera del nombre y no se puede cambiar después. El rol nuevo nace con **Perfil** marcado (ver sus datos y cambiar su contraseña) para que nadie se quede sin poder cambiarla; si no lo quiere, desmárquelo y guarde.
-8. **Editar rol** permite corregir nombre, descripción, enlace y si **Se puede asignar a usuarios nuevos**. El enlace solo se puede cambiar mientras ningún usuario tenga el rol; si lo tiene alguien, el formulario lo avisa y hay que cambiarles el rol primero en **Usuarios**.
-9. **Borrar rol** solo está disponible cuando ningún usuario lo tiene y no es un rol del sistema; la cabecera dice por qué cuando no se puede.
+![Diagrama del reparto de permisos: elegir el rol, desplegar, marcar elemento, ítem y acción, revisar lo pendiente y guardar o descartar; el guardado se rechaza si dejaría a FLITO sin administrador](./roles_permisos/reparto-de-permisos.svg)
+
+Las cuatro opciones de **Enlace** (cada una explica debajo lo que verá el rol):
+
+- **Ninguno** (viene marcado): ve todos los datos de los módulos que el rol tenga marcados.
+- **Compañía**: ve solo lo de su compañía en el Tablero, Gestión Trámites, SOAT, Impuestos, Bolsas, Comprobantes y Logística. No ve catálogos ni configuración; el resto le queda cerrado.
+- **Proveedor**: ve solo lo asignado a su proveedor. Hoy aplica a SOAT.
+- **Organismos**: ve solo lo de sus secretarías de tránsito en Impuestos, Derechos y la Bandeja de trámites. El resto le queda cerrado.
+
+La compañía, el proveedor o las secretarías concretas de cada persona se eligen en **Usuarios**, no aquí. El código del rol se genera del nombre y no se puede cambiar después.
+
+Algunos casos del árbol llevan su propia nota:
+
+- Los ítems de módulos anteriores a FLITO no se dividen en acciones: marcarlos da acceso a todo lo de la pantalla. En PESV, crear y editar los registros pide además la acción **Administrar**.
+- Las operaciones **Opcional** (por ejemplo, ver el documento del propietario sin enmascarar) no vienen con su ítem: se marcan aparte.
+- Un ítem marcado sin ninguna acción avisa «Marcado sin ninguna acción: …»; marque al menos una o desmarque el ítem.
+- **Ayuda** no se marca: cada usuario la ve sola, con los capítulos de lo que puede usar.
+- En un rol con enlace, los ítems de las pantallas que ese enlace cierra salen deshabilitados con la nota «Cerrado por el enlace «Compañía»: este rol no lo verá aunque lo marque». Tampoco aparecen en el menú de quien tenga el rol, y **Marcar todo** no los marca.
+- Algunas operaciones se usan desde varias pantallas y **vienen con el módulo donde se usan**, sin casilla propia: consultar vehículos viene con **Vehículos**, **SOAT antiguo**, **Flota** y **Trámite Digital**; consultar una persona en el RUNT, leer la cédula y buscar en Fasecolda vienen con **Trámite Digital**, que incluye Traspaso. Basta con marcar el ítem.
+- El resumen de rendimiento de FLITO es el ítem **Rendimiento** de **Administración**: quien lo tenga lo verá en el menú, dentro de Administración.
 
 ## Estados
 

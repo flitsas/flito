@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 540" width="860" height="540" role="img" aria-labelledby="t">
+  <title id="t">A qué canasta cae cada recibo de derechos de tránsito según lo que el sistema lee (diagrama demo, sin datos reales)</title>
+  <rect width="860" height="540" fill="#ffffff"/>
+  <defs>
+    <marker id="f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0L10 5L0 10z" fill="#4a5568"/>
+    </marker>
+  </defs>
+  <g font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#1a202c">
+    <rect x="30" y="30" width="250" height="84" rx="12" fill="#edf2f7" stroke="#4a5568" stroke-width="2"/>
+    <text x="155" y="65" font-size="17">Cargar recibos</text>
+    <text x="155" y="88" font-size="14">PDF, imagen o ZIP</text>
+    <rect x="580" y="30" width="250" height="84" rx="12" fill="#edf2f7" stroke="#4a5568" stroke-width="2"/>
+    <text x="705" y="65" font-size="17">Drive · Medellín</text>
+    <text x="705" y="88" font-size="14">Procesar el consolidado</text>
+    <rect x="305" y="160" width="250" height="84" rx="12" fill="#e0ecff" stroke="#2b6cb0" stroke-width="2"/>
+    <text x="430" y="195" font-size="17">Lectura del recibo</text>
+    <text x="430" y="218" font-size="14">placa, fecha y valor</text>
+    <rect x="15" y="320" width="130" height="92" rx="12" fill="#e6f6ec" stroke="#2f855a" stroke-width="2"/>
+    <text x="80" y="350" font-size="15">Registrados</text>
+    <text x="80" y="372" font-size="12">un trámite</text>
+    <text x="80" y="390" font-size="12">para la placa</text>
+    <rect x="155" y="320" width="130" height="92" rx="12" fill="#fef3c7" stroke="#b7791f" stroke-width="2"/>
+    <text x="220" y="350" font-size="15">En revisión</text>
+    <text x="220" y="372" font-size="12">varios trámites</text>
+    <text x="220" y="390" font-size="12">o lectura dudosa</text>
+    <rect x="295" y="320" width="130" height="92" rx="12" fill="#e0ecff" stroke="#2b6cb0" stroke-width="2"/>
+    <text x="360" y="350" font-size="15">Sin trámite</text>
+    <text x="360" y="372" font-size="12">asociado: la placa</text>
+    <text x="360" y="390" font-size="12">no tiene trámite</text>
+    <rect x="435" y="320" width="130" height="92" rx="12" fill="#edf2f7" stroke="#4a5568" stroke-width="2"/>
+    <text x="500" y="350" font-size="15">Duplicados</text>
+    <text x="500" y="372" font-size="12">ese recibo ya</text>
+    <text x="500" y="390" font-size="12">estaba registrado</text>
+    <rect x="575" y="320" width="130" height="92" rx="12" fill="#edf2f7" stroke="#4a5568" stroke-width="2"/>
+    <text x="640" y="350" font-size="15">Páginas</text>
+    <text x="640" y="372" font-size="12">omitidas: página</text>
+    <text x="640" y="390" font-size="12">sin recibo</text>
+    <rect x="715" y="320" width="130" height="92" rx="12" fill="#fde2e2" stroke="#c53030" stroke-width="2"/>
+    <text x="780" y="350" font-size="15">Fallidos</text>
+    <text x="780" y="372" font-size="12">el archivo no</text>
+    <text x="780" y="390" font-size="12">se pudo leer</text>
+    <rect x="15" y="450" width="270" height="72" rx="12" fill="#fef3c7" stroke="#b7791f" stroke-width="2" stroke-dasharray="6 4"/>
+    <text x="150" y="480" font-size="15">Revisiones OCR</text>
+    <text x="150" y="502" font-size="12">ahí se resuelve lo En revisión</text>
+    <text x="580" y="480" font-size="13" fill="#4a5568">Todas las canastas se ven en el Resultado de la carga;</text>
+    <text x="580" y="500" font-size="13" fill="#4a5568">lo registrado queda además en la pestaña Registrados.</text>
+  </g>
+  <g stroke="#4a5568" stroke-width="2.5" fill="none" marker-end="url(#f)">
+    <path d="M155 114L330 155"/>
+    <path d="M705 114L530 155"/>
+    <path d="M360 244L80 315"/>
+    <path d="M388 244L220 315"/>
+    <path d="M416 244L360 315"/>
+    <path d="M444 244L500 315"/>
+    <path d="M472 244L640 315"/>
+    <path d="M500 244L780 315"/>
+    <path d="M220 412L190 445"/>
+  </g>
+</svg>

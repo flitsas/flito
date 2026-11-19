@@ -68,8 +68,10 @@ test('excepción no es cheque en blanco: un hallazgo de más en el fichero exent
   assert.ok(errores.some((e) => e.includes('declara 1')));
 });
 
-test('solo la excepción de traspaso existe (decisión de la HU #12872)', () => {
-  assert.deepEqual(Object.keys(EXCEPCIONES), ['apps/web/src/pages/TransitoTraspasoExpediente.tsx']);
+test('las excepciones son exactamente las declaradas: traspaso (HU #12872); la de Aplica para se retiró en la HU #13914', () => {
+  assert.deepEqual(Object.keys(EXCEPCIONES), [
+    'apps/web/src/pages/TransitoTraspasoExpediente.tsx',
+  ]);
 });
 
 test('el árbol real de apps/web/src está limpio', () => {

@@ -57,7 +57,7 @@ test.describe('FLITO — Ayuda · fichas de finanzas (HU #11895)', () => {
     await expect(page.getByText('Ficha pendiente')).toHaveCount(0);
   });
 
-  test('TC-11895-02 AC1 — cada ficha de Finanzas abre plantilla (6 h2), sin vacío pendiente ni img', async ({ page }) => {
+  test('TC-11895-02 AC1 — cada ficha de Finanzas abre plantilla (6 h2), sin vacío pendiente; imágenes con alt (HU #13707)', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     for (const f of FICHAS_FINANZAS) {
       await page.goto(`/flito/ayuda/${f.clave}`);
@@ -69,7 +69,10 @@ test.describe('FLITO — Ayuda · fichas de finanzas (HU #11895)', () => {
       for (const h of SECCIONES) {
         await expect(articulo.getByRole('heading', { name: h, exact: true })).toBeVisible();
       }
-      await expect(articulo.locator('img')).toHaveCount(0);
+      // HU #13707 (AC7): las fichas ya pueden traer capturas o diagramas demo; cada imagen lleva alt.
+      for (const img of await articulo.locator('img').all()) {
+        await expect(img).toHaveAttribute('alt', /\S/);
+      }
       await expect(page.getByRole('link', { name: `Ir a la pantalla ${f.etiqueta}` })).toHaveAttribute('href', f.to);
     }
   });
@@ -106,7 +109,7 @@ test.describe('FLITO — Ayuda · fichas de finanzas (HU #11895)', () => {
       .toHaveAttribute('href', FICHA_CREDENCIALES.to);
   });
 
-  test('TC-11895-04 AC1 — artefactos: 6 .md con plantilla, usted, Facturar ≠ emisión, sin captura/endpoint/tabla', () => {
+  test('TC-11895-04 AC1 — artefactos: 6 .md con plantilla, usted, Facturar ≠ emisión, sin endpoint/tabla', () => {
     const claves = [...FICHAS_FINANZAS.map((f) => f.clave), FICHA_CREDENCIALES.clave];
     for (const clave of claves) {
       const path = resolve(raiz, `apps/web/src/content/ayuda/${clave}.md`);
@@ -117,7 +120,7 @@ test.describe('FLITO — Ayuda · fichas de finanzas (HU #11895)', () => {
       }
       expect(md, `${clave} tono usted`).toMatch(/\busted\b/i);
       expect(md, `${clave} sin tú`).not.toMatch(/\btú\b/);
-      expect(md).not.toMatch(/!\[[^\]]*\]\(/);
+      // HU #13707 (AC7): las imágenes ya se permiten; alt, ruta y archivo los vigila flito-ayuda-artefactos.spec.ts.
       expect(md).not.toMatch(/\/api\//);
       expect(md).not.toMatch(/\b(CREATE TABLE|FROM public\.|pg_)/i);
       expect(md).not.toMatch(/\|[-:]+\|/);

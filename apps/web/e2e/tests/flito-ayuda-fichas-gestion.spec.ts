@@ -59,7 +59,7 @@ test.describe('FLITO — Ayuda · fichas de gestión (HU #11894)', () => {
     await expect(page.getByText('Ficha pendiente')).toHaveCount(0);
   });
 
-  test('TC-11894-02 AC1 — cada ficha de Gestión abre plantilla (6 h2), sin vacío pendiente ni img', async ({ page }) => {
+  test('TC-11894-02 AC1 — cada ficha de Gestión abre plantilla (6 h2), sin vacío pendiente; img solo demo con alt', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     for (const f of FICHAS_GESTION) {
       await page.goto(`/flito/ayuda/${f.clave}`);
@@ -71,12 +71,17 @@ test.describe('FLITO — Ayuda · fichas de gestión (HU #11894)', () => {
       for (const h of SECCIONES) {
         await expect(articulo.getByRole('heading', { name: h, exact: true })).toBeVisible();
       }
-      await expect(articulo.locator('img')).toHaveCount(0);
+      // Desde la HU #13769 una ficha puede llevar capturas demo de su propia carpeta (la piloto,
+      // `flito_logistica_ruta`, trae cinco). Lo que sigue prohibido: imagen sin alt o de otro origen.
+      for (const img of await articulo.locator('img').all()) {
+        expect((await img.getAttribute('alt'))?.trim(), `${f.clave} · alt`).toBeTruthy();
+        expect(await img.getAttribute('src'), `${f.clave} · src`).toMatch(new RegExp(`^/ayuda/${f.clave}/[a-z0-9_-]+\\.(png|svg)(\\?v=[\\d.]+)?$`));
+      }
       await expect(page.getByRole('link', { name: `Ir a la pantalla ${f.etiqueta}` })).toHaveAttribute('href', f.to);
     }
   });
 
-  test('TC-11894-03 AC1 — artefactos: 12 .md con plantilla, usted, sin captura/endpoint/tabla', async () => {
+  test('TC-11894-03 AC1 — artefactos: 12 .md con plantilla, usted, capturas solo demo con alt, sin endpoint/tabla', async () => {
     for (const f of FICHAS_GESTION) {
       const path = resolve(raiz, `apps/web/src/content/ayuda/${f.clave}.md`);
       expect(existsSync(path), path).toBe(true);
@@ -86,7 +91,11 @@ test.describe('FLITO — Ayuda · fichas de gestión (HU #11894)', () => {
       }
       expect(md, `${f.clave} tono usted`).toMatch(/\busted\b/i);
       expect(md, `${f.clave} sin tú`).not.toMatch(/\btú\b/);
-      expect(md).not.toMatch(/!\[[^\]]*\]\(/);
+      // HU #13769: capturas permitidas solo con alt y desde la carpeta de la ficha (./<clave>/…).
+      for (const [, alt, src] of md.matchAll(/!\[([^\]]*)\]\(([^)]*)\)/g)) {
+        expect(alt.trim(), `${f.clave} · alt de ${src}`).not.toBe('');
+        expect(src, `${f.clave} · src`).toMatch(new RegExp(`^\\./${f.clave}/[a-z0-9_-]+\\.(png|svg)$`));
+      }
       expect(md).not.toMatch(/\/api\//);
       expect(md).not.toMatch(/\b(CREATE TABLE|FROM public\.|pg_)/i);
       expect(md).not.toMatch(/\|[-:]+\|/);
@@ -188,13 +197,15 @@ test.describe('FLITO — Ayuda · fichas de gestión (HU #11894)', () => {
 
   test('TC-11894-09 AC4 — SOAT es la cola /flito/soat, no el legacy /soat', async ({ page }) => {
     const md = leerFicha('soat');
-    expect(md).toMatch(/\/flito\/soat/);
-    expect(md.replaceAll('/flito/soat', '')).not.toMatch(/\/soat\b/);
-    expect(seccion(md, 'Cómo se entra')).toMatch(/\/flito\/soat/);
+    // HU #13771 AC4: la ficha ya no escribe rutas en el texto; que es la cola `/flito/soat` lo prueba el enlace
+    // «Ir a la pantalla SOAT» de abajo. Lo que sigue prohibido es mencionar el legacy `/soat`.
+    // Las imágenes de la propia ficha viven en `./soat/…` (HU #13771): esa carpeta no es una ruta.
+    expect(md.replaceAll('/flito/soat', '').replaceAll('](./soat/', '](./')).not.toMatch(/\/soat\b/);
+    expect(seccion(md, 'Cómo se entra')).toMatch(/\*\*SOAT e Impuestos\*\*[^.]*el ítem \*\*SOAT\*\*/);
 
     await loginAs(page, PROVEEDOR_USER);
     await page.goto('/flito/ayuda/soat');
-    await expect(page.getByRole('article', { name: 'SOAT' }).getByText('/flito/soat').first()).toBeVisible();
+    await expect(page.getByRole('article', { name: 'SOAT' }).getByText('/flito/soat')).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Ir a la pantalla SOAT' })).toHaveAttribute('href', '/flito/soat');
     await expect(page.getByRole('link', { name: 'Ir a la pantalla SOAT' })).not.toHaveAttribute('href', '/soat');
   });

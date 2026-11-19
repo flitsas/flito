@@ -2,6 +2,8 @@
 // la ficha o, en el índice, los cuerpos de los capítulos **visibles** (HU #11901).
 // `_plantilla.md` no es ficha: se toca solo para detectar un bundle roto (error ≠ pendiente).
 
+import { parsearFicha, type FichaParseada } from '../../lib/ayudaFicha';
+
 const LOADERS = import.meta.glob<string>('./*.md', { query: '?raw', import: 'default' });
 
 export function existeFichaMd(slug: string): boolean {
@@ -36,4 +38,20 @@ export async function leerFichasMd(slugs: readonly string[]): Promise<Map<string
     }),
   );
   return new Map(pares);
+}
+
+/**
+ * Ficha con el encabezado separado del cuerpo (Feature #13691 · HU #13703). El encabezado nunca
+ * llega a `parseMarkdown`: la página consume solo estas dos funciones. `null` = pendiente.
+ */
+export async function leerFichaParseada(slug: string): Promise<FichaParseada | null> {
+  const raw = await leerFichaMd(slug);
+  return raw == null ? null : parsearFicha(raw);
+}
+
+export async function leerFichasParseadas(
+  slugs: readonly string[],
+): Promise<Map<string, FichaParseada | null>> {
+  const crudos = await leerFichasMd(slugs);
+  return new Map([...crudos].map(([slug, raw]) => [slug, raw == null ? null : parsearFicha(raw)] as const));
 }

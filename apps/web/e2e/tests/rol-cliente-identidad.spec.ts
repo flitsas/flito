@@ -78,8 +78,8 @@ async function mockCompanias(page: Page, companias: typeof COMPANIAS = COMPANIAS
 
 // ───────────────────────────── AC1 · el menú y el aterrizaje ─────────────────────────────────────
 
-test.describe('HU #11913 · AC1 — el Cliente ve SOAT y nada más', () => {
-  test('el menú tiene UNA sola entrada, y es SOAT → /flito/soat', async ({ page }) => {
+test.describe('HU #11913 · AC1 — el Cliente ve SOAT (y, desde la HU #13914, su Ayuda) y nada más', () => {
+  test('el menú tiene DOS entradas: SOAT → /flito/soat y Ayuda (HU #13914 AC2)', async ({ page }) => {
     await loginAs(page, CLIENTE_USER);
     await mockSoat(page);
 
@@ -88,10 +88,13 @@ test.describe('HU #11913 · AC1 — el Cliente ve SOAT y nada más', () => {
 
     // Primero el conteo. Sin él, el aserto de presencia de abajo pasa igual con una segunda
     // entrada al lado, que es el falso verde más barato de esta HU.
-    await expect(nav.getByRole('link')).toHaveCount(1);
+    // HU #13914: la ficha de SOAT (`permiso: 'flito_soat'`) ya es visible al usuario con enlace, así que
+    // «Ayuda FLITO» entra al menú. Exactamente dos: SOAT y Ayuda.
+    await expect(nav.getByRole('link')).toHaveCount(2);
     // Y ningún disparador de panel: una sección con 2+ ítems se pinta como botón, no como enlace.
     await expect(nav.getByRole('button')).toHaveCount(0);
     await expect(nav.getByRole('link', { name: 'SOAT' })).toHaveAttribute('href', '/flito/soat');
+    await expect(nav.getByRole('link', { name: 'Ayuda', exact: true })).toHaveAttribute('href', '/flito/ayuda');
   });
 
   test('las ausencias, una por una y por su nombre', async ({ page }) => {
@@ -101,9 +104,8 @@ test.describe('HU #11913 · AC1 — el Cliente ve SOAT y nada más', () => {
     await page.goto('/flito/soat');
     const nav = page.getByRole('navigation', NAV);
 
-    // «Ayuda FLITO» es la que se cuela sola: no se filtra por slug sino por «≥1 ficha visible», y
-    // la ficha de SOAT cuelga ahora de `flito_soat`, que el Cliente SÍ tiene.
-    for (const ausente of ['Tablero', 'Ayuda FLITO', 'Usuarios', 'Clientes y proveedores', 'Impuestos']) {
+    // «Ayuda FLITO» ya no es ausencia (HU #13914): el Cliente ve la ficha de SOAT. El resto sigue fuera.
+    for (const ausente of ['Tablero', 'Usuarios', 'Clientes y proveedores', 'Impuestos']) {
       await expect(nav.getByRole('link', { name: ausente })).toHaveCount(0);
     }
   });
