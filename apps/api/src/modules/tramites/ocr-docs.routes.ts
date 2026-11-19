@@ -9,6 +9,9 @@ import { audit } from '../../shared/middleware/audit.js';
 import { env } from '../../config/env.js';
 import { loggerFor } from '../../shared/logger.js';
 import { anthropicMessages } from './anthropic.js';
+import { conContextoIa, normalizarPlacaIa } from '../../shared/ia-consumo/contexto.js';
+import { procesoIa } from '../../shared/ia-consumo/catalogo.js';
+import { anotarConsumoIa } from '../../shared/ia-consumo/escritor.js';
 
 const log = loggerFor('tramites-ocr-docs');
 
@@ -246,7 +249,7 @@ JSON valido sin markdown:
 // métrica). Construimos el payload y delegamos en anthropicMessages('ocr').
 function visionPayload(b64: string, mediaType: string, prompt: string) {
   return {
-    model: 'claude-haiku-4-5-20251001', max_tokens: 2000,
+    model: env.ANTHROPIC_MODEL_HAIKU, max_tokens: 2000,
     messages: [{ role: 'user', content: [
       { type: mediaType === 'application/pdf' ? 'document' : 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
       { type: 'text', text: prompt },
@@ -291,14 +294,20 @@ router.post('/ocr/:tipo', exigirFuncion('tramite.ocr.leer'), ocrLimiter, upload.
   log.info({ tipo, originalname: req.file.originalname, sizeKb: Math.round(req.file.size / 1024) }, 'procesando OCR doc');
 
   try {
-    const ai = await anthropicMessages(visionPayload(b64, mediaType, prompt), 'ocr');
+    // Contrato `ia-consumo` v1: OCR de documentos del trámite; la placa se anota cuando el modelo la lee.
+    const ai = await conContextoIa({ ...procesoIa('ocr_documento'), promptCodigo: `ocr_documento_${tipo}` },
+      () => anthropicMessages(visionPayload(b64, mediaType, prompt), 'ocr'));
     if (!ai.ok) { res.status(ai.status).json({ ok: false, message: ai.message }); return; }
     const r = ai.data;
 
     const text = r.content?.[0]?.text || '';
     let data: any;
     try { data = JSON.parse(text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()); }
-    catch { res.status(500).json({ ok: false, message: 'No se pudo extraer datos del documento' }); return; }
+    catch {
+      anotarConsumoIa(ai.consumoId, { resultado: 'respuesta_invalida', errorCodigo: 'json_no_parseable' });
+      res.status(500).json({ ok: false, message: 'No se pudo extraer datos del documento' }); return;
+    }
+    anotarConsumoIa(ai.consumoId, { placa: normalizarPlacaIa(data?.vehiculo_placa) });
 
     // F2: Si multi-doc, extraer paginas y guardar en disco (NO devolver base64 en JSON)
     let extractedFilename: string | null = null;

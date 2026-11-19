@@ -3,6 +3,8 @@
 import { env } from '../../config/env.js';
 import { httpsJson, type HttpResponse } from '../integraciones/http.js';
 import { loggerFor } from '../../shared/logger.js';
+import { anthropicMensajesCrudo } from '../tramites/anthropic.js';
+import { conContextoIa, procesoIa } from '../../shared/ia-consumo/index.js';
 import { tiposPersonaAIntentar, tiposVehiculoAIntentar } from './runt-tipo-doc.js';
 
 const log = loggerFor('runt-direct');
@@ -12,17 +14,24 @@ const RUNT_HDRS = { Accept: 'application/json', Origin: 'https://portalpublico.r
 const RUNT_VEH_BASE = 'https://runtproapi.runt.gov.co/CYRConsultaVehiculoMS';
 const RUNT_VEH_HDRS = { ...RUNT_HDRS, 'Content-Type': 'application/json', 'x-funcionalidad': 'consulta-vehiculo' };
 
-async function solveImageCaptcha(base64Image: string): Promise<string> {
+// Contrato `ia-consumo` v1 (B4): cliente central en vez de `httpsJson`. Conserva su bucle propio de 4 intentos
+// (cada uno una fila con `intento` = 1..4 y el mismo `correlacion_id`), 90 s por intento como `httpsJson`, y
+// el rechazo en red/timeout que corta el bucle, como antes.
+function solveImageCaptcha(base64Image: string): Promise<string> {
+  return conContextoIa({ ...procesoIa('captcha'), promptCodigo: 'captcha_runt' }, () => resolverCaptcha(base64Image));
+}
+
+async function resolverCaptcha(base64Image: string): Promise<string> {
   if (!env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY requerida para captcha RUNT');
   const rawB64 = base64Image.replace(/^data:image\/[a-z]+;base64,/, '');
   for (let attempt = 1; attempt <= 4; attempt++) {
-    const r = await httpsJson('POST', 'https://api.anthropic.com/v1/messages', {
+    const r = { data: (await anthropicMensajesCrudo({
       model: env.ANTHROPIC_MODEL_HAIKU, max_tokens: 16,
       messages: [{ role: 'user', content: [
         { type: 'image', source: { type: 'base64', media_type: 'image/png', data: rawB64 } },
         { type: 'text', text: 'Responde SOLO con el texto exacto del captcha, sin espacios ni explicaciones. Preserva exactamente las mayúsculas y minúsculas.' },
       ] }],
-    }, { 'x-api-key': env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' });
+    }, 'captcha', { timeoutMs: 90_000, intentoInicial: attempt })).cuerpo };
     const errType = r.data?.error?.type;
     if (errType === 'overloaded_error' || errType === 'rate_limit_error') {
       if (attempt < 4) { await new Promise((res) => setTimeout(res, 1000 * attempt)); continue; }
@@ -104,6 +113,11 @@ async function runtVehWithType(placaNorm: string | null, documento: string, tipo
 }
 
 export async function consultarVehiculoRuntDirect(placa?: string, vin?: string, documento?: string, tipoDocumento?: string) {
+  // Contrato `ia-consumo` v1: los captchas de esta consulta se registran con su placa.
+  return conContextoIa({ placa: placa ?? null }, () => consultarVehiculoEnContexto(placa, vin, documento, tipoDocumento));
+}
+
+async function consultarVehiculoEnContexto(placa?: string, vin?: string, documento?: string, tipoDocumento?: string) {
   if (!placa && !vin) throw new Error('Placa o VIN requerido');
   if (!vin && !documento) throw new Error('Documento del propietario requerido para consulta por placa');
   const placaNorm = placa ? placa.toUpperCase().replace(/[^A-Z0-9]/g, '') : null;

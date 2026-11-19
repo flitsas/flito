@@ -4,6 +4,8 @@ import { authMiddleware } from '../../shared/middleware/auth.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { consultarVehiculoRunt, consultarPersonaRunt } from './runt.service.js';
+import { anthropicMensajesCrudo } from '../tramites/anthropic.js';
+import { anotarConsumoIa, conContextoIa, procesoIa } from '../../shared/ia-consumo/index.js';
 
 const router = Router();
 
@@ -118,29 +120,28 @@ JSON sin markdown:
 {"birthDate":"","bloodType":"","birthPlace":"","expeditionDate":"","expeditionPlace":"","gender":"","documentNumber":""}`;
 
   try {
-    const https = await import('https');
     const { env } = await import('../../config/env.js');
-    const body = JSON.stringify({
-      model: 'claude-sonnet-4-6', max_tokens: 800,
-      messages: [{ role: 'user', content: [
-        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: clean } },
-        { type: 'text', text: prompt },
-      ] }],
-    });
-    const r: any = await new Promise((resolve, reject) => {
-      const rq = https.default.request({
-        method: 'POST', hostname: 'api.anthropic.com', path: '/v1/messages',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY || '', 'anthropic-version': '2023-06-01', 'Content-Length': Buffer.byteLength(body) },
-      }, (r2) => { let d = ''; r2.on('data', (c: string) => (d += c)); r2.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve(d); } }); });
-      rq.setTimeout(60000, () => rq.destroy(new Error('Timeout')));
-      rq.on('error', reject); rq.write(body); rq.end();
-    });
+    // Contrato `ia-consumo` v1 (B4): cliente central. Conserva lo de antes: un intento, 60 s, el cuerpo de
+    // cualquier status (`r.error` → 500 con su mensaje) y 500 en red/timeout (el `catch` de abajo).
+    const { cuerpo: r, consumoId } = await conContextoIa(
+      { ...procesoIa('ocr_cedula'), promptCodigo: `ocr_cedula_${lado}` },
+      () => anthropicMensajesCrudo({
+        model: env.ANTHROPIC_MODEL_SONNET, max_tokens: 800,
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: clean } },
+          { type: 'text', text: prompt },
+        ] }],
+      }, 'ocr', { timeoutMs: 60_000 }),
+    );
 
     if (r.error) { res.status(500).json({ ok: false, message: r.error.message }); return; }
     const text = r.content?.[0]?.text || '';
     let data: any;
     try { data = JSON.parse(text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()); }
-    catch { res.status(500).json({ ok: false, message: 'No se pudo leer el documento' }); return; }
+    catch {
+      if (r.content) anotarConsumoIa(consumoId, { resultado: 'respuesta_invalida', errorCodigo: 'json_no_parseable' });
+      res.status(500).json({ ok: false, message: 'No se pudo leer el documento' }); return;
+    }
 
     await audit(req, { action: 'update', resource: 'ocr_cedula', detail: `OCR cedula ${lado}` });
     res.json({ ok: true, data, lado });

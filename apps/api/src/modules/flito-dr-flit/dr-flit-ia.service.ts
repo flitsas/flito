@@ -24,6 +24,7 @@ import { armarContexto, manualesDisponibles, type FichaAyudaApi } from './dr-fli
 import { devolverCupoIa, reservarCupoIa } from './dr-flit-ia.cupo.js';
 import { armarCuerpoMensajes } from './dr-flit-ia.prompt.js';
 import { llamarMensajesIa } from './dr-flit-ia.client.js';
+import { conContextoIa, procesoIa } from '../../shared/ia-consumo/index.js';
 import { parsearSalidaIa } from './dr-flit-ia.parser.js';
 
 const log = loggerFor('drflit-ia');
@@ -112,7 +113,8 @@ export async function responderChatIa(
   );
   const base = { ...metricasVacias(null, modelo), fichasEnContexto: contexto.indice.length };
 
-  const r = await llamarMensajesIa(cuerpo);
+  // Contrato `ia-consumo` v1: el chat de Dr. Flit (proceso `chat`, agregado al catálogo FLITO).
+  const r = await conContextoIa({ ...procesoIa('chat'), promptCodigo: 'drflit_chat' }, () => llamarMensajesIa(cuerpo));
   if (!r.ok) {
     const config = r.statusCode !== null && r.statusCode >= 400 && r.statusCode < 500 && r.statusCode !== 429;
     (config ? log.error : log.warn).call(log, {
