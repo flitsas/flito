@@ -14,7 +14,7 @@ const { tableroComercial } = await import('../../../src/modules/flito-torre/flit
 const { tableroOperativo } = await import('../../../src/modules/flito-torre/flito-torre.operativa.service.js');
 const { tableroFinanciero } = await import('../../../src/modules/flito-torre/flito-torre.financiera.service.js');
 const { consultarMetrica } = await import('../../../src/modules/flito-torre/flito-torre.metricas.service.js');
-const { consultarDetalle } = await import('../../../src/modules/flito-torre/flito-torre.detalle.service.js');
+const { consultarDetalle, datosExportacion } = await import('../../../src/modules/flito-torre/flito-torre.detalle.service.js');
 const { valoresUmbrales } = await import('../../../src/modules/flito-torre/flito-torre.umbrales.service.js');
 
 const TODO = { enlace: 'ninguno' } as const;
@@ -259,6 +259,16 @@ describe.skipIf(!URL_BASE)('invariante cifra == total del detalle (tx con ROLLBA
     });
     const [p1, p2, p3] = [await pagina(1), await pagina(2), await pagina(3)];
     expect(p1.total).toBe(55);
+    // La frase usa el total de TODO el conjunto, no las filas de la página (25 / 25 / 5).
+    expect(p1.frase).toBe('55 trámites creados en el periodo.');
+    expect(p2.frase).toBe(p1.frase);
+    expect(p3.frase).toBe(p1.frase);
+    const exp = await datosExportacion(
+      { origen: { tipo: 'conjunto', conjunto: 'tramites_creados' }, filtro, filtrosDetalle: { companiaIds: [x] } },
+      { alcance: TODO, dinero: true, funciones: FUNCIONES, hoy: HOY },
+    );
+    expect(exp.resultado.total).toBe(55);
+    expect(exp.resultado.frase).toBe('55 trámites creados en el periodo.');
     const ids = [...p1.filas, ...p2.filas, ...p3.filas].map((f) => f.id);
     expect(ids).toHaveLength(55);
     expect(new Set(ids).size).toBe(55);
