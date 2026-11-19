@@ -1,25 +1,29 @@
 // Torre de Control (Épica #14590) — Resumen 360° (spec UX §7.4, maqueta `docs/ux/mockups/torre-360.html`). Tres
-// tarjetas por área (enlace solo si el rol ve ese tablero), la proyección de cierre del mes y los 5 riesgos de hoy.
-// El contrato trae UN endpoint (`/tableros/ejecutivo`), así que los 4 estados son de página (molde), no por tarjeta.
-import { Link } from 'react-router-dom';
-import type { RiesgoTorre, TableroEjecutivo } from '@operaciones/shared-types';
+// tarjetas por área (enlace solo si el rol ve ese tablero) y la proyección de cierre del mes. B6: «Para hoy» va PRIMERO
+// (reemplaza a «Los 5 riesgos de hoy», que ya no se usa aunque siga en el DTO) y «Lo que cambió en el periodo» después de
+// las tarjetas. El contrato trae UN endpoint (`/tableros/ejecutivo`), así que el error y el vacío son de página (molde).
+import type { TableroEjecutivo } from '@operaciones/shared-types';
 import { useAuth } from '../../lib/auth';
 import { hasPage, type PageSlug } from '../../lib/permissions';
 import KpiCard from '../../components/flit/KpiCard';
-import { ListaFila } from '../../components/flit/Bloques';
-import { claseBoton } from '../../components/flit/GradientButton';
 import { LineaTendencia, SERIE_KIT } from '../../components/flit/Graficos';
 import PaginaTorre, { BloqueTorre, REJILLA_2, REJILLA_KPI, rutaTorre, useTorre } from '../../components/torre/PaginaTorre';
-import MoldeTablero, { ExportarTablero, Etiqueta, Semaforo, useTablero } from '../../components/torre/MoldeTablero';
+import MoldeTablero, { ExportarTablero, Etiqueta, useTablero } from '../../components/torre/MoldeTablero';
+import { EsqueletoParaHoy, Hallazgos, ParaHoy } from '../../components/torre/ParaHoy';
 import { conteo, pesosCorto, porcentaje, variacion } from '../../components/torre/formatoTorre';
 
-const AREA: Record<RiesgoTorre['area'], { texto: string; slug: PageSlug }> = {
-  comercial: { texto: 'Comercial', slug: 'torre_comercial' },
-  operativo: { texto: 'Operativo', slug: 'torre_operativa' },
-  financiero: { texto: 'Financiero', slug: 'torre_financiera' },
-};
+const esVacio = (d: TableroEjecutivo): boolean => d.comercial.tramitesMes === 0 && d.paraHoy.length === 0 && d.proyeccion.acumulado.every((a) => a.valor === 0);
 
-const esVacio = (d: TableroEjecutivo): boolean => d.comercial.tramitesMes === 0 && d.riesgos.length === 0 && d.proyeccion.acumulado.every((a) => a.valor === 0);
+/** Cargando: «Para hoy» con 4 filas de su misma estructura, y debajo las tarjetas de área. */
+function Cargando360() {
+  return (
+    <div className="flex flex-col gap-4" role="status" aria-busy="true" data-torre="tablero" data-estado="cargando">
+      <span className="sr-only">Cargando el Resumen 360°</span>
+      <EsqueletoParaHoy />
+      <div className={REJILLA_KPI}>{[0, 1, 2].map((i) => <div key={i} className="kit-esqueleto h-[104px]" aria-hidden="true" />)}</div>
+    </div>
+  );
+}
 
 export default function Torre360() {
   const torre = useTorre();
@@ -27,10 +31,12 @@ export default function Torre360() {
   return (
     <PaginaTorre torre={torre} titulo="Resumen 360°" subtitulo="Cómo va la compañía este mes: comercial, operación y finanzas en una vista."
       acciones={<ExportarTablero area="ejecutivo" filtros={torre.filtros} estado={estado} esVacio={esVacio} />}>
-      <MoldeTablero estado={estado} nombre="Resumen 360°" onReintentar={reintentar} onLimpiar={torre.restablecer}
-        esVacio={esVacio}>
-        {(d) => <Contenido d={d} />}
-      </MoldeTablero>
+      {estado.tipo === 'cargando' ? <Cargando360 /> : (
+        <MoldeTablero estado={estado} nombre="Resumen 360°" onReintentar={reintentar} onLimpiar={torre.restablecer}
+          esVacio={esVacio}>
+          {(d) => <Contenido d={d} />}
+        </MoldeTablero>
+      )}
     </PaginaTorre>
   );
 }
@@ -61,6 +67,7 @@ function Contenido({ d }: { d: TableroEjecutivo }) {
 
   return (
     <>
+      <ParaHoy frentes={d.paraHoy} />
       <div className={REJILLA_KPI}>
         <KpiCard label="Comercial · trámites del mes" value={conteo(d.comercial.tramitesMes)} to={enlace('torre_comercial')}
           ariaLabel={`Comercial: ${conteo(d.comercial.tramitesMes)} trámites del mes. Abrir el tablero comercial`}>
@@ -76,6 +83,8 @@ function Contenido({ d }: { d: TableroEjecutivo }) {
           to={enlace('torre_financiera')} ariaLabel="Financiero: margen bruto. Abrir el tablero financiero" />
       </div>
 
+      <Hallazgos hallazgos={d.hallazgos} />
+
       <div className={REJILLA_2}>
         <BloqueTorre idPrueba="bloque-proyeccion" ancho titulo="Proyección de cierre del mes" subtitulo="Siempre el mes en curso: no depende del periodo elegido.">
           <p className="m-0 text-3xl font-bold tabular-nums" style={{ color: 'var(--kit-azul)' }}>{conteo(p.proyeccionCierre)} trámites</p>
@@ -85,22 +94,6 @@ function Contenido({ d }: { d: TableroEjecutivo }) {
           </p>
           <LineaTendencia fluido titulo="Aprobados acumulados por día del mes" etiquetas={graf.etiquetas} series={graf.series}
             guia={p.meta !== null ? { v: p.meta, t: `Meta ${conteo(p.meta)}` } : undefined} vacio="Aún no hay aprobados este mes." />
-        </BloqueTorre>
-
-        <BloqueTorre idPrueba="bloque-riesgos" ancho titulo="Los 5 riesgos de hoy" subtitulo="Primero lo crítico y luego lo de mayor impacto.">
-          {d.riesgos.length === 0
-            ? <p className="grafico-vacio">Nada fuera de umbral hoy.</p>
-            : (
-              <ListaFila filas={d.riesgos.slice(0, 5).map((r, i) => ({
-                id: `${r.area}-${i}`,
-                titulo: r.frase,
-                detalle: `${AREA[r.area].texto} · ${r.umbral}`,
-                extra: <Semaforo severidad={r.severidad} />,
-                accion: ve(AREA[r.area].slug)
-                  ? <Link to={rutaTorre(AREA[r.area].slug)} className={claseBoton('ghost', 'sm')} aria-label={`Ver tablero ${AREA[r.area].texto.toLowerCase()}`}>Ver</Link>
-                  : undefined,
-              }))} />
-            )}
         </BloqueTorre>
       </div>
     </>

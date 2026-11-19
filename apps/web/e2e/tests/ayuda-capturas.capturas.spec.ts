@@ -128,6 +128,7 @@ import {
   TORRE_INVENTARIO_DEMO,
   TORRE_PRODUCTOS_DEMO,
   TORRE_BOLSAS_DEMO,
+  TORRE_EJECUTIVO_DEMO,
 } from '../helpers/datos-demo';
 import { accion, arbolRol, codigosDe, elemento, item, opcional, type NodoDef } from '../helpers/arbolPermisos';
 
@@ -1194,6 +1195,7 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
       [/\/api\/flito\/torre\/tableros\/operativa\/inventario$/, () => ({ body: TORRE_INVENTARIO_DEMO })],
       [/\/api\/flito\/torre\/tableros\/productos$/, () => ({ body: TORRE_PRODUCTOS_DEMO })],
       [/\/api\/flito\/torre\/tableros\/financiera\/bolsas$/, () => ({ body: TORRE_BOLSAS_DEMO })],
+      [/\/api\/flito\/torre\/tableros\/ejecutivo$/, () => ({ body: TORRE_EJECUTIVO_DEMO })],
       [/\/api\/flito\/torre\/detalle\/consultar$/, (route) => {
         const c = route.request().postDataJSON() as { origen: unknown; segmentos?: unknown[] };
         return { body: { ...TORRE_DETALLE_DEMO, origen: c.origen, segmentos: c.segmentos ?? [] } };
@@ -1203,7 +1205,7 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     const conTorre = {
       ...ADMIN_DEMO,
       funciones: [
-        ...FUNCIONES_POR_ROL.admin, 'torre.tablero_operativo.ver', 'torre.tablero_productos.ver', 'torre.tablero_financiero.ver', 'torre.metricas.consultar', 'torre.metricas.exportar',
+        ...FUNCIONES_POR_ROL.admin, 'torre.tablero_operativo.ver', 'torre.tablero_productos.ver', 'torre.tablero_financiero.ver', 'torre.tablero_ejecutivo.ver', 'torre.metricas.consultar', 'torre.metricas.exportar',
         'torre.placa.buscar', 'torre.detalle.ver', 'torre.detalle.exportar',
       ],
     };
@@ -1272,7 +1274,17 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await capturar(page, dir, '06-financiera-bolsas', bolsas);
     await sinBarraBol();
 
-    comprobarCierre(api, dir, ['01-cifra-explicada.png', '02-lista-de-registros.png', '03-explorador-ver-registros.png', '04-inventario-por-estado.png', '05-productos-soat.png', '06-financiera-bolsas.png']);
+    // Pasos 1–2 (Resumen 360°) — «Para hoy»: los frentes por atender con su gravedad, su cifra y su «Ver los N».
+    await page.goto('/flito/torre/resumen');
+    const paraHoy = page.locator('[data-torre="bloque-para-hoy"]');
+    await expect(paraHoy.locator('[data-torre="frente"]')).toHaveCount(TORRE_EJECUTIVO_DEMO.paraHoy.length);
+    await paraHoy.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+    const sinBarraHoy = await sinBarraFlotante(page);
+    await sinFoco(page);
+    await capturar(page, dir, '07-para-hoy', paraHoy);
+    await sinBarraHoy();
+
+    comprobarCierre(api, dir, ['01-cifra-explicada.png', '02-lista-de-registros.png', '03-explorador-ver-registros.png', '04-inventario-por-estado.png', '05-productos-soat.png', '06-financiera-bolsas.png', '07-para-hoy.png']);
   });
 
   // HU #13775 — Organismos de tránsito: tabla y las tres pestañas de Editar. No se guarda nada.

@@ -1,8 +1,8 @@
 // Torre de Control (Épica #14590) — tablero Comercial, el MOLDE de los cuatro (spec UX §7.1, maqueta
 // `docs/ux/mockups/torre-comercial.html`): 4 cifras, caídas de volumen, concentración, conversión, tendencia y la
 // matriz de venta cruzada («Usa», «No usa», «Autogestiona»).
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   LINEAS_VENTA_TORRE, type ConcentracionTorre, type LineaVentaTorre, type TableroComercial, type UsoLineaTorre,
 } from '@operaciones/shared-types';
@@ -66,6 +66,15 @@ function Contenido({ d, onExplorar }: { d: TableroComercial; onExplorar: (compan
   const navigate = useNavigate();
   const puedeExplorar = hasPage(user, 'torre_explorador');
   const [vistaConc, setVistaConc] = useState<'volumen' | 'ingreso'>('volumen');
+  // «Revisar» de «Para hoy» (B6) llega con `#bloque-caidas`: el foco va a ese bloque, ya pintado.
+  const { hash } = useLocation();
+  useEffect(() => {
+    if (!hash) return;
+    const el = document.getElementById(decodeURIComponent(hash.slice(1)));
+    if (!el) return;
+    el.scrollIntoView({ block: 'start' });
+    el.focus({ preventScroll: true });
+  }, [hash]);
   const [vistaTend, setVistaTend] = useState<'mensual' | 'trimestral'>('mensual');
   const c = d.cifras;
   const x = d.explicaciones ?? {};

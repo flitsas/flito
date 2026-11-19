@@ -1571,6 +1571,36 @@ export const TORRE_BOLSAS_DEMO = {
   },
 };
 
+/** Resumen 360° (B6): «Para hoy» con sus frentes ya ordenados y «Lo que cambió en el periodo». Sin datos del titular. */
+const frenteDemoB6 = (conjunto: string, cifra: number, frase: string, severidad: 'critico' | 'atencion', segmentos: { dimension: string; valores: string[] }[] = [], mes = false) => ({
+  clave: conjunto, conjunto, cifra, frase, severidad, accion: 'ver', destino: destinoDemoB4(conjunto, segmentos), rango: mes ? { preset: 'mes' } : null,
+});
+export const TORRE_EJECUTIVO_DEMO = {
+  rango: { desde: '2026-10-01', hasta: '2026-10-21' }, dineroVisible: true, generadoEn: '2026-10-21T15:00:00.000Z',
+  comercial: { tramitesMes: 1240, clientesEnCaida: 3 }, operativo: { pctDentroAns: 88, umbralDias: 10 },
+  financiero: { margenPct: 21, sinFacturarValor: 48_000_000 },
+  proyeccion: {
+    diasMes: 31, diasTranscurridos: 21, meta: null, proyeccionCierre: 1830, totalMesAnterior: 1700, variacionPct: 7.6,
+    acumulado: Array.from({ length: 21 }, (_, i) => ({ dia: i + 1, valor: Math.round((i + 1) * 59) })),
+    mesAnterior: Array.from({ length: 31 }, (_, i) => ({ dia: i + 1, valor: Math.round((i + 1) * 54.8) })),
+  },
+  riesgos: [],
+  paraHoy: [
+    frenteDemoB6('soat_sin_gestion', 14, 'gestiones de SOAT e impuestos llevan más de 48 horas sin soporte.', 'critico'),
+    frenteDemoB6('bolsas_cobertura', 3, `bolsas alcanzan para menos de 5 días; la más baja, ${EMPRESAS_DEMO[1]}.`, 'critico', [{ dimension: 'severidad', valores: ['critico'] }]),
+    frenteDemoB6('borrador_abandonado', 12, 'trámites llevan más de 7 días en Borrador.', 'atencion'),
+    frenteDemoB6('estancado_ot', 41, 'trámites llevan en el organismo más de 10 días.', 'atencion'),
+    frenteDemoB6('sin_facturar', 63, 'trámites aprobados este mes aún no tienen factura ($ 48 M).', 'atencion', [], true),
+    { clave: 'fuga', conjunto: null, cifra: 3, frase: 'compañías crearon al menos 30 % menos trámites que su promedio.', severidad: 'atencion', accion: 'revisar', destino: { tipo: 'bloque', bloque: 'fuga' }, rango: null },
+  ],
+  hallazgos: [
+    { regla: 'H1', frase: 'Se crearon 1.240 trámites, 7 % más que en el periodo anterior (1.155).', area: 'comercial' },
+    { regla: 'H4', frase: 'Lo aprobado sin facturar pasó de 40 a 63 trámites frente al periodo anterior.', area: 'financiera', vista: 'facturacion' },
+    { regla: 'H5', frase: 'Las entregas al primer intento bajaron de 95 % a 92 %.', area: 'logistica', vista: 'entregas' },
+  ],
+  explicaciones: {},
+};
+
 /** La lista de una cifra: una fila por placa del registro demo. `origen` y `segmentos` los pone el spec. */
 export const TORRE_DETALLE_DEMO = {
   definicion: { etiqueta: 'Borradores abandonados', definicion: TORRE_DEF_BORRADOR, fechaBase: null, campoFecha: 'fecha_creacion' },
@@ -1716,6 +1746,7 @@ export const FIXTURES_DEMO: Record<string, unknown> = {
   TORRE_LOGISTICA_DEMO,
   TORRE_FACTURACION_DEMO,
   TORRE_BOLSAS_DEMO,
+  TORRE_EJECUTIVO_DEMO,
 };
 
 // ── Interceptación de /api ───────────────────────────────────────────────────
