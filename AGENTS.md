@@ -285,6 +285,35 @@ Nota (P4), nunca Bug. Detalle: `.cursor/rules/planeacion-cierre-vacios.mdc`.
 Preguntar alcance **no** contradice el anti-estancamiento: prohibido «qué sigue» / «puedo mergear»;
 obligatorio preguntar lo que decide el producto.
 
+### P10. Toda shell en background se cierra antes del HANDOFF
+
+Verificado el 2026-11-19 sobre el historial local de sesiones (1545 invocaciones de subagentes de
+este proyecto): **0** llamadas a `KillShell` y **0** a `BashOutput`. Toda shell lanzada con
+`run_in_background` fue fire-and-forget. Caso confirmado: `frontend-agent` levanta un servidor Vite
+(`npx vite --port <N> --strictPort`) para la verificación visual del paso 8 y no lo cierra — quedó
+un caso real corriendo **más de 3 horas** sin hacer nada, bloqueando la entrega hasta que el humano
+lo pidió explícitamente. Esto aplica a **todo agente con tool `Bash`** (todos salvo `ux-agent`, que
+no la tiene).
+
+Regla, con la distinción que evita ceremonia innecesaria:
+
+- **Proceso de vida indefinida** (servidor dev — `vite`, `npm run dev`, `nodemon`, cualquier cosa
+  con `--watch` —, un listener, un loop `until`/`while` sin condición de salida acotada en el
+  tiempo): se **mata con `KillShell` antes del HANDOFF final**, sin excepción. Si vas a levantar
+  otro en la siguiente invocación, primero revisa y mata el anterior — un servidor vivo por
+  worktree, nunca dos (coherente con el tope de memoria de Modo Feature, punto 10).
+- **Comando acotado que termina solo** (`sleep N`, un build, una migración, un test run): no exige
+  `KillShell` explícito porque no deja nada corriendo. Pero tampoco lo mandes a `run_in_background`
+  "por si acaso": si nadie va a leer su resultado con `BashOutput` ni lo necesitas para seguir
+  trabajando mientras corre, ejecútalo en primer plano con el `timeout` que corresponda.
+- Antes de reportar el HANDOFF, repasa mentalmente: *¿qué shells en background abrí en esta
+  invocación y quedó alguna viva?* Si la respuesta no es "ninguna" o "sí, pero se autotermina sola
+  en minutos", cierra lo que falte antes de responder.
+
+Esto no es una excepción a P1-P9: una shell huérfana no acelera nada, solo retrasa el siguiente
+paso del desarrollo (el caso real tardó horas en notarse). Detalle operativo por agente, en el
+archivo de cada uno (`.claude/agents/<agente>.md`, sección «Reglas innegociables»).
+
 ## Gestión del trabajo (Azure DevOps + GitHub)
 
 - **Código:** GitHub `flitsas/flito` (`origin`). **Work items:** Azure DevOps Boards, proyecto **`FLIT - FLITO`** (con espacios; codificar en URLs REST).
@@ -425,6 +454,7 @@ el hilo principal es quien encadena.
 
 | Hacer esto… | …en lugar de | Gravedad |
 |---|---|---|
+| Dejar una shell en `run_in_background` sin `KillShell` al entregar el HANDOFF (servidor dev, watcher, loop de espera sin salida acotada) | P10: cerrarla antes de reportar; en frontend, un único servidor vivo por worktree | **Alta** |
 | Codear la HU (o su migración) con `Edit`/`Write` del hilo | `backend-agent` / `frontend-agent` | Alta |
 | Tabla «mi review» en el chat | Skill `flit-code-review` | Alta |
 | Solo `security-agent` y abrir PR | Skill `flit-code-review` + security si aplica | Alta |
