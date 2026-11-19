@@ -27,10 +27,34 @@ export const ORIGENES_DETALLE = {
 } as const satisfies Record<string, { etiqueta: string; to: string; slug: PageSlug }>;
 export type OrigenPantallaTorre = keyof typeof ORIGENES_DETALLE;
 
+/**
+ * Subvistas (`?vista=`) a las que vuelve «Volver a <área>» (spec UX §6.1). Solo las que existen: «Resumen» es la
+ * vista por defecto y no viaja. `&ov=<vista>` en la URL del detalle; un valor desconocido se ignora.
+ */
+export const VISTAS_ORIGEN = {
+  operativa: { inventario: 'Inventario por estado', soportes: 'Soportes' },
+} as const satisfies Partial<Record<OrigenPantallaTorre, Record<string, string>>>;
+export type VistaOrigenTorre = keyof (typeof VISTAS_ORIGEN)['operativa'];
+
+/** Etiqueta de la subvista de un origen, o `null` si ese origen no la tiene. */
+export function etiquetaVistaOrigen(origen: OrigenPantallaTorre, vista: string | null): string | null {
+  if (!vista) return null;
+  const vistas = (VISTAS_ORIGEN as Partial<Record<OrigenPantallaTorre, Record<string, string>>>)[origen];
+  return vistas && Object.prototype.hasOwnProperty.call(vistas, vista) ? vistas[vista] : null;
+}
+
+/** Ruta de vuelta a un origen, con su subvista si la tiene. */
+export function rutaVolver(origen: OrigenPantallaTorre, vista: string | null): string {
+  const base = ORIGENES_DETALLE[origen].to;
+  return etiquetaVistaOrigen(origen, vista) ? `${base}?vista=${vista}` : base;
+}
+
 export interface DetalleEnUrl {
   origen: OrigenDetalle;
   segmentos: SegmentoDetalle[];
   volver: OrigenPantallaTorre | null;
+  /** Subvista del origen a la que vuelve (`VISTAS_ORIGEN`); `null` = su vista por defecto. */
+  vistaVolver: string | null;
   /** El origen fija el periodo (360°: «Este mes»), sin tocar el filtro guardado de la Torre. */
   periodoFijo: 'mes' | null;
 }
@@ -68,7 +92,7 @@ function textoASegmentos(texto: string): SegmentoDetalle[] | null {
 
 /** Ruta del detalle para un origen y sus segmentos. */
 export function rutaDetalle(origen: OrigenDetalle, segmentos: readonly SegmentoDetalle[] = [], opciones: {
-  volver?: OrigenPantallaTorre; periodoFijo?: 'mes';
+  volver?: OrigenPantallaTorre; vista?: string; periodoFijo?: 'mes';
 } = {}): string {
   const q = new URLSearchParams();
   if (origen.tipo === 'conjunto') q.set('c', origen.conjunto);
@@ -78,12 +102,15 @@ export function rutaDetalle(origen: OrigenDetalle, segmentos: readonly SegmentoD
   }
   if (segmentos.length) q.set('s', segmentosATexto(segmentos));
   if (opciones.volver) q.set('o', opciones.volver);
+  if (opciones.volver && opciones.vista && etiquetaVistaOrigen(opciones.volver, opciones.vista)) q.set('ov', opciones.vista);
   if (opciones.periodoFijo) q.set('p', opciones.periodoFijo);
   return `${RUTA_DETALLE_TORRE}?${q.toString()}`;
 }
 
 /** Ruta de un `DestinoCifra` del API; `null` si no lleva a un conjunto (bloque o ninguno). */
-export function rutaDestino(destino: DestinoCifra | undefined, opciones: { volver?: OrigenPantallaTorre; periodoFijo?: 'mes' } = {}): string | null {
+export function rutaDestino(destino: DestinoCifra | undefined, opciones: {
+  volver?: OrigenPantallaTorre; vista?: string; periodoFijo?: 'mes';
+} = {}): string | null {
   if (!destino || destino.tipo !== 'conjunto') return null;
   return rutaDetalle(destino.origen, destino.segmentos ?? [], opciones);
 }
@@ -106,8 +133,10 @@ export function leerDetalleUrl(q: URLSearchParams): DetalleEnUrl | null {
   const segmentos = s ? textoASegmentos(s) : [];
   if (!segmentos) return null;
   const o = q.get('o');
+  const volver = o && esOrigen(o) ? o : null;
+  const ov = q.get('ov');
   return {
-    origen, segmentos, volver: o && esOrigen(o) ? o : null, periodoFijo: q.get('p') === 'mes' ? 'mes' : null,
+    origen, segmentos, volver, vistaVolver: volver && etiquetaVistaOrigen(volver, ov) ? ov : null, periodoFijo: q.get('p') === 'mes' ? 'mes' : null,
   };
 }
 

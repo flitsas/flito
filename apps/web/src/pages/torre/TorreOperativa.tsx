@@ -1,7 +1,7 @@
 // Torre de Control (Épica #14590) — tablero Operativo (spec UX §7.2), con el molde de Comercial. Extiende
 // `FlitoTablero` sin duplicarlo: no repite los conteos por estado, lo enlaza («Abrir el tablero operativo»).
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import type { TableroOperativo } from '@operaciones/shared-types';
 import { useAuth } from '../../lib/auth';
 import { hasPage } from '../../lib/permissions';
@@ -15,6 +15,18 @@ import MoldeTablero, { ExportarTablero, Etiqueta, Semaforo, notaFiltros, useTabl
 import RankingTorre from '../../components/torre/RankingTorre';
 import KpiExplicable, { EnlaceDestino } from '../../components/torre/KpiExplicable';
 import { conteo, porcentaje } from '../../components/torre/formatoTorre';
+import Pestanas from '../../components/flit/Pestanas';
+import InventarioPorEstado from '../../components/torre/InventarioPorEstado';
+import SoportesOperativa from '../../components/torre/SoportesOperativa';
+import { VISTAS_ORIGEN, type VistaOrigenTorre } from '../../lib/torreDetalle';
+
+/** Subvistas de Operativa (spec UX §6.1). «Equipo» llega con su bloque: no se pintan pestañas vacías. */
+type VistaOperativa = 'resumen' | VistaOrigenTorre;
+const PESTANAS_OPERATIVA: { id: VistaOperativa; etiqueta: string }[] = [
+  { id: 'resumen', etiqueta: 'Resumen' },
+  ...Object.entries(VISTAS_ORIGEN.operativa).map(([id, etiqueta]) => ({ id: id as VistaOrigenTorre, etiqueta })),
+];
+const leerVista = (v: string | null): VistaOperativa => (PESTANAS_OPERATIVA.some((p) => p.id === v) ? (v as VistaOperativa) : 'resumen');
 
 type FilaOt = TableroOperativo['benchmarkOt']['filas'][number];
 
@@ -24,14 +36,29 @@ const esVacio = (d: TableroOperativo): boolean => d.cifras.wip === 0 && d.benchm
 
 export default function TorreOperativa() {
   const torre = useTorre();
-  const { estado, reintentar } = useTablero<TableroOperativo>('operativa', torre.filtros);
+  // La pestaña activa vive en la URL (`?vista=`): «Atrás» y «Volver a …» del detalle vuelven a ella (§6.1).
+  const [params, setParams] = useSearchParams();
+  const vista = leerVista(params.get('vista'));
+  const elegir = (id: string) => setParams((q) => {
+    const n = new URLSearchParams(q);
+    if (id === 'resumen') n.delete('vista'); else n.set('vista', id);
+    return n;
+  });
+  // El tablero solo se pide en «Resumen»; la primaria del encabezado exporta la subvista activa y solo «Resumen» tiene Excel.
+  const { estado, reintentar } = useTablero<TableroOperativo>('operativa', torre.filtros, vista === 'resumen');
   return (
     <PaginaTorre torre={torre} titulo="Operativa" subtitulo="Dónde se está quedando el trabajo y qué organismo responde más lento."
-      acciones={<ExportarTablero area="operativa" filtros={torre.filtros} estado={estado} esVacio={esVacio} />}>
-      <MoldeTablero estado={estado} nombre="Operativo" onReintentar={reintentar} onLimpiar={torre.restablecer}
-        esVacio={esVacio}>
-        {(d) => <Contenido d={d} />}
-      </MoldeTablero>
+      acciones={vista === 'resumen' ? <ExportarTablero area="operativa" filtros={torre.filtros} estado={estado} esVacio={esVacio} /> : undefined}>
+      <Pestanas etiqueta="Subvistas de Operativa" pestanas={PESTANAS_OPERATIVA} activa={vista} onElegir={elegir} />
+      <div role="tabpanel" aria-label={PESTANAS_OPERATIVA.find((p) => p.id === vista)?.etiqueta} className="flex min-w-0 flex-col gap-4" data-torre={`vista-${vista}`}>
+        {vista === 'resumen' && (
+          <MoldeTablero estado={estado} nombre="Operativo" onReintentar={reintentar} onLimpiar={torre.restablecer} esVacio={esVacio}>
+            {(d) => <Contenido d={d} />}
+          </MoldeTablero>
+        )}
+        {vista === 'inventario' && <InventarioPorEstado filtros={torre.filtros} />}
+        {vista === 'soportes' && <SoportesOperativa filtros={torre.filtros} />}
+      </div>
     </PaginaTorre>
   );
 }

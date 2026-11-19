@@ -10,6 +10,8 @@ palabras_clave:
   - borradores abandonados
   - explorador de métricas
   - umbrales y alertas
+  - inventario por estado
+  - soportes faltantes
 consultas:
   - qué significa una cifra de la torre de control
   - cómo se calcula un indicador del tablero
@@ -17,7 +19,9 @@ consultas:
   - por qué no veo el enlace ver los registros
   - cómo descargo en Excel la lista de una cifra
   - por qué la cifra no cambia al elegir otro periodo
-version: 1.0
+  - dónde está represado el trabajo por estado
+  - qué trámites aprobados no tienen sus soportes
+version: 1.1
 fecha: 2026-11-19
 ---
 ## Qué es
@@ -40,8 +44,9 @@ Menú **Torre de Control**, ítem **Resumen 360°** (o **Comercial**, **Operativ
 4. En la lista, arriba verá el nombre de la cifra, su frase con el total y **Cómo se calcula**. Para acotarla use **Placa** (al menos 3 caracteres) y **Estado**; **Quitar filtros** los borra. Pulse el título de una columna para ordenar por ella (en el teléfono, use **Ordenar por**), cambie de página con las flechas y elija cuántos ver en **Registros por página**. ![Lista de Borradores abandonados con su frase y la regla, los filtros Placa y Estado, la tabla con placa, compañía, tipo de trámite, estado y días, y los botones Volver a Operativa y Descargar Excel](./torre_explorador/02-lista-de-registros.png)
 5. Pulse **Abrir trámite ↗** en una fila para ver la ficha de esa placa en el panel lateral, sin perder la lista.
 6. Pulse **Descargar Excel** para llevarse la lista con los mismos filtros y el mismo orden. El archivo trae una hoja con los registros y otra con la definición y los filtros aplicados. Pulse **Volver a** (por ejemplo, **Volver a Operativa**) para regresar a la página de la que vino.
-7. En el **Explorador**, cuando agrupa una métrica (por compañía, por mes…), cada fila del resultado trae **Ver los N registros**, y en la tabla cruzada cada celda con número abre los registros de ese cruce. La lista dice **Volver al Explorador**. ![Resultado del Explorador agrupado por compañía con el enlace Ver los N registros en cada fila](./torre_explorador/03-explorador-ver-registros.png)
-8. En **Umbrales y alertas** se cambian los límites que usan las cifras (por ejemplo, los días para que un borrador cuente como abandonado). Al cambiarlos, las frases y la regla de **¿Cómo se calcula?** muestran el valor nuevo.
+7. En **Operativa**, las pestañas **Resumen**, **Inventario por estado** y **Soportes** cambian lo que ve debajo de los filtros. **Inventario por estado** es una foto de hoy: una fila por estado del trámite y una columna por los días que lleva en él (**0–2 días**, **3–7 días**, **8–15 días**, **16–30 días**, **Más de 30**), con sus totales. Cada número abre la lista de esos trámites; una casilla con «—» no tiene trámites. El **▲** marca los que pasan el umbral de su estado, como explica la nota bajo la tabla. Con **Organismo** mira solo los de un organismo, sin cambiar los demás filtros; **Todos** vuelve a mostrarlos todos. **Soportes** cuenta los trámites aprobados del periodo, cuántos tienen soportes incompletos y, por cada soporte (**SOAT**, **Impuesto**, **Derecho**), cuántos no lo tienen, con **Ver los N** para abrir su lista. Desde esas listas, **Volver a** le regresa a la misma pestaña. En estas dos pestañas no hay **Exportar a Excel**: descargue la lista que abre cada número. ![Inventario por estado de Operativa: filas por estado, columnas por días en el estado, totales, el ▲ en las casillas que pasan el umbral y el selector Organismo](./torre_explorador/04-inventario-por-estado.png)
+8. En el **Explorador**, cuando agrupa una métrica (por compañía, por mes…), cada fila del resultado trae **Ver los N registros**, y en la tabla cruzada cada celda con número abre los registros de ese cruce. La lista dice **Volver al Explorador**. ![Resultado del Explorador agrupado por compañía con el enlace Ver los N registros en cada fila](./torre_explorador/03-explorador-ver-registros.png)
+9. En **Umbrales y alertas** se cambian los límites que usan las cifras (por ejemplo, los días para que un borrador cuente como abandonado). Al cambiarlos, las frases y la regla de **¿Cómo se calcula?** muestran el valor nuevo.
 
 > [!NOTA]
 > La placa que escribe en el filtro de la lista no se guarda en la dirección de la página ni en el navegador: al recargar la lista, el filtro de placa se borra.
@@ -53,7 +58,7 @@ Menú **Torre de Control**, ítem **Resumen 360°** (o **Comercial**, **Operativ
 
 - **Cargando:** el tablero muestra el contorno de sus tarjetas; la lista muestra su título y unas filas grises. Al cambiar de página o de filtro, la tabla anterior se atenúa mientras llega la nueva.
 - **Error:** un mensaje con **Reintentar**. Si la consulta tarda demasiado, le pide acotar el periodo o agregar un filtro.
-- **Vacío:** el tablero dice que no hay trámites en el periodo y ofrece **Limpiar filtros**. Una lista sin registros dice por qué con su propia frase (por ejemplo, que hoy ningún borrador pasa del umbral). Si está vacía por sus filtros, ofrece **Quitar filtros**. Una cifra en 0 no tiene **Ver**.
+- **Vacío:** el tablero dice que no hay trámites en el periodo y ofrece **Limpiar filtros**. **Inventario por estado** dice que no hay trámites en curso hoy o, con un organismo elegido, que ese organismo no tiene y ofrece **Ver todos los organismos**; **Soportes** dice que no hay trámites aprobados en el periodo. Una lista sin registros dice por qué con su propia frase (por ejemplo, que hoy ningún borrador pasa del umbral). Si está vacía por sus filtros, ofrece **Quitar filtros**. Una cifra en 0 no tiene **Ver**.
 - **Lleno:** las tarjetas con su frase y los bloques de cada página; la lista con su tabla y su paginación.
 - **Lista no disponible:** si abre un enlace viejo o modificado, la página dice que la lista no existe y ofrece **Ir al Resumen 360°**.
 

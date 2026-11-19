@@ -241,7 +241,7 @@ test.describe('Torre de Control · Detalle universal y KPI explicables (Épica #
     await page.getByRole('button', { name: 'Descargar Excel' }).click();
     expect((await descarga).suggestedFilename()).toBe('torre-detalle-borrador_abandonado-20261119.xlsx');
     expect(exportados).toHaveLength(1);
-    expect(exportados[0]).toMatchObject({ origen: { tipo: 'conjunto', conjunto: 'borrador_abandonado' }, orden: { columna: 'dias_antiguedad' } });
+    expect(exportados[0]).toMatchObject({ origen: { tipo: 'conjunto', conjunto: 'borrador_abandonado' }, orden: { columna: 'dias_en_estado' } });
     expect(exportados[0].pagina).toBeUndefined();
     // «Descargar Excel» es la ÚNICA primaria de la página; «Volver a Operativa» es ligera.
     await expect(page.locator('[data-variante="primario"]')).toHaveCount(1);

@@ -1381,6 +1381,45 @@ const TORRE_COLUMNAS_DEMO = [
   { id: 'dias_antiguedad', etiqueta: 'Días desde creado', tipo: 'dias', dinero: false, ordenable: true },
 ];
 
+/** Operativa › Inventario por estado (B2): matriz estado × días en el estado; ▲ solo donde pasa el umbral del estado. */
+const TRAMOS_INVENTARIO_DEMO = [
+  { clave: '0_2', etiqueta: '0–2 días' }, { clave: '3_7', etiqueta: '3–7 días' }, { clave: '8_15', etiqueta: '8–15 días' },
+  { clave: '16_30', etiqueta: '16–30 días' }, { clave: 'mas_30', etiqueta: 'Más de 30' },
+] as const;
+const celdaInventarioDemo = (n: number, segmentos: { dimension: string; valores: string[] }[], sobreUmbral = false) => ({
+  n, sobreUmbral,
+  destino: n === 0 ? { tipo: 'ninguno' } : { tipo: 'conjunto', origen: { tipo: 'conjunto', conjunto: 'inventario_estado' }, segmentos },
+});
+const FILAS_INVENTARIO_DEMO: [string, string, number[], number | null][] = [
+  ['borrador', 'Borrador', [9, 5, 8, 3, 1], 2],
+  ['radicado', 'Radicado', [40, 31, 12, 4, 0], null],
+  ['enviado_ot', 'Enviado a OT', [22, 35, 28, 9, 4], 2],
+  ['entregado', 'Entregado', [18, 20, 9, 4, 0], null],
+];
+export const TORRE_INVENTARIO_DEMO = (() => {
+  const filas = FILAS_INVENTARIO_DEMO.map(([estado, etiqueta, ns, desde]) => ({
+    estado, etiqueta, umbral: desde === null ? null : { clave: estado === 'borrador' ? 'dias_borrador_abandonado' : 'dias_respuesta_ot', valor: estado === 'borrador' ? 7 : 10 },
+    celdas: Object.fromEntries(TRAMOS_INVENTARIO_DEMO.map((t, i) => [t.clave, celdaInventarioDemo(ns[i], [
+      { dimension: 'flit_estado', valores: [estado] }, { dimension: 'tramo_antiguedad', valores: [t.clave] },
+    ], desde !== null && i >= desde && ns[i] > 0)])),
+    total: celdaInventarioDemo(ns.reduce((a, b) => a + b, 0), [{ dimension: 'flit_estado', valores: [estado] }]),
+  }));
+  const porTramo = TRAMOS_INVENTARIO_DEMO.map((_, i) => FILAS_INVENTARIO_DEMO.reduce((a, f) => a + f[2][i], 0));
+  const total = porTramo.reduce((a, b) => a + b, 0);
+  return {
+    tramos: TRAMOS_INVENTARIO_DEMO, filas,
+    totales: {
+      celdas: Object.fromEntries(TRAMOS_INVENTARIO_DEMO.map((t, i) => [t.clave, celdaInventarioDemo(porTramo[i], [{ dimension: 'tramo_antiguedad', valores: [t.clave] }])])),
+      total: celdaInventarioDemo(total, []),
+    },
+    organismo: null, organismos: [{ codigo: '17001', nombre: ORGANISMOS_REALES[0] }, { codigo: '11001', nombre: ORGANISMOS_REALES[1] }],
+    frase: `${total} trámites en curso hoy, por estado y por días en ese estado.`,
+    definicion: 'Trámites en curso hoy, agrupados por su estado actual y por los días que llevan en él, contados desde el último cambio de estado (o desde la creación, si nunca cambió). Los umbrales se cambian en Umbrales y alertas. No depende del periodo.',
+    leyendaUmbral: '▲ Pasa el umbral de ese estado (Borrador: 7 días; en el organismo: 10 días).',
+    generadoEn: '2026-10-21T15:00:00.000Z',
+  };
+})();
+
 /** La lista de una cifra: una fila por placa del registro demo. `origen` y `segmentos` los pone el spec. */
 export const TORRE_DETALLE_DEMO = {
   definicion: { etiqueta: 'Borradores abandonados', definicion: TORRE_DEF_BORRADOR, fechaBase: null, campoFecha: 'fecha_creacion' },
@@ -1519,6 +1558,7 @@ export const FIXTURES_DEMO: Record<string, unknown> = {
   // El `nombre` de un organismo de tránsito es el de una entidad pública (permitido): se recorre con otra clave.
   TORRE_OPCIONES_DEMO: { ...TORRE_OPCIONES_DEMO, organismos: TORRE_OPCIONES_DEMO.organismos.map(({ nombre, ...o }) => ({ ...o, organismo: nombre })) },
   TORRE_OPERATIVA_DEMO,
+  TORRE_INVENTARIO_DEMO: { ...TORRE_INVENTARIO_DEMO, organismos: TORRE_INVENTARIO_DEMO.organismos.map(({ nombre, ...o }) => ({ ...o, organismo: nombre })) },
   TORRE_DETALLE_DEMO,
   TORRE_METRICA_DEMO,
 };

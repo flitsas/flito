@@ -33,7 +33,7 @@ function irABloque(bloque: string) {
 }
 
 export default function KpiExplicable({
-  label, value, explicacion, cantidad, verEtiqueta, nombreLista, volver, pendiente, hintSinExplicacion, children,
+  label, value, explicacion, cantidad, verEtiqueta, nombreLista, volver, vista, pendiente, hintSinExplicacion, children,
 }: {
   label: string;
   value: ReactNode;
@@ -45,6 +45,8 @@ export default function KpiExplicable({
   /** Para el `aria-label` del enlace cuando el texto es corto: «borradores abandonados». */
   nombreLista?: string;
   volver: OrigenPantallaTorre;
+  /** Subvista del origen a la que vuelve el detalle (`?vista=`). */
+  vista?: string;
   pendiente?: boolean;
   /** Si el API aún no trae la explicación de esta cifra: la pista de antes. */
   hintSinExplicacion?: string;
@@ -54,7 +56,7 @@ export default function KpiExplicable({
   const disc = useComoSeCalcula();
   const destino = explicacion?.destino;
   const foto = destino?.tipo === 'conjunto' && destino.origen.tipo === 'conjunto' && conjuntoTorre(destino.origen.conjunto).fechaBase === null;
-  const ruta = puedeVer && cantidad !== 0 ? rutaDestino(destino, { volver }) : null;
+  const ruta = puedeVer && cantidad !== 0 ? rutaDestino(destino, { volver, vista }) : null;
   const textoVer = verEtiqueta ?? (cantidad != null ? `Ver los ${conteo(cantidad)}` : 'Ver cuáles');
   const etiquetaAccesible = `${textoVer}: ${nombreLista ?? label.toLowerCase()}`;
 
@@ -94,17 +96,19 @@ export default function KpiExplicable({
  * con el segmento de la fila y los filtros actuales (spec §4.2, AC13). No se pone sobre la fila entera. Sin enlace con
  * 0 registros, sin destino de conjunto o sin `torre.detalle.ver`.
  */
-export function EnlaceDestino({ destino, cantidad, nombre, volver, texto }: {
+export function EnlaceDestino({ destino, cantidad, nombre, volver, vista, texto }: {
   destino: DestinoCifra | undefined;
   cantidad: number;
   /** Para el `aria-label`: «borradores abandonados», «Rentacar Sur». */
   nombre: string;
   volver: OrigenPantallaTorre;
+  /** Subvista del origen a la que vuelve el detalle (`?vista=`). */
+  vista?: string;
   /** Texto visible; por defecto «Ver los N». */
   texto?: string;
 }) {
   const puedeVer = usePuedeVerDetalle();
-  const ruta = puedeVer && cantidad > 0 ? rutaDestino(destino, { volver }) : null;
+  const ruta = puedeVer && cantidad > 0 ? rutaDestino(destino, { volver, vista }) : null;
   if (!ruta) return null;
   const visible = texto ?? `Ver los ${conteo(cantidad)}`;
   return (

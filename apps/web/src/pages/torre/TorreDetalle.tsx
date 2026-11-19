@@ -12,7 +12,7 @@ import {
 import { ApiError, torreDetalleApi } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { hasPage } from '../../lib/permissions';
-import { ORIGENES_DETALLE, leerDetalleUrl, type DetalleEnUrl } from '../../lib/torreDetalle';
+import { ORIGENES_DETALLE, etiquetaVistaOrigen, leerDetalleUrl, rutaVolver, type DetalleEnUrl } from '../../lib/torreDetalle';
 import PageHeaderCard from '../../components/flit/PageHeaderCard';
 import GradientButton, { claseBoton } from '../../components/flit/GradientButton';
 import InlineAlert from '../../components/flit/InlineAlert';
@@ -121,7 +121,10 @@ function Detalle({ d, torre }: { d: DetalleEnUrl; torre: ContextoTorre }) {
   const total = res?.total ?? null;
   const excedeExcel = total !== null && total > TOPES_TORRE.FILAS_DETALLE_EXPORTAR_MAX;
   const puedeExportar = hasFuncion(FUNCION_TORRE_DETALLE_EXPORTAR);
-  const volver = d.volver && hasPage(user, ORIGENES_DETALLE[d.volver].slug) ? ORIGENES_DETALLE[d.volver] : null;
+  // «Volver a <área>» vuelve a la subvista de origen (spec UX §6.1: `?vista=`), con su nombre en la miga.
+  const vistaVolver = d.volver ? etiquetaVistaOrigen(d.volver, d.vistaVolver) : null;
+  const volver = d.volver && hasPage(user, ORIGENES_DETALLE[d.volver].slug)
+    ? { ...ORIGENES_DETALLE[d.volver], to: rutaVolver(d.volver, d.vistaVolver), vista: vistaVolver } : null;
   const quitarFiltros = () => { setPlacaTexto(''); setPlaca(''); setEstados([]); };
 
   const exportar = async (): Promise<void> => {
@@ -146,7 +149,7 @@ function Detalle({ d, torre }: { d: DetalleEnUrl; torre: ContextoTorre }) {
     <>
       {volver && (
         <Link to={volver.to} className={claseBoton('ghost')} data-torre="volver">
-          <span aria-hidden="true">←</span> Volver {d.volver === 'explorador' ? 'al' : 'a'} {volver.etiqueta}
+          <span aria-hidden="true">←</span> Volver {d.volver === 'explorador' ? 'al' : 'a'} {volver.vista ?? volver.etiqueta}
         </Link>
       )}
       {puedeExportar && (
@@ -168,7 +171,9 @@ function Detalle({ d, torre }: { d: DetalleEnUrl; torre: ContextoTorre }) {
   return (
     <div className="flex flex-col gap-4" data-torre="detalle" data-estado={estado.tipo === 'listo' ? (estado.res.total === 0 ? 'vacio' : 'lleno') : estado.tipo}>
       <PageHeaderCard title={res?.definicion.etiqueta ?? titulo} titleRef={tituloRef} actions={acciones}
-        miga={[{ etiqueta: 'Torre de Control' }, ...(volver ? [{ etiqueta: volver.etiqueta, to: volver.to }] : [])]}
+        miga={[{ etiqueta: 'Torre de Control' }, ...(volver ? (volver.vista
+          ? [{ etiqueta: volver.etiqueta, to: ORIGENES_DETALLE[d.volver!].to }, { etiqueta: volver.vista, to: volver.to }]
+          : [{ etiqueta: volver.etiqueta, to: volver.to }]) : [])]}
         subtitle={frase ?? undefined}
         detalle={definicion
           ? <p className="mt-1 max-w-[72ch] text-sm" data-torre="definicion-detalle"><strong>Cómo se calcula:</strong> {definicion}</p>

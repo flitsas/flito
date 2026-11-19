@@ -17,19 +17,21 @@ import { REJILLA_2, REJILLA_KPI } from './PaginaTorre';
 export type AreaTablero = 'ejecutivo' | 'comercial' | 'operativa' | 'financiera';
 export type EstadoTablero<T> = { tipo: 'cargando' } | { tipo: 'error' } | { tipo: 'listo'; datos: T };
 
-export function useTablero<T>(area: AreaTablero, filtros: FiltrosTorre) {
+/** `activo = false` no pide (una subvista que no es el tablero, spec §6.1); al volver a `true`, pide. */
+export function useTablero<T>(area: AreaTablero, filtros: FiltrosTorre, activo = true) {
   const [estado, setEstado] = useState<EstadoTablero<T>>({ tipo: 'cargando' });
   const [intento, setIntento] = useState(0);
   const ultima = useRef(0);
   const filtro: FiltroTorre = aFiltroTorre(filtros);
   const clave = JSON.stringify(filtro);
   useEffect(() => {
+    if (!activo) return;
     const id = ++ultima.current;
     setEstado({ tipo: 'cargando' });
     api.post<T>(`/flito/torre/tableros/${area}`, { filtro: JSON.parse(clave) as FiltroTorre })
       .then((datos) => { if (id === ultima.current) setEstado({ tipo: 'listo', datos }); })
       .catch(() => { if (id === ultima.current) setEstado({ tipo: 'error' }); });
-  }, [area, clave, intento]);
+  }, [area, clave, intento, activo]);
   return { estado, reintentar: () => setIntento((n) => n + 1) };
 }
 

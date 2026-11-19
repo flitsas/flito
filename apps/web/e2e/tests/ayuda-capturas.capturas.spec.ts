@@ -125,6 +125,7 @@ import {
   TORRE_METRICA_DEMO,
   TORRE_OPCIONES_DEMO,
   TORRE_OPERATIVA_DEMO,
+  TORRE_INVENTARIO_DEMO,
 } from '../helpers/datos-demo';
 import { accion, arbolRol, codigosDe, elemento, item, opcional, type NodoDef } from '../helpers/arbolPermisos';
 
@@ -1188,6 +1189,7 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     const api = await interceptarApiDemo(page, [
       [/\/api\/flito\/torre\/opciones$/, () => ({ body: TORRE_OPCIONES_DEMO })],
       [/\/api\/flito\/torre\/tableros\/operativa$/, () => ({ body: TORRE_OPERATIVA_DEMO })],
+      [/\/api\/flito\/torre\/tableros\/operativa\/inventario$/, () => ({ body: TORRE_INVENTARIO_DEMO })],
       [/\/api\/flito\/torre\/detalle\/consultar$/, (route) => {
         const c = route.request().postDataJSON() as { origen: unknown; segmentos?: unknown[] };
         return { body: { ...TORRE_DETALLE_DEMO, origen: c.origen, segmentos: c.segmentos ?? [] } };
@@ -1236,7 +1238,17 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await capturar(page, dir, '03-explorador-ver-registros', tabla);
     await sinBarra();
 
-    comprobarCierre(api, dir, ['01-cifra-explicada.png', '02-lista-de-registros.png', '03-explorador-ver-registros.png']);
+    // Paso 7 (Operativa) — Inventario por estado: la matriz con ▲ donde se pasa el umbral.
+    await page.goto('/flito/torre/operativa?vista=inventario');
+    const inventario = page.locator('[data-torre="inventario"][data-estado="lleno"]');
+    await expect(inventario.locator('[data-umbral]').first()).toBeVisible();
+    await inventario.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+    const sinBarraInv = await sinBarraFlotante(page);
+    await sinFoco(page);
+    await capturar(page, dir, '04-inventario-por-estado', inventario);
+    await sinBarraInv();
+
+    comprobarCierre(api, dir, ['01-cifra-explicada.png', '02-lista-de-registros.png', '03-explorador-ver-registros.png', '04-inventario-por-estado.png']);
   });
 
   // HU #13775 — Organismos de tránsito: tabla y las tres pestañas de Editar. No se guarda nada.
