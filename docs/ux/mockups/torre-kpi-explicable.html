@@ -1,0 +1,213 @@
+<!doctype html>
+<!--
+  Maqueta DESCARTABLE — Torre de Control › KPI explicable (Épica #14590).
+  Spec: docs/ux/flito-torre-detalle-universal.md · Diseño: docs/diseno/epica-14590-torre-detalle-universal.md.
+  No se importa a apps/web. Clases reales del kit + torre-maqueta.css. Vistas: ?vista=… · Tema: &tema=oscuro.
+  Datos 100 % ficticios.
+-->
+<html lang="es" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FLITO · Torre · KPI explicable (maqueta)</title>
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-variables.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/tokens.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-propuesta.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-ui.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-react.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-responsive.css">
+  <link rel="stylesheet" href="torre-maqueta.css">
+</head>
+<body class="kit-cuerpo">
+<main class="kit-main pila">
+  <nav class="maqueta-nav" aria-label="Vistas de la maqueta">Maqueta · KPI explicable ·
+    <a href="?vista=lleno">lleno</a> · <a href="?vista=sindinero">sin permiso de dinero ni de detalle</a> ·
+    <a href="?vista=cargando">cargando</a> · <a href="?vista=lleno&amp;tema=oscuro">oscuro</a>
+  </nav>
+
+  <div class="page-header kit-header--sin-ilus" data-kit="cabecera">
+    <div class="page-header__texto">
+      <nav class="miga" aria-label="Ruta"><a href="#">Inicio</a> <span aria-hidden="true">›</span> <a href="#">Torre de Control</a> <span aria-hidden="true">›</span> <span aria-current="page">Operativa</span></nav>
+      <h1>Operativa</h1>
+      <p>Dónde se está quedando el trabajo y desde cuándo.</p>
+    </div>
+    <div class="page-header__acciones">
+      <button class="btn" type="button" data-variante="primario">Descargar Excel</button>
+    </div>
+  </div>
+
+  <nav class="kit-pestanas" aria-label="Subvistas de Operativa" data-kit="pestanas">
+    <a class="kit-pestana" href="#" aria-current="page">Resumen</a>
+    <a class="kit-pestana" href="torre-operativa-inventario.html">Inventario por estado</a>
+    <a class="kit-pestana" href="#">Soportes</a>
+    <a class="kit-pestana" href="#">Equipo</a>
+  </nav>
+
+  <!-- ===================== LLENO ===================== -->
+  <div data-vista="lleno" class="pila">
+    <h2 class="area-titulo">Operativa · Resumen</h2>
+    <div class="rejilla-kpi">
+      <div class="kpi-exp kpi-exp--pendiente" data-kit="metrica">
+        <div class="kpi-exp__cabeza"><span class="kpi-exp__etiqueta">Gestiones sin soporte fuera de ANS</span><span class="chip-foto">Foto de hoy</span></div>
+        <span class="kpi-exp__cifra">14</span>
+        <p class="kpi-exp__frase">14 gestiones llevan más de 48 horas sin soporte: 9 de SOAT y 5 de impuestos. 6 pasan de 96 horas.</p>
+        <div class="kpi-exp__acciones">
+          <button class="enlace-btn enlace-btn--secundario" type="button" aria-expanded="false" aria-controls="def-o1">¿Cómo se calcula? <span class="chev" aria-hidden="true">▾</span></button>
+          <a class="enlace-btn" href="torre-detalle.html">Ver las 14 →</a>
+        </div>
+        <p class="kpi-exp__definicion" id="def-o1" hidden>Gestiones de SOAT e impuestos sin soporte cargado 48 horas después de pedidas. El umbral se cambia en Umbrales y alertas. No depende del periodo.</p>
+      </div>
+
+      <div class="kpi-exp kpi-exp--pendiente" data-kit="metrica">
+        <div class="kpi-exp__cabeza"><span class="kpi-exp__etiqueta">Borradores abandonados</span><span class="chip-foto">Foto de hoy</span></div>
+        <span class="kpi-exp__cifra">12</span>
+        <p class="kpi-exp__frase">12 trámites llevan más de 7 días en Borrador; 4 pasan de 14 días.</p>
+        <div class="kpi-exp__acciones">
+          <button class="enlace-btn enlace-btn--secundario" type="button" aria-expanded="true" aria-controls="def-o2">¿Cómo se calcula? <span class="chev" aria-hidden="true">▾</span></button>
+          <a class="enlace-btn" href="torre-detalle.html">Ver los 12 borradores →</a>
+        </div>
+        <p class="kpi-exp__definicion" id="def-o2">Trámites en estado Borrador que llevan más de 7 días en ese estado, contados desde que entraron a Borrador (o desde la creación, si nunca cambiaron). Es la misma regla de la alerta de Gestión Trámites. El umbral se cambia en Umbrales y alertas. Es la foto de hoy: no depende del periodo elegido.</p>
+      </div>
+
+      <div class="kpi-exp" data-kit="metrica">
+        <div class="kpi-exp__cabeza"><span class="kpi-exp__etiqueta">Trámites en curso</span><span class="chip-foto">Foto de hoy</span></div>
+        <span class="kpi-exp__cifra">312</span>
+        <p class="kpi-exp__frase">312 trámites están en curso hoy; 41 llevan en el organismo más de 10 días.</p>
+        <div class="kpi-exp__acciones">
+          <button class="enlace-btn enlace-btn--secundario" type="button" aria-expanded="false" aria-controls="def-o3">¿Cómo se calcula? <span class="chev" aria-hidden="true">▾</span></button>
+          <a class="enlace-btn" href="torre-detalle.html">Ver los 312 →</a>
+        </div>
+        <p class="kpi-exp__definicion" id="def-o3" hidden>Trámites en un estado de trabajo activo, sin contar Borrador ni los terminados. No depende del periodo. Para verlos por estado y antigüedad, abra la pestaña Inventario por estado.</p>
+      </div>
+
+      <div class="kpi-exp" data-kit="metrica">
+        <span class="kpi-exp__etiqueta">Entregas al primer intento</span>
+        <span class="kpi-exp__cifra">—</span>
+        <p class="kpi-exp__frase">No hubo entregas en el periodo.</p>
+        <div class="kpi-exp__acciones">
+          <button class="enlace-btn enlace-btn--secundario" type="button" aria-expanded="false" aria-controls="def-o4">¿Cómo se calcula? <span class="chev" aria-hidden="true">▾</span></button>
+        </div>
+        <p class="kpi-exp__definicion" id="def-o4" hidden>Trámites aprobados en el periodo con logística cobrada. Cuentan como primer intento los que no tuvieron un segundo viaje.</p>
+      </div>
+    </div>
+    <p class="nota">Las cifras en cero no llevan «Ver»: no hay lista que abrir.</p>
+
+    <h2 class="area-titulo">Comercial · Resumen (ejemplo del Top 3)</h2>
+    <div class="rejilla-kpi">
+      <div class="kpi-exp" data-kit="metrica" style="grid-column: span 2">
+        <div class="kpi-exp__cabeza"><span class="kpi-exp__etiqueta">Concentración en 3 compañías</span><span></span></div>
+        <span class="kpi-exp__cifra">98 %</span>
+        <p class="kpi-exp__frase">98 % de los 1.240 trámites creados en el periodo vienen de 3 compañías: Aseguradora Andina (61 %), Rentacar Sur (25 %) y Flota Norte (12 %). Con las 5 más grandes: 99 %.</p>
+        <div class="kpi-exp__acciones">
+          <button class="enlace-btn enlace-btn--secundario" type="button" aria-expanded="true" aria-controls="def-c2">¿Cómo se calcula? <span class="chev" aria-hidden="true">▾</span></button>
+          <a class="enlace-btn" href="torre-detalle.html">Ver sus 1.215 trámites →</a>
+        </div>
+        <p class="kpi-exp__definicion" id="def-c2">Trámites creados en el periodo, agrupados por compañía. Se suman las 3 con más trámites y se dividen entre el total. En el bloque Concentración, la vista Ingreso hace lo mismo con lo liquidado de los aprobados.</p>
+      </div>
+      <div class="kpi-exp" data-kit="metrica">
+        <div class="kpi-exp__cabeza"><span class="kpi-exp__etiqueta">Conversión a facturado</span><span></span></div>
+        <span class="kpi-exp__cifra">25 %</span>
+        <p class="kpi-exp__frase">De los 1.240 trámites creados en el periodo, 310 ya están facturados. 610 siguen sin aprobar y 320 están aprobados sin factura.</p>
+        <div class="kpi-exp__acciones">
+          <button class="enlace-btn enlace-btn--secundario" type="button" aria-expanded="false" aria-controls="def-c3">¿Cómo se calcula? <span class="chev" aria-hidden="true">▾</span></button>
+          <a class="enlace-btn" href="torre-detalle.html">Ver los 930 sin facturar →</a>
+        </div>
+        <p class="kpi-exp__definicion" id="def-c3" hidden>Se parte de los trámites creados en el periodo y se cuentan los que ya tienen factura activa en Siigo.</p>
+      </div>
+    </div>
+
+    <h2 class="area-titulo">Financiera · Resumen (con permiso de dinero)</h2>
+    <div class="rejilla-kpi">
+      <div class="kpi-exp kpi-exp--pendiente" data-kit="metrica">
+        <div class="kpi-exp__cabeza"><span class="kpi-exp__etiqueta">Bolsa con menor cobertura</span><span class="chip-foto">Foto de hoy</span></div>
+        <span class="kpi-exp__cifra">3 días</span>
+        <p class="kpi-exp__frase">La bolsa de Rentacar Sur alcanza para 3 días al ritmo de los últimos 30 ($ 4,2 M de saldo; $ 1,4 M al día). 2 bolsas más están en atención.</p>
+        <div class="kpi-exp__acciones">
+          <button class="enlace-btn enlace-btn--secundario" type="button" aria-expanded="false" aria-controls="def-f1">¿Cómo se calcula? <span class="chev" aria-hidden="true">▾</span></button>
+          <a class="enlace-btn" href="torre-detalle.html">Ver las 3 bolsas en riesgo →</a>
+        </div>
+        <p class="kpi-exp__definicion" id="def-f1" hidden>Saldo de hoy de la bolsa dividido entre su consumo diario promedio de los últimos 30 días. Bajo 5 días es crítico y bajo 10, atención.</p>
+      </div>
+      <div class="kpi-exp" data-kit="metrica">
+        <div class="kpi-exp__cabeza"><span class="kpi-exp__etiqueta">Trabajo sin facturar</span><span></span></div>
+        <span class="kpi-exp__cifra">$ 48 M</span>
+        <p class="kpi-exp__frase">$ 48 M en 63 trámites aprobados en el periodo que aún no tienen factura. 5 no tienen liquidación y no suman valor.</p>
+        <div class="kpi-exp__acciones">
+          <button class="enlace-btn enlace-btn--secundario" type="button" aria-expanded="false" aria-controls="def-f2">¿Cómo se calcula? <span class="chev" aria-hidden="true">▾</span></button>
+          <a class="enlace-btn" href="torre-detalle.html">Ver los 63 →</a>
+        </div>
+        <p class="kpi-exp__definicion" id="def-f2" hidden>Trámites aprobados en el periodo que no están en una factura activa de Siigo. El valor es el total de su liquidación.</p>
+      </div>
+      <div class="kpi-exp" data-kit="metrica">
+        <div class="kpi-exp__cabeza"><span class="kpi-exp__etiqueta">Margen bruto del periodo</span><span></span></div>
+        <span class="kpi-exp__cifra">22 %</span>
+        <p class="kpi-exp__frase">Del periodo se cobraron $ 320 M y costaron $ 250 M: queda el 22 %. 7 trámites no tienen costo registrado.</p>
+        <div class="kpi-exp__acciones">
+          <button class="enlace-btn enlace-btn--secundario" type="button" aria-expanded="false" aria-controls="def-f3">¿Cómo se calcula? <span class="chev" aria-hidden="true">▾</span></button>
+          <a class="enlace-btn" href="torre-detalle.html">Ver los 180 aprobados →</a>
+        </div>
+        <p class="kpi-exp__definicion" id="def-f3" hidden>Lo cobrado en las liquidaciones de los aprobados del periodo, menos el costo de SOAT, impuesto, derecho y logística, dividido entre lo cobrado.</p>
+      </div>
+      <div class="kpi-exp" data-kit="metrica">
+        <div class="kpi-exp__cabeza"><span class="kpi-exp__etiqueta">Soportes completos 3/3</span><span></span></div>
+        <span class="kpi-exp__cifra">71 %</span>
+        <p class="kpi-exp__frase">128 de los 180 trámites aprobados en el periodo tienen sus 3 soportes: SOAT, impuesto y derecho. A 52 les falta al menos uno.</p>
+        <div class="kpi-exp__acciones">
+          <button class="enlace-btn enlace-btn--secundario" type="button" aria-expanded="true" aria-controls="def-f4">¿Cómo se calcula? <span class="chev" aria-hidden="true">▾</span></button>
+          <a class="enlace-btn" href="torre-detalle.html?vista=soportes">Ver los 52 incompletos →</a>
+        </div>
+        <p class="kpi-exp__definicion" id="def-f4">Por cada trámite aprobado en el periodo se revisa si tiene soporte vigente de SOAT, de impuesto y de derecho. Un soporte descartado no cuenta.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== SIN DINERO NI DETALLE ===================== -->
+  <div data-vista="sindinero" class="pila">
+    <h2 class="area-titulo">Financiera · Resumen (sin permiso de dinero ni de detalle)</h2>
+    <div class="rejilla-kpi">
+      <div class="kpi-exp" data-kit="metrica">
+        <div class="kpi-exp__cabeza"><span class="kpi-exp__etiqueta">Trabajo sin facturar</span><span></span></div>
+        <span class="kpi-exp__cifra">63</span>
+        <p class="kpi-exp__frase">63 trámites aprobados en el periodo aún no tienen factura.</p>
+        <div class="kpi-exp__acciones">
+          <button class="enlace-btn enlace-btn--secundario" type="button" aria-expanded="false" aria-controls="def-s2">¿Cómo se calcula? <span class="chev" aria-hidden="true">▾</span></button>
+        </div>
+        <p class="kpi-exp__definicion" id="def-s2" hidden>Trámites aprobados en el periodo que no están en una factura activa de Siigo.</p>
+      </div>
+      <div class="kpi-exp" data-kit="metrica">
+        <div class="kpi-exp__cabeza"><span class="kpi-exp__etiqueta">Margen bruto del periodo</span><span></span></div>
+        <span class="kpi-exp__cifra">—</span>
+        <p class="kpi-exp__frase">Necesita permiso para ver dinero.</p>
+      </div>
+      <div class="kpi-exp" data-kit="metrica">
+        <div class="kpi-exp__cabeza"><span class="kpi-exp__etiqueta">Soportes completos 3/3</span><span></span></div>
+        <span class="kpi-exp__cifra">71 %</span>
+        <p class="kpi-exp__frase">128 de los 180 trámites aprobados en el periodo tienen sus 3 soportes: SOAT, impuesto y derecho. A 52 les falta al menos uno.</p>
+        <div class="kpi-exp__acciones">
+          <button class="enlace-btn enlace-btn--secundario" type="button" aria-expanded="false" aria-controls="def-s4">¿Cómo se calcula? <span class="chev" aria-hidden="true">▾</span></button>
+        </div>
+        <p class="kpi-exp__definicion" id="def-s4" hidden>Por cada trámite aprobado en el periodo se revisa si tiene soporte vigente de SOAT, de impuesto y de derecho.</p>
+      </div>
+    </div>
+    <p class="nota">Sin permiso de detalle no aparece «Ver»; la frase y la definición bastan.</p>
+  </div>
+
+  <!-- ===================== CARGANDO ===================== -->
+  <div data-vista="cargando" class="pila" role="status" aria-busy="true" aria-label="Cargando el tablero">
+    <div class="rejilla-kpi"><div class="kit-esqueleto esq-kpi" style="height:168px"></div><div class="kit-esqueleto esq-kpi" style="height:168px"></div><div class="kit-esqueleto esq-kpi" style="height:168px"></div><div class="kit-esqueleto esq-kpi" style="height:168px"></div></div>
+  </div>
+</main>
+<script>
+  const q = new URLSearchParams(location.search);
+  document.documentElement.dataset.theme = q.get('tema') === 'oscuro' ? 'dark' : 'light';
+  const v = q.get('vista') || 'lleno';
+  document.querySelectorAll('[data-vista]').forEach((s) => s.classList.toggle('activa', s.dataset.vista.split(' ').includes(v)));
+  // Disclosure «¿Cómo se calcula?» (solo demostración del aria-expanded; no es lógica de negocio).
+  document.querySelectorAll('[aria-controls]').forEach((b) => b.addEventListener('click', () => {
+    const abierto = b.getAttribute('aria-expanded') === 'true';
+    b.setAttribute('aria-expanded', String(!abierto));
+    document.getElementById(b.getAttribute('aria-controls')).hidden = abierto;
+  }));
+</script>
+</body>
+</html>

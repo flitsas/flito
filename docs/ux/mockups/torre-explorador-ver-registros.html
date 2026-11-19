@@ -1,0 +1,92 @@
+<!doctype html>
+<!--
+  Maqueta DESCARTABLE — Torre de Control › Explorador › Ver registros (Épica #14590).
+  Spec: docs/ux/flito-torre-detalle-universal.md · Diseño: docs/diseno/epica-14590-torre-detalle-universal.md.
+  No se importa a apps/web. Clases reales del kit + torre-maqueta.css. Vistas: ?vista=… · Tema: &tema=oscuro.
+  Datos 100 % ficticios.
+-->
+<html lang="es" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FLITO · Torre · Explorador con registros (maqueta)</title>
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-variables.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/tokens.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-propuesta.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-ui.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-react.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-responsive.css">
+  <link rel="stylesheet" href="torre-maqueta.css">
+</head>
+<body class="kit-cuerpo">
+<main class="kit-main pila">
+  <nav class="maqueta-nav" aria-label="Vistas de la maqueta">Maqueta · Explorador (delta) ·
+    <a href="?vista=lleno">por compañía</a> · <a href="?vista=cruzada">tabla cruzada</a> · <a href="?vista=sindetalle">métrica sin detalle</a> ·
+    <a href="?vista=lleno&amp;tema=oscuro">oscuro</a>
+  </nav>
+
+  <div class="page-header kit-header--sin-ilus" data-kit="cabecera">
+    <div class="page-header__texto">
+      <nav class="miga" aria-label="Ruta"><a href="#">Torre de Control</a> <span aria-hidden="true">›</span> <span aria-current="page">Explorador</span></nav>
+      <h1>Explorador</h1>
+      <p>Pregúntele a los datos: elija qué medir y cómo agruparlo.</p>
+    </div>
+    <div class="page-header__acciones"><button class="btn" type="button" data-variante="primario">Exportar a Excel</button></div>
+  </div>
+
+  <section class="card pila" data-vista="lleno" aria-labelledby="t-res">
+    <div class="card__cabeza"><div><h2 id="t-res">Trámites aprobados por compañía</h2><p>1 oct – 31 oct 2026 · Todas las compañías</p></div></div>
+    <div class="tabla-wrap" data-kit="tabla">
+      <table aria-label="Trámites aprobados por compañía">
+        <thead><tr><th scope="col">Compañía</th><th scope="col" class="derecha">Trámites</th><th scope="col" class="derecha">Participación</th><th scope="col"><span class="sr-only">Registros</span></th></tr></thead>
+        <tbody>
+          <tr><td>Aseguradora Andina</td><td class="celda-num">230</td><td class="celda-num">48 %</td><td><a class="enlace-btn" href="torre-detalle.html">Ver los 230 registros →</a></td></tr>
+          <tr><td>Rentacar Sur</td><td class="celda-num">95</td><td class="celda-num">20 %</td><td><a class="enlace-btn" href="torre-detalle.html">Ver los 95 registros →</a></td></tr>
+          <tr><td>Flota Norte</td><td class="celda-num">81</td><td class="celda-num">17 %</td><td><a class="enlace-btn" href="torre-detalle.html">Ver los 81 registros →</a></td></tr>
+          <tr><td>Sin compañía</td><td class="celda-num">12</td><td class="celda-num">3 %</td><td><a class="enlace-btn" href="torre-detalle.html">Ver los 12 registros →</a></td></tr>
+          <tr><td>Los demás (9)</td><td class="celda-num">58</td><td class="celda-num">12 %</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="pie-gris">«Los demás» no abre lista en esta versión: agrupe por otra dimensión o filtre por compañía.</p>
+  </section>
+
+  <section class="card pila" data-vista="cruzada" aria-labelledby="t-cru">
+    <div class="card__cabeza"><div><h2 id="t-cru">Trámites aprobados por compañía y tipo</h2><p>1 oct – 31 oct 2026</p></div></div>
+    <div class="tabla-wrap kit-matriz" data-kit="tabla" data-modo="matriz">
+      <table class="matriz" aria-label="Trámites aprobados por compañía y tipo de trámite. Cada número abre su lista.">
+        <thead><tr><th scope="col">Compañía</th><th scope="col" class="derecha">Traspaso</th><th scope="col" class="derecha">Matrícula</th><th scope="col" class="derecha">Levantamiento</th><th scope="col" class="derecha">Total</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Aseguradora Andina</th><td class="num"><button class="celda-btn" type="button" aria-label="Aseguradora Andina · Traspaso: 141 trámites. Ver registros">141</button></td><td class="num"><button class="celda-btn" type="button">71</button></td><td class="num"><button class="celda-btn" type="button">18</button></td><td class="num"><button class="celda-btn" type="button">230</button></td></tr>
+          <tr><th scope="row">Rentacar Sur</th><td class="num"><button class="celda-btn" type="button">41</button></td><td class="num"><button class="celda-btn" type="button">54</button></td><td class="num"><span class="celda-cero">—</span></td><td class="num"><button class="celda-btn" type="button">95</button></td></tr>
+          <tr><th scope="row">Flota Norte</th><td class="num"><button class="celda-btn" type="button">60</button></td><td class="num"><button class="celda-btn" type="button">21</button></td><td class="num"><span class="celda-cero">—</span></td><td class="num"><button class="celda-btn" type="button">81</button></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card pila" data-vista="sindetalle" aria-labelledby="t-sd">
+    <div class="card__cabeza"><div><h2 id="t-sd">Tiempo de creación a aprobación por organismo</h2><p>Mediana en días · 1 oct – 31 oct 2026</p></div></div>
+    <div class="tabla-wrap" data-kit="tabla">
+      <table aria-label="Tiempo de creación a aprobación por organismo">
+        <thead><tr><th scope="col">Organismo</th><th scope="col" class="derecha">Mediana (días)</th><th scope="col" class="derecha">Trámites</th></tr></thead>
+        <tbody><tr><td>Medellín</td><td class="celda-num">6,5</td><td class="celda-num">210</td></tr><tr><td>Envigado</td><td class="celda-num">4,0</td><td class="celda-num">132</td></tr><tr><td>Bello</td><td class="celda-num">9,0</td><td class="celda-num">88</td></tr></tbody>
+      </table>
+    </div>
+    <p class="pie-gris">Esta métrica no tiene lista de registros.</p>
+  </section>
+</main>
+<script>
+  const q = new URLSearchParams(location.search);
+  document.documentElement.dataset.theme = q.get('tema') === 'oscuro' ? 'dark' : 'light';
+  const v = q.get('vista') || 'lleno';
+  document.querySelectorAll('[data-vista]').forEach((s) => s.classList.toggle('activa', s.dataset.vista.split(' ').includes(v)));
+  // Disclosure «¿Cómo se calcula?» (solo demostración del aria-expanded; no es lógica de negocio).
+  document.querySelectorAll('[aria-controls]').forEach((b) => b.addEventListener('click', () => {
+    const abierto = b.getAttribute('aria-expanded') === 'true';
+    b.setAttribute('aria-expanded', String(!abierto));
+    document.getElementById(b.getAttribute('aria-controls')).hidden = abierto;
+  }));
+</script>
+</body>
+</html>

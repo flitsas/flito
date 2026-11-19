@@ -1,0 +1,93 @@
+<!doctype html>
+<!--
+  Maqueta DESCARTABLE — Torre de Control › Resumen 360° › Para hoy (Épica #14590).
+  Spec: docs/ux/flito-torre-detalle-universal.md · Diseño: docs/diseno/epica-14590-torre-detalle-universal.md.
+  No se importa a apps/web. Clases reales del kit + torre-maqueta.css. Vistas: ?vista=… · Tema: &tema=oscuro.
+  Datos 100 % ficticios.
+-->
+<html lang="es" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FLITO · Torre · Para hoy (maqueta)</title>
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-variables.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/tokens.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-propuesta.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-ui.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-react.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-responsive.css">
+  <link rel="stylesheet" href="torre-maqueta.css">
+</head>
+<body class="kit-cuerpo">
+<main class="kit-main pila">
+  <nav class="maqueta-nav" aria-label="Vistas de la maqueta">Maqueta · Para hoy ·
+    <a href="?vista=lleno">lleno (6)</a> · <a href="?vista=muchos">más de 8</a> · <a href="?vista=vacio">vacío</a> ·
+    <a href="?vista=error">error</a> · <a href="?vista=cargando">cargando</a> · <a href="?vista=lleno&amp;tema=oscuro">oscuro</a>
+  </nav>
+
+  <div class="page-header kit-header--sin-ilus" data-kit="cabecera">
+    <div class="page-header__texto">
+      <nav class="miga" aria-label="Ruta"><a href="#">Inicio</a> <span aria-hidden="true">›</span> <span aria-current="page">Torre de Control</span></nav>
+      <h1>Resumen 360°</h1>
+      <p>Lo que pide atención hoy y cómo va el mes.</p>
+    </div>
+  </div>
+
+  <nav class="kit-pestanas" aria-label="Páginas de la Torre de Control" data-kit="pestanas">
+    <a class="kit-pestana" href="#" aria-current="page">Resumen 360°</a><a class="kit-pestana" href="#">Comercial</a><a class="kit-pestana" href="torre-kpi-explicable.html">Operativa</a><a class="kit-pestana" href="#">Financiera</a><a class="kit-pestana" href="#">Productos</a><a class="kit-pestana" href="#">Logística</a><a class="kit-pestana" href="torre-explorador-ver-registros.html">Explorador</a>
+  </nav>
+
+  <section class="card pila" aria-labelledby="t-hoy">
+    <div class="card__cabeza">
+      <div>
+        <h2 id="t-hoy" data-vista="lleno error cargando">Para hoy: hay 6 frentes por atender</h2>
+        <h2 data-vista="muchos">Para hoy: hay 11 frentes por atender</h2>
+        <h2 data-vista="vacio">Para hoy: nada por atender</h2>
+        <p data-vista="lleno muchos">Ordenados por gravedad y luego por cuántos registros tocan.</p>
+      </div>
+      <span class="chip-foto">Foto de hoy</span>
+    </div>
+
+    <ul class="frentes" data-vista="lleno muchos">
+      <li class="frente"><span class="kit-etiqueta" data-tono="danger"><span class="kit-etiqueta__punto"></span>Crítico</span><span class="frente__cifra">14</span><span class="frente__frase">gestiones de SOAT e impuestos llevan más de 48 horas sin soporte.</span><a class="enlace-btn" href="torre-detalle.html">Ver las 14 →</a></li>
+      <li class="frente"><span class="kit-etiqueta" data-tono="danger"><span class="kit-etiqueta__punto"></span>Crítico</span><span class="frente__cifra">3</span><span class="frente__frase">bolsas alcanzan para menos de 5 días; la más baja, Rentacar Sur.</span><a class="enlace-btn" href="torre-detalle.html">Ver las 3 →</a></li>
+      <li class="frente"><span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto"></span>Atención</span><span class="frente__cifra">12</span><span class="frente__frase">trámites llevan más de 7 días en Borrador.</span><a class="enlace-btn" href="torre-detalle.html">Ver los 12 →</a></li>
+      <li class="frente"><span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto"></span>Atención</span><span class="frente__cifra">41</span><span class="frente__frase">trámites llevan en el organismo más de 10 días.</span><a class="enlace-btn" href="torre-detalle.html">Ver los 41 →</a></li>
+      <li class="frente"><span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto"></span>Atención</span><span class="frente__cifra">63</span><span class="frente__frase">trámites aprobados este mes aún no tienen factura ($ 48 M).</span><a class="enlace-btn" href="torre-detalle.html">Ver los 63 →</a></li>
+      <li class="frente"><span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto"></span>Atención</span><span class="frente__cifra">3</span><span class="frente__frase">compañías crearon al menos 30 % menos trámites que su promedio.</span><a class="enlace-btn" href="#">Revisar →</a></li>
+    </ul>
+    <div data-vista="muchos">
+      <button class="enlace-btn" type="button" aria-expanded="false" aria-controls="frentes-resto">Ver los 5 frentes restantes <span class="chev" aria-hidden="true">▾</span></button>
+      <ul class="frentes" id="frentes-resto" hidden style="margin-top:var(--space-8)">
+        <li class="frente"><span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto"></span>Atención</span><span class="frente__cifra">52</span><span class="frente__frase">trámites aprobados este mes no tienen sus 3 soportes.</span><a class="enlace-btn" href="torre-detalle.html?vista=soportes">Ver los 52 →</a></li>
+      </ul>
+    </div>
+
+    <p data-vista="vacio" class="det-def">Hoy ninguna cifra pasa su umbral. Las cifras de cada área siguen en sus pestañas.</p>
+
+    <div data-vista="error" class="kit-alerta" data-tono="danger" role="alert">
+      <span style="flex:1">No pudimos armar los frentes de hoy. Intente de nuevo.</span>
+      <button class="btn secondary sm" type="button">Reintentar</button>
+    </div>
+
+    <div data-vista="cargando" class="pila" role="status" aria-busy="true" aria-label="Cargando los frentes de hoy">
+      <div class="kit-esqueleto esq-fila" style="height:56px"></div><div class="kit-esqueleto esq-fila" style="height:56px"></div><div class="kit-esqueleto esq-fila" style="height:56px"></div><div class="kit-esqueleto esq-fila" style="height:56px"></div>
+    </div>
+  </section>
+
+  <p class="nota">Debajo siguen las tres KPI de área y la proyección de cierre del mes, como hoy. «Los 5 riesgos de hoy» desaparece: «Para hoy» lo reemplaza.</p>
+</main>
+<script>
+  const q = new URLSearchParams(location.search);
+  document.documentElement.dataset.theme = q.get('tema') === 'oscuro' ? 'dark' : 'light';
+  const v = q.get('vista') || 'lleno';
+  document.querySelectorAll('[data-vista]').forEach((s) => s.classList.toggle('activa', s.dataset.vista.split(' ').includes(v)));
+  // Disclosure «¿Cómo se calcula?» (solo demostración del aria-expanded; no es lógica de negocio).
+  document.querySelectorAll('[aria-controls]').forEach((b) => b.addEventListener('click', () => {
+    const abierto = b.getAttribute('aria-expanded') === 'true';
+    b.setAttribute('aria-expanded', String(!abierto));
+    document.getElementById(b.getAttribute('aria-controls')).hidden = abierto;
+  }));
+</script>
+</body>
+</html>

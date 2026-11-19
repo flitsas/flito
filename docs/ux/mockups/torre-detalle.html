@@ -1,0 +1,195 @@
+<!doctype html>
+<!--
+  Maqueta DESCARTABLE — Torre de Control › Detalle de una cifra (Épica #14590).
+  Spec: docs/ux/flito-torre-detalle-universal.md · Diseño: docs/diseno/epica-14590-torre-detalle-universal.md.
+  No se importa a apps/web. Clases reales del kit + torre-maqueta.css. Vistas: ?vista=… · Tema: &tema=oscuro.
+  Datos 100 % ficticios.
+-->
+<html lang="es" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FLITO · Torre · Detalle (maqueta)</title>
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-variables.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/tokens.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-propuesta.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-ui.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-react.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-responsive.css">
+  <link rel="stylesheet" href="torre-maqueta.css">
+</head>
+<body class="kit-cuerpo">
+<main class="kit-main pila">
+  <nav class="maqueta-nav" aria-label="Vistas de la maqueta">Maqueta · Detalle ·
+    <a href="?vista=lleno">lleno</a> · <a href="?vista=soportes">soportes incompletos</a> · <a href="?vista=tope">tope de Excel</a> ·
+    <a href="?vista=cargando">cargando</a> · <a href="?vista=error">error</a> · <a href="?vista=vacio">vacío</a> ·
+    <a href="?vista=vaciofiltros">vacío por filtros</a> · <a href="?vista=invalido">conjunto inválido</a> · <a href="?vista=toast">toast Excel</a> ·
+    <a href="?vista=lleno&amp;tema=oscuro">oscuro</a>
+  </nav>
+
+  <!-- ============ ENCABEZADO: borradores ============ -->
+  <div class="page-header kit-header--sin-ilus" data-kit="cabecera" data-vista="lleno tope cargando error vacio vaciofiltros toast">
+    <div class="page-header__texto">
+      <nav class="miga" aria-label="Ruta"><a href="#">Torre de Control</a> <span aria-hidden="true">›</span> <a href="torre-kpi-explicable.html">Operativa</a> <span aria-hidden="true">›</span> <span aria-current="page">Borradores abandonados</span></nav>
+      <h1>Borradores abandonados</h1>
+      <p data-vista="lleno toast error vacio vaciofiltros">12 trámites llevan más de 7 días en Borrador.</p>
+      <p data-vista="tope">12.400 trámites llevan más de 7 días en Borrador.</p>
+      <p data-vista="cargando"><span class="kit-esqueleto" style="display:inline-block;width:22rem;height:1em"></span></p>
+      <p class="det-def"><strong>Cómo se calcula:</strong> trámites en Borrador que llevan más de 7 días en ese estado, contados desde que entraron a Borrador. El umbral se cambia en Umbrales y alertas.</p>
+    </div>
+    <div class="page-header__acciones">
+      <a class="btn ghost" href="torre-kpi-explicable.html">← Volver a Operativa</a>
+      <button class="btn" type="button" data-variante="primario" data-vista="lleno tope toast cargando error">Descargar Excel</button>
+      <button class="btn" type="button" data-variante="primario" disabled title="No hay registros que descargar" data-vista="vacio vaciofiltros">Descargar Excel</button>
+    </div>
+  </div>
+
+  <!-- ============ ENCABEZADO: soportes ============ -->
+  <div class="page-header kit-header--sin-ilus" data-kit="cabecera" data-vista="soportes">
+    <div class="page-header__texto">
+      <nav class="miga" aria-label="Ruta"><a href="#">Torre de Control</a> <span aria-hidden="true">›</span> <a href="#">Financiera</a> <span aria-hidden="true">›</span> <span aria-current="page">Trámites con soportes incompletos</span></nav>
+      <h1>Trámites con soportes incompletos</h1>
+      <p>A 52 de los 180 trámites aprobados en octubre de 2026 les falta al menos un soporte.</p>
+      <p class="det-def"><strong>Cómo se calcula:</strong> por cada trámite aprobado en el periodo se revisa si tiene soporte vigente de SOAT, de impuesto y de derecho. Un soporte descartado no cuenta.</p>
+    </div>
+    <div class="page-header__acciones">
+      <a class="btn ghost" href="#">← Volver a Financiera</a>
+      <button class="btn" type="button" data-variante="primario">Descargar Excel</button>
+    </div>
+  </div>
+
+  <!-- ============ FILTROS ============ -->
+  <section class="pila" aria-label="Filtros" data-vista="lleno soportes tope cargando error vacio vaciofiltros toast">
+    <div class="fila">
+      <span class="chip-foto" data-vista="lleno tope cargando error vacio vaciofiltros toast" title="Esta lista es la foto de hoy: no depende del periodo">Foto de hoy</span>
+      <div class="campo"><label for="f-compania">Compañías</label>
+        <select id="f-compania" class="control"><option>Todas las compañías</option><option>Aseguradora Andina</option></select></div>
+      <div class="campo"><label for="f-org">Organismos</label>
+        <select id="f-org" class="control"><option>Todos</option><option>Medellín</option><option>Envigado</option><option>Bello</option></select></div>
+    </div>
+    <div class="kit-plegable" data-kit="filtros-plegables" data-abierto>
+      <div class="barra-detalle">
+        <button class="btn ghost" type="button" aria-expanded="true" aria-controls="fp-cuerpo">Filtrar esta lista <span data-vista="vaciofiltros">· 2 filtros aplicados</span></button>
+        <button class="btn ghost sm" type="button" data-vista="vaciofiltros">✕ Quitar filtros</button>
+      </div>
+      <div id="fp-cuerpo" class="fila" style="margin-top:var(--space-10)">
+        <div class="campo"><label for="f-placa">Placa</label><input id="f-placa" class="control" type="search" placeholder="Al menos 3 caracteres"></div>
+        <div class="campo"><label for="f-estado">Estado</label><select id="f-estado" class="control"><option>Todos</option></select></div>
+        <div class="campo"><label for="f-tipo">Tipo de trámite</label><select id="f-tipo" class="control"><option>Todos</option><option>Traspaso</option><option>Matrícula</option></select></div>
+        <div class="campo"><label for="f-dias">Días en el estado, al menos</label><input id="f-dias" class="control" type="number" min="0" placeholder="Ej. 14"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ AVISO TOPE ============ -->
+  <div class="kit-alerta" data-tono="info" role="status" data-vista="tope">
+    <span>La lista tiene 12.400 filas y el Excel trae las primeras 10.000. Filtre la lista para descargar el resto.</span>
+  </div>
+
+  <!-- ============ TABLA BORRADORES ============ -->
+  <section data-vista="lleno tope toast" class="pila">
+    <div class="tabla-wrap" data-kit="tabla" data-modo="tarjetas">
+      <table aria-label="Borradores abandonados">
+        <thead><tr>
+          <th scope="col">Placa</th><th scope="col">Compañía</th><th scope="col">Tipo de trámite</th><th scope="col">Estado</th><th scope="col">Organismo</th>
+          <th scope="col" aria-sort="descending"><button class="enlace-btn col-clave" type="button">Días en el estado ▼</button></th>
+          <th scope="col">Creado</th><th scope="col">Valor</th><th scope="col"><span class="sr-only">Acciones</span></th>
+        </tr></thead>
+        <tbody>
+          <tr><td data-etiqueta="Placa">FLT 101</td><td data-etiqueta="Compañía">Aseguradora Andina</td><td data-etiqueta="Tipo">Traspaso</td><td data-etiqueta="Estado"><span class="kit-etiqueta" data-tono="neutro"><span class="kit-etiqueta__punto"></span>Borrador</span></td><td data-etiqueta="Organismo">Medellín</td><td data-etiqueta="Días en el estado" class="celda-num clave">21</td><td data-etiqueta="Creado">29 oct 2026</td><td data-etiqueta="Valor" class="celda-num">$ 1.250.000</td><td data-etiqueta=""><a class="enlace-btn" href="#" target="_blank" rel="noopener" aria-label="Abrir trámite FLT 101 (se abre en otra pestaña)">Abrir trámite ↗</a></td></tr>
+          <tr><td data-etiqueta="Placa">FLT 214</td><td data-etiqueta="Compañía">Rentacar Sur</td><td data-etiqueta="Tipo">Matrícula</td><td data-etiqueta="Estado"><span class="kit-etiqueta" data-tono="neutro"><span class="kit-etiqueta__punto"></span>Borrador</span></td><td data-etiqueta="Organismo">Envigado</td><td data-etiqueta="Días en el estado" class="celda-num clave">16</td><td data-etiqueta="Creado">3 nov 2026</td><td data-etiqueta="Valor" class="celda-num">$ 980.000</td><td data-etiqueta=""><a class="enlace-btn" href="#" target="_blank" rel="noopener" aria-label="Abrir trámite FLT 214 (se abre en otra pestaña)">Abrir trámite ↗</a></td></tr>
+          <tr><td data-etiqueta="Placa">FLT 327</td><td data-etiqueta="Compañía">Flota Norte</td><td data-etiqueta="Tipo">Traspaso</td><td data-etiqueta="Estado"><span class="kit-etiqueta" data-tono="neutro"><span class="kit-etiqueta__punto"></span>Borrador</span></td><td data-etiqueta="Organismo">Bello</td><td data-etiqueta="Días en el estado" class="celda-num clave">15</td><td data-etiqueta="Creado">4 nov 2026</td><td data-etiqueta="Valor" class="celda-num">$ 1.100.000</td><td data-etiqueta=""><a class="enlace-btn" href="#" target="_blank" rel="noopener" aria-label="Abrir trámite FLT 327 (se abre en otra pestaña)">Abrir trámite ↗</a></td></tr>
+          <tr><td data-etiqueta="Placa">FLT 438</td><td data-etiqueta="Compañía">Leasing Pacífico</td><td data-etiqueta="Tipo">Levantamiento de prenda</td><td data-etiqueta="Estado"><span class="kit-etiqueta" data-tono="neutro"><span class="kit-etiqueta__punto"></span>Borrador</span></td><td data-etiqueta="Organismo">Medellín</td><td data-etiqueta="Días en el estado" class="celda-num clave">15</td><td data-etiqueta="Creado">4 nov 2026</td><td data-etiqueta="Valor" class="celda-num">$ 640.000</td><td data-etiqueta=""><a class="enlace-btn" href="#" target="_blank" rel="noopener" aria-label="Abrir trámite FLT 438 (se abre en otra pestaña)">Abrir trámite ↗</a></td></tr>
+          <tr><td data-etiqueta="Placa">FLT 552</td><td data-etiqueta="Compañía">Aseguradora Andina</td><td data-etiqueta="Tipo">Traspaso</td><td data-etiqueta="Estado"><span class="kit-etiqueta" data-tono="neutro"><span class="kit-etiqueta__punto"></span>Borrador</span></td><td data-etiqueta="Organismo">Envigado</td><td data-etiqueta="Días en el estado" class="celda-num clave">11</td><td data-etiqueta="Creado">8 nov 2026</td><td data-etiqueta="Valor" class="celda-num">$ 1.250.000</td><td data-etiqueta=""><a class="enlace-btn" href="#" target="_blank" rel="noopener" aria-label="Abrir trámite FLT 552 (se abre en otra pestaña)">Abrir trámite ↗</a></td></tr>
+          <tr><td data-etiqueta="Placa">FLT 619</td><td data-etiqueta="Compañía">Transportes Ribera</td><td data-etiqueta="Tipo">Matrícula</td><td data-etiqueta="Estado"><span class="kit-etiqueta" data-tono="neutro"><span class="kit-etiqueta__punto"></span>Borrador</span></td><td data-etiqueta="Organismo">Bello</td><td data-etiqueta="Días en el estado" class="celda-num clave">8</td><td data-etiqueta="Creado">11 nov 2026</td><td data-etiqueta="Valor" class="celda-num">—</td><td data-etiqueta=""><a class="enlace-btn" href="#" target="_blank" rel="noopener" aria-label="Abrir trámite FLT 619 (se abre en otra pestaña)">Abrir trámite ↗</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="kit-paginacion paginador" data-kit="paginacion">
+      <span class="paginador__texto">Mostrando 1–6 de <strong>12</strong></span>
+      <span class="fila"><button class="btn ghost sm" type="button" aria-label="Página anterior" disabled>‹</button><span aria-current="page">1</span><button class="btn ghost sm" type="button" aria-label="Página siguiente">›</button></span>
+    </div>
+    <p class="nota">«Valor» solo aparece con permiso de dinero. La placa nunca viaja en la dirección de la página.</p>
+  </section>
+
+  <!-- ============ TABLA SOPORTES ============ -->
+  <section data-vista="soportes" class="pila">
+    <div class="tabla-wrap" data-kit="tabla" data-modo="tarjetas">
+      <table aria-label="Trámites con soportes incompletos">
+        <thead><tr>
+          <th scope="col">Placa</th><th scope="col">Compañía</th><th scope="col">Tipo de trámite</th><th scope="col">Estado</th>
+          <th scope="col" aria-sort="ascending"><button class="enlace-btn col-clave" type="button">Le falta ▲</button></th>
+          <th scope="col">Organismo</th><th scope="col">Aprobado</th><th scope="col"><span class="sr-only">Acciones</span></th>
+        </tr></thead>
+        <tbody>
+          <tr><td data-etiqueta="Placa">FLT 703</td><td data-etiqueta="Compañía">Rentacar Sur</td><td data-etiqueta="Tipo">Matrícula</td><td data-etiqueta="Estado"><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto"></span>Aprobado</span></td><td data-etiqueta="Le falta"><span class="chips-falta"><span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto"></span>SOAT</span><span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto"></span>Impuesto</span><span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto"></span>Derecho</span></span></td><td data-etiqueta="Organismo">Envigado</td><td data-etiqueta="Aprobado">2 oct 2026</td><td data-etiqueta=""><a class="enlace-btn" href="#" target="_blank" rel="noopener" aria-label="Abrir trámite FLT 703 (se abre en otra pestaña)">Abrir trámite ↗</a></td></tr>
+          <tr><td data-etiqueta="Placa">FLT 811</td><td data-etiqueta="Compañía">Aseguradora Andina</td><td data-etiqueta="Tipo">Traspaso</td><td data-etiqueta="Estado"><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto"></span>Aprobado</span></td><td data-etiqueta="Le falta"><span class="chips-falta"><span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto"></span>Impuesto</span><span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto"></span>Derecho</span></span></td><td data-etiqueta="Organismo">Medellín</td><td data-etiqueta="Aprobado">6 oct 2026</td><td data-etiqueta=""><a class="enlace-btn" href="#" target="_blank" rel="noopener" aria-label="Abrir trámite FLT 811 (se abre en otra pestaña)">Abrir trámite ↗</a></td></tr>
+          <tr><td data-etiqueta="Placa">FLT 904</td><td data-etiqueta="Compañía">Flota Norte</td><td data-etiqueta="Tipo">Traspaso</td><td data-etiqueta="Estado"><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto"></span>Aprobado</span></td><td data-etiqueta="Le falta"><span class="chips-falta"><span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto"></span>Derecho</span></span></td><td data-etiqueta="Organismo">Bello</td><td data-etiqueta="Aprobado">9 oct 2026</td><td data-etiqueta=""><a class="enlace-btn" href="#" target="_blank" rel="noopener" aria-label="Abrir trámite FLT 904 (se abre en otra pestaña)">Abrir trámite ↗</a></td></tr>
+          <tr><td data-etiqueta="Placa">FLT 116</td><td data-etiqueta="Compañía">Leasing Pacífico</td><td data-etiqueta="Tipo">Matrícula</td><td data-etiqueta="Estado"><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto"></span>Aprobado</span></td><td data-etiqueta="Le falta"><span class="chips-falta"><span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto"></span>SOAT</span></span></td><td data-etiqueta="Organismo">Medellín</td><td data-etiqueta="Aprobado">14 oct 2026</td><td data-etiqueta=""><a class="enlace-btn" href="#" target="_blank" rel="noopener" aria-label="Abrir trámite FLT 116 (se abre en otra pestaña)">Abrir trámite ↗</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="kit-paginacion paginador" data-kit="paginacion"><span class="paginador__texto">Mostrando 1–25 de <strong>52</strong></span>
+      <span class="fila"><button class="btn ghost sm" type="button" aria-label="Página anterior" disabled>‹</button><span aria-current="page">1</span><button class="btn ghost sm" type="button" aria-label="Página siguiente">›</button></span></div>
+  </section>
+
+  <!-- ============ CARGANDO ============ -->
+  <section data-vista="cargando" class="pila" role="status" aria-busy="true" aria-label="Cargando la lista">
+    <div class="kit-esqueleto esq-fila"></div><div class="kit-esqueleto esq-fila"></div><div class="kit-esqueleto esq-fila"></div><div class="kit-esqueleto esq-fila"></div><div class="kit-esqueleto esq-fila"></div><div class="kit-esqueleto esq-fila"></div>
+  </section>
+
+  <!-- ============ ERROR ============ -->
+  <section data-vista="error" class="card">
+    <div class="kit-vacio" role="alert" data-kit="error">
+      <p style="color:var(--color-text-primary)">No pudimos cargar la lista de borradores abandonados. Revise su conexión e intente de nuevo.</p>
+      <button class="btn secondary sm" type="button">Reintentar</button>
+    </div>
+  </section>
+
+  <!-- ============ VACÍO ============ -->
+  <section data-vista="vacio" class="card">
+    <div class="kit-vacio" data-kit="vacio">
+      <p>Hoy ningún borrador lleva más de 7 días.</p>
+      <small>Cuando alguno supere el umbral, aparecerá aquí.</small>
+      <a class="btn secondary sm" href="torre-kpi-explicable.html">Volver a Operativa</a>
+    </div>
+  </section>
+
+  <section data-vista="vaciofiltros" class="card">
+    <div class="kit-vacio" data-kit="vacio">
+      <p>Ningún trámite de esta lista coincide con los filtros.</p>
+      <small>Quítelos para volver a ver los 12.</small>
+      <button class="btn secondary sm" type="button">Quitar filtros</button>
+    </div>
+  </section>
+
+  <section data-vista="invalido" class="card">
+    <div class="kit-vacio" data-kit="vacio">
+      <p>Esta lista no existe o ya no está disponible.</p>
+      <small>Vuelva al tablero y ábrala desde la cifra.</small>
+      <a class="btn secondary sm" href="torre-360-para-hoy.html">Ir al Resumen 360°</a>
+    </div>
+  </section>
+
+  <!-- ============ TOAST ============ -->
+  <div data-vista="toast" style="position:fixed;right:16px;bottom:16px;z-index:70">
+    <div class="kit-aviso" data-tono="ok" role="status">
+      <span class="kit-aviso__texto">Listo: se descargó el Excel con los 12 borradores abandonados.</span>
+      <button class="kit-aviso__cerrar" type="button" aria-label="Cerrar aviso">✕</button>
+    </div>
+  </div>
+</main>
+<script>
+  const q = new URLSearchParams(location.search);
+  document.documentElement.dataset.theme = q.get('tema') === 'oscuro' ? 'dark' : 'light';
+  const v = q.get('vista') || 'lleno';
+  document.querySelectorAll('[data-vista]').forEach((s) => s.classList.toggle('activa', s.dataset.vista.split(' ').includes(v)));
+  // Disclosure «¿Cómo se calcula?» (solo demostración del aria-expanded; no es lógica de negocio).
+  document.querySelectorAll('[aria-controls]').forEach((b) => b.addEventListener('click', () => {
+    const abierto = b.getAttribute('aria-expanded') === 'true';
+    b.setAttribute('aria-expanded', String(!abierto));
+    document.getElementById(b.getAttribute('aria-controls')).hidden = abierto;
+  }));
+</script>
+</body>
+</html>
