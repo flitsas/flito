@@ -88,6 +88,7 @@ export const PAGINAS_NACIDAS_EN_EL_ARBOL: readonly PageSlug[] = [
   'admin_rendimiento', 'flito_dr_flit', // HU #13941: la 0254
   // Épica #14590: la Torre de Control (la 0303).
   'torre_360', 'torre_comercial', 'torre_operativa', 'torre_financiera', 'torre_explorador', 'torre_umbrales',
+  'torre_detalle', // ADR-0047: su propia migración
 ];
 
 /**

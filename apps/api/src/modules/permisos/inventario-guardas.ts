@@ -130,6 +130,8 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   // Épica #14590: la Torre de Control (`exigirFuncion` por ruta).
   { modulo: 'torre', fichero: 'flito-torre/flito-torre.routes.ts' },
   { modulo: 'torre', fichero: 'flito-torre/flito-torre.tableros.routes.ts' },
+  // ADR-0047 (B1): el detalle universal; en línea, el dinero y las funciones de origen de cada cifra.
+  { modulo: 'torre', fichero: 'flito-torre/flito-torre.detalle.routes.ts' },
 ];
 
 /**

@@ -18,19 +18,20 @@ import { eq, sql } from 'drizzle-orm';
 import type { SeveridadTorre, ServicioMargenTorre, TableroFinanciero } from '@operaciones/shared-types';
 import {
   clients, flitoBolsasUnicas, flitoBolsasUnicasMovimientos, flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones,
-  flitoSoat, flitoSoportes, flitoTarifasProveedorVigencias, flitoTramites,
+  flitoSoat, flitoTarifasProveedorVigencias, flitoTramites,
 } from '../../db/schema.js';
-import { FACTURADO, FECHA_APROBACION, LIQUIDACION_VIGENTE } from './flito-torre.catalogo.js';
+import { LIQUIDACION_VIGENTE, PUNTOS_SOPORTE } from './flito-torre.catalogo.js';
+import { SIN_UMBRALES, dondeFragmento, fragmentoConjunto, type Umbrales } from './flito-torre.conjuntos.js';
+import { aConjunto, explicarFinanciera } from './flito-torre.frases.js';
 import { condicionesCompania, donde, sumarDias, type RangoResuelto } from './flito-torre.filtro.js';
 import { SIN_COMPANIA, enTorre, nombresCompania, type Ejecutor } from './flito-torre.metricas.service.js';
 import { valoresUmbrales } from './flito-torre.umbrales.service.js';
 import {
-  conCacheTablero, condTramites, hoyDe, num, pctONull, r1, rangoTablero, type ContextoTablero,
+  conCacheTablero, hoyDe, num, pctONull, r1, rangoTablero, type ContextoTablero,
 } from './flito-torre.tablero-comun.js';
 
 const T = flitoTramites;
 const L = flitoLiquidaciones;
-const APROBADO = sql`${T.fechaAprobacion} IS NOT NULL`;
 const DIAS_CONSUMO = 30;
 
 type FilaBolsa = TableroFinanciero['bolsas']['filas'][number];
@@ -61,12 +62,17 @@ export async function calcularBolsas(q: Ejecutor, ctx: ContextoTablero, rojo: nu
   }).sort((a, b) => (a.diasCobertura ?? Infinity) - (b.diasCobertura ?? Infinity));
 }
 
-/** RN-TOR-FI2. Compartido con el 360°. */
+/**
+ * RN-TOR-FI2. Compartido con el 360°. El `WHERE` es el conjunto `sin_facturar` (= `resolverDef('sin_facturar')`, la
+ * métrica del Explorador): KPI, bloque, detalle y Explorador cuentan con el MISMO SQL (ADR-0047). `rango` acota el
+ * 360° al mes en curso.
+ */
 export async function calcularSinFacturar(q: Ejecutor, ctx: ContextoTablero, rango: RangoResuelto) {
+  const f = fragmentoConjunto('sin_facturar', { ...ctx, filtro: { ...ctx.filtro, rango } }, SIN_UMBRALES);
   const filas = await q<{ id: number | null; n: number; valor: string | null; antiguo: unknown }>(sql`SELECT ${T.companiaId} AS id,
       count(*)::int AS n, sum(${L.total}) FILTER (WHERE ${LIQUIDACION_VIGENTE}) AS valor, min(${T.fechaAprobacion}) AS antiguo
-    FROM ${T} LEFT JOIN ${L} ON ${eq(L.tramiteId, T.id)}
-    WHERE ${donde([APROBADO, sql`NOT ${FACTURADO}`, ...condTramites(ctx, rango, FECHA_APROBACION)])}
+    FROM ${f.desde}
+    WHERE ${dondeFragmento(f)}
     GROUP BY 1 ORDER BY 2 DESC, 1 ASC NULLS LAST`);
   const nombres = await nombresCompania(q, filas.map((f) => f.id).filter((id): id is number => id != null));
   const ahora = Date.now();
@@ -75,6 +81,7 @@ export async function calcularSinFacturar(q: Ejecutor, ctx: ContextoTablero, ran
     compania: f.id == null ? SIN_COMPANIA : nombres.get(Number(f.id)) ?? `Compañía ${f.id}`,
     tramites: num(f.n), valorEstimado: ctx.dinero ? num(f.valor) : null,
     masAntiguoDias: f.antiguo ? Math.floor((ahora - new Date(f.antiguo as string).getTime()) / 86_400_000) : 0,
+    destino: aConjunto('sin_facturar', [{ dimension: 'compania', valores: [f.id == null ? null : String(f.id)] }]),
   }));
 }
 
@@ -107,7 +114,7 @@ export async function calcularMargen(q: Ejecutor, ctx: ContextoTablero, rango: R
         AND ${V.servicio} = 'logistica' AND ${V.vigenteDesde} <= ${T.fechaAprobacion}
         AND (${V.vigenteHasta} IS NULL OR ${V.vigenteHasta} > ${T.fechaAprobacion})
         ORDER BY ${V.vigenteDesde} DESC LIMIT 1) tar ON true
-    WHERE ${donde([APROBADO, LIQUIDACION_VIGENTE, ...condTramites(ctx, rango, FECHA_APROBACION)])}
+    WHERE ${dondeFragmento(fragmentoConjunto('margen_aprobados', { ...ctx, filtro: { ...ctx.filtro, rango } }, SIN_UMBRALES))}
     GROUP BY 1`);
   const nombres = await nombresCompania(q, filas.map((f) => f.id).filter((id) => id != null).map(Number));
   const porServicio = SERVICIOS.map((s) => {
@@ -136,20 +143,18 @@ export const margenTotalPct = (m: TableroFinanciero['margen']): number | null =>
   return pctONull(cobrado - costo, cobrado);
 };
 
-async function conciliacion(q: Ejecutor, ctx: ContextoTablero, rango: RangoResuelto): Promise<TableroFinanciero['conciliacion']> {
-  const S = flitoSoportes;
-  const I = flitoImpuestos;
-  const D = flitoDerechosTramite;
-  const vigente = sql`COALESCE(${S.descartado}, false) = false`;
-  const puntos = sql`(CASE WHEN EXISTS (SELECT 1 FROM ${S} WHERE ${S.soatId} = ${T.soatId} AND ${vigente}) THEN 1 ELSE 0 END
-    + CASE WHEN EXISTS (SELECT 1 FROM ${S} INNER JOIN ${I} ON ${eq(I.id, S.impuestoId)} WHERE ${I.tramiteId} = ${T.id} AND ${vigente}) THEN 1 ELSE 0 END
-    + CASE WHEN EXISTS (SELECT 1 FROM ${D} WHERE ${D.tramiteId} = ${T.id} AND (${D.soporteId} IS NOT NULL
-        OR EXISTS (SELECT 1 FROM ${S} WHERE ${S.derechoId} = ${D.id} AND ${vigente}))) THEN 1 ELSE 0 END)`;
-  const filas = await q<{ p: number; n: number }>(sql`SELECT ${puntos} AS p, count(*)::int AS n FROM ${T}
-    WHERE ${donde([APROBADO, ...condTramites(ctx, rango, FECHA_APROBACION)])} GROUP BY 1`);
-  const de = (p: number) => num(filas.find((f) => Number(f.p) === p)?.n);
-  const total = filas.reduce((a, f) => a + num(f.n), 0);
-  return { filtrosIgnorados: [], completos: de(3), dos: de(2), uno: de(1), cero: de(0), total, pctCompletos: pctONull(de(3), total) };
+/** RN-TOR-FI4: `GROUP BY` de los puntos sobre el conjunto `soportes_aprobados` (su segmento `nivel` = los puntos). */
+async function conciliacion(q: Ejecutor, ctx: ContextoTablero, u: Umbrales): Promise<TableroFinanciero['conciliacion']> {
+  const f = fragmentoConjunto('soportes_aprobados', ctx, u);
+  const filas = await q<{ p: number; n: number }>(sql`SELECT ${PUNTOS_SOPORTE} AS p, count(*)::int AS n FROM ${f.desde}
+    WHERE ${dondeFragmento(f)} GROUP BY 1`);
+  const de = (p: number) => num(filas.find((x) => Number(x.p) === p)?.n);
+  const total = filas.reduce((a, x) => a + num(x.n), 0);
+  const nivel = (n: string) => aConjunto('soportes_aprobados', [{ dimension: 'nivel', valores: [n] }]);
+  return {
+    filtrosIgnorados: [], completos: de(3), dos: de(2), uno: de(1), cero: de(0), total, pctCompletos: pctONull(de(3), total),
+    destinos: { completos: nivel('3'), dos: nivel('2'), uno: nivel('1'), cero: nivel('0') },
+  };
 }
 
 export async function tableroFinanciero(ctx: ContextoTablero): Promise<TableroFinanciero> {
@@ -159,9 +164,9 @@ export async function tableroFinanciero(ctx: ContextoTablero): Promise<TableroFi
     const bolsas = await calcularBolsas(q, ctx, u.dias_cobertura_rojo, u.dias_cobertura_amarillo);
     const sinFacturar = await calcularSinFacturar(q, ctx, rango);
     const margen = await calcularMargen(q, ctx, rango);
-    const conc = await conciliacion(q, ctx, rango);
+    const conc = await conciliacion(q, ctx, u);
     const menor = bolsas.find((b) => b.diasCobertura != null);
-    return {
+    const sinExplicar: Omit<TableroFinanciero, 'explicaciones'> = {
       rango, dineroVisible: ctx.dinero, generadoEn: new Date().toISOString(),
       cifras: {
         menorCobertura: menor ? { companiaId: menor.companiaId, compania: menor.compania, dias: menor.diasCobertura!, severidad: menor.severidad } : null,
@@ -178,5 +183,6 @@ export async function tableroFinanciero(ctx: ContextoTablero): Promise<TableroFi
       margen,
       conciliacion: conc,
     };
+    return { ...sinExplicar, explicaciones: explicarFinanciera(sinExplicar, u) };
   }));
 }

@@ -25,7 +25,8 @@ import {
   esFechaBasePermitida, fechaBasePorDefecto, type FechaBaseTorre, type MetricaTorreId,
 } from '@operaciones/shared-types';
 import {
-  flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones, flitoTramites, siigoFacturaTramites,
+  flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones, flitoSoportes, flitoTramiteHistorial, flitoTramites,
+  flitoTramiteViajesLogistica, siigoFacturaTramites,
 } from '../../db/schema.js';
 import type { DimensionesBase, FechaBase } from './flito-torre.filtro.js';
 import { TorreConsultaInvalidaError } from './flito-torre.service.js';
@@ -126,7 +127,51 @@ const DESDE_TRAMITES = sql`${T}`;
 const DESDE_LIQUIDACIONES = sql`${L} INNER JOIN ${T} ON ${T.id} = ${L.tramiteId}`;
 const DESDE_TRAMITES_LIQ = sql`${T} LEFT JOIN ${L} ON ${L.tramiteId} = ${T.id}`;
 
-const APROBADO = sql`${T.fechaAprobacion} IS NOT NULL`;
+export const APROBADO = sql`${T.fechaAprobacion} IS NOT NULL`;
+
+// ── Fragmentos de los tableros (ADR-0047: cifra y detalle desde el MISMO SQL; vienen de operativa/comercial/financiera) ──
+
+const H = flitoTramiteHistorial;
+const CREADO = sql`COALESCE(${T.fechaCreacionFlit}, ${T.createdAt})`;
+const ESTADOS_EN_OT = ['entregado', 'enviado a ot'];
+
+/** RN-TOR-O1: último cambio de `flit_estado` (historial), con respaldo en la fecha de creación. */
+export const ULTIMO_CAMBIO_ESTADO = sql`COALESCE((SELECT max(${H.createdAt}) FROM ${H} WHERE ${H.tramiteId} = ${T.id} AND ${H.campo} = 'flit_estado'),
+    ${CREADO})`;
+
+/** RN-TOR-O1: en Borrador y creado hace más de `dias` (la regla vigente; B2 la unifica con Trámites). */
+export const BORRADOR_ABANDONADO = (dias: number): SQL =>
+  sql`(lower(${T.flitEstado}) = 'borrador' AND ${CREADO} < now() - make_interval(days => ${dias}))`;
+
+/** RN-TOR-O1: en el organismo («Entregado»/«Enviado a OT»), sin aprobar, sin cambiar de estado hace más de `dias`. */
+export const ESTANCADO_OT = (dias: number): SQL => sql`(lower(${T.flitEstado}) IN ${ESTADOS_EN_OT} AND ${T.fechaAprobacion} IS NULL
+    AND ${ULTIMO_CAMBIO_ESTADO} < now() - make_interval(days => ${dias}))`;
+
+/** RN-TOR-C3: radicado = pasó por «Entregado»/«Enviado a OT» o ya está aprobado. */
+export const RADICADO = sql`(${T.fechaAprobacion} IS NOT NULL
+  OR lower(${T.flitEstado}) IN ${['entregado', 'enviado a ot', 'aprobado']}
+  OR EXISTS (SELECT 1 FROM ${H} WHERE ${H.tramiteId} = ${T.id} AND ${H.campo} = 'flit_estado'
+    AND lower(${H.valorNuevo}) IN ${['entregado', 'enviado a ot']}))`;
+
+export const RECHAZADO = sql`lower(${T.flitEstado}) = 'rechazado'`;
+
+/** RN-TOR-FI4: soportes vigentes (no descartados) de SOAT, impuesto y derecho del trámite. */
+const S = flitoSoportes;
+const SOPORTE_VIGENTE = sql`COALESCE(${S.descartado}, false) = false`;
+export const SOPORTE_SOAT = sql`EXISTS (SELECT 1 FROM ${S} WHERE ${S.soatId} = ${T.soatId} AND ${SOPORTE_VIGENTE})`;
+export const SOPORTE_IMPUESTO = sql`EXISTS (SELECT 1 FROM ${S} INNER JOIN ${flitoImpuestos} ON ${flitoImpuestos.id} = ${S.impuestoId}
+  WHERE ${flitoImpuestos.tramiteId} = ${T.id} AND ${SOPORTE_VIGENTE})`;
+export const SOPORTE_DERECHO = sql`EXISTS (SELECT 1 FROM ${flitoDerechosTramite} WHERE ${flitoDerechosTramite.tramiteId} = ${T.id}
+  AND (${flitoDerechosTramite.soporteId} IS NOT NULL
+    OR EXISTS (SELECT 1 FROM ${S} WHERE ${S.derechoId} = ${flitoDerechosTramite.id} AND ${SOPORTE_VIGENTE})))`;
+/** 0..3 soportes vigentes. */
+export const PUNTOS_SOPORTE = sql`(CASE WHEN ${SOPORTE_SOAT} THEN 1 ELSE 0 END
+  + CASE WHEN ${SOPORTE_IMPUESTO} THEN 1 ELSE 0 END
+  + CASE WHEN ${SOPORTE_DERECHO} THEN 1 ELSE 0 END)`;
+
+/** RN-TOR-O4: viajes adicionales (`numero >= 2`) de la logística del trámite. */
+const V = flitoTramiteViajesLogistica;
+export const VIAJES_ADICIONALES = sql`(SELECT count(*)::int FROM ${V} WHERE ${V.tramiteId} = ${T.id} AND ${V.numero} >= 2)`;
 
 // ── Variantes reutilizables (RN-TOR-M11) ──────────────────────────────────────────────────────────────────────
 const POR_CREACION: VarianteFecha = { fecha: FECHA_CREACION, campoFecha: 'fecha_creacion_flit', fijas: [], sync: SIN_FECHA_FLIT };

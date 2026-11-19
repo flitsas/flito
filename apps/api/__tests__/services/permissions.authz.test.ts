@@ -216,6 +216,8 @@ describe('paridad de catálogos y roles (anti-drift USR-7)', () => {
       'users',
       // Épica #14590: la Torre de Control en lectura (la 0303 no le da exportar ni editar umbrales).
       'torre_360', 'torre_comercial', 'torre_operativa', 'torre_financiera', 'torre_explorador', 'torre_umbrales',
+      // ADR-0047 (B1): el detalle de las cifras, en lectura (su migración no le da exportar).
+      'torre_detalle',
     ].sort());
   });
 

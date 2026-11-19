@@ -73,6 +73,9 @@ const financiero = ({ dinero }: { dinero: boolean }): TableroFinanciero => ({
     porCliente: [{ companiaId: 7, compania: 'Cía Siete', cobrado: 1_000_000, costo: 875_000, margenPct: 12.5, sinCostoRegistrado: false }],
   } : null,
   conciliacion: { filtrosIgnorados: [], completos: 1, dos: 1, uno: 0, cero: 0, total: 2, pctCompletos: 50 },
+  explicaciones: {
+    sinFacturarTramites: { frase: '=3 trámites aprobados en el periodo aún no tienen factura.', definicion: 'Trámites aprobados…', destino: { tipo: 'ninguno' } },
+  },
 });
 
 beforeEach(() => {
@@ -107,7 +110,10 @@ describe('POST /tableros/:tablero/exportar', () => {
     expect(r.headers['content-disposition']).toBe('attachment; filename="torre-financiera-2035-03-01_2035-03-31.xlsx"');
     expect(finSvc.tableroFinanciero).toHaveBeenCalledWith(expect.objectContaining({ filtro: MARZO, dinero: true }));
     const l = await libroDe(r.body as Buffer);
-    expect(l.worksheets.map((h) => h.name)).toEqual(['Cifras', 'Bolsas', 'Sin facturar', 'Margen por servicio', 'Margen por cliente', 'Conciliación']);
+    expect(l.worksheets.map((h) => h.name)).toEqual(['Cifras', 'Bolsas', 'Sin facturar', 'Margen por servicio', 'Margen por cliente', 'Conciliación', 'Definiciones']);
+    // ADR-0047 (RN-TOR-XT5): la hoja «Definiciones» lleva clave, frase y definición, con la frase por `textoSeguro`.
+    expect(cabeceras(l, 'Definiciones')).toEqual(['Cifra', 'Qué dice', 'Cómo se calcula']);
+    expect(l.getWorksheet('Definiciones')!.getRow(2).getCell(2).value).toBe('\'=3 trámites aprobados en el periodo aún no tienen factura.');
     expect(cabeceras(l, 'Bolsas')).toEqual(['Compañía', 'Saldo', 'Consumo diario', 'Días de cobertura', 'Severidad']);
     expect(columnaA(l, 'Cifras')).toContain('Sin facturar (valor)');
   });
@@ -125,7 +131,7 @@ describe('POST /tableros/:tablero/exportar', () => {
     expect(r.status).toBe(200);
     expect(finSvc.tableroFinanciero).toHaveBeenCalledWith(expect.objectContaining({ dinero: false }));
     const l = await libroDe(r.body as Buffer);
-    expect(l.worksheets.map((h) => h.name)).toEqual(['Cifras', 'Bolsas', 'Sin facturar', 'Conciliación']);
+    expect(l.worksheets.map((h) => h.name)).toEqual(['Cifras', 'Bolsas', 'Sin facturar', 'Conciliación', 'Definiciones']);
     expect(cabeceras(l, 'Bolsas')).toEqual(['Compañía', 'Días de cobertura', 'Severidad']);
     expect(cabeceras(l, 'Sin facturar')).toEqual(['Compañía', 'Trámites', 'Más antiguo (días)']);
     expect(columnaA(l, 'Cifras')).not.toContain('Sin facturar (valor)');

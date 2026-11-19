@@ -79,6 +79,7 @@ const BDOC = 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts'; // HU 
 const DRF = 'flito-dr-flit/dr-flit.funciones.ts'; // HU #13941
 const TOR = 'flito-torre/flito-torre.routes.ts'; // Épica #14590
 const TTB = 'flito-torre/flito-torre.tableros.routes.ts'; // Épica #14590
+const TDT = 'flito-torre/flito-torre.detalle.routes.ts'; // ADR-0047 (Épica #14590, B1)
 
 const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // ── SOAT (portal FLITO) ───────────────────────────────────────────────────────────────────────
@@ -584,6 +585,16 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${TOR} POST /metricas/exportar [dinero]`, 'torre.metricas.dinero', 'Ver las métricas de dinero de la Torre', 'Ver costos, impuestos, derechos, ingreso liquidado y lo pendiente de facturar en la Torre; sin ella, esas cifras salen vacías.'),
   op(`${TTB} POST * [dinero_tablero]`, 'torre.metricas.dinero', 'Ver las métricas de dinero de la Torre', 'Ver costos, impuestos, derechos, ingreso liquidado y lo pendiente de facturar en la Torre; sin ella, esas cifras salen vacías.'),
   op(`${TTB} POST * [dinero_exportar]`, 'torre.metricas.dinero', 'Ver las métricas de dinero de la Torre', 'Ver costos, impuestos, derechos, ingreso liquidado y lo pendiente de facturar en la Torre; sin ella, esas cifras salen vacías.'),
+  // ADR-0047 (B1): el detalle universal. Nacen en el árbol (`arbol/acciones-torre.ts`); su migración siembra ítem y acciones.
+  // En línea: el dinero y la función de origen de la cifra (sin ninguna de las del conjunto, 403 SIN_ORIGEN).
+  op(`${TDT} POST /consultar`, 'torre.detalle.ver', 'Ver los registros de una cifra de la Torre', 'Abrir la lista de registros (placa, compañía y estado) detrás de una cifra de la Torre.'),
+  op(`${TDT} POST /exportar`, 'torre.detalle.exportar', 'Exportar los registros de una cifra de la Torre', 'Descargar en Excel los registros detrás de una cifra de la Torre.'),
+  op(`${TDT} POST * [dinero_detalle]`, 'torre.metricas.dinero', 'Ver las métricas de dinero de la Torre', 'Ver costos, impuestos, derechos, ingreso liquidado y lo pendiente de facturar en la Torre; sin ella, esas cifras salen vacías.'),
+  op(`${TDT} POST * [origen_ejecutivo]`, 'torre.tablero_ejecutivo.ver', 'Ver la vista 360° de la Torre', 'Consultar el tablero ejecutivo de la Torre de Control.'),
+  op(`${TDT} POST * [origen_comercial]`, 'torre.tablero_comercial.ver', 'Ver el tablero comercial de la Torre', 'Consultar el volumen y la evolución por compañía.'),
+  op(`${TDT} POST * [origen_operativo]`, 'torre.tablero_operativo.ver', 'Ver el tablero operativo de la Torre', 'Consultar los tiempos, el trabajo en curso y los trámites en riesgo.'),
+  op(`${TDT} POST * [origen_financiero]`, 'torre.tablero_financiero.ver', 'Ver el tablero financiero de la Torre', 'Consultar costos, pagos, ingreso liquidado y lo pendiente de facturar.'),
+  op(`${TDT} POST * [origen_explorador]`, 'torre.metricas.consultar', 'Consultar métricas de la Torre', 'Consultar una métrica agregada del catálogo de la Torre con sus filtros y agrupación.'),
 ];
 
 // HU #13421 (ADR-0023): los módulos legacy reconducidos se declaran aparte (regla de 800 líneas).

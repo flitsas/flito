@@ -826,4 +826,13 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-torre/flito-torre.routes.ts', metodo: 'POST', ruta: '/metricas/exportar', condicion: 'dinero', codigo: 'torre.metricas.dinero' },
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '*', condicion: 'dinero_tablero', codigo: 'torre.metricas.dinero' },
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '*', condicion: 'dinero_exportar', codigo: 'torre.metricas.dinero' },
+  // ADR-0047 (B1): el detalle universal.
+  { fichero: 'flito-torre/flito-torre.detalle.routes.ts', metodo: 'POST', ruta: '/consultar', codigo: 'torre.detalle.ver' },
+  { fichero: 'flito-torre/flito-torre.detalle.routes.ts', metodo: 'POST', ruta: '/exportar', codigo: 'torre.detalle.exportar' },
+  { fichero: 'flito-torre/flito-torre.detalle.routes.ts', metodo: 'POST', ruta: '*', condicion: 'dinero_detalle', codigo: 'torre.metricas.dinero' },
+  { fichero: 'flito-torre/flito-torre.detalle.routes.ts', metodo: 'POST', ruta: '*', condicion: 'origen_ejecutivo', codigo: 'torre.tablero_ejecutivo.ver' },
+  { fichero: 'flito-torre/flito-torre.detalle.routes.ts', metodo: 'POST', ruta: '*', condicion: 'origen_comercial', codigo: 'torre.tablero_comercial.ver' },
+  { fichero: 'flito-torre/flito-torre.detalle.routes.ts', metodo: 'POST', ruta: '*', condicion: 'origen_operativo', codigo: 'torre.tablero_operativo.ver' },
+  { fichero: 'flito-torre/flito-torre.detalle.routes.ts', metodo: 'POST', ruta: '*', condicion: 'origen_financiero', codigo: 'torre.tablero_financiero.ver' },
+  { fichero: 'flito-torre/flito-torre.detalle.routes.ts', metodo: 'POST', ruta: '*', condicion: 'origen_explorador', codigo: 'torre.metricas.consultar' },
 ];

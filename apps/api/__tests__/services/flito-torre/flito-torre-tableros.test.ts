@@ -51,6 +51,11 @@ describe.skipIf(!URL_BASE)('tableros contra PostgreSQL (tx con ROLLBACK)', () =>
     expect(t.embudo.pasos.map((p) => [p.paso, p.valor, p.pct])).toEqual([['creados', 4, 100], ['radicados', 2, 50], ['aprobados', 1, 25], ['facturados', 0, 0]]);
     expect(t.concentracion.volumen.top.map((c) => [c.companiaId, c.pct])).toEqual([[b, 75], [a, 25]]);
     expect(t.concentracion.volumen.top3Pct).toBe(100);
+    // ADR-0047 (AC2): la KPI dice qué es: nombra sus compañías con su %, sin la pista vieja del Top 5.
+    const conc = t.explicaciones.concentracionTop3Pct!;
+    expect(conc.frase).toMatch(/^100 % de los 4 trámites creados en el periodo vienen de 2 compañías: B .+ \(75 %\) y A .+ \(25 %\)/);
+    expect(conc.frase).not.toMatch(/Top 5/);
+    expect(t.explicaciones.clientesEnCaida!.destino).toEqual({ tipo: 'bloque', bloque: 'fuga' });
     expect(t.concentracion.ingreso?.total).toBe(400_000);
     expect(t.ventaCruzada.filas.map((f) => [f.companiaId, f.lineas])).toEqual([
       [b, { tramites: 'usa', soat: 'no_usa', impuestos: 'no_usa', derechos: 'no_usa', logistica: 'usa' }],
@@ -83,6 +88,7 @@ describe.skipIf(!URL_BASE)('tableros contra PostgreSQL (tx con ROLLBACK)', () =>
     expect(radar.estancado_ot).toEqual([1, 'critico']);
     expect(radar.soat_sin_gestion).toEqual([0, 'ok']);
     expect(t.cifras.borradoresAbandonados).toBe(1);
+    expect(t.explicaciones.borradoresAbandonados!.frase).toMatch(/^1 trámite sigue en Borrador más de \d+ días después de creados; 0 pasan de \d+ días\.$/);
     expect(t.cifras.wip).toBe(3);
     expect(t.carga.porOrganismo[0]).toMatchObject({ clave: '05001', valor: 2 });
     expect(t.carga.porFuncionario).toBeNull();

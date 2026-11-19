@@ -8,13 +8,15 @@
 // RN-TOR-XT3: sin `FUNCION_TORRE_DINERO` las columnas (y filas de cifras) de dinero NO van al archivo, y una hoja que
 //   solo tiene dinero (concentración por ingreso, margen) tampoco.
 // RN-TOR-XT4: nombre `torre-<tablero>-<desde>_<hasta>.xlsx` con el rango resuelto del tablero.
+// RN-TOR-XT5 (ADR-0047): última hoja «Definiciones» (clave, frase y definición de cada KPI explicada).
 import ExcelJS from 'exceljs';
 import type { Response } from 'express';
 import type {
-  ConcentracionTorre, TableroComercial, TableroEjecutivo, TableroFinanciero, TableroOperativo,
+  CifraExplicada, ConcentracionTorre, TableroComercial, TableroEjecutivo, TableroFinanciero, TableroOperativo,
 } from '@operaciones/shared-types';
 import { MIME_XLSX, type ExcelColumn } from '../../shared/utils/excel.js';
 import { tableroComercial } from './flito-torre.comercial.service.js';
+import { textoSeguro } from './flito-torre.export.js';
 import { tableroEjecutivo } from './flito-torre.ejecutivo.service.js';
 import { tableroFinanciero } from './flito-torre.financiera.service.js';
 import { tableroOperativo } from './flito-torre.operativa.service.js';
@@ -220,14 +222,25 @@ export function aplicarDinero(hojas: (HojaTablero & { cifras?: Cifra[] })[], din
   }));
 }
 
+/** RN-TOR-XT5 (ADR-0047): hoja «Definiciones» con la clave, la frase y la definición de cada cifra explicada. */
+export function hojaDefiniciones(explicaciones: Partial<Record<string, CifraExplicada>>): HojaTablero {
+  return {
+    nombre: 'Definiciones',
+    columnas: [col('Cifra', 'clave', { width: 28 }), col('Qué dice', 'frase', { width: 80 }), col('Cómo se calcula', 'definicion', { width: 90 })],
+    filas: Object.entries(explicaciones).filter((e): e is [string, CifraExplicada] => e[1] != null)
+      .map(([clave, e]) => ({ clave, frase: textoSeguro(e.frase), definicion: textoSeguro(e.definicion) })),
+  };
+}
+
 /** Hojas del libro (puro sobre el servicio; para los tests). */
 export async function libroTablero(
   tablero: TableroExportable, ctx: ContextoTablero,
 ): Promise<{ rango: { desde: string; hasta: string }; hojas: HojaTablero[] }> {
-  const t = tablero === 'comercial' ? await tableroComercial(ctx).then((r) => ({ rango: r.rango, hojas: hojasComercial(r) }))
-    : tablero === 'operativa' ? await tableroOperativo(ctx).then((r) => ({ rango: r.rango, hojas: hojasOperativa(r) }))
-      : tablero === 'financiera' ? await tableroFinanciero(ctx).then((r) => ({ rango: r.rango, hojas: hojasFinanciera(r) }))
-        : await tableroEjecutivo(ctx).then((r) => ({ rango: r.rango, hojas: hojasEjecutivo(r) }));
+  const con = (h: HojaTablero[], e: Partial<Record<string, CifraExplicada>>) => [...h, hojaDefiniciones(e)];
+  const t = tablero === 'comercial' ? await tableroComercial(ctx).then((r) => ({ rango: r.rango, hojas: con(hojasComercial(r), r.explicaciones) }))
+    : tablero === 'operativa' ? await tableroOperativo(ctx).then((r) => ({ rango: r.rango, hojas: con(hojasOperativa(r), r.explicaciones) }))
+      : tablero === 'financiera' ? await tableroFinanciero(ctx).then((r) => ({ rango: r.rango, hojas: con(hojasFinanciera(r), r.explicaciones) }))
+        : await tableroEjecutivo(ctx).then((r) => ({ rango: r.rango, hojas: con(hojasEjecutivo(r), r.explicaciones) }));
   return { rango: t.rango, hojas: aplicarDinero(t.hojas, ctx.dinero) };
 }
 

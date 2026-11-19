@@ -801,4 +801,13 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "torre", fichero: "flito-torre/flito-torre.routes.ts", metodo: "POST", ruta: "/metricas/exportar", condicion: "dinero", roles: [], heredada: false },
   { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "*", condicion: "dinero_tablero", roles: [], heredada: false },
   { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "*", condicion: "dinero_exportar", roles: [], heredada: false },
+  // ADR-0047 (B1): el detalle universal. Las dos rutas y, en línea, el dinero y las funciones de origen. Sin rol: nace en el árbol (su migración).
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "/consultar", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "/exportar", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "dinero_detalle", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_ejecutivo", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_comercial", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_operativo", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_financiero", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_explorador", roles: [], heredada: false },
 ];

@@ -17,6 +17,7 @@ import { calcularFuga } from './flito-torre.comercial.service.js';
 import { FECHA_APROBACION, FECHA_CREACION, HORAS_CICLO } from './flito-torre.catalogo.js';
 import { calcularBolsas, calcularMargen, calcularSinFacturar, margenTotalPct } from './flito-torre.financiera.service.js';
 import { donde, fechaLocal, mesAnterior, resolverRango, type RangoResuelto } from './flito-torre.filtro.js';
+import { explicarEjecutivo } from './flito-torre.frases.js';
 import { enTorre, type Ejecutor } from './flito-torre.metricas.service.js';
 import { calcularRadar } from './flito-torre.operativa.service.js';
 import { valoresUmbrales } from './flito-torre.umbrales.service.js';
@@ -101,7 +102,7 @@ export async function tableroEjecutivo(ctx: ContextoTablero): Promise<TableroEje
       });
     }
 
-    return {
+    const sinExplicar: Omit<TableroEjecutivo, 'explicaciones'> = {
       rango: mes, dineroVisible: ctx.dinero, generadoEn: new Date().toISOString(),
       comercial: { tramitesMes: num(creados?.n), clientesEnCaida: fuga.length },
       operativo: { pctDentroAns: pctONull(num(ans?.ok), num(ans?.n)), umbralDias: u.dias_respuesta_ot },
@@ -114,6 +115,7 @@ export async function tableroEjecutivo(ctx: ContextoTablero): Promise<TableroEje
       },
       riesgos: ordenarRiesgos(riesgos),
     };
+    return { ...sinExplicar, explicaciones: explicarEjecutivo(sinExplicar, u) };
   }));
 }
 

@@ -227,6 +227,16 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
       'flito-torre/flito-torre.routes.ts POST /metricas/exportar [dinero]',
       'flito-torre/flito-torre.tableros.routes.ts POST * [dinero_tablero]',
       'flito-torre/flito-torre.tableros.routes.ts POST * [dinero_exportar]',
+      // ADR-0047 (B1): el detalle universal; sus dos funciones nacen en el árbol (su migración), y en línea reutiliza el
+      // dinero y las funciones de los tableros y del Explorador (también del árbol).
+      'flito-torre/flito-torre.detalle.routes.ts POST /consultar',
+      'flito-torre/flito-torre.detalle.routes.ts POST /exportar',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [dinero_detalle]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_ejecutivo]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_comercial]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_operativo]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_financiero]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_explorador]',
     ]);
   });
 });

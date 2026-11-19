@@ -47,7 +47,7 @@ const paginas = catalogo.filter((f) => f.tipo === 'pagina');
 const operaciones = catalogo.filter((f) => f.tipo === 'operacion');
 
 describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo era', () => {
-  it('`PAGE_GROUPS` trae 82 entradas para 81 slugs únicos: `transito` está dos veces', () => {
+  it('`PAGE_GROUPS` trae 83 entradas para 82 slugs únicos: `transito` está dos veces', () => {
     // 44 → 45 / 43 → 44 desde la HU #12375: entra `flito_tarifas` en «Finanzas».
     // 45 → 46 / 44 → 45 desde la HU #12085: entra `roles_permisos` en «Administración».
     // 46 → 47 / 45 → 46 desde la HU #12542: entra `flito_servicios_adicionales` en «Finanzas».
@@ -59,9 +59,10 @@ describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo e
     // 74 → 75 / 73 → 74 desde la HU #13588: entra `admin_rendimiento` («Rendimiento») en «Administración».
     // 75 → 76 / 74 → 75 desde la HU #13941: entra `flito_dr_flit` («Dr. Flit») en «General».
     // 76 → 82 / 75 → 81 desde la Épica #14590: entran las seis páginas de la Torre de Control.
+    // 82 → 83 / 81 → 82 desde el ADR-0047 (Épica #14590, B1): entra `torre_detalle` en «Torre de Control».
     const entradas = PAGE_GROUPS.flatMap((g) => g.pages);
-    expect(entradas).toHaveLength(82);
-    expect(new Set(entradas).size).toBe(81);
+    expect(entradas).toHaveLength(83);
+    expect(new Set(entradas).size).toBe(82);
     const repetidos = entradas.filter((s, i) => entradas.indexOf(s) !== i);
     expect(repetidos).toEqual(['transito']);
   });
@@ -87,12 +88,12 @@ describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo e
     expect(catalogo.map((f) => f.codigo)).not.toContain('pagina.flito_ayuda');
   });
 
-  it('las funciones de tipo `pagina` del mundo plano son 73: los 82 slugs de PAGES menos `flito_ayuda`, `admin_rendimiento`, `flito_dr_flit` y las seis de la Torre', () => {
+  it('las funciones de tipo `pagina` del mundo plano son 73: los 83 slugs de PAGES menos `flito_ayuda`, `admin_rendimiento`, `flito_dr_flit` y las siete de la Torre', () => {
     // HU #13255: +1 (`perfil`). HU #13421: +21 (una por ítem del menú PESV). HU #13422: +3 (Mantenimiento).
     // HU #13588: +1 en PAGES (`admin_rendimiento`), que nace en el árbol (la 0240): no es del mundo plano (≤ 0231).
     // HU #13941: +1 en PAGES (`flito_dr_flit`), que también nace en el árbol (la 0254).
-    // Épica #14590: +6 en PAGES (`torre_*`), que nacen en el árbol (la 0303).
-    expect(Object.keys(PAGES)).toHaveLength(82);
+    // Épica #14590: +6 en PAGES (`torre_*`), que nacen en el árbol (la 0303); ADR-0047: +1 (`torre_detalle`, su migración).
+    expect(Object.keys(PAGES)).toHaveLength(83);
     expect(paginas).toHaveLength(73);
     const esperados = Object.keys(PAGES).filter((s) => s !== 'flito_ayuda' && s !== 'admin_rendimiento' && s !== 'flito_dr_flit' && !s.startsWith('torre_')).sort();
     expect(paginas.map((f) => f.codigo.replace('pagina.', '')).sort()).toEqual(esperados);
@@ -242,8 +243,9 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       // Épica #14590: `GET /opciones` reutiliza `torre.metricas.consultar`; cada `/<tablero>/exportar`, la función de su
       // tablero; el dinero se decide en línea en las dos rutas del explorador y en los dos handlers comunes de los tableros.
       // ADR-0044: `POST /placa/sugerencias` reutiliza `torre.placa.buscar`, la función de la ficha.
-      ['torre.metricas.consultar', 2], ['torre.metricas.dinero', 4], ['torre.placa.buscar', 2], ['torre.tablero_comercial.ver', 2],
-      ['torre.tablero_ejecutivo.ver', 2], ['torre.tablero_financiero.ver', 2], ['torre.tablero_operativo.ver', 2],
+      // ADR-0047 (B1): el detalle exige en línea el dinero y la función de origen de la cifra (+1 a cada una).
+      ['torre.metricas.consultar', 3], ['torre.metricas.dinero', 5], ['torre.placa.buscar', 2], ['torre.tablero_comercial.ver', 3],
+      ['torre.tablero_ejecutivo.ver', 3], ['torre.tablero_financiero.ver', 3], ['torre.tablero_operativo.ver', 3],
       ['tramites.cola.ver', 3], ['tramites.sincronizacion.configurar', 2], ['usuarios.usuario.listar', 2],
     ]);
     // HU #13427: las de HOY (con las operaciones nuevas que parten una guarda vieja), no las del mundo plano.
@@ -316,6 +318,13 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /companias/:id [sinTramite]',
       'flito-soat/flito-soat.routes.ts POST /export [incluirPago]',
       // Épica #14590: el permiso de dinero de la Torre, en línea (explorador ×2, handlers comunes de los tableros ×2).
+      // ADR-0047 (B1): el detalle, en línea: el dinero y la función de origen de la cifra.
+      'flito-torre/flito-torre.detalle.routes.ts POST * [dinero_detalle]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_comercial]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_ejecutivo]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_explorador]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_financiero]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_operativo]',
       'flito-torre/flito-torre.routes.ts POST /metricas/consultar [dinero]',
       'flito-torre/flito-torre.routes.ts POST /metricas/exportar [dinero]',
       'flito-torre/flito-torre.tableros.routes.ts POST * [dinero_exportar]',

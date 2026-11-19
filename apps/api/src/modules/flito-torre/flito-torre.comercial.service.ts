@@ -17,9 +17,11 @@ import {
   type TableroComercial, type UsoLineaTorre,
 } from '@operaciones/shared-types';
 import {
-  clients, flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones, flitoSoat, flitoTramiteHistorial, flitoTramites,
+  clients, flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones, flitoSoat, flitoTramites,
 } from '../../db/schema.js';
-import { FACTURADO, FECHA_APROBACION, FECHA_CREACION, LIQUIDACION_VIGENTE } from './flito-torre.catalogo.js';
+import { FECHA_APROBACION, FECHA_CREACION, LIQUIDACION_VIGENTE } from './flito-torre.catalogo.js';
+import { contarConjuntos, dondeFragmento, fragmentoConjunto, type Umbrales } from './flito-torre.conjuntos.js';
+import { aConjunto, explicarComercial } from './flito-torre.frases.js';
 import { donde, fechaLocal, mesAnterior, sumarDias, condicionRango, type RangoResuelto } from './flito-torre.filtro.js';
 import { SIN_COMPANIA, enTorre, nombresCompania, type Ejecutor } from './flito-torre.metricas.service.js';
 import { valoresUmbrales } from './flito-torre.umbrales.service.js';
@@ -28,7 +30,6 @@ import {
 } from './flito-torre.tablero-comun.js';
 
 const T = flitoTramites;
-const H = flitoTramiteHistorial;
 const VENTANA_PREVIA_DIAS = 90;
 
 /** RN-TOR-C1. Compartido con el 360°. */
@@ -73,17 +74,14 @@ async function porCompania(q: Ejecutor, desde: ReturnType<typeof sql>, valor: Re
   return filas.map((f) => ({ id: f.id == null ? null : Number(f.id), valor: num(f.valor) }));
 }
 
-const RADICADO = sql`(${T.fechaAprobacion} IS NOT NULL
-  OR lower(${T.flitEstado}) IN ${['entregado', 'enviado a ot', 'aprobado']}
-  OR EXISTS (SELECT 1 FROM ${H} WHERE ${H.tramiteId} = ${T.id} AND ${H.campo} = 'flit_estado'
-    AND lower(${H.valorNuevo}) IN ${['entregado', 'enviado a ot']}))`;
-
-async function embudo(q: Ejecutor, ctx: ContextoTablero, rango: RangoResuelto): Promise<TableroComercial['embudo']['pasos']> {
-  const [f] = await q(sql`SELECT count(*)::int AS creados, count(*) FILTER (WHERE ${RADICADO})::int AS radicados,
-      count(*) FILTER (WHERE ${T.fechaAprobacion} IS NOT NULL)::int AS aprobados, count(*) FILTER (WHERE ${FACTURADO})::int AS facturados
-    FROM ${T} WHERE ${donde(condTramites(ctx, rango, FECHA_CREACION))}`);
-  const creados = num(f?.creados);
-  return (['creados', 'radicados', 'aprobados', 'facturados'] as const).map((paso) => ({ paso, valor: num(f?.[paso]), pct: pct(num(f?.[paso]), creados) }));
+/** RN-TOR-C3: los cuatro pasos son conjuntos de la misma base (creados en el rango): UNA consulta (ADR-0047). */
+async function embudo(q: Ejecutor, ctx: ContextoTablero, u: Umbrales): Promise<TableroComercial['embudo']['pasos']> {
+  const k = await contarConjuntos(q, ctx, u, [
+    { clave: 'creados', conjunto: 'tramites_creados' }, { clave: 'radicados', conjunto: 'radicados_cohorte' },
+    { clave: 'aprobados', conjunto: 'aprobados_cohorte' }, { clave: 'facturados', conjunto: 'facturados_cohorte' },
+  ]);
+  const creados = num(k.creados);
+  return (['creados', 'radicados', 'aprobados', 'facturados'] as const).map((paso) => ({ paso, valor: num(k[paso]), pct: pct(num(k[paso]), creados) }));
 }
 
 /** RN-TOR-C5: últimos 6 meses cerrados. */
@@ -140,14 +138,16 @@ export async function tableroComercial(ctx: ContextoTablero): Promise<TableroCom
   const u = await valoresUmbrales();
   return conCacheTablero('comercial', ctx, () => enTorre(async (q) => {
     const fuga = await calcularFuga(q, ctx, u.dias_ventana_fuga, u.pct_caida_volumen);
-    const volumen = await porCompania(q, sql`${T}`, sql`count(*)`, condTramites(ctx, rango, FECHA_CREACION));
+    // Volumen = el conjunto `tramites_creados` (el mismo fragmento que su detalle), agrupado por compañía.
+    const creadosF = fragmentoConjunto('tramites_creados', ctx, u);
+    const volumen = await porCompania(q, creadosF.desde, sql`count(*)`, [dondeFragmento(creadosF)]);
     const ingreso = ctx.dinero
       ? await porCompania(q, sql`${flitoLiquidaciones} INNER JOIN ${T} ON ${T.id} = ${flitoLiquidaciones.tramiteId}`,
         sql`COALESCE(sum(${flitoLiquidaciones.total}), 0)`, [sql`${T.fechaAprobacion} IS NOT NULL`, LIQUIDACION_VIGENTE, ...condTramites(ctx, rango, FECHA_APROBACION)])
       : null;
     const ids = [...volumen, ...(ingreso ?? [])].map((f) => f.id).filter((id): id is number => id != null);
     const nombres = await nombresCompania(q, ids);
-    const pasos = await embudo(q, ctx, rango);
+    const pasos = await embudo(q, ctx, u);
     const tend = await tendencia(q, ctx);
     const dias = diasDe(rango);
     const anterior: RangoResuelto = { desde: sumarDias(rango.desde, -dias), hasta: sumarDias(rango.desde, -1) };
@@ -159,19 +159,23 @@ export async function tableroComercial(ctx: ContextoTablero): Promise<TableroCom
       .sort((a, b) => b.valor - a.valor).slice(0, 10).map((f) => ({ id: f.id, tramites: f.valor }));
     const vol = concentracion(volumen, nombres);
     const creados = pasos[0]!.valor;
-    return {
+    const sinExplicar: Omit<TableroComercial, 'explicaciones'> = {
       rango, dineroVisible: ctx.dinero, generadoEn: new Date().toISOString(),
       cifras: {
         clientesEnCaida: fuga.length, concentracionTop3Pct: vol.top3Pct, concentracionTop5Pct: vol.top5Pct,
         conversionFacturadoPct: pct(pasos[3]!.valor, creados), tramitesPeriodo: creados, tramitesPeriodoAnterior: num(ant?.n),
         sparkline: spark.map((s) => num(s.n)),
       },
-      fuga: { filtrosIgnorados: ['rango'], umbralPct: u.pct_caida_volumen, ventanaDias: u.dias_ventana_fuga, filas: fuga },
+      fuga: {
+        filtrosIgnorados: ['rango'], umbralPct: u.pct_caida_volumen, ventanaDias: u.dias_ventana_fuga,
+        filas: fuga.map((f) => ({ ...f, destino: aConjunto('tramites_creados', [{ dimension: 'compania', valores: [String(f.companiaId)] }]) })),
+      },
       concentracion: { filtrosIgnorados: [], volumen: vol, ingreso: ingreso ? concentracion(ingreso, nombres) : null },
       embudo: { filtrosIgnorados: [], pasos },
       tendencia: { filtrosIgnorados: ['rango'], ...tend },
       ventaCruzada: { filtrosIgnorados: [], filas: await ventaCruzada(q, rango, topVenta, nombres) },
     };
+    return { ...sinExplicar, explicaciones: explicarComercial(sinExplicar, u) };
   }));
 }
 
