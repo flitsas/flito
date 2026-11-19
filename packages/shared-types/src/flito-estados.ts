@@ -45,7 +45,7 @@ export const ESTADOS_TRAMITE_FLITO_TERMINADOS: readonly EstadoTramiteFlito[] = [
  * que se leen del documento pagado. Estos dos son honorarios propios de FLIT, y por eso varían de
  * un cliente a otro (el requerimiento cita $200.000 en una compañía y $1.500 en otra).
  */
-export const CONCEPTOS_TARIFA = ['tramite_digital', 'logistica'] as const;
+export const CONCEPTOS_TARIFA = ['tramite_digital', 'logistica', 'logistica_cliente', 'logistica_flit'] as const;
 export type ConceptoTarifa = (typeof CONCEPTOS_TARIFA)[number];
 
 export const esConceptoTarifa = (v: unknown): v is ConceptoTarifa =>
@@ -54,7 +54,18 @@ export const esConceptoTarifa = (v: unknown): v is ConceptoTarifa =>
 export const CONCEPTO_TARIFA_LABEL: Record<ConceptoTarifa, string> = {
   tramite_digital: 'Trámite digital FLIT',
   logistica: 'Negociación logística',
+  logistica_cliente: 'Logística: entrega a cliente',
+  logistica_flit: 'Logística: entrega a FLIT',
 };
+
+/** Conceptos de logística (sin tipo de trámite): el legado `logistica` y los dos de la HU #14106. */
+export const esConceptoLogistica = (c: ConceptoTarifa): boolean =>
+  c === 'logistica' || c === 'logistica_cliente' || c === 'logistica_flit';
+
+/**
+ * El concepto tal como se PERSISTE: `logistica` es alias de `logistica_cliente` (HU #14106, ADR-0030 §6).
+ */
+export const conceptoAlmacenado = (c: ConceptoTarifa): ConceptoTarifa => (c === 'logistica' ? 'logistica_cliente' : c);
 
 /**
  * Cómo normalizar el tipo de trámite antes de compararlo. En `flito_tramites.tipo_tramite` es texto

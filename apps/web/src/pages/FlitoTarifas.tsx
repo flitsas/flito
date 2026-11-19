@@ -1,7 +1,7 @@
 // FLITO — Tarifas: el configurador de valores con historial de vigencias (HU #12375, Feature #12365).
 // Diseño: `docs/ux/flito-configurador-tarifas.md` (modo full).
 //
-// Un cliente a la vez: a la izquierda la lista con «Faltan n», a la derecha las cuatro filas del
+// Un cliente a la vez: a la izquierda la lista con «Faltan n», a la derecha las filas del
 // elegido (`MatrizTarifas`) y el historial plegado debajo (`HistorialTarifas`). Dos rutas y un solo
 // componente: `/flito/tarifas` (sin cliente) y `/flito/tarifas/:companiaId`. El id de la URL es el
 // de una EMPRESA, no de una persona; ningún id de usuario ni de vigencia sale a la URL.
@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError, errorMessage } from '../lib/api';
 import {
-  RUTA_TARIFAS, etiquetaLlave, faltantesDe, faltantesPorCompania, normalizaTexto,
+  RUTA_TARIFAS, etiquetaLlave, normalizarVista, faltantesDe, faltantesPorCompania, normalizaTexto,
   type FilaVistaTarifa, type TarifaAbierta, type VistaTarifasCompania,
 } from '../lib/tarifas';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -102,9 +102,10 @@ export default function FlitoTarifas() {
     return api.get<VistaTarifasCompania>(`${RUTA_TARIFAS}/companias/${id}`)
       .then((v) => {
         if (!vigente()) return;
-        setVista(v);
-        const n = v.tarifas.filter((f) => f.valor === null).length;
-        setAnuncio(`Valores de ${v.companiaNombre}.${n > 0 ? ` ${faltanValores(n)}.` : ''}`);
+        const vn = normalizarVista(v);
+        setVista(vn);
+        const n = vn.tarifas.filter((f) => f.valor === null).length;
+        setAnuncio(`Valores de ${vn.companiaNombre}.${n > 0 ? ` ${faltanValores(n)}.` : ''}`);
       })
       .catch((e) => {
         if (!vigente()) return;
@@ -245,7 +246,7 @@ export default function FlitoTarifas() {
                       </>
                     ) : (
                       <>
-                        <p style={{ color: 'var(--flit-text-primary)' }}>Todos los clientes tienen sus cuatro valores fijados.</p>
+                        <p style={{ color: 'var(--flit-text-primary)' }}>Todos los clientes tienen sus cinco valores fijados.</p>
                         <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle} onClick={() => setSoloFaltantes(false)}>Ver todos</button>
                       </>
                     )}
@@ -299,7 +300,7 @@ export default function FlitoTarifas() {
                   <p className="mt-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
                     {conFaltantes > 0
                       ? `${conFaltantes === 1 ? '1 cliente tiene' : `${conFaltantes} clientes tienen`} valores sin configurar; sus trámites de esos tipos saldrán como «No configurado» en el reporte de costos y no se podrán liquidar.`
-                      : `${clientes.length === 1 ? 'El único cliente tiene' : `Los ${clientes.length} clientes tienen`} sus cuatro valores fijados.`}
+                      : `${clientes.length === 1 ? 'El único cliente tiene' : `Los ${clientes.length} clientes tienen`} sus cinco valores fijados.`}
                   </p>
                 )}
                 {faltan !== null && conFaltantes > 0 && (
@@ -384,7 +385,8 @@ function PanelCliente({ nombre, vista, cargando, refrescando, error, onReintenta
         )
       ) : cargando || !vista ? (
         <div role="status" aria-busy="true" aria-label={`Cargando los valores de ${nombre}`} className="space-y-3">
-          {['w-full', 'w-full', 'w-full', 'w-full'].map(barra)}
+          {['w-full', 'w-full', 'w-full'].map(barra)}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{['w-full', 'w-full'].map(barra)}</div>
         </div>
       ) : (
         <>

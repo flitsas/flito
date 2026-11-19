@@ -22,12 +22,13 @@
 // campo Nombre (aria-invalid + aria-describedby + foco), con el formulario abierto. Cualquier otro
 // fallo al guardar dice una frase propia, nunca el texto crudo del API.
 
-import { useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { toastError, toastOk } from '../flit/ToastFlito';
 import { api, ApiError } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
+import StatusChip from '../flit/StatusChip';
 import {
-  flitInp, FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, FlitField,
+  FlitCard, FlitTable, FlitTh, FlitTr, FlitEmpty, FlitPillGroup, FlitPillButton,
   flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../flit/flitPageKit';
 import {
@@ -36,12 +37,14 @@ import {
 import { MenuFila, type OpcionMenuFila } from '../flit/MenuFila';
 import { DialogoEstadoRegistro, type ImpactoEstado } from './DialogoEstadoRegistro';
 import { useEliminarProveedor } from './useEliminarProveedor';
-import { ErrorNit as ErrorCampo } from './nitDuplicado';
+import FormProveedor from './FormProveedor';
+import {
+  cargarProveedores, cargarImpactoLogistica, completarSoat, rutaProveedor, textoBajaBloqueada,
+  type Proveedor, type TipoProveedor,
+} from './proveedoresDatos';
 
-export interface Proveedor {
-  id: string; nombre: string; estrategia: string | null;
-  umbralOcr: number | null; slaHoras: number | null; activo: boolean;
-}
+export { mensajeNombreDuplicado, mensajeErrorGuardar } from './FormProveedor';
+export type { Proveedor } from './proveedoresDatos';
 
 /** Forma real de `GET /flito/parametrizacion/proveedores-soat/:id/impacto` (`ImpactoProveedorSoat`). */
 export interface ImpactoProveedor {
@@ -54,21 +57,31 @@ export interface ImpactoProveedor {
 }
 
 type CambioEstado = { p: Proveedor; accion: 'desactivar' | 'activar' };
+type FiltroTipo = 'todos' | TipoProveedor;
+const TIPOS: { valor: FiltroTipo; texto: string }[] = [
+  { valor: 'todos', texto: 'Todos' }, { valor: 'SOAT', texto: 'SOAT' }, { valor: 'LOGISTICA', texto: 'Logística' },
+];
 
 // Consecuencias verificadas contra RN-PROV-3/4 (los usuarios de un proveedor inactivo no ingresan) y
 // el selector de «SOAT sin trámite», que solo ofrece proveedores activos.
 const CONSECUENCIA_DESACTIVAR = 'Mientras esté inactivo, sus usuarios no podrán ingresar a FLITO y no aparecerá entre los proveedores a elegir.';
 const CONSECUENCIA_ACTIVAR = 'Sus usuarios vuelven a ingresar a FLITO y vuelve a aparecer entre los proveedores a elegir.';
+const CONSECUENCIA_DESACTIVAR_LOGISTICA = 'Mientras esté inactivo no aparecerá entre los proveedores de logística a elegir.';
+const CONSECUENCIA_ACTIVAR_LOGISTICA = 'Vuelve a aparecer entre los proveedores de logística a elegir.';
 
 /**
  * «4 SOAT en curso, proveedor de SOAT sin trámite de 2 compañías.» — solo los tipos con n > 0, unidos
  * con «, » (AC3). Sin nada: «No tiene procesos en curso.», el mismo tono que Clientes.
+ * Logística (HU #14105): `logistica` suma «proveedor de logística de N compañías».
  */
-export function fraseImpactoProveedor(i: Pick<ImpactoProveedor, 'soatEnCurso' | 'companiasGestorPorDefecto'>): string {
+export function fraseImpactoProveedor(
+  i: Pick<ImpactoProveedor, 'soatEnCurso' | 'companiasGestorPorDefecto'>, logistica = 0,
+): string {
   const partes: string[] = [];
   if (i.soatEnCurso > 0) partes.push(`${i.soatEnCurso} SOAT en curso`);
   const n = i.companiasGestorPorDefecto?.cantidad ?? 0;
   if (n > 0) partes.push(`proveedor de SOAT sin trámite de ${n} ${n === 1 ? 'compañía' : 'compañías'}`);
+  if (logistica > 0) partes.push(`proveedor de logística de ${logistica} ${logistica === 1 ? 'compañía' : 'compañías'}`);
   return partes.length === 0 ? 'No tiene procesos en curso.' : `${partes.join(', ')}.`;
 }
 
@@ -77,13 +90,17 @@ export default function TabProveedores({ editable, editaEstado }: { editable: bo
   const [data, setData] = useState<Proveedor[] | null>(null);
   const [errorCarga, setErrorCarga] = useState(false);
   const [editar, setEditar] = useState<Proveedor | null>(null);
+  const [ver, setVer] = useState<Proveedor | null>(null);
   const [crear, setCrear] = useState(false);
   // En estado del componente: al cambiar de pestaña y volver, vuelve a «Todos» (como Clientes).
   const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>('todos');
+  const [filtroTipo, setFiltroTipo] = useState<FiltroTipo>('todos');
   const [estadoDe, setEstadoDe] = useState<CambioEstado | null>(null);
+  const [bloqueo, setBloqueo] = useState<{ nombre: string; total: number; companias: string[] } | null>(null);
+  const carreraAsignado = useRef(false);
   const visibles = useMemo(
-    () => (data ? filtrarPorEstado(data, filtroEstado, (p) => p.activo) : []),
-    [data, filtroEstado],
+    () => (data ? filtrarPorEstado(data, filtroEstado, (p) => p.activo).filter((p) => filtroTipo === 'todos' || p.tipo === filtroTipo) : []),
+    [data, filtroEstado, filtroTipo],
   );
   // Respaldo del foco al cerrar el diálogo si la fila salió del filtro: la pill marcada, nunca <body>.
   const refFiltro = useRef<HTMLDivElement>(null);
@@ -93,13 +110,11 @@ export default function TabProveedores({ editable, editaEstado }: { editable: bo
 
   const load = () => {
     setData(null); setErrorCarga(false);
-    api.get<Proveedor[]>('/flito/parametrizacion/proveedores-soat').then(setData).catch(() => setErrorCarga(true));
+    cargarProveedores().then(setData).catch(() => setErrorCarga(true));
   };
   // Recarga silenciosa tras cambiar el estado: sin pasar por «Cargando…» ni perder el filtro.
-  const recargar = () => {
-    api.get<Proveedor[]>('/flito/parametrizacion/proveedores-soat').then(setData).catch(() => setErrorCarga(true));
-  };
-  useEffect(() => { load(); }, []);
+  const recargar = () => { cargarProveedores().then(setData).catch(() => setErrorCarga(true)); };
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const eliminar = useEliminarProveedor<Proveedor>({
     // La fila sale con la respuesta 2xx (de todos los filtros) y la recarga confirma el resto.
@@ -108,14 +123,41 @@ export default function TabProveedores({ editable, editaEstado }: { editable: bo
     restoreFocusRef: refRespaldoFoco,
   });
 
+  // Al desactivar un proveedor de logística se pregunta el impacto al servidor: con compañías vigentes
+  // la baja se bloquea con el total y hasta 3 nombres; si falla la consulta, se dice sin bloquear a ciegas.
+  const intentarDesactivar = (p: Proveedor) => {
+    if (p.tipo !== 'LOGISTICA') { setEstadoDe({ p, accion: 'desactivar' }); return; }
+    cargarImpactoLogistica(p.id)
+      .then((i) => {
+        if (i.companias > 0) setBloqueo({ nombre: p.nombre, total: i.companias, companias: i.nombres });
+        else setEstadoDe({ p, accion: 'desactivar' });
+      })
+      .catch(() => toastError('No pudimos comprobar si el proveedor tiene compañías asignadas. Inténtelo de nuevo.', undefined, { id: `impacto-prov-${p.id}` }));
+  };
+
+  // SOAT: estrategia, umbral y ANS no vienen en el listado unificado; se completan al abrir.
+  const abrir = (p: Proveedor, destino: 'ver' | 'editar') => {
+    completarSoat(p)
+      .then((c) => (destino === 'ver' ? setVer(c) : setEditar(c)))
+      .catch(() => toastError('No pudimos abrir el proveedor. Inténtelo de nuevo.', undefined, { id: `abrir-prov-${p.id}` }));
+  };
+
   const opcionesFila = (p: Proveedor): OpcionMenuFila[] => [
     ...(editaEstado
       ? [p.activo
-        ? { id: 'desactivar', texto: 'Desactivar', onElegir: () => setEstadoDe({ p, accion: 'desactivar' }) }
+        ? { id: 'desactivar', texto: 'Desactivar', onElegir: () => intentarDesactivar(p) }
         : { id: 'activar', texto: 'Activar', onElegir: () => setEstadoDe({ p, accion: 'activar' }) }]
       : []),
     ...eliminar.opciones(p),
   ];
+
+  const cargarImpacto = (p: Proveedor) => async (): Promise<ImpactoEstado> => {
+    if (p.tipo === 'LOGISTICA') {
+      return { frase: fraseImpactoProveedor({ soatEnCurso: 0, companiasGestorPorDefecto: { cantidad: 0, nombres: [] } }, p.companiasAsignadas), usuariosAfectados: 0 };
+    }
+    const i = await api.get<ImpactoProveedor>(`${rutaProveedor(p)}/${p.id}/impacto`);
+    return { frase: fraseImpactoProveedor(i), usuariosAfectados: i.usuariosAfectados ?? 0 };
+  };
 
   return (
     <>
@@ -132,39 +174,58 @@ export default function TabProveedores({ editable, editaEstado }: { editable: bo
           <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando proveedores…</p>
         ) : data.length === 0 ? (
           // Vacío total: filtro y pie ocultos (filtrar una lista vacía no ayuda).
-          <FlitEmpty>No hay proveedores.{editable && ' Cree el primero con «Nuevo proveedor».'}</FlitEmpty>
+          <FlitEmpty>
+            {editable ? 'No hay proveedores. Cree el primero con «Nuevo proveedor».' : 'No hay proveedores. Pida a un administrador que los registre.'}
+          </FlitEmpty>
         ) : (<>
-          <div className="mb-3" ref={refFiltro}><FiltroEstadoPills valor={filtroEstado} onCambio={setFiltroEstado} /></div>
-          {visibles.length === 0 ? <VacioFiltro onVerTodos={() => setFiltroEstado('todos')} /> : (
+          <div className="mb-3 flex flex-wrap items-end gap-x-6 gap-y-3" ref={refFiltro}>
+            <FiltroEstadoPills valor={filtroEstado} onCambio={setFiltroEstado} />
+            <div role="group" aria-label="Tipo" className="flex flex-col gap-1.5">
+              <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Tipo</span>
+              <FlitPillGroup>
+                {TIPOS.map((t) => (
+                  <FlitPillButton key={t.valor} active={filtroTipo === t.valor} pressed={filtroTipo === t.valor} onClick={() => setFiltroTipo(t.valor)}>{t.texto}</FlitPillButton>
+                ))}
+              </FlitPillGroup>
+            </div>
+          </div>
+          {visibles.length === 0 ? <VacioFiltro onVerTodos={() => { setFiltroEstado('todos'); setFiltroTipo('todos'); }} /> : (
             <FlitTable>
               <thead>
                 <FlitTr>
                   <FlitTh>Nombre</FlitTh>
-                  {/* Identificador + estado juntos, como en Clientes. */}
+                  <FlitTh>Tipo</FlitTh>
+                  <FlitTh>NIT</FlitTh>
+                  <FlitTh>Contacto y teléfono</FlitTh>
+                  <FlitTh>Compañías asignadas</FlitTh>
                   <FlitTh>Estado</FlitTh>
-                  <FlitTh>Estrategia</FlitTh>
-                  <FlitTh>Umbral OCR</FlitTh>
-                  <FlitTh>ANS pactado (h)</FlitTh>
                   <FlitTh />
                 </FlitTr>
               </thead>
               <tbody>
                 {visibles.map((p) => {
                   const opciones = opcionesFila(p);
+                  const contacto = [p.contacto, p.telefono].filter(Boolean).join(' · ');
                   return (
-                    <FlitTr key={p.id}>
+                    <FlitTr key={`${p.tipo}-${p.id}`}>
                       <td className="px-3 py-2 font-medium" style={{ color: 'var(--flit-text-primary)' }}>{p.nombre}</td>
+                      <td className="px-3 py-2"><span className="whitespace-nowrap"><StatusChip tone="neutral">{p.tipo === 'LOGISTICA' ? 'Logística' : 'SOAT'}</StatusChip></span></td>
+                      <td className="px-3 py-2 text-sm tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{p.nit ?? '—'}</td>
+                      <td className="px-3 py-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{contacto || '—'}</td>
+                      <td className="px-3 py-2 text-sm tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{p.companiasAsignadas}</td>
                       <td className="px-3 py-2"><ChipEstado activo={p.activo} /></td>
-                      <td className="px-3 py-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{p.estrategia ?? '—'}</td>
-                      <td className="px-3 py-2 text-sm tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{p.umbralOcr ?? '—'}</td>
-                      <td className="px-3 py-2 text-sm tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{p.slaHoras ?? '—'}</td>
                       <td className="px-3 py-2">
                         <div className="flex gap-2 whitespace-nowrap">
+                          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+                            aria-label={`Ver detalle de ${p.nombre}`} onClick={() => abrir(p, 'ver')}>Ver detalle</button>
                           {editable && (
                             <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-                              aria-label={`Editar ${p.nombre}`} onClick={() => setEditar(p)}>Editar</button>
+                              aria-label={`Editar ${p.nombre}`} onClick={() => abrir(p, 'editar')}>Editar</button>
                           )}
-                          {opciones.length > 0 && <MenuFila etiqueta={`Acciones de ${p.nombre}`} opciones={opciones} onAbrir={() => eliminar.comprobar(p)} />}
+                          {opciones.length > 0 && (
+                            <MenuFila etiqueta={`Acciones de ${p.nombre}`} opciones={opciones}
+                              onAbrir={p.tipo === 'SOAT' ? () => eliminar.comprobar(p) : undefined} />
+                          )}
                         </div>
                       </td>
                     </FlitTr>
@@ -187,17 +248,24 @@ export default function TabProveedores({ editable, editaEstado }: { editable: bo
           accion={estadoDe.accion}
           nombre={estadoDe.p.nombre}
           sustantivo="proveedor"
-          cargarImpacto={estadoDe.accion === 'desactivar'
-            ? async (): Promise<ImpactoEstado> => {
-              const i = await api.get<ImpactoProveedor>(`/flito/parametrizacion/proveedores-soat/${estadoDe.p.id}/impacto`);
-              return { frase: fraseImpactoProveedor(i), usuariosAfectados: i.usuariosAfectados ?? 0 };
-            }
-            : undefined}
-          consecuencia={estadoDe.accion === 'desactivar' ? CONSECUENCIA_DESACTIVAR : CONSECUENCIA_ACTIVAR}
+          cargarImpacto={estadoDe.accion === 'desactivar' ? cargarImpacto(estadoDe.p) : undefined}
+          consecuencia={estadoDe.accion === 'desactivar'
+            ? (estadoDe.p.tipo === 'LOGISTICA' ? CONSECUENCIA_DESACTIVAR_LOGISTICA : CONSECUENCIA_DESACTIVAR)
+            : (estadoDe.p.tipo === 'LOGISTICA' ? CONSECUENCIA_ACTIVAR_LOGISTICA : CONSECUENCIA_ACTIVAR)}
           confirmar={async () => {
-            await api.patch(`/flito/parametrizacion/proveedores-soat/${estadoDe.p.id}/estado`, {
-              activo: estadoDe.accion === 'activar', activoEsperado: estadoDe.p.activo,
-            });
+            carreraAsignado.current = false;
+            try {
+              await api.patch(`${rutaProveedor(estadoDe.p)}/${estadoDe.p.id}/estado`, {
+                activo: estadoDe.accion === 'activar',
+                // Logística lo ignora (HU #14162); el PATCH de SOAT sigue usándolo contra la concurrencia.
+                ...(estadoDe.p.tipo === 'SOAT' ? { activoEsperado: estadoDe.p.activo } : {}),
+              });
+            } catch (e) {
+              // Carrera: alguien asignó el proveedor a una compañía entre el diálogo y el clic.
+              const cuerpo = e instanceof ApiError ? (e.rawDetails as { companias?: unknown } | null) : null;
+              if (Array.isArray(cuerpo?.companias)) carreraAsignado.current = true;
+              throw e;
+            }
           }}
           onHecho={() => {
             const { p, accion } = estadoDe;
@@ -210,9 +278,10 @@ export default function TabProveedores({ editable, editaEstado }: { editable: bo
           onDesactualizado={(motivo) => {
             const id = estadoDe.p.id;
             setEstadoDe(null);
-            toastError(motivo === 'cambiado'
-              ? 'Otro administrador ya cambió su estado.'
-              : 'Este proveedor ya no existe. Se actualizó la lista.', undefined, { id: `estado-prov-${id}` });
+            toastError(carreraAsignado.current
+              ? 'Ese proveedor sigue asignado a compañías. Recargamos la lista.'
+              : motivo === 'cambiado' ? 'Otro administrador ya cambió su estado.'
+                : 'Este proveedor ya no existe. Se actualizó la lista.', undefined, { id: `estado-prov-${id}` });
             recargar();
           }}
           onCerrar={() => setEstadoDe(null)}
@@ -220,91 +289,24 @@ export default function TabProveedores({ editable, editaEstado }: { editable: bo
         />
       )}
 
+      {bloqueo && (
+        <FlitModal title="No se puede inactivar" onClose={() => setBloqueo(null)} restoreFocusRef={refRespaldoFoco}>
+          <div className="space-y-4">
+            <p role="alert" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+              {textoBajaBloqueada(bloqueo.nombre, bloqueo.total, bloqueo.companias)}
+            </p>
+            <div className="flex justify-end">
+              <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setBloqueo(null)}>Entendido</button>
+            </div>
+          </div>
+        </FlitModal>
+      )}
+
       {eliminar.dialogo}
 
       {crear && <FormProveedor onClose={() => setCrear(false)} onGuardado={() => { setCrear(false); load(); }} />}
-      {editar && <FormProveedor proveedor={editar} onClose={() => setEditar(null)} onGuardado={() => { setEditar(null); recargar(); }} />}
+      {editar && <FormProveedor proveedor={editar} companiasAsignadas={editar.companiasAsignadas} onClose={() => setEditar(null)} onGuardado={() => { setEditar(null); recargar(); }} />}
+      {ver && <FormProveedor proveedor={ver} soloLectura companiasAsignadas={ver.companiasAsignadas} onClose={() => setVer(null)} onGuardado={() => setVer(null)} />}
     </>
   );
-}
-
-/**
- * Crear / editar. Sin casilla «Activo» (HU #13958 AC5 / HU #13961 AC5): el estado tiene su propia
- * acción en el ⋮ y el PATCH general ya no envía `activo`.
- */
-function FormProveedor({ proveedor, onClose, onGuardado }: { proveedor?: Proveedor; onClose: () => void; onGuardado: () => void }) {
-  const [nombre, setNombre] = useState(proveedor?.nombre ?? '');
-  const [estrategia, setEstrategia] = useState(proveedor?.estrategia ?? '');
-  const [umbral, setUmbral] = useState(proveedor?.umbralOcr != null ? String(proveedor.umbralOcr) : '');
-  const [sla, setSla] = useState(proveedor?.slaHoras != null ? String(proveedor.slaHoras) : '');
-  const [error, setError] = useState<string | null>(null);
-  // AC3: el 409 de nombre repetido se dice bajo el campo; se quita en cuanto el nombre cambia.
-  const [errorNombre, setErrorNombre] = useState<string | null>(null);
-  const [guardando, setGuardando] = useState(false);
-  const refNombre = useRef<HTMLInputElement>(null);
-  const idErrorNombre = useId();
-  useEffect(() => { if (errorNombre) refNombre.current?.focus(); }, [errorNombre]);
-
-  const guardar = async () => {
-    setGuardando(true); setError(null); setErrorNombre(null);
-    const body: Record<string, unknown> = {
-      nombre: nombre.trim(),
-      estrategia: estrategia.trim() || undefined,
-      umbralOcr: umbral.trim() === '' ? null : Number(umbral),
-      slaHoras: sla.trim() === '' ? null : Number(sla),
-    };
-    try {
-      if (proveedor) await api.patch(`/flito/parametrizacion/proveedores-soat/${proveedor.id}`, body);
-      else await api.post('/flito/parametrizacion/proveedores-soat', body);
-      onGuardado();
-    } catch (e) {
-      const duplicado = mensajeNombreDuplicado(e);
-      if (duplicado) setErrorNombre(duplicado);
-      else setError(mensajeErrorGuardar(e));
-    }
-    finally { setGuardando(false); }
-  };
-
-  return (
-    <FlitModal title={proveedor ? 'Editar proveedor' : 'Nuevo proveedor'} onClose={onClose}>
-      <div className="space-y-3">
-        <FlitField label="Nombre *">
-          <input ref={refNombre} className={flitInp} value={nombre}
-            onChange={(e) => { setNombre(e.target.value); setErrorNombre(null); }}
-            aria-invalid={errorNombre ? true : undefined}
-            aria-describedby={errorNombre ? idErrorNombre : undefined} />
-        </FlitField>
-        {/* Fuera del <label>: el error no debe sumarse al nombre accesible del campo. */}
-        {errorNombre && <ErrorCampo id={idErrorNombre}>{errorNombre}</ErrorCampo>}
-        <FlitField label="Estrategia"><input className={flitInp} value={estrategia} onChange={(e) => setEstrategia(e.target.value)} placeholder="p.ej. portal, correo" /></FlitField>
-        <FlitField label="Umbral OCR (0–1)"><input className={flitInp} type="number" step="0.01" min="0" max="1" value={umbral} onChange={(e) => setUmbral(e.target.value)} /></FlitField>
-        <FlitField label="ANS pactado con el proveedor (horas)"><input className={flitInp} type="number" min="1" value={sla} onChange={(e) => setSla(e.target.value)} /></FlitField>
-        {error && <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>}
-        <div className="flex flex-wrap gap-2">
-          <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={guardando || !nombre.trim()} onClick={guardar}>{guardando ? 'Guardando…' : 'Guardar'}</button>
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>Cancelar</button>
-        </div>
-      </div>
-    </FlitModal>
-  );
-}
-
-/** AC3 — el 409 del API (`mensajeNombreProveedorDuplicado`). Único texto del API que se muestra tal cual. */
-const NOMBRE_DUPLICADO = /^Ya existe un proveedor SOAT con el nombre .+\.$/;
-
-export function mensajeNombreDuplicado(e: unknown): string | null {
-  if (!(e instanceof ApiError) || e.status !== 409) return null;
-  const cuerpo = e.rawDetails as { error?: unknown } | null | undefined;
-  const texto = (typeof cuerpo?.error === 'string' ? cuerpo.error : e.message).trim();
-  return NOMBRE_DUPLICADO.test(texto) ? texto : null;
-}
-
-/** Cualquier otro fallo al guardar: frase propia, nunca el texto crudo del API (Nota de #13961). */
-export function mensajeErrorGuardar(e: unknown): string {
-  const status = e instanceof ApiError ? e.status : 0;
-  if (status === 403) return 'No tiene permiso para esta acción.';
-  if (status === 404) return 'Este proveedor ya no existe. Cierre y vuelva a cargar la lista.';
-  if (status === 400) return 'Revise los datos: el umbral OCR va de 0 a 1 y el ANS pactado es un número de horas mayor que cero.';
-  if (status === 0) return 'No pudimos conectar con FLITO. Revise su conexión e inténtelo de nuevo.';
-  return 'No pudimos guardar el proveedor. Inténtelo de nuevo.';
 }

@@ -208,7 +208,8 @@ describe('la unión: por la izquierda y por la columna del canal', () => {
   it('**`LEFT JOIN`, nunca `INNER`**', async () => {
     await listar();
 
-    expect(uniones.map((u) => u.tipo)).toEqual(['leftJoin']);
+    // HU #14148: la segunda unión (también por la izquierda) es el proveedor de logística.
+    expect(uniones.map((u) => u.tipo)).toEqual(['leftJoin', 'leftJoin']);
   });
 
   it('une `flito_proveedores_soat` por `flito_proveedor_soat_sin_tramite_id`', async () => {
@@ -228,6 +229,8 @@ describe('la proyección se amplía NOMINALMENTE, y solo con eso', () => {
     expect(pedidas).toEqual([
       ...Object.keys(COLUMNAS_LISTADO),
       'gestorSinTramiteId', 'gestorSinTramiteNombre', 'gestorSinTramiteActivo',
+      // HU #14148: el proveedor de logística, solo id y nombre (nunca NIT, contacto ni teléfono).
+      'proveedorLogisticaId', 'proveedorLogisticaNombre',
     ]);
     // Y las tres son de la tabla del proveedor, no columnas nuevas de `clients` coladas de rondón.
     expect(Object.values(COLUMNAS_GESTOR_SIN_TRAMITE).map((c) => c.name))
@@ -315,5 +318,38 @@ describe('el catálogo de proveedores NO se abre a nadie nuevo', () => {
 
     expect(r.status).toBe(403);
     expect(selectMock).not.toHaveBeenCalled();
+  });
+});
+
+// ── HU #14148 — el proveedor de logística de la compañía, solo id y nombre ───────────────────────────────────
+describe('el listado entrega el proveedor de logística (HU #14148)', () => {
+  const PLOG = '66666666-6666-4666-8666-666666666666';
+
+  it('con proveedor: id y nombre planos; `financiera` (solo Clientes) también los ve', async () => {
+    const r = await listar('financiera', [fila({ proveedorLogisticaId: PLOG, proveedorLogisticaNombre: 'Mensajeria Andina' })]);
+    expect(r.status).toBe(200);
+    expect(r.body[0]).toMatchObject({ proveedorLogisticaId: PLOG, proveedorLogisticaNombre: 'Mensajeria Andina' });
+  });
+
+  it('sin proveedor: las dos en null (no se omiten)', async () => {
+    const r = await listar('admin', [fila({ proveedorLogisticaId: null, proveedorLogisticaNombre: null })]);
+    expect(r.body[0].proveedorLogisticaId).toBeNull();
+    expect(r.body[0].proveedorLogisticaNombre).toBeNull();
+  });
+
+  it('une por la IZQUIERDA y por la columna del proveedor de logística (sin perder compañías sin proveedor)', async () => {
+    await listar();
+    const u = uniones.find((x) => (new PgDialect().sqlToQuery(x.on as never).sql).includes('"flito_proveedores_logistica"."id"'))!;
+    expect(u.tipo).toBe('leftJoin');
+    expect(new PgDialect().sqlToQuery(u.on as never).sql).toContain('"clients"."flito_proveedor_logistica_id"');
+  });
+
+  it('la proyección lleva SOLO id y nombre del proveedor: ni NIT, ni contacto, ni teléfono, ni el uuid crudo de la columna', async () => {
+    const claves = Object.keys(COLUMNAS_LISTADO_CON_GESTOR);
+    for (const fuera of ['nit', 'contacto', 'telefono', 'proveedorLogisticaNit', 'proveedorLogisticaContacto', 'proveedorLogisticaTelefono', 'flitoProveedorLogisticaId']) {
+      expect(claves).not.toContain(fuera);
+    }
+    // Y no entra al registro de acceso PII: no es una columna personal del titular.
+    expect(CAMPOS_PII_LISTADO).not.toContain('flito_proveedor_logistica_id');
   });
 });

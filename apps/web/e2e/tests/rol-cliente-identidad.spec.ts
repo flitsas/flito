@@ -301,16 +301,11 @@ test.describe('HU #11913 · AC3 — «SOAT sin trámite» en Clientes', () => {
     }));
 
     await page.goto('/clients');
-    await expect(page.getByRole('columnheader', { name: 'SOAT sin trámite' })).toBeVisible();
+    // HU #14105: la columna se fue; el proveedor es la parte «Proveedor SOAT sin trámite» del chip de SOAT.
     // Sin proveedor Y con proveedor. Solo el par prueba que el valor sale del payload y no de un fijo.
-    await expect(page.getByRole('button', { name: 'SOAT sin trámite de Concesionario Norte: Sin proveedor' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'SOAT sin trámite de Transportes Sur: SURA' })).toBeVisible();
-    // El nombre por defecto de `CeldaFlag` afirmaría lo contrario de lo que hace el control. El
-    // aserto positivo solo no lo detecta: hace falta el negativo.
+    await expect(page.getByRole('row', { name: /Concesionario Norte/ })).toContainText('Proveedor SOAT sin trámite: Sin proveedor');
+    await expect(page.getByRole('row', { name: /Transportes Sur/ })).toContainText('Proveedor SOAT sin trámite: SURA');
     await expect(page.getByLabel(/Autogestión SOAT sin trámite/)).toHaveCount(0);
-    // Y las vecinas van al revés en cada fila: si alguien cruzara las banderas, esto se rompe.
-    await expect(page.getByRole('checkbox', { name: 'Autogestión SOAT de Concesionario Norte' })).toBeChecked();
-    await expect(page.getByRole('checkbox', { name: 'Autogestión SOAT de Transportes Sur' })).not.toBeChecked();
   });
 
   test('elegir proveedor manda SOLO el proveedor (HU #13968) y no toca la casilla de autogestión', async ({ page }) => {
@@ -330,16 +325,16 @@ test.describe('HU #11913 · AC3 — «SOAT sin trámite» en Clientes', () => {
     });
 
     await page.goto('/clients');
-    await page.getByRole('button', { name: 'SOAT sin trámite de Concesionario Norte: Sin proveedor' }).click();
-    const modal = page.getByRole('dialog', { name: 'SOAT sin trámite · Concesionario Norte' });
+    await page.getByRole('button', { name: 'Editar Concesionario Norte', exact: true }).click();
+    const modal = page.getByRole('dialog', { name: 'Editar · Concesionario Norte' });
     await modal.getByLabel('Proveedor de SOAT sin trámite').selectOption(GESTOR_SURA);
-    await modal.getByRole('button', { name: 'Guardar' }).click();
+    await modal.getByRole('button', { name: 'Guardar cambios' }).click();
 
     await expect.poll(() => body).not.toBeNull();
     // `toEqual` y no `toMatchObject`: lo que se comprueba es que NO viaja ninguna clave más — en
     // particular, ninguna de las otras cuatro banderas de autogestión.
     expect(body).toEqual({ proveedorSoatSinTramiteId: GESTOR_SURA });
-    await expect(page.getByRole('checkbox', { name: 'Autogestión SOAT de Concesionario Norte' })).toBeChecked();
+    await expect(modal).toHaveCount(0);
   });
 
   test('un fallo del listado se ve como fallo, y no como «No hay clientes.»', async ({ page }) => {

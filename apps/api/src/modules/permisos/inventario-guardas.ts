@@ -85,6 +85,7 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'comparendos', fichero: 'flito-comparendos/flito-comparendos.routes.ts' },
   { modulo: 'liquidacion', fichero: 'flito-liquidacion/flito-liquidacion.routes.ts' },
   { modulo: 'parametrizacion', fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts' },
+  { modulo: 'parametrizacion', fichero: 'flito-parametrizacion/flito-proveedores-logistica.routes.ts' }, // HU #14103
   { modulo: 'sync', fichero: 'flito-sync/flito-sync.routes.ts' },
   { modulo: 'tramite', fichero: 'tramites/tramites.routes.ts' },
   { modulo: 'tramite', fichero: 'tramites/ocr-docs.routes.ts' },
@@ -100,6 +101,7 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'comprobantes', fichero: 'flito-comprobantes/flito-comprobantes.routes.ts' },
   // HU #12619: viajes adicionales de logística; fichero hermano bajo /api/flito/logistica.
   { modulo: 'logistica', fichero: 'flito-logistica/flito-logistica-viajes.routes.ts' },
+  { modulo: 'logistica', fichero: 'flito-logistica/flito-logistica-motivos.routes.ts' }, // HU #14119
   // HU #13061: el acceso de FLITO a FLIT 2; fichero hermano bajo /api/flito/sync, funciones del módulo tramites.
   { modulo: 'tramites', fichero: 'flito-sync/flit2.routes.ts' },
   // HU #13237: interruptor por fuente (PUT); el GET, que reutiliza el código, vive en
@@ -110,6 +112,7 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'impuestos', fichero: 'flito-impuestos/flito-impuestos.direccion.routes.ts' },
   // HU #13269: reemplazo del comprobante de pago; sub-router propio de impuestos (solo esta ruta).
   { modulo: 'impuestos', fichero: 'flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts' },
+  { modulo: 'impuestos', fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts' },
   // HU #12997: lectura de las solicitudes SOAT incompletas (RUNT caído); fichero hermano de soat.
   { modulo: 'soat', fichero: 'flito-soat/flito-soat-incompletas.routes.ts' },
   { modulo: 'soat', fichero: 'flito-soat/flito-soat-documentos.routes.ts' }, // HU #13362

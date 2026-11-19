@@ -255,7 +255,7 @@ async function tokenConFunciones(sub: number, role: 'financiera' | 'auditor' | '
 }
 
 describe('tarifas — vista por cliente y capacidades por motor (AC12, AC16)', () => {
-  it('financiera (reparto de partida) → 200 con las 4 filas fijas, null donde no hay vigencia y capacidades true', async () => {
+  it('financiera (reparto de partida) → 200 con las 5 filas fijas, null donde no hay vigencia y capacidades true', async () => {
     selectMock
       .mockReturnValueOnce(chain([compania7]))
       .mockReturnValueOnce(chain([abierta(), abierta({ id: 'v-lg', concepto: 'logistica', tipoTramite: null, valor: '45000.00' })]));
@@ -265,6 +265,8 @@ describe('tarifas — vista por cliente y capacidades por motor (AC12, AC16)', (
     expect(r.body.companiaId).toBe(7);
     expect(r.body.tarifas.map((t: { concepto: string; tipoTramite: string | null }) => `${t.concepto}:${t.tipoTramite}`)).toEqual([
       'tramite_digital:MATRICULA', 'tramite_digital:TRASPASO', 'tramite_digital:OTROS', 'logistica:null',
+      // HU #14118: la vista añade la fila del precio FLIT (`logistica_flit`), sin vigencia aquí → valor null.
+      'logistica_flit:null',
     ]);
     expect(r.body.tarifas[0]).toEqual({
       concepto: 'tramite_digital', tipoTramite: 'MATRICULA', vigenciaId: 'v-1', valor: 270000,
@@ -379,7 +381,7 @@ describe('tarifas — historial (AC13, AC14, AC15)', () => {
 
 describe('tarifas — fijar (POST) y cambiar/cerrar (PATCH) (AC4, AC5, AC8, AC9, AC10, AC11)', () => {
   it('financiera fija Traspaso en 320000 → 201 con la vigencia y auditoría create', async () => {
-    selectMock.mockReturnValueOnce(chain([compania7])).mockReturnValueOnce(chain([filaTarifa()]));
+    selectMock.mockReturnValueOnce(chain([compania7])).mockReturnValueOnce(chain([{ ultimoCierre: null }])).mockReturnValueOnce(chain([filaTarifa()]));
     insertMock.mockReturnValueOnce(chain([{ id: 'v-2' }]));
     const app = await buildApp();
     const r = await request(app).post(`${BASE}/tarifas`).set('Authorization', await auth('financiera'))
@@ -415,7 +417,7 @@ describe('tarifas — fijar (POST) y cambiar/cerrar (PATCH) (AC4, AC5, AC8, AC9,
     expect(sin.body).toMatchObject({ requiereConfirmacion: 'cero' });
     expect(insertMock).not.toHaveBeenCalled();
 
-    selectMock.mockReturnValueOnce(chain([compania7])).mockReturnValueOnce(chain([filaTarifa({ concepto: 'logistica', tipoTramite: null, valor: '0.00' })]));
+    selectMock.mockReturnValueOnce(chain([compania7])).mockReturnValueOnce(chain([{ ultimoCierre: null }])).mockReturnValueOnce(chain([filaTarifa({ concepto: 'logistica', tipoTramite: null, valor: '0.00' })]));
     insertMock.mockReturnValueOnce(chain([{ id: 'v-2' }]));
     const con = await request(app).post(`${BASE}/tarifas`).set('Authorization', await auth('admin'))
       .send({ companiaId: 7, concepto: 'logistica', valor: 0, confirmarCero: true });
@@ -432,7 +434,7 @@ describe('tarifas — fijar (POST) y cambiar/cerrar (PATCH) (AC4, AC5, AC8, AC9,
       expect(r.status).toBe(400);
       expect(r.body.error).toMatch(/Matricula, Traspaso u Otros/);
     }
-    selectMock.mockReturnValueOnce(chain([compania7])).mockReturnValueOnce(chain([filaTarifa({ tipoTramite: 'MATRICULA' })]));
+    selectMock.mockReturnValueOnce(chain([compania7])).mockReturnValueOnce(chain([{ ultimoCierre: null }])).mockReturnValueOnce(chain([filaTarifa({ tipoTramite: 'MATRICULA' })]));
     let grabado: unknown;
     insertMock.mockReturnValueOnce({ values: (v: unknown) => { grabado = v; return chain([{ id: 'v-2' }]); } });
     const ok = await request(app).post(`${BASE}/tarifas`).set('Authorization', token)

@@ -10,7 +10,7 @@
 //   · NO cachea entre aperturas: cada montaje repide el GET.
 
 import { useEffect, useState, type RefObject } from 'react';
-import type { DesgloseViajesLogistica, ViajeLogisticaSellado } from '@operaciones/shared-types';
+import type { DesgloseViajesLogistica, LineaTrasladoLogistica, ViajeLogisticaSellado } from '@operaciones/shared-types';
 import { ApiError, api, errorMessage } from '../../lib/api';
 import { textoMotivo } from '../../lib/viajesLogistica';
 import {
@@ -100,6 +100,9 @@ export default function PanelViajesLogistica({ tramiteId, idFlit, placa, onClose
  */
 function Cuerpo({ datos }: { datos: DesgloseViajesLogistica }) {
   const items = datos.items ?? [];
+  const traslados = datos.traslados ?? [];
+  // Con líneas de traslado la tarifa llega null: el cobro está en las filas, no hay «Viaje 1 incluido».
+  const ocultarIncluido = datos.tarifa === null && traslados.length > 0;
   const sinDesglose = datos.origen === 'sin_desglose';
 
   if (!datos.gestionaLogistica) {
@@ -123,17 +126,26 @@ function Cuerpo({ datos }: { datos: DesgloseViajesLogistica }) {
         {!sinDesglose && (
           <>
             {/* La cabecera fija: el viaje 1 va dentro de la tarifa y no es una fila de la lista. */}
-            <p className="border-b pb-3 text-sm font-medium tabular-nums" style={BORDE_SUAVE} data-viaje="1">
-              {textoViajeIncluido(datos.tarifa)}
-            </p>
+            {!ocultarIncluido && (
+              <p className="border-b pb-3 text-sm font-medium tabular-nums" style={BORDE_SUAVE} data-viaje="1">
+                {textoViajeIncluido(datos.tarifa)}
+              </p>
+            )}
 
-            {items.length === 0 && <FlitEmpty>Sin viajes adicionales.</FlitEmpty>}
+            {traslados.length > 0 && (
+              <ul className="divide-y" style={BORDE_SUAVE} aria-label="Viajes cobrados">
+                {traslados.map((linea) => <FilaTraslado key={linea.id} linea={linea} />)}
+              </ul>
+            )}
+
+            {items.length === 0 && traslados.length === 0 && <FlitEmpty>Sin viajes adicionales.</FlitEmpty>}
 
             {items.length > 0 && (
               <ul className="divide-y" style={BORDE_SUAVE}>
                 {items.map((item) => <FilaViaje key={item.id} item={item} />)}
               </ul>
             )}
+
           </>
         )}
       </div>
@@ -141,7 +153,9 @@ function Cuerpo({ datos }: { datos: DesgloseViajesLogistica }) {
       <div className="mt-3 border-t pt-3" style={BORDE_SUAVE}>
         <div className="flex items-baseline justify-between gap-3">
           <span className="text-xs" style={SECUNDARIO}>
-            {datos.totalViajes === null ? '' : textoTotalViajesPanel(datos.totalViajes)}
+            {ocultarIncluido
+              ? textoTotalViajesPanel(traslados.length + items.length)
+              : datos.totalViajes === null ? '' : textoTotalViajesPanel(datos.totalViajes)}
           </span>
           <span className="text-sm">
             <span style={SECUNDARIO}>Total logística</span>{' '}
@@ -151,6 +165,24 @@ function Cuerpo({ datos }: { datos: DesgloseViajesLogistica }) {
         </div>
       </div>
     </>
+  );
+}
+
+/** El tramo FLIT → cliente de un envío por FLIT llega con precio 0: se nombra, no se esconde. */
+function rotuloTraslado(linea: LineaTrasladoLogistica): string {
+  if (linea.destino === 'flit') return 'Viaje a FLIT';
+  return linea.precio === 0 ? 'Tramo FLIT → cliente · sin costo' : 'Viaje al cliente';
+}
+
+/** Línea de traslado que cobra (HU #14118). Sin placa ni documento: solo destino y precio congelado. */
+function FilaTraslado({ linea }: { linea: LineaTrasladoLogistica }) {
+  return (
+    <li className="py-3" data-traslado={linea.id}>
+      <div className="flex items-baseline justify-between gap-3 text-sm">
+        <span className="font-medium">{rotuloTraslado(linea)}</span>
+        <span className="tabular-nums">{linea.precio === 0 ? 'Sin costo' : pesos(linea.precio)}</span>
+      </div>
+    </li>
   );
 }
 

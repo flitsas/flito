@@ -43,16 +43,16 @@ const pill = (page: Page, nombre: string) => grupoEstado(page).getByRole('button
 const pie = (page: Page) => page.getByRole('status').filter({ hasText: /^Mostrando/ });
 
 test.describe('HU #13948 · Clientes — estado y filtro', () => {
-  test('AC1 — «Todos» por defecto: 5 filas con Estado tras Empresa y «Mostrando 5 de 5»', async ({ page }) => {
+  test('AC1 — «Todos» por defecto: 5 filas con el chip de Estado bajo la Empresa y «Mostrando 5 de 5»', async ({ page }) => {
     await loginAs(page, ADMIN_USER);
     await montar(page, () => ({ status: 200, body: CINCO }));
     await expect(filas(page)).toHaveCount(5);
     await expect(pill(page, 'Todos')).toHaveAttribute('aria-pressed', 'true');
     const cabeceras = tabla(page).locator('thead th');
     await expect(cabeceras.nth(0)).toHaveText('Empresa');
-    await expect(cabeceras.nth(1)).toHaveText('Estado');
-    await expect(filas(page).filter({ hasText: 'Acme S.A.S.' }).locator('td').nth(1)).toHaveText('Activo');
-    await expect(filas(page).filter({ hasText: 'Beta Ltda.' }).locator('td').nth(1)).toHaveText('Inactivo');
+    // HU #14105: el estado ya no es columna; el chip va bajo el nombre de la empresa.
+    await expect(filas(page).filter({ hasText: 'Acme S.A.S.' }).locator('td').nth(0)).toContainText('Activo');
+    await expect(filas(page).filter({ hasText: 'Beta Ltda.' }).locator('td').nth(0)).toContainText('Inactivo');
     await expect(pie(page)).toHaveText('Mostrando 5 de 5');
   });
 
@@ -98,7 +98,7 @@ test.describe('HU #13948 · Clientes — estado y filtro', () => {
     await loginAs(page, FINANCIERA_USER, { funciones: ['clients.clientes.ver'] });
     await montar(page, () => ({ status: 200, body: CINCO }));
     await expect(filas(page)).toHaveCount(5);
-    await expect(tabla(page).locator('thead th').nth(1)).toHaveText('Estado');
+    await expect(filas(page).first().locator('td').nth(0)).toContainText(/Activo|Inactivo/);
     await expect(grupoEstado(page)).toBeVisible();
     await expect(pie(page)).toHaveText('Mostrando 5 de 5');
     await expect(page.getByRole('button', { name: /más acciones|⋮/i })).toHaveCount(0);

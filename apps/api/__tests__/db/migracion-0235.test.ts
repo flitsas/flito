@@ -11,8 +11,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
-import { sqlRepartoArbol } from '../../src/modules/permisos/arbol/sql-arbol.js';
-import { ACCIONES_LECTURA, ACCIONES_POR_AREA, predecesoresDe } from '../../src/modules/permisos/arbol/expansion.js';
+import { accionesSembradasDe, sqlRepartoArbol } from '../../src/modules/permisos/arbol/sql-arbol.js';
+import { ACCIONES_LECTURA, predecesoresDe } from '../../src/modules/permisos/arbol/expansion.js';
 import { absorbidosVivos } from '../../src/modules/permisos/arbol/reparto-arbol.js';
 import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
 import {
@@ -24,7 +24,8 @@ const ARCHIVO = '0235_permisos_arbol_finanzas_reparto.sql';
 const DIR = path.resolve(__dirname, '../../src/db/migrations');
 const SQL = readFileSync(path.join(DIR, ARCHIVO), 'utf8');
 const SIN_COMENTARIOS = SQL.replace(/--[^\n]*/g, '');
-const FINANZAS = ACCIONES_POR_AREA.finanzas;
+// HU #13889: las del área que sembró y repartió la 0235 (las del expediente documental nacen en la 0248).
+const FINANZAS = accionesSembradasDe('finanzas');
 
 describe('0235 — análisis estático', () => {
   it('sin BEGIN/COMMIT propio; número único; la anterior es la 0234; cabecera', () => {
@@ -105,6 +106,7 @@ describe('AC9 — el mundo de hoy (0001..0235 plegadas) = el catálogo del códi
 
   it('el reparto plegado es el reparto de partida del código (la regla en SQL y en TS dicen lo mismo)', () => {
     const aPares = (m: Map<string, Set<string>>) => [...m.entries()].flatMap(([r, cs]) => [...cs].map((c) => `${r} ${c}`)).sort();
-    expect(aPares(leerRepartoSembrado())).toEqual(repartoDePartida().map(([r, c]) => `${r} ${c}`).sort());
+    // La 0283 retiró `mensajero logistica.traslado.registrar` a propósito (solo admin): el código aún lo reparte de partida.
+    expect(aPares(leerRepartoSembrado())).toEqual(repartoDePartida().filter(([r, c]) => !(r === 'mensajero' && c === 'logistica.traslado.registrar')).map(([r, c]) => `${r} ${c}`).sort());
   });
 });

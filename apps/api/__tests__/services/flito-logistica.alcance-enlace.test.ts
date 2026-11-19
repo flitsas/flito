@@ -68,11 +68,12 @@ describe('AC2 — la compañía solo ve lo suyo', () => {
     for (const x of w) expect(x.params).toContain(C);
   });
 
-  it('GET /actas → `flito_logistica_actas.compania_id = C`', async () => {
+  // HU #14109 (ADR-0030 §9): el acta de organismo es multi-compañía y es invisible para el enlace → `punto <> 'organismo'`.
+  it('GET /actas → `flito_logistica_actas.compania_id = C` y sin actas de organismo', async () => {
     deC();
     const r = await request(await app()).get('/api/flito/logistica/actas').set('Authorization', await como('compania'));
     expect(r.status).toBe(200);
-    expect(wheres()).toEqual([{ sql: '"flito_logistica_actas"."compania_id" = $1', params: [C] }]);
+    expect(wheres()).toEqual([{ sql: '("flito_logistica_actas"."compania_id" = $1 and "flito_logistica_actas"."punto" <> $2)', params: [C, 'organismo'] }]);
   });
 
   it('GET /actas/:id ajena → 404 con la condición EN EL WHERE', async () => {
@@ -80,7 +81,10 @@ describe('AC2 — la compañía solo ve lo suyo', () => {
     h.cap.responder([]);
     const r = await request(await app()).get(`/api/flito/logistica/actas/${ACTA}`).set('Authorization', await como('compania'));
     expect([r.status, r.body]).toEqual([404, { error: 'El acta no existe' }]);
-    expect(wheres()[0]).toEqual({ sql: '("flito_logistica_actas"."id" = $1 and "flito_logistica_actas"."compania_id" = $2)', params: [ACTA, C] });
+    expect(wheres()[0]).toEqual({
+      sql: '("flito_logistica_actas"."id" = $1 and ("flito_logistica_actas"."compania_id" = $2 and "flito_logistica_actas"."punto" <> $3))',
+      params: [ACTA, C, 'organismo'],
+    });
   });
 });
 
@@ -113,7 +117,7 @@ describe('AC3 / P-2 — escritura ajena 403 sin oráculo; la propia pasa la guar
 });
 
 describe('P-2 — escaneo, validación por placa y ruta del mensajero cerrados a todo enlace', () => {
-  it.each([['post', '/validar-lt'], ['post', '/escanear'], ['get', '/mi-ruta']] as const)('%s %s → 403, sin consultar', async (m, ruta) => {
+  it.each([['post', '/validar-lt'], ['post', '/escanear'], ['post', '/consultar-vehiculo'], ['get', '/mi-ruta']] as const)('%s %s → 403, sin consultar', async (m, ruta) => {
     const r = await request(await app())[m](`/api/flito/logistica${ruta}`).set('Authorization', await como('compania')).send({ rawValue: 'X' });
     expect([r.status, r.body]).toEqual([403, { error: 'Sin permisos' }]);
     expect(h.cap.consultas).toEqual([]);

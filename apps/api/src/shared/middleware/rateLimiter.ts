@@ -444,6 +444,21 @@ export const bolsasDocumentosCargaLimiter = rateLimit({
 });
 
 /**
+ * Registro masivo de viajes adicionales de logística (HU #14127, AGENTS #18): hasta 200 LT por
+ * petición, cada una con su transacción. 10 / 10 min por usuario.
+ */
+export const viajesMasivoLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('viajes-masivo:'),
+  handler: frenoConRastro('viajes-masivo'),
+  message: { error: 'Demasiados registros masivos seguidos. Espera unos minutos e intenta de nuevo.' },
+  store: makeStore('rl:viajes-masivo:'),
+});
+
+/**
  * `PATCH /api/users/:id/password`: 10 / 15 min / usuario autenticado (HU #13255, Feature #13254).
  *
  * La HU abre la ruta al canal externo (pantalla Perfil), y la regla 18 de AGENTS.md pide freno para
@@ -555,4 +570,19 @@ export const drflitChatLimiter = rateLimit({
   handler: frenoConRastro('drflit-chat'),
   message: { error: 'Envió muchos mensajes seguidos. Espere un momento e intente de nuevo.', codigo: 'demasiados-mensajes' },
   store: makeStore('rl:drflit-chat:'),
+});
+
+/**
+ * HU #14142 — `POST /api/flito/logistica/consultar-vehiculo` (consulta por placa = PII): 20 / min por usuario
+ * para que un mensajero no enumere placas. Va DETRÁS de `exigirFuncion`. Llave y store propios.
+ */
+export const consultarVehiculoLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('flito-log-consultar-vehiculo:'),
+  handler: frenoConRastro('flito-log-consultar-vehiculo'),
+  message: { error: 'Demasiadas consultas. Espera un minuto.' },
+  store: makeStore('rl:flito-log-consultar-vehiculo:'),
 });
