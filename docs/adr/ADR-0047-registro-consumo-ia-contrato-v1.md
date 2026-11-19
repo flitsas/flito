@@ -57,16 +57,17 @@ ni cada placa. Había 13 puntos de llamada (6 por el cliente central `modules/tr
   la capa); `metadatos.motivo` dice por qué se usó.
 - **`error_mensaje`:** además de recortado a 500, sin cédulas (6-12 dígitos) ni correos.
 - **Haiku 5.5** tiene dos tramos de precio; se siembra el de prompts ≤ 100 000 tokens.
-- **Retención del detalle** siempre activa (sin puerta positiva, a diferencia de RN-DRF3): borrar lo
-  vencido es justo lo que la retención protege.
+- **Sin retención** (decisión del 2026-11-19): la tarea diaria `ia-consumo-retencion` se retiró y
+  `IA_CONSUMO_DETALLE_DIAS` ya no existe; el registro y el detalle se conservan. La cabecera de la
+  migración 0306 conserva la redacción anterior (las migraciones aplicadas no se editan).
 - **Usos agregados al catálogo FLITO:** `bolsas_documentos / ocr_fecha_expedicion / ocr` y
   `dr_flit / chat / chat`.
 
 ## Consecuencias
 
 - Migración `0306_ia_consumo_log.sql` (SQL a mano, idempotente) con semilla de tarifas Anthropic.
-- Banderas `IA_CONSUMO_LOG` (true), `IA_CONSUMO_DETALLE` (false), `IA_CONSUMO_DETALLE_DIAS` (30). En
+- Banderas `IA_CONSUMO_LOG` (true), `IA_CONSUMO_DETALLE` (true desde el 2026-11-19). En
   DEV/QA/PDN se fijan en `flit-gitops` si se quiere otro valor que el defecto (no se tocan en este PR).
-- Ley 1581: el registro guarda placa, usuario y huella del archivo; el detalle (apagado por defecto)
-  guarda texto extraído de documentos. Registro de terceros actualizado (§5.1).
+- Ley 1581: el registro guarda placa, usuario y huella del archivo; el detalle (encendido por defecto y
+  sin purga) guarda texto extraído de documentos sin límite de tiempo. Registro de terceros actualizado (§5.1).
 - Riesgo aceptado: una corrección (`anotarConsumoIa`) sobre un lote en vuelo puede perderse.
