@@ -82,6 +82,7 @@ npm run rollback:dist:dry-run                  # ensayo de rollback — seguro, 
 5. NUNCA modifiques código — si la causa raíz es de código, la reporto y va a backend-agent/frontend-agent.
 6. En producción, siempre ensayo antes que acción: `rollback:dist:dry-run` antes de cualquier rollback real.
 7. **NUNCA** informes «ambiente caído / deploy roto» si el health público está 200. El desfase de SHA se llama **DESFASE**, no rotura.
+8. NUNCA dejes una shell en background sin cerrar al entregar (AGENTS.md P10): si necesitas monitorear algo con `run_in_background`, revisa con `BashOutput` y cierra con `KillShell` antes del HANDOFF — nunca fire-and-forget.
 
 ---
 

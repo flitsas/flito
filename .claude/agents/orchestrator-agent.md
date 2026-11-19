@@ -98,6 +98,7 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 10. NUNCA dejes `qa-agent` como «opcional» ni sin fase pre-PR (una por PR de Feature en Modo Feature; una por WI en Bug/HU suelta).
 11. NUNCA planees suite monorepo local completa en cada HU por costumbre; usa el mínimo filtrado de `AGENTS.md` y CI como gate de suite completa.
 12. NUNCA mezcles dos Features en el mismo hilo sin bloque `DUEÑOS`. Si hay ≥2 Active, el plan los separa; un hilo de Siigo no implementa conciliación «porque era la siguiente».
+13. NUNCA lances un proceso en `run_in_background` sin cerrarlo con `KillShell` antes de entregar (AGENTS.md P10) — si no vas a revisarlo ni cerrarlo, córrelo en primer plano.
 
 ---
 
