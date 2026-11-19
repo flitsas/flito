@@ -157,7 +157,8 @@ export const RECHAZADO = sql`lower(${T.flitEstado}) = 'rechazado'`;
 
 /** RN-TOR-FI4: soportes vigentes (no descartados) de SOAT, impuesto y derecho del trámite. */
 const S = flitoSoportes;
-const SOPORTE_VIGENTE = sql`COALESCE(${S.descartado}, false) = false`;
+// `descartado` es NOT NULL: sin COALESCE, para que los índices `idx_flito_soportes_*_tipo` sirvan (db-review).
+const SOPORTE_VIGENTE = sql`${S.descartado} = false`;
 export const SOPORTE_SOAT = sql`EXISTS (SELECT 1 FROM ${S} WHERE ${S.soatId} = ${T.soatId} AND ${SOPORTE_VIGENTE})`;
 export const SOPORTE_IMPUESTO = sql`EXISTS (SELECT 1 FROM ${S} INNER JOIN ${flitoImpuestos} ON ${flitoImpuestos.id} = ${S.impuestoId}
   WHERE ${flitoImpuestos.tramiteId} = ${T.id} AND ${SOPORTE_VIGENTE})`;

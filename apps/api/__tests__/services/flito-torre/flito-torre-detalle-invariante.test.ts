@@ -35,7 +35,16 @@ describe.skipIf(!URL_BASE)('invariante cifra == total del detalle (tx con ROLLBA
   const total = async (filtro: FiltroTorre, c: ConjuntoTorreId, segmentos?: SegmentoDetalle[]) =>
     (await detalle(filtro, { tipo: 'conjunto', conjunto: c }, { segmentos })).total;
 
-  /** Siembra un escenario que toca los 14 conjuntos de B1 en la compañía `x` (y `y` para el filtro de compañía). */
+  let nSoporte = 0;
+  const soporte = async (o: { soatId?: string; impuestoId?: string; derechoId?: string; descartado?: boolean }) => {
+    nSoporte++;
+    await tx`INSERT INTO flito_soportes (tipo, nombre_archivo, content_type, storage_key, hash, tamano_bytes, soat_id, impuesto_id,
+        derecho_id, subido_por_nombre, descartado)
+      VALUES ('comprobante', 'prueba.pdf', 'application/pdf', ${`torre/prueba/${Date.now()}-${nSoporte}`}, ${`h${Date.now()}${nSoporte}`.slice(0, 64)}, 10,
+        ${o.soatId ?? null}, ${o.impuestoId ?? null}, ${o.derechoId ?? null}, 'Prueba', ${o.descartado ?? false})`;
+  };
+
+  /** Siembra un escenario que toca los 14 conjuntos de B1 en `x`, `y` y `z` (soportes 0/1/2/3 en `z`). */
   async function escenario() {
     const u = await valoresUmbrales();
     const x = await s.cia('X'); const y = await s.cia('Y');
@@ -70,7 +79,40 @@ describe.skipIf(!URL_BASE)('invariante cifra == total del detalle (tx con ROLLBA
     const anulado = await s.tramite({ cia: x, creadoFlit: '2035-03-06T15:00:00Z', aprobado: '2035-03-07T15:00:00Z', flitEstado: 'Anulado' });
     await s.liquidacion(anulado, { total: 999_000, logistica: 9_000 });
     await s.tramite({ cia: y, creadoFlit: '2035-03-07T15:00:00Z', aprobado: '2035-03-08T15:00:00Z' });
-    return { x, y, u, filtro: { rango: { desde: '2035-03-01', hasta: HOY }, companiaIds: [x, y] } as FiltroTorre };
+    // Soportes (AC5): tercera compañía con aprobados de 1 (derecho), 2 (impuesto + derecho) y 3 soportes, y un
+    // soporte DESCARTADO que no cuenta. Los demás aprobados del escenario quedan con 0.
+    const z = await s.cia('Z');
+    const conSoportes = async (n: 1 | 2 | 3, dia: string) => {
+      const id = await s.tramite({ cia: z, creadoFlit: `2035-03-${dia}T13:00:00Z`, aprobado: `2035-03-${dia}T18:00:00Z` });
+      await s.derecho({ tramiteId: id, cia: z, organismo: '05001', valor: 10_000, fechaPago: `2035-03-${dia}` });
+      const [d] = await tx`SELECT id FROM flito_derechos_tramite WHERE tramite_id = ${id}`;
+      await soporte({ derechoId: d!.id as string });
+      if (n >= 2) {
+        await s.impuesto({ tramiteId: id, cia: z, organismo: '05001', valorPagado: null, pagadoEn: null });
+        const [i] = await tx`SELECT id FROM flito_impuestos WHERE tramite_id = ${id}`;
+        await soporte({ impuestoId: i!.id as string });
+      } else {
+        // Impuesto con su único soporte descartado: sigue faltando.
+        await s.impuesto({ tramiteId: id, cia: z, organismo: '05001', valorPagado: null, pagadoEn: null });
+        const [i] = await tx`SELECT id FROM flito_impuestos WHERE tramite_id = ${id}`;
+        await soporte({ impuestoId: i!.id as string, descartado: true });
+      }
+      if (n === 3) {
+        const vin = `VZ${dia}${Date.now() % 100_000_000}`;
+        const [v] = await tx`INSERT INTO vehicles (plate, vin) VALUES (${`ZZ${dia}${Date.now() % 100}`}, ${vin}) RETURNING id`;
+        const [so] = await tx`INSERT INTO flito_soat (vin, vehiculo_id, estado, compania_id) VALUES (${vin}, ${v!.id}, 'pagado', ${z}) RETURNING id`;
+        await tx`UPDATE flito_tramites SET soat_id = ${so!.id} WHERE id = ${id}`;
+        await soporte({ soatId: so!.id as string });
+      }
+      return id;
+    };
+    const conUno = await conSoportes(1, '10');
+    const conDos = await conSoportes(2, '11');
+    const conTres = await conSoportes(3, '12');
+    return {
+      x, y, z, u, conUno, conDos, conTres,
+      filtro: { rango: { desde: '2035-03-01', hasta: HOY }, companiaIds: [x, y, z] } as FiltroTorre,
+    };
   }
 
   it('AC1 · Operativo: radar, WIP y logística == total de su conjunto (y los críticos == segmento severidad)', async () => {
@@ -110,32 +152,52 @@ describe.skipIf(!URL_BASE)('invariante cifra == total del detalle (tx con ROLLBA
     expect(paso.facturados).toBe(1);
     const e = t.explicaciones.concentracionTop3Pct!;
     expect(e.definicion).toContain(CONJUNTOS_TORRE.find((c) => c.id === 'tramites_creados')!.definicion);
-    for (const p of t.concentracion.volumen.top.slice(0, 2)) expect(e.frase).toContain(p.compania);
+    // AC2: tres compañías, y la frase nombra las tres con su porcentaje.
+    const top3 = t.concentracion.volumen.top.slice(0, 3);
+    expect(top3).toHaveLength(3);
+    for (const p of top3) expect(e.frase).toContain(`${p.compania} (${p.pct.toLocaleString('es-CO', { maximumFractionDigits: 1 })} %)`);
+    expect(e.frase).toMatch(/vienen de 3 compañías: /);
+    expect(e.componentes!.map((x) => x.etiqueta)).toEqual(top3.map((p) => p.compania));
     expect(e.frase).not.toMatch(/Top 5/);
     if (e.destino.tipo !== 'conjunto') throw new Error('destino esperado: conjunto');
-    const top3 = t.concentracion.volumen.top.slice(0, 3).reduce((a, p) => a + p.valor, 0);
-    expect((await detalle(filtro, e.destino.origen, { segmentos: e.destino.segmentos })).total).toBe(top3);
+    expect((await detalle(filtro, e.destino.origen, { segmentos: e.destino.segmentos })).total).toBe(top3.reduce((a, p) => a + p.valor, 0));
   });
 
   it('AC1/AC5 · Financiero: sin facturar (cifra y valor), soportes 3/3 por nivel y margen == detalle', async () => {
-    const { filtro } = await escenario();
+    const { filtro, conUno, conDos, conTres } = await escenario();
     const t = await tableroFinanciero({ filtro, alcance: TODO, dinero: true, hoy: HOY });
     const sf = await detalle(filtro, { tipo: 'conjunto', conjunto: 'sin_facturar' });
     expect(sf.total).toBe(t.cifras.sinFacturarTramites);
     expect(sf.valorTotal).toBe(t.cifras.sinFacturarValor);
     const c = t.conciliacion;
     expect(await total(filtro, 'soportes_aprobados')).toBe(c.total);
-    const incompletos = await detalle(filtro, { tipo: 'conjunto', conjunto: 'soportes_aprobados' }, { segmentos: [{ dimension: 'nivel', valores: ['0', '1', '2'] }] });
+    // AC5: hay trámites en los cuatro niveles, y cada nivel del detalle == el del bloque de conciliación.
+    expect([c.cero > 0, c.uno, c.dos, c.completos]).toEqual([true, 1, 1, 1]);
+    const porNivel = async (n: string) => total(filtro, 'soportes_aprobados', [{ dimension: 'nivel', valores: [n] }]);
+    expect([await porNivel('0'), await porNivel('1'), await porNivel('2'), await porNivel('3')]).toEqual([c.cero, c.uno, c.dos, c.completos]);
+    const incompletos = await detalle(filtro, { tipo: 'conjunto', conjunto: 'soportes_aprobados' }, { segmentos: [{ dimension: 'nivel', valores: ['0', '1', '2'] }], tamano: 100 });
     expect(incompletos.total).toBe(c.cero + c.uno + c.dos);
-    expect(incompletos.filas[0]!.celdas.faltan_soportes).toEqual(['SOAT', 'Impuesto', 'Derecho']);
+    const ids = incompletos.filas.map((f) => f.tramiteId);
+    expect(ids).toEqual(expect.arrayContaining([conUno, conDos]));
+    expect(ids).not.toContain(conTres);
+    const faltan = (id: string) => incompletos.filas.find((f) => f.tramiteId === id)!.celdas.faltan_soportes;
+    expect(faltan(conUno)).toEqual(['SOAT', 'Impuesto']);   // el impuesto solo tiene un soporte descartado
+    expect(faltan(conDos)).toEqual(['SOAT']);
+    expect(incompletos.filas.find((f) => f.tramiteId !== conUno && f.tramiteId !== conDos)!.celdas.faltan_soportes).toEqual(['SOAT', 'Impuesto', 'Derecho']);
+    expect(await total(filtro, 'soportes_aprobados', [{ dimension: 'faltante', valores: ['derecho'] }])).toBe(c.cero);
     const ss = t.explicaciones.soportesCompletosPct!;
     if (ss.destino.tipo !== 'conjunto') throw new Error('destino esperado: conjunto');
     expect((await detalle(filtro, ss.destino.origen, { segmentos: ss.destino.segmentos })).total).toBe(c.cero + c.uno + c.dos);
-    expect(await total(filtro, 'soportes_aprobados', [{ dimension: 'faltante', valores: ['soat'] }])).toBe(c.total);
+    expect(await total(filtro, 'soportes_aprobados', [{ dimension: 'faltante', valores: ['soat'] }])).toBe(c.total - c.completos);
     const m = await detalle(filtro, { tipo: 'conjunto', conjunto: 'margen_aprobados' });
     expect(m.valorTotal).toBe(t.margen!.porServicio.reduce((a, x) => a + x.cobrado, 0));
-    // La fila de sin facturar abre su compañía (AC13).
+    // AC13: la fila de sin facturar («Ver en reporte de costos» en la web) abre el conjunto con SU compañía; la web
+    // manda el mismo filtro de la barra, así que el detalle con ese filtro da exactamente la cifra de la fila.
     const fila = t.sinFacturar.filas[0]!;
+    expect(fila.destino).toEqual({
+      tipo: 'conjunto', origen: { tipo: 'conjunto', conjunto: 'sin_facturar' },
+      segmentos: [{ dimension: 'compania', valores: [fila.companiaId == null ? null : String(fila.companiaId)] }],
+    });
     if (fila.destino?.tipo !== 'conjunto') throw new Error('destino esperado: conjunto');
     expect((await detalle(filtro, fila.destino.origen, { segmentos: fila.destino.segmentos })).total).toBe(fila.tramites);
   });

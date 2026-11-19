@@ -14,13 +14,35 @@ vi.mock('../../../src/db/client.js', () => {
   for (const m of ['from', 'where', 'limit', 'innerJoin', 'leftJoin']) c[m] = () => c;
   (c as { then: unknown }).then = (res: (v: unknown) => void) => res([]);
   return {
-    db: { select: () => c, insert: () => ({ values: () => Promise.resolve() }), transaction: () => Promise.reject(new Error('sin base en este archivo')) },
+    // `enTorre` corre sobre un `tx` falso que no devuelve filas (el SQL se prueba en el archivo de la invariante).
+    db: { select: () => c, insert: () => ({ values: () => Promise.resolve() }), transaction: async (fn: (tx: unknown) => unknown) => fn({ execute: async () => [] }) },
     getPoolStats: vi.fn(),
   };
 });
 vi.mock('../../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 const pii = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../../src/shared/pii-audit.js', () => ({ logPiiAccess: pii }));
+// AC10: espías sobre la caché de la Torre y sobre todo logger que pida un módulo.
+const cache = { leer: vi.fn(), guardar: vi.fn() };
+vi.mock('../../../src/modules/flito-torre/flito-torre.metricas.service.js', async (importOriginal) => {
+  const real = await importOriginal<Record<string, unknown>>();
+  return {
+    ...real,
+    leerCache: (...a: unknown[]) => { cache.leer(...a); return Promise.resolve(null); },
+    guardarCache: (...a: unknown[]) => { cache.guardar(...a); return Promise.resolve(); },
+  };
+});
+const registros = vi.fn();
+vi.mock('../../../src/shared/logger.js', async (importOriginal) => {
+  const real = await importOriginal<Record<string, unknown>>();
+  const espia = (): Record<string, unknown> => {
+    const l: Record<string, unknown> = {};
+    for (const n of ['trace', 'debug', 'info', 'warn', 'error', 'fatal']) l[n] = (...a: unknown[]) => registros(n, ...a);
+    l.child = () => l;
+    return l;
+  };
+  return { ...real, loggerFor: () => espia() };
+});
 const detalleSvc = { consultarDetalle: vi.fn() };
 vi.mock('../../../src/modules/flito-torre/flito-torre.detalle.service.js', async (importOriginal) => {
   const real = await importOriginal<Record<string, (...a: unknown[]) => unknown>>();
@@ -61,7 +83,7 @@ beforeEach(() => {
   filas.clear();
   permisos.fijarFuenteDePermisos(async (id: number) => filas.get(id) ?? null);
   for (const i of [1, 2, 3, 4, 5]) permisos.invalidarPermisosDe(i);
-  pii.mockClear(); detalleSvc.consultarDetalle.mockClear();
+  pii.mockClear(); detalleSvc.consultarDetalle.mockClear(); cache.leer.mockClear(); cache.guardar.mockClear(); registros.mockClear();
   de(1, ['accion.torre_operativa.ver']);                                                     // sin torre.detalle.ver
   de(2, [VER, 'accion.torre_operativa.ver', 'accion.torre_financiera.ver']);                 // ve, sin dinero
   de(3, [VER, 'accion.torre_comercial.ver', 'accion.torre_explorador.consultar', 'accion.torre_explorador.ver_dinero']); // como gerencia_comercial
@@ -151,6 +173,34 @@ describe('AC10 · Habeas Data', () => {
     // AC7: la placa llega normalizada en el body (y nunca en el motivo del log).
     expect(detalleSvc.consultarDetalle.mock.calls[0]![0]).toMatchObject({ filtrosDetalle: { placa: 'ABC123' } });
     expect(JSON.stringify(pii.mock.calls[0]![1])).not.toContain('ABC123');
+  });
+
+  it('con la placa ABC123 en filtrosDetalle: ni la caché ni el logger la reciben en claro, y se cachea solo { total, valorTotal }', async () => {
+    const r = await pide('/consultar', 2, consulta({ filtrosDetalle: { placa: 'ABC123' } }));
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ total: 0, filas: [] });
+    expect(cache.leer).toHaveBeenCalledTimes(1);
+    expect(cache.guardar).toHaveBeenCalledTimes(1);
+    const [clave, valor] = cache.guardar.mock.calls[0]!;
+    expect(clave).toMatch(/^torre:detalle-total:[0-9a-f]{64}$/);
+    expect(cache.leer.mock.calls[0]![0]).toBe(clave);
+    expect(valor).toEqual({ total: 0, valorTotal: null });
+    expect(Object.keys(valor as object).sort()).toEqual(['total', 'valorTotal']);
+    const todo = JSON.stringify([cache.leer.mock.calls, cache.guardar.mock.calls, registros.mock.calls, pii.mock.calls.map((c) => c[1])]);
+    expect(todo).not.toContain('ABC123');
+    expect(todo.toUpperCase()).not.toContain('ABC123');
+  });
+
+  it('un fallo de la base se loguea sin la placa (solo el código de Postgres)', async () => {
+    detalleSvc.consultarDetalle.mockImplementationOnce(async (...a: unknown[]) => {
+      const { enTorre } = await import('../../../src/modules/flito-torre/flito-torre.metricas.service.js');
+      return enTorre(async () => { throw Object.assign(new Error(`falla con ${JSON.stringify(a[0])}`), { code: '42P01' }); });
+    });
+    const r = await pide('/consultar', 2, consulta({ filtrosDetalle: { placa: 'ABC123' } }));
+    expect(r.status).toBe(500);
+    expect(JSON.stringify(r.body)).not.toContain('ABC123');
+    expect(registros).toHaveBeenCalled();
+    expect(JSON.stringify(registros.mock.calls)).not.toContain('ABC123');
   });
 
   it('la gestión de SOAT se registra contra flito_soat', async () => {

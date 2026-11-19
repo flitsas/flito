@@ -5,8 +5,6 @@
 -- Reparto literal de `REPARTO_TORRE` (`apps/api/src/modules/permisos/arbol/acciones-torre.ts`): admin, financiera,
 -- gerencia_comercial y gerencia_general ven y exportan; auditor solo ve. La 0303 (ya aplicada) no se toca.
 -- Idempotente: `ON CONFLICT` en las dos tablas. Las operaciones nacen en el árbol (no se siembran).
---
--- NÚMERO PROVISIONAL: lo asigna el hilo al integrar (siguiente NNNN libre de develop).
 
 -- ÁRBOL GENERADO (inicio)
 -- 1 ítems (nivel 2) y 2 acciones (nivel 3). Generado: no editar a mano.
