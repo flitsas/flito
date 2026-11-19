@@ -107,6 +107,29 @@ export const RUTAS_TRANSVERSALES: readonly RutaTransversal[] = congelar([
     porque: '«Ver mis datos» de Perfil (HU #13428, P-22: a todos los roles). Devuelve SOLO los datos del '
       + 'propio usuario (`sub` del token, sin `:id`), como `/auth/me`, y exige `perfil.datos.ver`.',
   },
+  {
+    metodo: 'GET', patron: '/api/flito/dr-flit/autorizacion',
+    porque: 'Dr. Flit (HU #13803, diseño F5 §D3): el panel de sesión consulta si EL PROPIO usuario aceptó '
+      + 'la autorización de datos (Ley 1581) para mostrar «Necesito soporte» a Corredor SOAT/Impuestos. '
+      + 'Desde la HU #13941 no excluye ningún enlace: la ruta exige la función de Dr. Flit de su finalidad.',
+  },
+  {
+    metodo: 'POST', patron: '/api/flito/dr-flit/autorizacion',
+    porque: 'Dr. Flit (HU #13803): registra la aceptación del PROPIO usuario (sub del token, solo inserción). '
+      + 'Sin esto un corredor con enlace no puede autorizar y no alcanza el soporte. Mismas guardas que el GET.',
+  },
+  {
+    metodo: 'POST', patron: '/api/flito/dr-flit/casos-soporte',
+    porque: 'Dr. Flit (HU #13804): el PROPIO usuario radica su caso en FLIT - SOPORTE (sub del token; '
+      + 'el intento solo guarda metadatos). Corredor SOAT/Impuestos deben poder pedir soporte. Mismas '
+      + 'guardas que /autorizacion, más `drflitCasosLimiter` y autorización de soporte vigente.',
+  },
+  {
+    metodo: 'POST', patron: '/api/flito/dr-flit/chat',
+    porque: 'Dr. Flit IA (HU #13856): el PROPIO usuario pregunta al asistente (sub del token; nada se guarda '
+      + 'salvo su contador diario). Corredor SOAT/Impuestos también ven a Dr. Flit. Mismas guardas que '
+      + '/autorizacion, más `drflitChatLimiter`, autorización `ia` vigente (428) y cupo diario.',
+  },
 ]);
 
 function congelar(lista: RutaTransversal[]): readonly RutaTransversal[] {

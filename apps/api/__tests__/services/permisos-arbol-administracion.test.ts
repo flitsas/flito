@@ -149,8 +149,9 @@ describe('Reglas del paso (PO, 2026-10-13): lectura explícita, reparto universa
     }
   });
 
-  it('P-22: las dos de Perfil son las únicas universales, viajan con `pagina.perfil` y el catálogo las da a los 12 roles', () => {
+  it('P-22: las dos de Perfil (y desde la HU #13941 «Ver los manuales» de Dr. Flit) son las únicas universales, viajan con la página de su ítem y el catálogo las da a los 12 roles', () => {
     expect(ACCIONES_UNIVERSALES).toEqual([
+      { accion: 'accion.dr_flit.ver_manuales', pagina: 'pagina.flito_dr_flit' },
       { accion: 'accion.perfil.cambiar_contrasena', pagina: 'pagina.perfil' },
       { accion: 'accion.perfil.ver_datos', pagina: 'pagina.perfil' },
     ]);

@@ -40,6 +40,8 @@ export const DIRECTORIOS_RECONDUCIDOS = [
   'maintenance', 'vehicles', 'fleet', 'rndc', 'rutas', 'liquidacion', 'finanzas', 'clients',
   // HU #13423 (cierre de la valla): los seis sensibles y los dos de las operaciones de solo sesión.
   'laft', 'privacy', 'firma', 'drive', 'soat', 'siigo', 'runt', 'integraciones',
+  // HU #13889 (ADR-0028): expediente documental de la compañía, nace reconducido.
+  'flito-bolsas-documentos',
 ] as const;
 
 /** Rutas de los 24 ficheros que NO llevan guarda de función y siguen igual (§4 del diseño; `/mios`: HU #12084). */
@@ -91,7 +93,13 @@ function ficherosTs(dir: string): string[] {
 }
 
 const leer = (rel: string) => readFileSync(join(RAIZ_MODULOS, rel), 'utf8');
-const FICHEROS_DE_RUTAS = FICHEROS_EN_ALCANCE.map((f) => f.fichero);
+/**
+ * HU #13941: los ficheros del alcance que NO declaran rutas, solo guardas en línea (`tieneFuncion`) que montan otros
+ * routers (como `siigo/siigo.permisos.ts` en el legado). Sus montajes los cubren la foto y el lector; aquí no aplica
+ * «importa exigirFuncion / conserva router.use(authMiddleware) / declara rutas».
+ */
+const FICHEROS_DE_GUARDAS_EN_LINEA: ReadonlySet<string> = new Set(['flito-dr-flit/dr-flit.funciones.ts']);
+const FICHEROS_DE_RUTAS = FICHEROS_EN_ALCANCE.map((f) => f.fichero).filter((f) => !FICHEROS_DE_GUARDAS_EN_LINEA.has(f));
 
 describe('AC1/AC2 — en los 21 directorios ya no decide ningún requireRole', () => {
   for (const dir of DIRECTORIOS_RECONDUCIDOS) {
@@ -107,8 +115,8 @@ describe('AC1/AC2 — en los 21 directorios ya no decide ningún requireRole', (
   }
 
   it('los directorios son 42 (19 del enunciado + permisos + finanzas-servicios-adicionales + flito-comprobantes + pesv, drivers, jornadas y rum de la HU #13421 + los ocho de operación de la HU #13422 + los ocho de la HU #13423) y los 32 ficheros de rutas del alcance viven en ellos (flito-logistica aporta dos: el legado y el de viajes, HU #12619; flito-impuestos otros tres: el de la cola, el de la dirección, HU #12833, y el del reemplazo del comprobante, HU #13269; flito-soat cuatro: módulo, canal Cliente, incompletas, HU #12997, y documentos adicionales, HU #13362; flito-sync tres: el de sync, el del acceso a FLIT 2, HU #13061, y el del interruptor por fuente, HU #13237)', () => {
-    expect(DIRECTORIOS_RECONDUCIDOS).toHaveLength(42);
-    expect(FICHEROS_DE_RUTAS).toHaveLength(32);
+    expect(DIRECTORIOS_RECONDUCIDOS).toHaveLength(43); // + flito-bolsas-documentos (HU #13889)
+    expect(FICHEROS_DE_RUTAS).toHaveLength(35); // + flito-bolsas.catalogo.routes.ts (HU #13900) y su rama tránsito (HU #13907), mismo directorio
     for (const f of FICHEROS_DE_RUTAS) {
       expect((DIRECTORIOS_RECONDUCIDOS as readonly string[]).includes(f.split('/')[0]!), f).toBe(true);
     }
@@ -172,7 +180,7 @@ describe('AC1/AC2 — cada router.<método>( de los 24 ficheros lleva exigirFunc
 });
 
 describe('el lector de montajes cubre la foto entera', () => {
-  it('353 montajes = 238 previos + 2 de la #12089 (baja/reactivar) + 4 de la #12541 (servicios adicionales) + 3 por la HU #12545 (servicios por trámite) + 1 por la HU #12591 (recibo de caja) + 5 por la HU #12611 (comprobantes) + 3 por la HU #12619 (viajes de logística) + 3 por la HU #12629 (comprobantes F2) + 1 por la HU #12654 (comprobantes F3: aceptar diferencia) + 2 por el Bug #12642 (export ampliado, en línea) + 1 por la HU #12833 (corregir dirección) + 2 por la HU #12997 (incompletas SOAT: buscar y ver) + 1 por la HU #12998 (reintentar la consulta RUNT) + 2 por la HU #13061 (acceso a FLIT 2: ver y guardar) + 1 por la HU #13237 (interruptor por fuente) + 1 por la HU #13269 (reemplazar el comprobante de pago) + 1 por la HU #13362 (documentos adicionales del SOAT) + 2 por la HU #13364 (cargar y eliminar documentos adicionales) + 76 por la HU #13421 (pesv 48, drivers 24, jornadas 3, rum 1) + 1 por la HU #13425 (operar actas ajenas, en línea) + 3 por la HU #13425 fase B (jornada ajena; vista de auditoría del diagnóstico: abrirla y sugerirla; en línea) + 92 por la HU #13422 (maintenance 33, vehicles 12 + 1 en línea, fleet 10, rndc 5, rutas 16, liquidacion 4, finanzas 8, clients 3) + 134 por la HU #13423 (laft 60, siigo 35 + 8 en línea, soat 12, drive 6, privacy 4, firma 2, vehicles 4, runt 2, integraciones 1) + 1 por la HU #12874 (compañías del canal SOAT sin trámite) + 1 por la HU #13628 (parámetros de la lectura de FLIT 1) − 1 por la HU #13631 (retiro de POST /sincronizar) + 1 por la HU #13684 (POST /novedades/buscar de trámites); los códigos son exactamente los de la foto', () => {
+  it('353 montajes = 238 previos + 2 de la #12089 (baja/reactivar) + 4 de la #12541 (servicios adicionales) + 3 por la HU #12545 (servicios por trámite) + 1 por la HU #12591 (recibo de caja) + 5 por la HU #12611 (comprobantes) + 3 por la HU #12619 (viajes de logística) + 3 por la HU #12629 (comprobantes F2) + 1 por la HU #12654 (comprobantes F3: aceptar diferencia) + 2 por el Bug #12642 (export ampliado, en línea) + 1 por la HU #12833 (corregir dirección) + 2 por la HU #12997 (incompletas SOAT: buscar y ver) + 1 por la HU #12998 (reintentar la consulta RUNT) + 2 por la HU #13061 (acceso a FLIT 2: ver y guardar) + 1 por la HU #13237 (interruptor por fuente) + 1 por la HU #13269 (reemplazar el comprobante de pago) + 1 por la HU #13362 (documentos adicionales del SOAT) + 2 por la HU #13364 (cargar y eliminar documentos adicionales) + 76 por la HU #13421 (pesv 48, drivers 24, jornadas 3, rum 1) + 1 por la HU #13425 (operar actas ajenas, en línea) + 3 por la HU #13425 fase B (jornada ajena; vista de auditoría del diagnóstico: abrirla y sugerirla; en línea) + 92 por la HU #13422 (maintenance 33, vehicles 12 + 1 en línea, fleet 10, rndc 5, rutas 16, liquidacion 4, finanzas 8, clients 3) + 134 por la HU #13423 (laft 60, siigo 35 + 8 en línea, soat 12, drive 6, privacy 4, firma 2, vehicles 4, runt 2, integraciones 1) + 1 por la HU #12874 (compañías del canal SOAT sin trámite) + 1 por la HU #13628 (parámetros de la lectura de FLIT 1) − 1 por la HU #13631 (retiro de POST /sincronizar) + 1 por la HU #13684 (POST /novedades/buscar de trámites) + 1 por la HU #13836 (POST /buscar de trámites, Dr. Flit) + 1 por la HU #13837 (POST /buscar de SOAT, Dr. Flit) + 2 por la HU #13838 (POST /buscar de impuestos y de derechos, Dr. Flit); los códigos son exactamente los de la foto', () => {
     const montajes = montajesDeFunciones();
     // +1 por la HU #12874 (compañías del canal SOAT sin trámite); +1 por la HU #13427 (gastos diarios; las
     // credenciales de Siigo cambian POST / y DELETE /:id por dos guardas en línea por ambiente: mismo total);
@@ -181,9 +189,20 @@ describe('el lector de montajes cubre la foto entera', () => {
     // +1 por la HU #13628 (`PUT /flit1/parametros-lectura`, reutiliza `tramites.sincronizacion.configurar`).
     // −1 por la HU #13631 (se retira `POST /sincronizar` y su función `sync.sync.lanzar`).
     // +1 por la HU #13684 (`POST /novedades/buscar` de flito-tramites, reutiliza `tramites.cola.ver`).
-    // +2 por el Bug #14569 (Revisiones OCR: POST /:id/candidatos/buscar y POST /:id/reintentar-lectura, reutilizan `revisiones.revision.resolver`).
-    expect(GUARDAS_MEDIDAS).toHaveLength(592);
-    expect(montajes).toHaveLength(592);
+    // +4 por la HU #13889 (expediente documental de la compañía: expediente, historial, carga y descarga).
+    // +1 por la HU #13890 (`PUT /documentos/:documentoId/fecha-expedicion`, reutiliza `bolsas.documentos.cargar`).
+    // +11 por la HU #13900 (catálogo de bolsa: buscar, crear, estado, detalle, editar, inactivar, reactivar y las
+    // cuatro rutas por bolsa que reutilizan los códigos del canal Cliente: movimientos, recargas, cierres ×2).
+    // +1 por la HU #13893 (`POST /estado-lote` del expediente, reutiliza `bolsas.documentos.ver`).
+    // +2 por la HU #13903 (comprobantes: desaplicar y reemplazar).
+    // +10 por la HU #13907 (rama tránsito del catálogo: buscar, crear, detalle, editar, inactivar, reactivar, movimientos,
+    // recargas y cierres ×2).
+    // +1 por la HU #13836 (`POST /buscar` de flito-tramites para Dr. Flit, reutiliza `tramites.cola.ver`).
+    // +1 por la HU #13837 (`POST /buscar` de flito-soat para Dr. Flit, reutiliza `soat.cola.ver`).
+    // +2 por la HU #13838 (`POST /buscar` de flito-impuestos y de flito-derechos para Dr. Flit).
+    // + 3 en línea de la HU #13941 (funciones de Dr. Flit).
+    expect(GUARDAS_MEDIDAS).toHaveLength(626);
+    expect(montajes).toHaveLength(626);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     // En línea: 2 del Bug #12642 + forzar_continuar + contraseña ajena + operar actas ajenas (HU #13425)
@@ -192,7 +211,8 @@ describe('el lector de montajes cubre la foto entera', () => {
     // + las 8 acciones de Siigo, en línea en `siigo.permisos.ts` (HU #13423)
     // + registrar credenciales de Siigo de pruebas y de producción (HU #13427)
     // + compañía por grupo (general, autogestión, sin trámite), clientes editar y fiscal, contraseña propia (HU #13428).
-    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(25);
+    // + las tres funciones de Dr. Flit, en línea en `dr-flit.funciones.ts` (HU #13941).
+    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(28);
   });
 
   it('un exigirFuncion sin literal hace que el lector LANCE en vez de adivinar', () => {

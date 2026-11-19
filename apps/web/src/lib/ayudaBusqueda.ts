@@ -52,7 +52,7 @@ export function documentoDeEntrada(
 }
 
 // Pesos del diseño (§3). Cada término suma una sola vez por nivel: presencia, no frecuencia.
-const PESO = {
+export const PESO = {
   tituloIgual: 100,
   tituloContiene: 30,
   titulo: 8,

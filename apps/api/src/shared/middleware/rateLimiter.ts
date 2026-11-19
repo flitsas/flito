@@ -255,6 +255,29 @@ export const soatClienteLimiter = rateLimit({
 });
 
 /**
+ * HU #13804 (AC9) — Dr. Flit: radicar un caso en FLIT - SOPORTE (`POST /api/flito/dr-flit/casos-soporte`).
+ * `DRFLIT_RADICACIONES_POR_HORA` (5) por usuario y hora. Cuenta lo que llama (o pudo llamar) a un
+ * tercero: las radicaciones (2xx) y los fallos (5xx, incluidos los de ADO). NO cuenta los 4xx de
+ * validación, autorización ni `radicacion-en-curso`. Va DESPUÉS de auth/rol/enlace y ANTES de la
+ * autorización y del handler. Con ADO caído el usuario tiene ~4 reintentos en la hora (declarado).
+ */
+export const drflitCasosLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: env.DRFLIT_RADICACIONES_POR_HORA,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('drflit-casos:'),
+  handler: frenoConRastro('drflit-casos'),
+  skipFailedRequests: true,
+  requestWasSuccessful: (_req, res) => res.statusCode < 400 || res.statusCode >= 500,
+  message: {
+    error: 'Ya radicó varios casos en la última hora. Espere un rato e intente de nuevo.',
+    codigo: 'demasiadas-radicaciones',
+  },
+  store: makeStore('rl:drflit-casos:'),
+});
+
+/**
  * HU #13364 (AC10) — carga posterior de documentos adicionales (`POST /api/flito/soat/:id/documentos-adicionales`).
  * 30 envíos / 15 min por usuario + IP. Presupuesto PROPIO: otro público (operación y proveedor) y
  * otra ruta que el canal Cliente. Va DESPUÉS de `exigirFuncion` y ANTES de multer: quien no tiene la
@@ -386,76 +409,6 @@ export const soatLecturaFacturaLimiter = rateLimit({
 });
 
 /**
- * Reintento de lectura OCR desde la cola de revisión (Bug #14569, punto 9). Cada reintento vuelve a
- * pasar el soporte guardado por el motor de OCR —un encargado externo con coste por llamada— y por
- * eso se raciona aparte (AGENTS.md §18), con contador propio por usuario: un clic repetido sobre la
- * misma revisión no le quita presupuesto a ninguna otra ruta. 10 en 15 minutos sobra para quien
- * revisa a mano y corta un bucle de clics o un script.
- */
-export const revisionReintentoOcrLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: userOrIpKey('revision-ocr:'),
-  handler: frenoConRastro('revision-ocr'),
-  message: { error: 'Demasiados reintentos de lectura seguidos. Espera unos minutos e intenta de nuevo.' },
-  store: makeStore('rl:revision-ocr:'),
-});
-
-/**
- * Intentos de contraseña de un comprobante SOAT en PDF cifrado (Bug #14569; calco de
- * {@link soatLecturaFacturaLimiter}). La clave suele ser la cédula o el NIT del titular: sin tope,
- * la carga de factura sería un oráculo para adivinarla por fuerza bruta. 10 intentos cada 15 min
- * por usuario (decisión del humano).
- *
- * **Excepción al «va delante de multer»:** este limitador solo cuenta las peticiones que TRAEN
- * contraseña (`skip` sin `contrasena`/`contrasenas`), y esos campos viven en el cuerpo multipart,
- * que no existe hasta que multer lo procesa. Por eso se monta DESPUÉS de multer en
- * `POST /:id/factura` y `POST /facturas`. Una carga sin clave no gasta cupo.
- *
- * Llave y store propios (`soat-pdf-clave:` / `rl:soat-pdf-clave:`), como los demás.
- */
-export const soatPdfContrasenaLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: userOrIpKey('soat-pdf-clave:'),
-  handler: frenoConRastro('soat-pdf-clave'),
-  skip: (req) => !req.body?.contrasena && !req.body?.contrasenas,
-  message: { error: 'Demasiados intentos de contraseña seguidos. Espera unos minutos e intenta de nuevo.' },
-  store: makeStore('rl:soat-pdf-clave:'),
-});
-
-/**
- * Modo «nombre del archivo como contraseña» de la carga de comprobantes SOAT (Bug #14569, punto 10;
- * calco de {@link soatPdfContrasenaLimiter}). Cada archivo protegido prueba hasta 3 variantes de su
- * nombre, así que el cupo es propio y no gasta el de contraseñas escritas. 60 peticiones en quince
- * minutos = 300 archivos a 5 por petición (`CARGA_MASIVA_ARCHIVOS_POR_PETICION`): dos lotes
- * completos de 150. Va DESPUÉS de multer (el flag viene en el body) y solo cuenta las peticiones que
- * lo piden: `usarNombreComoClave === 'true'` (individual) o al menos un `true` en `nombresComoClave`
- * (masiva, arreglo JSON por posición). Llave y store propios.
- */
-/** ¿`nombresComoClave` (JSON) trae al menos un `true`? Mal formado = no (la ruta lo rechaza con 400). */
-function pideNombreEnLote(bruto: unknown): boolean {
-  if (typeof bruto !== 'string' || bruto === '') return false;
-  try { const v: unknown = JSON.parse(bruto); return Array.isArray(v) && v.includes(true); } catch { return false; }
-}
-
-export const soatPdfNombreClaveLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 60,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: userOrIpKey('soat-pdf-nombre:'),
-  handler: frenoConRastro('soat-pdf-nombre'),
-  skip: (req) => req.body?.usarNombreComoClave !== 'true' && !pideNombreEnLote(req.body?.nombresComoClave),
-  message: { error: 'Demasiados intentos de abrir PDFs protegidos con el nombre del archivo. Espera unos minutos e intenta de nuevo.' },
-  store: makeStore('rl:soat-pdf-nombre:'),
-});
-
-/**
  * Carga de comprobantes universales (`POST /api/flito/comprobantes`, HU #12629 AC9; calco de
  * {@link soatLecturaFacturaLimiter}): cada petición son hasta 5 archivos que pasan por el OCR
  * (gasto externo por byte, como la lectura de factura) y el lote entero son hasta 150 archivos = 30
@@ -473,6 +426,21 @@ export const comprobantesCargaLimiter = rateLimit({
   handler: frenoConRastro('comprobantes-carga'),
   message: { error: 'Demasiados envíos de comprobantes seguidos. Espera unos minutos e intenta de nuevo.' },
   store: makeStore('rl:comprobantes-carga:'),
+});
+
+/**
+ * Carga o reemplazo de un documento del expediente de la compañía (HU #13889, ADR-0028 §8):
+ * 30 / 10 min por usuario. Cada carga son hasta 15 MB cifrados en memoria y subidos a MinIO.
+ */
+export const bolsasDocumentosCargaLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('bolsas-docs:'),
+  handler: frenoConRastro('bolsas-docs'),
+  message: { error: 'Demasiadas cargas de documentos seguidas. Espera unos minutos e intenta de nuevo.' },
+  store: makeStore('rl:bolsas-docs:'),
 });
 
 /**
@@ -552,4 +520,39 @@ export const novedadesTramitesLimiter = rateLimit({
   handler: frenoConRastro('flito-tramites-novedades'),
   message: { error: 'Demasiadas consultas de novedades. Espera un minuto.' },
   store: makeStore('rl:flito-tramites-novedades:'),
+});
+
+/**
+ * HU #13836 (Feature #13834) — consultas de gestión de Dr. Flit (`POST /api/flito/<modulo>/buscar`): 40 / min
+ * por usuario, UNA bolsa compartida por los cuatro módulos (una consulta completa son hasta 4 POST, así que
+ * 40 ≈ 10 consultas por minuto). Va DETRÁS de `exigirFuncion` (quien no tiene la función no gasta cupo).
+ * No comparte bolsa con `drflit-casos` ni con el cupo de IA. Cota revisable y sin telemetría (decisión
+ * humana Q4 del diseño). `frenoConRastro` registra la ruta, nunca el body con el valor buscado.
+ */
+export const drFlitGestionLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('drflit-gestion:'),
+  handler: frenoConRastro('drflit-gestion'),
+  message: { error: 'Hizo muchas consultas seguidas; intente en un momento' },
+  store: makeStore('rl:drflit-gestion:'),
+});
+
+/**
+ * HU #13856 (Feature #13696, IA-4) — ráfaga del chat con IA de Dr. Flit (`POST /api/flito/dr-flit/chat`):
+ * 10 / min por usuario. Va PRIMERO en la cadena del chat (antes de Zod y del cupo): es un freno de ráfaga,
+ * no el control de costo (ese es el cupo diario en PostgreSQL, `dr-flit-ia.cupo.ts`). Bolsa propia: no
+ * comparte con `drflit-casos` ni con `drflit-gestion`. `frenoConRastro` no registra el cuerpo (el mensaje).
+ */
+export const drflitChatLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('drflit-chat:'),
+  handler: frenoConRastro('drflit-chat'),
+  message: { error: 'Envió muchos mensajes seguidos. Espere un momento e intente de nuevo.', codigo: 'demasiados-mensajes' },
+  store: makeStore('rl:drflit-chat:'),
 });

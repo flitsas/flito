@@ -39,10 +39,33 @@ async function rolAsignable(codigo: string): Promise<{ tipoEnlace: string } | nu
 }
 // HU #12087: la existencia de los códigos se pregunta al mismo sitio que el cuadro del rol
 // (dependencia en un solo sentido: `users` → `permisos`; `permisos` no importa nada de aquí).
-import { FuncionesInexistentesError, funcionesInexistentes } from '../permisos/permisos-roles.service.js';
+import { FuncionesInexistentesError } from '../permisos/permisos-roles.service.js';
+import { comprobarExcepcionesExclusivas, FuncionExclusivaAdminError, leerFunciones } from '../permisos/permisos-exclusivas.js';
 import { listarAuditoria, titularesAuditoria } from './users-auditoria.service.js';
 
 const log = loggerFor('users');
+/**
+ * HU #12087 (AC1) + HU #13944: las excepciones por usuario se comprueban ANTES de la transacción, en una sola
+ * lectura. Código inexistente → 400; excepción `conceder` o `revocar` sobre una función exclusiva del
+ * Administrador → 409 (`{ error, funcion }`). Devuelve `true` si ya respondió.
+ */
+async function rechazarFunciones(res: Response, funciones: { codigo: string; efecto: string }[]): Promise<boolean> {
+    const { inexistentes, exclusivas } = await leerFunciones(funciones.map((f) => f.codigo));
+    if (inexistentes.length > 0) {
+        res.status(400).json({ error: 'Funciones inexistentes', funciones: inexistentes });
+        return true;
+    }
+    try {
+        comprobarExcepcionesExclusivas(funciones, exclusivas);
+    }
+    catch (e) {
+        if (!(e instanceof FuncionExclusivaAdminError))
+            throw e;
+        res.status(409).json({ error: e.message, funcion: e.funcion });
+        return true;
+    }
+    return false;
+}
 const router = Router();
 // Roles asignables: fuente única en @operaciones/shared-types (incluye 'auditor').
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])/;
@@ -547,13 +570,8 @@ router.post('/', exigirFuncion('usuarios.usuario.crear'), async (req: Request, r
     }
     // HU #12087 (AC1): los códigos se comprueban ANTES de abrir la transacción, como `guardarCuadro`:
     // un 400 por función inexistente no escribe nada.
-    if (funciones?.length) {
-        const faltan = await funcionesInexistentes(funciones.map((f) => f.codigo));
-        if (faltan.length > 0) {
-            res.status(400).json({ error: 'Funciones inexistentes', funciones: faltan });
-            return;
-        }
-    }
+    if (funciones?.length && await rechazarFunciones(res, funciones))
+        return;
     const passwordHash = await argon2.hash(password);
     // Ámbito por tipoEnlace; `transitoCodigo` siempre null (fuente = puente, HU #12088).
     let user;
@@ -702,13 +720,8 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
         }
     }
     // HU #12087 (AC1): antes de la transacción, como en el alta. Un código inexistente → 400 sin escribir.
-    if (data.funciones?.length) {
-        const faltan = await funcionesInexistentes(data.funciones.map((f) => f.codigo));
-        if (faltan.length > 0) {
-            res.status(400).json({ error: 'Funciones inexistentes', funciones: faltan });
-            return;
-        }
-    }
+    if (data.funciones?.length && await rechazarFunciones(res, data.funciones))
+        return;
     const updates: Record<string, unknown> = {};
     if (data.name !== undefined)
         updates.name = data.name;

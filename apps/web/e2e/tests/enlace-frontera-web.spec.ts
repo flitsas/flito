@@ -173,6 +173,8 @@ const ARBOL: NodoDef[] = [
     item('flito_soat', 'SOAT', [accion('accion.soat.ver_listado', 'Ver el listado')]),
     item('clients', 'Clientes y proveedores', [accion('accion.clientes.ver', 'Ver clientes')]),
   ]),
+  // HU #13942: Dr. Flit no se cierra por ningún enlace (sus rutas son transversales del API, #13941).
+  elemento('general', 'General', [item('flito_dr_flit', 'Dr. Flit')]),
 ];
 
 const rol = (codigo: string, nombre: string, tipoEnlace: string) => ({
@@ -184,7 +186,7 @@ const ROLES = [rol('prueba_compania', 'Prueba compañía', 'compania'), rol('ope
 const NOTA = 'Cerrado por el enlace «Compañía»: este rol no lo verá aunque lo marque.';
 
 function mockPermisos(page: Page) {
-  const marcas = ['menu.gestion', 'pagina.flito_soat', 'accion.soat.ver_listado', 'pagina.clients', 'accion.clientes.ver'];
+  const marcas = ['menu.gestion', 'pagina.flito_soat', 'accion.soat.ver_listado', 'pagina.clients', 'accion.clientes.ver', 'menu.general', 'pagina.flito_dr_flit'];
   page.route(/\/api\/permisos\/roles$/, (r) => r.fulfill(json({ roles: ROLES })));
   page.route(/\/api\/permisos\/funciones$/, (r) => r.fulfill(json({ grupos: [] })));
   page.route(/\/api\/permisos\/roles\/([^/]+)\/arbol$/, (r) => {
@@ -223,6 +225,20 @@ test.describe('HU #13452 · panel de roles: lo que el enlace cierra sale deshabi
 
     await expect(casilla(page, 'pagina.flito_soat')).toBeEnabled();
     await expect(fila(page, 'pagina.flito_soat').locator('[data-aviso="cerrado-por-enlace"]')).toHaveCount(0);
+  });
+
+  test('HU #13942 · rol con enlace compañía: «Dr. Flit» editable y sin la nota «Cerrado por el enlace»', async ({ page }) => {
+    mockPermisos(page);
+    await loginAs(page, ADMIN_USER);
+    await page.goto('/roles-permisos');
+    await page.getByRole('button', { name: /^Prueba compañía/ }).click();
+    await expect(page.getByRole('heading', { name: 'Prueba compañía', level: 2 })).toBeVisible();
+    await page.getByRole('button', { name: 'Contenido de General', exact: true }).click();
+
+    await expect(casilla(page, 'pagina.flito_dr_flit')).toBeVisible();
+    await expect(casilla(page, 'pagina.flito_dr_flit')).toBeEnabled();
+    await expect(fila(page, 'pagina.flito_dr_flit').locator('[data-aviso="cerrado-por-enlace"]')).toHaveCount(0);
+    await expect(fila(page, 'pagina.flito_dr_flit')).not.toContainText('Cerrado por el enlace');
   });
 
   test('control: un rol sin enlace no tiene nada deshabilitado por enlace', async ({ page }) => {

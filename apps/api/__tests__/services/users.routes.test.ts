@@ -2019,3 +2019,59 @@ describe('HU #12087 — contrato funciones en POST/PATCH (§4-8)', () => {
     expect(String(logWarnMock.mock.calls[0]?.[1] ?? logWarnMock.mock.calls[0]?.[0])).toMatch(/allowedPages obsoleto/);
   });
 });
+
+// HU #13944 — una excepción por usuario (conceder o revocar) sobre una función exclusiva del Administrador → 409, antes
+// de la transacción. La lectura es la misma que la de existencia: el mock devuelve la función de prueba marcada.
+describe('HU #13944 AC3 — excepciones por usuario sobre una función exclusiva del Administrador', () => {
+  const cabecera = async () => `Bearer ${await testToken({ sub: 1, role: 'admin' })}`;
+  const EXCLUSIVA = { codigo: 'accion.clientes.autogestion', nombreNegocio: 'Habilitar o revocar la autogestión del cliente', exclusivaAdmin: true };
+  const MSG_ASIGNAR = 'La función Habilitar o revocar la autogestión del cliente es exclusiva del Administrador y no se puede asignar a otro rol.';
+  const MSG_QUITAR = 'La función Habilitar o revocar la autogestión del cliente es exclusiva del Administrador y no se puede quitar.';
+  const BODY = { username: 'exc_user', name: 'Exc', email: 'e@x.com', password: STRONG_PWD, role: 'auditor' as const };
+
+  it('POST con `conceder` de la exclusiva → 409 «no se puede asignar»; ni el usuario ni la excepción se escriben', async () => {
+    selectMock.mockReturnValueOnce(chain([])); // username libre
+    selectMock.mockReturnValueOnce(chain([])); // email libre
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.soat' }, EXCLUSIVA])); // leerFunciones
+    const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
+      .send({ ...BODY, funciones: [{ codigo: 'pagina.soat', efecto: 'conceder' }, { codigo: 'accion.clientes.autogestion', efecto: 'conceder' }] });
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: MSG_ASIGNAR, funcion: 'accion.clientes.autogestion' });
+    expect(escrituras.filter((e) => e.tabla === 'users')).toHaveLength(0);
+    expect(escrituras.filter((e) => e.tabla === 'permisos_usuario_funcion')).toHaveLength(0);
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('PATCH con `revocar` de la exclusiva → 409 «no se puede quitar»; sin transacción', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'admin', active: true }])); // before
+    selectMock.mockReturnValueOnce(chain([EXCLUSIVA])); // leerFunciones
+    const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabecera())
+      .send({ funciones: [{ codigo: 'accion.clientes.autogestion', efecto: 'revocar' }] });
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: MSG_QUITAR, funcion: 'accion.clientes.autogestion' });
+    expect(escrituras.filter((e) => e.tabla === 'permisos_usuario_funcion')).toHaveLength(0);
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('PATCH con `conceder` de la exclusiva → 409 «no se puede asignar»', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'auditor', active: true }])); // before
+    selectMock.mockReturnValueOnce(chain([EXCLUSIVA])); // leerFunciones
+    const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabecera())
+      .send({ funciones: [{ codigo: 'accion.clientes.autogestion', efecto: 'conceder' }] });
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: MSG_ASIGNAR, funcion: 'accion.clientes.autogestion' });
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('AC6: con la exclusiva en la base, una excepción sobre una función SIN marca se guarda como hoy', async () => {
+    selectMock.mockReturnValueOnce(chain([])); // username libre
+    selectMock.mockReturnValueOnce(chain([])); // email libre
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.soat', exclusivaAdmin: false }, EXCLUSIVA])); // leerFunciones
+    const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
+      .send({ ...BODY, funciones: [{ codigo: 'pagina.soat', efecto: 'conceder' }] });
+    expect(r.status).toBe(201);
+    expect(escrituras.filter((e) => e.tabla === 'permisos_usuario_funcion')[0]!.valores).toEqual([
+      { userId: 99, funcionCodigo: 'pagina.soat', efecto: 'conceder' },
+    ]);
+  });
+});

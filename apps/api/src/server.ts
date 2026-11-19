@@ -22,6 +22,8 @@ import { startAnthropicHealthCron, stopAnthropicHealthCron } from './modules/ai/
 import { startPortalReminderCron, stopPortalReminderCron } from './modules/tramites/portal-reminder.cron.js';
 import { startValidacionStaleCron, stopValidacionStaleCron } from './modules/tramites/validacion-stale.cron.js';
 import { startImpuestosAnalisisCron, stopImpuestosAnalisisCron } from './modules/flito-impuestos/flito-impuestos-analisis.cron.js';
+import { startBolsasDocumentosOcrCron, stopBolsasDocumentosOcrCron } from './modules/flito-bolsas-documentos/flito-bolsas-documentos-ocr.cron.js';
+import { startBolsasDocumentosPurgaCron, stopBolsasDocumentosPurgaCron } from './modules/flito-bolsas-documentos/flito-bolsas-documentos-purga.cron.js';
 import { startImpuestosEnvioFlit2Cron, stopImpuestosEnvioFlit2Cron } from './modules/flito-impuestos/flito-impuestos-envio-flit2.cron.js';
 import { startImpuestosEnvioFlit1Cron, stopImpuestosEnvioFlit1Cron } from './modules/flito-impuestos/flito-impuestos-envio-flit1.cron.js';
 import { registrarPasosAnalisisImpuestos } from './modules/flito-impuestos/flito-impuestos.analisis.pasos.js';
@@ -37,6 +39,7 @@ import {
 import {
   startSoatRetencionCron, stopSoatRetencionCron,
 } from './modules/flito-soat/flito-soat-retencion.cron.js';
+import { startDrflitPurgaCron, stopDrflitPurgaCron } from './modules/flito-dr-flit/dr-flit.cron.js';
 import {
   startSoatBorradosPendientesCron, stopSoatBorradosPendientesCron,
 } from './modules/flito-soat/flito-soat-borrados-pendientes.cron.js';
@@ -91,6 +94,8 @@ const server = app.listen(env.PORT, () => {
     startPortalReminderCron();
     startValidacionStaleCron();
     startImpuestosAnalisisCron();
+    startBolsasDocumentosOcrCron();
+    startBolsasDocumentosPurgaCron();
     // HU #13268: envío del comprobante de pago a FLIT 2 (no toma nada con FLIT2_ADJUNTOS_ENVIO_HABILITADO apagada).
     startImpuestosEnvioFlit2Cron();
     startImpuestosEnvioFlit1Cron();
@@ -124,6 +129,9 @@ const server = app.listen(env.PORT, () => {
     // solicitudes por validar descartadas hace 30 días o más (03:00 de Colombia). Noop si
     // SOAT_RETENCION_CRON_ENABLED!=1. Candado `flito-soat-retencion`.
     startSoatRetencionCron();
+    // Dr. Flit (HU #13804, D6): purga a 12 meses de los intentos de radicación en FLIT - SOPORTE
+    // (03:00 de Colombia). Noop si DRFLIT_PURGA_CRON_ENABLED!=1. Candado `flito-drflit-purga`.
+    startDrflitPurgaCron();
     // FLITO SOAT: borrados pendientes del almacenamiento (HU #13410) — reintenta cada hora el borrado
     // de los objetos de adicionales eliminados. Noop si SOAT_BORRADOS_PENDIENTES_CRON_ENABLED!=1.
     // Candado `flito-storage-borrados-pendientes`.
@@ -161,6 +169,8 @@ function shutdown(signal: string) {
   stopPortalReminderCron();
   stopValidacionStaleCron();
   stopImpuestosAnalisisCron();
+  stopBolsasDocumentosOcrCron();
+  stopBolsasDocumentosPurgaCron();
   stopImpuestosEnvioFlit2Cron();
   stopImpuestosEnvioFlit1Cron();
   stopDerechosDriveCron();
@@ -171,6 +181,7 @@ function shutdown(signal: string) {
   stopComparendosPurgaCron();
   stopSoatVigenciaCron();
   stopSoatRetencionCron();
+  stopDrflitPurgaCron();
   stopSoatBorradosPendientesCron();
 
   const forceExitTimer = setTimeout(() => {

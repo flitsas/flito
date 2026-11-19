@@ -49,6 +49,8 @@ const TAB = 'flito-tablero/flito-tablero.routes.ts';
 const BIT = 'flito-bitacora/flito-bitacora.routes.ts';
 const LOG = 'flito-logistica/flito-logistica.routes.ts';
 const BOL = 'flito-bolsas/flito-bolsas.routes.ts';
+const BCAT = 'flito-bolsas/flito-bolsas.catalogo.routes.ts'; // HU #13900
+const BCTR = 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts'; // HU #13907
 const CON = 'flito-conciliacion/flito-conciliacion.routes.ts';
 const CMP = 'flito-comparendos/flito-comparendos.routes.ts';
 const LIQ = 'flito-liquidacion/flito-liquidacion.routes.ts';
@@ -66,10 +68,14 @@ const PER = 'permisos/permisos.routes.ts';
 const FSA = 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts';
 const CPR = 'flito-comprobantes/flito-comprobantes.routes.ts';
 const LOGV = 'flito-logistica/flito-logistica-viajes.routes.ts';
+const BDOC = 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts'; // HU #13889 (ADR-0028)
+const DRF = 'flito-dr-flit/dr-flit.funciones.ts'; // HU #13941
 
 const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // ── SOAT (portal FLITO) ───────────────────────────────────────────────────────────────────────
   op(`${SOAT} GET /`, 'soat.cola.ver', 'Ver la cola de SOAT', 'Abrir la bandeja de solicitudes de SOAT y recorrer su listado.'),
+  // HU #13837: consulta de gestión de Dr. Flit (valor en el body); misma lectura que la cola.
+  op(`${SOAT} POST /buscar`, 'soat.cola.ver', 'Ver la cola de SOAT', 'Abrir la bandeja de solicitudes de SOAT y recorrer su listado.'),
   op(`${SOAT} GET /facetas`, 'soat.cola.filtrar', 'Filtrar la cola de SOAT', 'Leer los contadores y las facetas con las que se acota la bandeja.'),
   op(`${SOAT} POST /export`, 'soat.excel.exportar', 'Exportar la cola de SOAT a Excel', 'Descargar el listado filtrado como archivo de Excel.'),
   // Bug #12642: guarda EN LÍNEA dentro del mismo handler (`tieneFuncion` cuando el cuerpo trae
@@ -109,6 +115,8 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
 
   // ── Impuestos ─────────────────────────────────────────────────────────────────────────────────
   op(`${IMP} GET /`, 'impuestos.cola.ver', 'Ver la cola de impuestos', 'Abrir la bandeja de trámites de impuesto vehicular.'),
+  // HU #13838: consulta de gestión de Dr. Flit (valor en el body); misma lectura que la cola.
+  op(`${IMP} POST /buscar`, 'impuestos.cola.ver', 'Ver la cola de impuestos', 'Abrir la bandeja de trámites de impuesto vehicular.'),
   op(`${IMP} GET /facetas`, 'impuestos.cola.filtrar', 'Filtrar la cola de impuestos', 'Leer los contadores y las facetas con las que se acota la bandeja.'),
   op(`${IMP} POST /export`, 'impuestos.excel.exportar', 'Exportar la cola de impuestos a Excel', 'Descargar el listado filtrado como archivo de Excel.'),
   // Bug #12642: guarda EN LÍNEA (`tieneFuncion` con `incluirPago: true`); textos byte a byte con la 0203.
@@ -136,6 +144,8 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
 
   // ── Derechos de tránsito ──────────────────────────────────────────────────────────────────────
   op(`${DER} GET /`, 'derechos.cola.ver', 'Ver los derechos de tránsito', 'Abrir el listado de recibos de derechos cobrados por el organismo.'),
+  // HU #13838: consulta de gestión de Dr. Flit (valor en el body); misma lectura que el listado.
+  op(`${DER} POST /buscar`, 'derechos.cola.ver', 'Ver los derechos de tránsito', 'Abrir el listado de recibos de derechos cobrados por el organismo.'),
   op(`${DER} GET /facetas`, 'derechos.cola.filtrar', 'Filtrar los derechos de tránsito', 'Leer los contadores y las facetas del listado de derechos.'),
   op(`${DER} POST /cargar`, 'derechos.recibos.cargar', 'Cargar recibos de derechos de tránsito', 'Subir los archivos de recibos para que el sistema los lea y los cruce.'),
   op(`${DER} GET /drive/archivos`, 'derechos.drive.listar', 'Ver los archivos de derechos en Drive', 'Listar los recibos que esperan proceso en la carpeta de Drive.'),
@@ -149,10 +159,6 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${REV} GET /campos/:modulo`, 'revisiones.campos.ver', 'Ver los campos revisables de un módulo', 'Consultar qué campos entran a revisión en cada módulo.'),
   op(`${REV} GET /soporte/:soporteId/archivo`, 'revisiones.soporte.descargar', 'Abrir el documento en revisión', 'Ver el archivo original del que salió el dato dudoso.'),
   op(`${REV} POST /:id/resolver`, 'revisiones.revision.resolver', 'Resolver una revisión OCR', 'Confirmar o corregir el valor leído y darlo por bueno.'),
-  // Bug #14569 (punto 8): el buscador de trámite solo sirve a resolver → misma función, nombre y descripción byte a byte.
-  op(`${REV} POST /:id/candidatos/buscar`, 'revisiones.revision.resolver', 'Resolver una revisión OCR', 'Confirmar o corregir el valor leído y darlo por bueno.'),
-  // Bug #14569 (punto 9): reintentar la lectura OCR solo sirve a resolver → misma función, nombre y descripción byte a byte.
-  op(`${REV} POST /:id/reintentar-lectura`, 'revisiones.revision.resolver', 'Resolver una revisión OCR', 'Confirmar o corregir el valor leído y darlo por bueno.'),
   op(`${REV} POST /:id/descartar`, 'revisiones.revision.descartar', 'Descartar una revisión OCR', 'Cerrar la revisión sin cambiar el dato.'),
 
   // ── Compuerta de entrega ──────────────────────────────────────────────────────────────────────
@@ -172,6 +178,8 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${TRA} POST /solicitar-impuestos`, 'tramites.solicitud.pedir_impuestos', 'Solicitar impuestos para un vehículo', 'Radicar un trámite de impuesto vehicular desde Operaciones.'),
   op(`${TRA} POST /solicitar-ambos`, 'tramites.solicitud.pedir_ambos', 'Solicitar SOAT e impuestos a la vez', 'Radicar los dos trámites del vehículo en una sola operación.'),
   op(`${TRA} POST /novedades/buscar`, 'tramites.cola.ver', 'Ver la cola de trámites FLITO', 'Abrir la bandeja de trámites de SOAT e impuestos.'),
+  // HU #13836: consulta de gestión de Dr. Flit (valor en el body); misma lectura que el listado.
+  op(`${TRA} POST /buscar`, 'tramites.cola.ver', 'Ver la cola de trámites FLITO', 'Abrir la bandeja de trámites de SOAT e impuestos.'),
   op(`${TRA} POST /entregar`, 'tramites.tramite.entregar', 'Entregar trámites FLITO', 'Marcar como entregados los trámites seleccionados.'),
   op(`${TRA} POST /:id/desbloquear-autogestion`, 'tramites.autogestion.desbloquear', 'Desbloquear la autogestión del cliente', 'Permitir que el cliente vuelva a radicar por su cuenta.'),
   op(`${TRA} POST /:id/revocar-autogestion`, 'tramites.autogestion.revocar', 'Revocar la autogestión del cliente', 'Quitarle al cliente la posibilidad de radicar por su cuenta.'),
@@ -219,6 +227,41 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${BOL} PATCH /transito/:bolsaId`, 'bolsas.transito.editar', 'Editar una bolsa de organismo', 'Cambiar los datos de la bolsa de derechos.'),
   op(`${BOL} GET /transito/:bolsaId/movimientos`, 'bolsas.transito.ver_movimientos', 'Ver los movimientos de una bolsa de organismo', 'Recorrer las cargas y consumos de la bolsa de derechos.'),
   op(`${BOL} POST /transito/:bolsaId/cargas`, 'bolsas.transito.cargar', 'Cargar saldo a una bolsa de organismo', 'Abonar dinero a la bolsa de derechos con su soporte.'),
+  // HU #13889 (ADR-0028) — expediente documental de la compañía. Las 4 guardas piden dos operaciones;
+  // las conceden `accion.bolsas.ver_documentos` / `accion.bolsas.cargar_documentos` (arbol/acciones-finanzas.ts).
+  op(`${BDOC} GET /companias/:companiaId`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'),
+  op(`${BDOC} GET /companias/:companiaId/tipos/:tipo/historial`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'),
+  op(`${BDOC} GET /documentos/:documentoId/archivo`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'),
+  op(`${BDOC} POST /companias/:companiaId/tipos/:tipo`, 'bolsas.documentos.cargar', 'Cargar documentos de la compañía', 'Subir o reemplazar los documentos de vinculación de la compañía.'),
+  op(`${BDOC} POST /estado-lote`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'), // HU #13893 (E6)
+  op(`${BDOC} PUT /documentos/:documentoId/fecha-expedicion`, 'bolsas.documentos.cargar', 'Cargar documentos de la compañía', 'Subir o reemplazar los documentos de vinculación de la compañía.'), // HU #13890 (E4)
+  // HU #13900 (Feature #13886, ADR-0029) — catálogo del modelo único de bolsa. Cuatro operaciones nuevas con la
+  // partida de su par, dentro de acciones de bolsas ya repartidas (arbol/acciones-finanzas.ts);
+  // las rutas por bolsa (`/bolsa/:bolsaId/*`) reutilizan los códigos de sus pares del canal Cliente.
+  op(`${BCAT} POST /buscar`, 'bolsas.bolsa.listar', 'Listar las bolsas', 'Buscar las bolsas por alcance, estado, nombre o NIT.'),
+  op(`${BCAT} POST /`, 'bolsas.bolsa.crear', 'Crear la bolsa de una compañía', 'Abrir la bolsa prepago de un cliente con los conceptos que descuenta.'),
+  op(`${BCAT} GET /compania/:companiaId/estado`, 'bolsas.bolsa.ver', 'Ver la bolsa de una compañía', 'Consultar el saldo y el estado de la bolsa de un cliente.'),
+  op(`${BCAT} GET /bolsa/:bolsaId`, 'bolsas.bolsa.ver', 'Ver la bolsa de una compañía', 'Consultar el saldo y el estado de la bolsa de un cliente.'),
+  op(`${BCAT} PATCH /bolsa/:bolsaId`, 'bolsas.bolsa.editar', 'Editar la bolsa de una compañía', 'Cambiar los conceptos que descuenta la bolsa de un cliente.'),
+  op(`${BCAT} POST /bolsa/:bolsaId/inactivar`, 'bolsas.bolsa.inactivar', 'Inactivar o reactivar la bolsa de una compañía', 'Suspender la bolsa de un cliente con un motivo, o volver a activarla.'),
+  op(`${BCAT} POST /bolsa/:bolsaId/reactivar`, 'bolsas.bolsa.inactivar', 'Inactivar o reactivar la bolsa de una compañía', 'Suspender la bolsa de un cliente con un motivo, o volver a activarla.'),
+  op(`${BCAT} GET /bolsa/:bolsaId/movimientos`, 'bolsas.movimientos.ver', 'Ver los movimientos de una bolsa', 'Recorrer las entradas y salidas de dinero de la bolsa.'),
+  op(`${BCAT} POST /bolsa/:bolsaId/recargas`, 'bolsas.recarga.registrar', 'Registrar una recarga de bolsa', 'Abonar dinero a la bolsa del cliente con su soporte.'),
+  op(`${BCAT} GET /bolsa/:bolsaId/cierres`, 'bolsas.cierres.ver', 'Ver los cierres de una bolsa', 'Consultar los cortes de periodo ya cerrados.'),
+  op(`${BCAT} POST /bolsa/:bolsaId/cierres`, 'bolsas.cierre.crear', 'Cerrar un periodo de bolsa', 'Cuadrar y cerrar el periodo de la bolsa del cliente.'),
+  // HU #13907 (Feature #13887, ADR-0029, Q3) — rama tránsito del catálogo único. Tres operaciones nuevas con la
+  // partida de su par, dentro de acciones de bolsas ya repartidas (arbol/acciones-finanzas.ts); el resto reutiliza
+  // los códigos `bolsas.transito.*` de las rutas antiguas `/transito/*` (que retira la HU #13911).
+  op(`${BCTR} POST /buscar`, 'bolsas.transito.listar', 'Ver las bolsas de organismos', 'Listar las bolsas de derechos abiertas ante los organismos de tránsito.'),
+  op(`${BCTR} POST /`, 'bolsas.transito.crear', 'Crear una bolsa de organismo', 'Abrir una bolsa de derechos ante un organismo de tránsito.'),
+  op(`${BCTR} GET /bolsa/:bolsaId`, 'bolsas.transito.ver', 'Ver una bolsa de organismo', 'Consultar el saldo y el detalle de una bolsa de derechos.'),
+  op(`${BCTR} PATCH /bolsa/:bolsaId`, 'bolsas.transito.editar', 'Editar una bolsa de organismo', 'Cambiar los datos de la bolsa de derechos.'),
+  op(`${BCTR} POST /bolsa/:bolsaId/inactivar`, 'bolsas.transito.inactivar', 'Inactivar o reactivar una bolsa de tránsito', 'Suspender una bolsa de tránsito con un motivo, liberando su cobertura, o volver a activarla.'),
+  op(`${BCTR} POST /bolsa/:bolsaId/reactivar`, 'bolsas.transito.inactivar', 'Inactivar o reactivar una bolsa de tránsito', 'Suspender una bolsa de tránsito con un motivo, liberando su cobertura, o volver a activarla.'),
+  op(`${BCTR} GET /bolsa/:bolsaId/movimientos`, 'bolsas.transito.ver_movimientos', 'Ver los movimientos de una bolsa de organismo', 'Recorrer las cargas y consumos de la bolsa de derechos.'),
+  op(`${BCTR} POST /bolsa/:bolsaId/recargas`, 'bolsas.transito.cargar', 'Cargar saldo a una bolsa de organismo', 'Abonar dinero a la bolsa de derechos con su soporte.'),
+  op(`${BCTR} GET /bolsa/:bolsaId/cierres`, 'bolsas.transito.cierres.ver', 'Ver los cierres de una bolsa de tránsito', 'Consultar los cortes de periodo ya cerrados de una bolsa de tránsito.'),
+  op(`${BCTR} POST /bolsa/:bolsaId/cierres`, 'bolsas.transito.cierre.crear', 'Cerrar un periodo de una bolsa de tránsito', 'Cuadrar y cerrar el periodo de una bolsa de tránsito.'),
 
   // ── Conciliación de recaudo SOAT ──────────────────────────────────────────────────────────────
   op(`${CON} POST /boletas`, 'conciliacion.boleta.cargar', 'Cargar una boleta de recaudo', 'Subir el archivo del portal con lo recaudado en el periodo.'),
@@ -425,7 +468,15 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${CPR} POST /tramites/buscar`, 'comprobantes.tramites.buscar', 'Buscar trámites para un comprobante', 'Buscar por ID FLIT, placa o VIN el trámite al que asociar un comprobante.'),
   op(`${CPR} POST /:id/aplicar`, 'comprobantes.comprobante.aplicar', 'Aplicar o adjuntar un comprobante', 'Asociar un comprobante a un trámite y concepto: como pago o como documentación.'),
   op(`${CPR} POST /:id/descartar`, 'comprobantes.comprobante.descartar', 'Descartar un comprobante', 'Sacar de la cola un comprobante que no corresponde, dejando el motivo.'),
+  // HU #13903: dos operaciones nuevas con la partida de `aplicar` (arbol/acciones-finanzas.ts), dentro de «Asociar».
+  op(`${CPR} POST /:id/desaplicar`, 'comprobantes.comprobante.desaplicar', 'Desaplicar un comprobante', 'Deshacer la aplicación de un comprobante (y el pago que registró) devolviéndolo a la cola o descartándolo, con motivo.'),
+  op(`${CPR} POST /:id/reemplazar`, 'comprobantes.comprobante.reemplazar', 'Reemplazar un comprobante aplicado', 'Descartar un comprobante aplicado y aplicar otro pendiente al mismo trámite y concepto, con motivo.'),
   op(`${CPR} POST /:id/diferencia/aceptar`, 'comprobantes.diferencia.aceptar', 'Aceptar la diferencia de un comprobante', 'Aceptar con motivo la diferencia entre el valor del comprobante y la tarifa de referencia.'),
+  // HU #13941: las funciones de Dr. Flit, en línea en su fichero de guardas. Nacen en el árbol (General · Dr. Flit,
+  // `arbol/acciones-dr-flit.ts`); `drflit.manuales.ver` no tiene guarda (es sonda del servicio de la IA).
+  op(`${DRF} POST * [usar_ia]`, 'drflit.ia.usar', 'Usar la IA de Dr. Flit', 'Preguntarle a la IA de Dr. Flit y aceptar su autorización de tratamiento de datos.'),
+  op(`${DRF} POST * [radicar_soporte]`, 'drflit.soporte.radicar', 'Radicar casos de soporte en Dr. Flit', 'Enviar un caso a la mesa de soporte y aceptar su autorización de tratamiento de datos.'),
+  op(`${DRF} POST * [consultar_gestion]`, 'drflit.gestion.consultar', 'Consultar la gestión desde Dr. Flit', 'Buscar desde Dr. Flit trámites, SOAT, impuestos y derechos (con la cola de cada módulo).'),
 ];
 
 // HU #13421 (ADR-0023): los módulos legacy reconducidos se declaran aparte (regla de 800 líneas).
@@ -445,3 +496,15 @@ export const OPERACIONES_RETIRADAS_CANAL_CLIENTE = [
   'soat.causales.ver',
   'soat.solicitud.subsanar',
 ] as const;
+
+/**
+ * HU #13944 (Feature #13939) — Funciones EXCLUSIVAS del Administrador: solo el rol `admin` las tiene, nadie
+ * puede asignarlas a otro rol ni a un usuario (excepción `conceder`), ni quitárselas a `admin` (cuadro del rol o
+ * excepción `revocar`). Fuente de verdad = esta lista; `permisos_funciones.exclusiva_admin` (0253) es su copia,
+ * que `verificarCatalogoAlArrancar` compara al arrancar (patrón de `modulo`, HU #12716 AC7). Cada código tiene que
+ * existir en el catálogo con reparto de partida `['admin']` (`catalogoCompleto` lo valida).
+ *
+ * Vacía a propósito: esta HU entrega el MECANISMO. Las primeras exclusivas (estado y eliminación de clientes)
+ * nacen con sus rutas en las HUs #13945/#13954, junto con la migración que les pone `exclusiva_admin = true`.
+ */
+export const FUNCIONES_EXCLUSIVAS_ADMIN: readonly string[] = [];

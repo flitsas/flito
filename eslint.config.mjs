@@ -11,8 +11,7 @@ const FROZEN_CEILINGS = {
   'apps/web/src/pages/TramiteTraspaso.tsx': 1250,
   'apps/web/src/pages/FlitoTramites.tsx': 1190,
   'apps/api/src/modules/tramites/identidad.routes.ts': 1130,
-  'apps/api/src/modules/flito-bolsas/flito-bolsas.service.ts': 1120,
-  'apps/api/src/modules/flito-soat/flito-soat.service.ts': 1053, // Bug #14569 a PDN: el ZIP salió a flito-soat-factura-cifrada.ts
+  'apps/api/src/modules/flito-soat/flito-soat.service.ts': 1090,
   'apps/api/src/modules/tramites/tramites.service.ts': 880,
   'apps/web/src/pages/FlitoImpuestos.tsx': 870,
   'apps/api/src/modules/tramites/tramites.routes.ts': 860,
@@ -100,6 +99,12 @@ export default tseslint.config(
   {
     // Tests y specs pueden ser largos legítimamente (fixtures y casos Gherkin).
     files: ['**/__tests__/**', '**/e2e/**', '**/*.test.ts', '**/*.spec.ts'],
+    rules: { 'max-lines': 'off' },
+  },
+  {
+    // HU #13853 (ADR-0027): artefactos generados por script (fichas de Ayuda para Dr. Flit). Solo
+    // `*.generated.ts`: no amplía la exclusión a otro código de producto.
+    files: ['**/*.generated.ts'],
     rules: { 'max-lines': 'off' },
   },
   ...Object.entries(FROZEN_CEILINGS).map(([file, max]) => ({

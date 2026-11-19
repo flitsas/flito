@@ -88,9 +88,16 @@ export const MODULO_FRONTERA_DE_PAGINA: Readonly<Partial<Record<PageSlug, Modulo
 
 /**
  * Pantallas de la SESIÓN que ningún enlace cierra: Perfil (sus rutas son `RUTAS_TRANSVERSALES` del
- * API) y Ayuda FLITO (markdown del bundle, no llama al API; su visibilidad es derivada).
+ * API), Ayuda FLITO (markdown del bundle, no llama al API; su visibilidad es derivada) y Dr. Flit
+ * (HU #13942: visible para cualquier usuario con el permiso, con o sin enlace; sus rutas son
+ * transversales del API desde la HU #13941, que no filtra por enlace).
  */
-export const PAGINAS_DE_SESION: readonly PageSlug[] = Object.freeze(['perfil', 'flito_ayuda'] as PageSlug[]);
+export const PAGINAS_DE_SESION: readonly PageSlug[] = Object.freeze([
+  'perfil',
+  'flito_ayuda',
+  // HU #13942: Dr. Flit no se cierra por enlace; sus rutas son transversales del API (HU #13941).
+  'flito_dr_flit',
+] as PageSlug[]);
 
 /** ¿Abre la frontera este módulo a este enlace? (La misma regla que `moduloAbiertoA` del API.) */
 export function moduloAbiertoAlEnlace(modulo: ModuloFrontera, enlace: EnlaceRestringido): boolean {

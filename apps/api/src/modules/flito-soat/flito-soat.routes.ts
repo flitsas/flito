@@ -26,14 +26,16 @@ import {
 import {
   CARGA_MASIVA_ARCHIVOS_POR_PETICION, CARGA_MASIVA_MAX_BYTES_ARCHIVO, esFiltroVigenciaCola,
   EstadoSoat, FILTROS_VIGENCIA_COLA, TipoSoporteZip,
+  type ResultadoGestion, type TarjetaSoatGestion,
 } from '@operaciones/shared-types';
 import {
   asumirEnOperaciones, cambiarProveedor, cargarFactura, cargarFacturasMasivo, cola, contextoSoat,
   devolverAlGestor, facetasCola, detalle, enviarAlGestor, historialConAcceso,
-  reactivar, rechazar, registrosZipSoat, reversar, SoatError,
+  reactivar, rechazar, registrosZipSoat, reversar, SoatError, type ArchivoSubido, type SoatColaItemSalida,
 } from './flito-soat.service.js';
-import { soatPdfContrasenaLimiter, soatPdfNombreClaveLimiter } from '../../shared/middleware/rateLimiter.js';
-import type { ArchivoConClave } from './flito-soat-factura-cifrada.js';
+import { drFlitGestionLimiter } from '../../shared/middleware/rateLimiter.js';
+import { busquedaGestionSchema, PAGINA_GESTION } from '../../shared/dr-flit-gestion.js';
+import { exigirConsultaGestionDrFlit } from '../flito-dr-flit/dr-flit.funciones.js';
 import {
   construirFilasExportSoat, nombreArchivoExportSoat,
 } from './flito-soat.export.service.js';
@@ -54,43 +56,9 @@ const upload = multer({
   },
 });
 
-const aArchivo = (f: Express.Multer.File, contrasena: string | undefined, porNombre: boolean): ArchivoConClave => ({
+const aArchivo = (f: Express.Multer.File): ArchivoSubido => ({
   originalname: f.originalname, mimetype: f.mimetype, buffer: f.buffer, size: f.size,
-  ...(contrasena ? { contrasena } : {}),
-  ...(porNombre ? { usarNombreComoClave: true } : {}),
 });
-
-/** `usarNombreComoClave` (multipart, Bug #14569 punto 10): solo `'true'` lo activa; ausente = no. */
-const flagNombre = (bruto: unknown): boolean | null =>
-  bruto === undefined || bruto === 'false' ? false : bruto === 'true' ? true : null;
-
-const nombresSchema = z.array(z.boolean()).max(CARGA_MASIVA_ARCHIVOS_POR_PETICION);
-
-/** `nombresComoClave` de la masiva: arreglo JSON de booleanos por posición, del largo de `archivos`. */
-function nombresComoClaveDe(bruto: unknown, n: number): boolean[] | null {
-  if (bruto === undefined || bruto === '') return Array.from({ length: n }, () => false);
-  if (typeof bruto !== 'string') return null;
-  let valor: unknown;
-  try { valor = JSON.parse(bruto); } catch { return null; }
-  const r = nombresSchema.safeParse(valor);
-  return r.success && r.data.length === n ? r.data : null;
-}
-
-// Bug #14569: clave de apertura de un PDF cifrado. Es PII (suele ser la cédula o el NIT): solo se
-// valida y se pasa al servicio; nunca se audita, se loguea ni se repite en un mensaje de error.
-const contrasenaSchema = z.string().min(1).max(128);
-const contrasenasSchema = z.array(z.string().max(128)).max(CARGA_MASIVA_ARCHIVOS_POR_PETICION);
-
-/** `contrasenas` de la masiva: arreglo JSON por posición, del largo de `archivos`; `""` = sin clave. */
-function contrasenasDe(bruto: unknown, n: number): (string | undefined)[] | null {
-  if (bruto === undefined || bruto === '') return Array.from({ length: n }, () => undefined);
-  if (typeof bruto !== 'string') return null;
-  let valor: unknown;
-  try { valor = JSON.parse(bruto); } catch { return null; }
-  const r = contrasenasSchema.safeParse(valor);
-  if (!r.success || r.data.length !== n) return null;
-  return r.data.map((c) => c || undefined);
-}
 
 // `cliente` tiene de partida SOLO las cinco funciones de lectura (`soat.cola.ver`, `soat.cola.filtrar`,
 // `soat.solicitud.ver`, `.ver_historial`, `.ver_soportes`; Feature #11912): ve la cola, el detalle,
@@ -114,12 +82,7 @@ const ESTADOS = [
 ] as const;
 
 function handleError(res: Response, e: unknown): void {
-  if (e instanceof SoatError) {
-    // `codigo` (Bug #14569, p. ej. PDF_CIFRADO) solo cuando lo hay: el resto responde igual que antes.
-    const cuerpo: { error: string; codigo?: string } = { error: e.message };
-    if (e.codigo) cuerpo.codigo = e.codigo;
-    res.status(e.status).json(cuerpo); return;
-  }
+  if (e instanceof SoatError) { res.status(e.status).json({ error: e.message }); return; }
   if (e instanceof OcrNoDisponibleError) { res.status(e.status).json({ error: e.message }); return; }
   throw e;
 }
@@ -196,6 +159,41 @@ router.get('/', exigirFuncion('soat.cola.ver'), async (req: Request, res: Respon
   });
   await registrarAccesoSoat(req, { accion: 'search', filas: pagina.items.length });
   res.json(pagina);
+});
+
+// POST /buscar — consulta de gestión de Dr. Flit (HU #13837, Feature #13834). El valor (placa, VIN o id
+// FLIT) va en el BODY (AGENTS.md §14). Mismo permiso, servicio y alcance (`contextoSoat`: compañía /
+// proveedor) que el GET /; primera página de `TARJETAS_POR_MODULO` filas + total real. Rastro PII con 200
+// (también con 0 filas) por `registrarAccesoSoat`, cuyo motivo lleva solo `filas=N`; con 400/403 no hay
+// rastro. El valor no entra en el motivo, ni en logs ni en `audit`.
+//
+// La tarjeta (UX F6.6) usa solo campos presentes en las DOS ramas de `SoatColaItemSalida` (interna y del
+// canal Cliente): nada de proveedor, gestión, valor ni vigencia. La compañía viaja solo si la cola se la
+// muestra al usuario (sin proyección del canal Cliente) y el VIN solo cuando no hay placa (es el título).
+const CAMPOS_PII_TARJETA_SOAT = ['placa', 'vin'] as const;
+
+function aTarjetaSoat(f: SoatColaItemSalida, conCompania: boolean): TarjetaSoatGestion {
+  return {
+    id: f.id, placa: f.placa,
+    ...(f.placa ? {} : { vin: f.vin }),
+    estado: f.estado,
+    ...(conCompania ? { compania: f.companiaNombre } : {}),
+    solicitado: f.enviadoEn, pagado: f.pagadoEn,
+  };
+}
+
+// HU #13941 (AC4/AC6): la función «Consultar la gestión» de Dr. Flit PRIMERO; la frontera sigue siendo `conAlcance`.
+router.post('/buscar', exigirConsultaGestionDrFlit, exigirFuncion('soat.cola.ver'), drFlitGestionLimiter, async (req: Request, res: Response) => {
+  const parsed = busquedaGestionSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+  const ctx = await contextoSoat(req.user!);
+  const { items, total } = await cola(ctx, { buscar: parsed.data.valor, ...PAGINA_GESTION });
+  await registrarAccesoSoat(req, { accion: 'search', filas: items.length, campos: CAMPOS_PII_TARJETA_SOAT });
+  const cuerpo: ResultadoGestion<TarjetaSoatGestion> = {
+    total, items: items.map((f) => aTarjetaSoat(f, !ctx.proyeccionCliente)),
+  };
+  res.set('Cache-Control', 'no-store');
+  res.json(cuerpo);
 });
 
 /**
@@ -701,20 +699,12 @@ router.post('/:id/devolver-gestor', exigirFuncion('soat.solicitud.devolver'), as
 });
 
 // POST /:id/factura — carga de UNA factura de un SOAT puntual. Única vía a Pagado (RN-03).
-// Operaciones o el gestor del proveedor. Campo de archivo: "archivo". Campos opcionales del PDF
-// cifrado (Bug #14569): "contrasena", y "usarNombreComoClave" true o false, que sin clave escrita
-// prueba el nombre del archivo como contraseña. Cada uno con su limitador, puesto tras multer
-// porque solo cuentan las peticiones que los traen y esos campos vienen en el body.
-router.post('/:id/factura', exigirFuncion('soat.comprobante.cargar'), upload.single('archivo'), soatPdfContrasenaLimiter, soatPdfNombreClaveLimiter, async (req: Request, res: Response) => {
+// Operaciones o el gestor del proveedor. Campo de archivo: "archivo".
+router.post('/:id/factura', exigirFuncion('soat.comprobante.cargar'), upload.single('archivo'), async (req: Request, res: Response) => {
   if (!req.file) { res.status(400).json({ error: 'Falta el archivo de la factura' }); return; }
-  const porNombre = flagNombre(req.body?.usarNombreComoClave);
-  if (porNombre === null) { res.status(400).json({ error: 'usarNombreComoClave inválido' }); return; }
-  const bruta: unknown = req.body?.contrasena;
-  const clave = bruta === undefined || bruta === '' ? undefined : contrasenaSchema.safeParse(bruta);
-  if (clave && !clave.success) { res.status(400).json({ error: 'Contraseña inválida' }); return; }
   try {
     const ctx = await contextoSoat(req.user!);
-    const d = await cargarFactura(req.params.id, aArchivo(req.file, clave?.data, porNombre), ctx);
+    const d = await cargarFactura(req.params.id, aArchivo(req.file), ctx);
     await audit(req, { action: 'upload', resource: 'flito_soat', resourceId: req.params.id, detail: `Carga de factura SOAT: ${req.file.originalname}` });
     res.json(d ?? { id: req.params.id });
   } catch (e) { handleError(res, e); }
@@ -722,23 +712,13 @@ router.post('/:id/factura', exigirFuncion('soat.comprobante.cargar'), upload.sin
 
 // POST /facturas — carga MASIVA (varios archivos o un ZIP). El OCR enruta cada comprobante a un SOAT
 // en adquisición; los que cruzan y superan el umbral se pagan, el resto va a revisión (CA-06).
-// Campo opcional "contrasenas" (Bug #14569): arreglo JSON por posición, mismo largo que "archivos".
-// Limitador después de multer por la misma razón que en `POST /:id/factura`.
-// Campo opcional "nombresComoClave" (punto 10): arreglo JSON de booleanos por posición, mismo largo
-// que "archivos" (como "contrasenas"). En la posición i: clave escrita no vacía → esa (prioridad);
-// si no y `true` → se prueba el nombre del archivo; si no → hoy. Un ZIP no pasa la marca a sus
-// entradas (las cifradas van a `protegidos`) y la petición tiene un tope de variantes probadas.
-router.post('/facturas', exigirFuncion('soat.masiva.cargar'), upload.array('archivos', CARGA_MASIVA_ARCHIVOS_POR_PETICION), soatPdfContrasenaLimiter, soatPdfNombreClaveLimiter, async (req: Request, res: Response) => {
+router.post('/facturas', exigirFuncion('soat.masiva.cargar'), upload.array('archivos', CARGA_MASIVA_ARCHIVOS_POR_PETICION), async (req: Request, res: Response) => {
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (files.length === 0) { res.status(400).json({ error: 'No se adjuntó ningún archivo' }); return; }
-  const claves = contrasenasDe(req.body?.contrasenas, files.length);
-  if (!claves) { res.status(400).json({ error: 'Contraseñas inválidas' }); return; }
-  const porNombre = nombresComoClaveDe(req.body?.nombresComoClave, files.length);
-  if (!porNombre) { res.status(400).json({ error: 'nombresComoClave inválido' }); return; }
   try {
     const ctx = await contextoSoat(req.user!);
-    const resultado = await cargarFacturasMasivo(files.map((f, i) => aArchivo(f, claves[i], porNombre[i])), ctx);
-    await audit(req, { action: 'upload', resource: 'flito_soat', detail: `Carga masiva SOAT: ${resultado.pagados.length} pagados, ${resultado.enRevision.length} en revisión, ${resultado.duplicados.length} duplicados, ${resultado.noAsociados.length} sin asociar, ${resultado.protegidos.length} protegidos` });
+    const resultado = await cargarFacturasMasivo(files.map(aArchivo), ctx);
+    await audit(req, { action: 'upload', resource: 'flito_soat', detail: `Carga masiva SOAT: ${resultado.pagados.length} pagados, ${resultado.enRevision.length} en revisión, ${resultado.duplicados.length} duplicados, ${resultado.noAsociados.length} sin asociar` });
     res.json(resultado);
   } catch (e) { handleError(res, e); }
 });
