@@ -19,11 +19,12 @@ export const MAX_BYTES_ADJUNTO = 20 * 1024 * 1024;
 export const MIMES_ADJUNTO = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'] as const;
 export type MimeAdjunto = typeof MIMES_ADJUNTO[number];
 /**
- * Estados de FLIT 2 (código crudo del contrato, minúscula) en los que el trámite admite el adjunto
- * (§1). `rechazado` entra aunque FLITO no sepa si tiene subsanación activa: si FLIT 2 vuelve a
- * responder `terminal:false`, la fila se re-estaciona sin gastar intento.
+ * Estados de FLIT 2 (código crudo del contrato, minúscula) en los que el trámite NO admite el adjunto
+ * (§1). Bug #14630 (2026-11-19, FLIT 2 Bug #14625): el comprobante se envía en CUALQUIER estado salvo
+ * estos dos. Si FLIT 2 aun así responde `terminal:false`, la fila se re-estaciona sin gastar intento;
+ * `terminal:true` sigue siendo definitivo.
  */
-export const ESTADOS_FLIT2_ADMITEN_ADJUNTO = ['preasignacion', 'asignado', 'entregado', 'rechazado'] as const;
+export const ESTADOS_FLIT2_NO_ADMITEN_ADJUNTO = ['anulado', 'revocado'] as const;
 
 const RUTA_ADJUNTOS = (id: string): string => `/api/v1/external/tramites/${encodeURIComponent(id)}/adjuntos`;
 
@@ -148,6 +149,8 @@ export function clasificarRespuestaAdjunto(
   if (status === 409) {
     if (code === 'attachment_exists') return { tipo: 'definitivo', motivo: 'attachment_exists', status };
     if (code === 'not_allowed_in_state') {
+      // Bug #14630 (FLIT 2 #14625): desde 2026-11-19 FLIT 2 solo lo responde en `anulado`/`revocado`
+      // (`terminal:true`, definitivo); `terminal:false` es un estado transitorio y se estaciona.
       if (problema?.terminal === true) {
         return { tipo: 'definitivo', motivo: 'not_allowed_in_state', status, ...(problema.estado ? { estadoFlit2: problema.estado } : {}) };
       }

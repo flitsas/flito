@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { createHash } from 'crypto';
 import {
   clasificarRespuestaAdjunto, problemaDesdeTexto, urlDeEnvioAdjunto, mimeAdjuntoPorBytes,
-  ESTADOS_FLIT2_ADMITEN_ADJUNTO, MAX_BYTES_ADJUNTO, TIPO_LIQUIDACION_IMPUESTO,
+  ESTADOS_FLIT2_NO_ADMITEN_ADJUNTO, MAX_BYTES_ADJUNTO, TIPO_LIQUIDACION_IMPUESTO,
 } from '../../src/modules/flito-sync/flit2-adjuntos.js';
 
 const SHA = createHash('sha256').update('comprobante').digest('hex');
@@ -17,10 +17,14 @@ const recibido = (over: Record<string, unknown> = {}) => ({
 const p = (cuerpo: unknown) => problemaDesdeTexto(JSON.stringify(cuerpo));
 
 describe('constantes del contrato (D-8)', () => {
-  it('tipo liquidacion_impuesto, 20 MB exactos y los cuatro estados que admiten el adjunto', () => {
+  it('tipo liquidacion_impuesto, 20 MB exactos y solo anulado/revocado NO admiten el adjunto (Bug #14630)', () => {
     expect(TIPO_LIQUIDACION_IMPUESTO).toBe('liquidacion_impuesto');
     expect(MAX_BYTES_ADJUNTO).toBe(20_971_520);
-    expect([...ESTADOS_FLIT2_ADMITEN_ADJUNTO]).toEqual(['preasignacion', 'asignado', 'entregado', 'rechazado']);
+    expect([...ESTADOS_FLIT2_NO_ADMITEN_ADJUNTO]).toEqual(['anulado', 'revocado']);
+    // Los estados que antes quedaban fuera ya no están excluidos.
+    for (const e of ['aprobado', 'borrador', 'preparado', 'preasignacion', 'asignado', 'entregado', 'rechazado']) {
+      expect(ESTADOS_FLIT2_NO_ADMITEN_ADJUNTO as readonly string[]).not.toContain(e);
+    }
   });
 });
 
