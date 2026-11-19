@@ -40,6 +40,15 @@ export class DetalleSinDineroError extends ErrorDominioTorre {
   constructor() { super('Su rol no tiene permiso para ver valores en dinero de la Torre.'); }
 }
 
+/**
+ * B5 (UX «Equipo sin Excel en v1»): los detalles de Operativa › Equipo (entidad `funcionario`) se consultan pero no se
+ * descargan: es información de desempeño de personas. 403 con código propio, antes de resolver nada.
+ */
+export class DetalleSinExportacionError extends ErrorDominioTorre {
+  readonly code = 'DETALLE_SIN_EXPORTACION';
+  constructor() { super('La lista de gestiones del equipo se puede consultar, pero no descargar.'); }
+}
+
 export class DetalleExcedeTopeError extends ErrorDominioTorre {
   readonly code = 'DETALLE_EXCEDE_TOPE';
   constructor() { super(`Hay más de ${TOPES_TORRE.FILAS_DETALLE_EXPORTAR_MAX.toLocaleString('es-CO')} registros. Acote el periodo o los filtros.`); }
@@ -212,6 +221,7 @@ export interface DatosExportacionDetalle {
 
 /** `POST /detalle/exportar`: todas las filas (≤ `FILAS_DETALLE_EXPORTAR_MAX`, si no 422). */
 export async function datosExportacion(c: ExportarDetalle, acc: AccesoDetalle): Promise<DatosExportacionDetalle> {
+  if (esDetalleDeEquipo(c)) throw new DetalleSinExportacionError();
   const r = await resolver(c, acc);
   return enTorre(async (q) => {
     const t = await totalFragmento(q, r.f);
@@ -228,6 +238,18 @@ export async function datosExportacion(c: ExportarDetalle, acc: AccesoDetalle): 
       },
     };
   });
+}
+
+/** B5: ¿el detalle es de un conjunto de Equipo (entidad `funcionario`)? */
+export const esDetalleDeEquipo = (c: ExportarDetalle): boolean =>
+  c.origen.tipo === 'conjunto' && conjuntoTorre(c.origen.conjunto).entidad === 'funcionario';
+
+/**
+ * Campos de `pii_access_log`: la placa y, en los detalles de Equipo, también el funcionario (cada fila lleva su nombre:
+ * es un dato del empleado y la lectura queda registrada).
+ */
+export function camposPiiDe(c: ExportarDetalle): string[] {
+  return esDetalleDeEquipo(c) ? ['placa', 'funcionario'] : ['placa'];
 }
 
 /** Tabla de la entidad para `pii_access_log` (sin consultar: la ruta registra antes de resolver). */

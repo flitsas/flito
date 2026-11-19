@@ -7,6 +7,8 @@
 // exportar va primero: es la que lee `inventario-guardas`, que toma la primera guarda de cada ruta).
 // La placa del filtro viaja SOLO en el body (AGENTS §14). El acceso al conjunto exige además una de sus funciones de
 // origen: se leen aquí con `tieneFuncion` y el código literal (lo lee `inventario-guardas`) y viajan al servicio.
+// B5: los detalles de Equipo (entidad `funcionario`) no se exportan (403 DETALLE_SIN_EXPORTACION, UX «sin Excel en v1»)
+//   y su lectura registra `['placa', 'funcionario']` (cada fila lleva el nombre del funcionario).
 // RN-TOR-D14 (Ley 1581, regla 16): toda petición válida cuyo detalle proyecta la placa se registra en `pii_access_log`
 //   (`read` al consultar, `export` al exportar), aunque traiga 0 filas. Falla ABIERTO (bandeja de lectura): el fallo
 //   queda en el log. Ni la ruta ni el servicio loguean el body ni `filtrosDetalle`.
@@ -19,8 +21,8 @@ import { torreConsultaLimiter, torreExportLimiter } from '../../shared/middlewar
 import { logPiiAccess } from '../../shared/pii-audit.js';
 import { exportarDetalle } from './flito-torre.detalle-export.js';
 import {
-  DetalleExcedeTopeError, DetalleSinDineroError, DetalleSinOrigenError, consultarDetalle, datosExportacion,
-  proyectaPlaca, tablaPiiDe, type AccesoDetalle,
+  DetalleExcedeTopeError, DetalleSinDineroError, DetalleSinExportacionError, DetalleSinOrigenError, camposPiiDe, consultarDetalle,
+  datosExportacion, proyectaPlaca, tablaPiiDe, type AccesoDetalle,
 } from './flito-torre.detalle.service.js';
 import { consultaDetalleSchema, detalleZod, exportarDetalleSchema } from './flito-torre.esquemas.js';
 import { errorTorreAHttp } from './flito-torre.routes.js';
@@ -55,7 +57,7 @@ async function acceso(req: Request): Promise<AccesoDetalle> {
 }
 
 function manejar(e: unknown, res: Response, next: NextFunction): void {
-  if (e instanceof DetalleSinOrigenError || e instanceof DetalleSinDineroError) { res.status(403).json({ error: e.message, code: e.code }); return; }
+  if (e instanceof DetalleSinOrigenError || e instanceof DetalleSinDineroError || e instanceof DetalleSinExportacionError) { res.status(403).json({ error: e.message, code: e.code }); return; }
   if (e instanceof DetalleExcedeTopeError) { res.status(422).json({ error: e.message, code: e.code }); return; }
   if (errorTorreAHttp(e, res)) return;
   next(e);
@@ -64,7 +66,7 @@ function manejar(e: unknown, res: Response, next: NextFunction): void {
 const registrarPlaca = (req: Request, c: ExportarDetalle, accion: 'read' | 'export'): Promise<void> => {
   if (!proyectaPlaca(c)) return Promise.resolve();
   const que = c.origen.tipo === 'conjunto' ? c.origen.conjunto : c.origen.metrica;
-  return logPiiAccess(req, { resourceTipo: tablaPiiDe(c), accion, camposAccedidos: ['placa'], motivo: `Torre de Control: detalle ${que}` });
+  return logPiiAccess(req, { resourceTipo: tablaPiiDe(c), accion, camposAccedidos: camposPiiDe(c), motivo: `Torre de Control: detalle ${que}` });
 };
 
 router.post('/consultar', exigirFuncion('torre.detalle.ver'), torreConsultaLimiter, async (req: Request, res: Response, next: NextFunction) => {

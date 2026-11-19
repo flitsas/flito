@@ -118,3 +118,40 @@ describe('libro puro', () => {
     expect(nombreArchivoDetalle('borrador_abandonado', '2035-03-31T10:00:00.000Z')).toBe('torre-detalle-borrador-abandonado-20350331.xlsx');
   });
 });
+
+describe('B5 · los detalles de Equipo (entidad funcionario)', () => {
+  const EQUIPO = ['gestiones_funcionario_periodo', 'carga_funcionario', 'fuera_ans_funcionario'] as const;
+  const body = (conjunto: string) => ({ ...BODY, origen: { tipo: 'conjunto', conjunto }, segmentos: [{ dimension: 'funcionario', valores: ['7'] }] });
+  beforeEach(() => {
+    permisos.invalidarPermisosDe(4);
+    de(4, ['accion.torre_detalle.ver', 'accion.torre_detalle.exportar', 'accion.torre_operativa.ver_equipo', 'accion.torre_explorador.ver_dinero']);
+  });
+
+  for (const conjunto of EQUIPO) {
+    it(`${conjunto}: exportar es 403 DETALLE_SIN_EXPORTACION (sin Excel en v1), sin contar filas ni registrar lectura`, async () => {
+      const r = await request(app).post('/api/flito/torre/detalle/exportar').set('Authorization', `Bearer ${await token(4)}`).send(body(conjunto));
+      expect(r.status).toBe(403);
+      expect(r.body).toEqual({ code: 'DETALLE_SIN_EXPORTACION', error: 'La lista de gestiones del equipo se puede consultar, pero no descargar.' });
+      expect(conteo.total).not.toHaveBeenCalled();
+      expect(pii).not.toHaveBeenCalled();
+    });
+
+    it(`${conjunto}: consultar registra la lectura de la placa Y del funcionario`, async () => {
+      conteo.total.mockResolvedValue({ total: 1, valorTotal: null });
+      conteo.listar.mockResolvedValue([{ __id: 'th:1', __tramite: null, placa: 'ZQ1234', funcionario: 'Ana Restrepo' }]);
+      const r = await request(app).post('/api/flito/torre/detalle/consultar').set('Authorization', `Bearer ${await token(4)}`)
+        .send({ ...body(conjunto), pagina: 1, tamano: 25 });
+      expect(r.status).toBe(200);
+      expect(pii).toHaveBeenCalledTimes(1);
+      expect(pii.mock.calls[0]![1]).toMatchObject({ resourceTipo: 'flito_estado_historial', accion: 'read', camposAccedidos: ['placa', 'funcionario'] });
+    });
+  }
+
+  it('un detalle que no es de Equipo sigue registrando solo la placa y sí se exporta', async () => {
+    conteo.total.mockResolvedValue({ total: 1, valorTotal: 0 });
+    conteo.listar.mockResolvedValue([]);
+    const r = await exporta(3, BODY);
+    expect(r.status).toBe(200);
+    expect(pii.mock.calls[0]![1]).toMatchObject({ accion: 'export', camposAccedidos: ['placa'] });
+  });
+});
