@@ -3,6 +3,7 @@
 // RN-TOR-FI1 (bolsas, ignora el rango): saldo de hoy de las bolsas activas de cada compañía y consumo diario promedio de
 //   los últimos 30 días (salidas de `flito_bolsas_unicas_movimientos`). Días de cobertura = saldo / consumo diario;
 //   `null` sin consumo; con saldo ≤ 0 la bolsa está agotada: 0 días y crítico. Semáforo: < `dias_cobertura_rojo` crítico, < `dias_cobertura_amarillo` atención, si no ok.
+//   Desde B4 se calcula en SQL (`filasBolsas`, RN-TOR-BO2/LG6).
 // RN-TOR-FI2 (sin facturar): aprobados en el rango que no están en `siigo_factura_tramites` activo, contados y
 //   valorizados con `flito_liquidaciones.total` (sin liquidación, cuentan pero no suman).
 // RN-TOR-FI3 (margen, solo con dinero): cobrado = componentes de la liquidación de los aprobados en el rango; costo =
@@ -15,51 +16,34 @@
 // RN-TOR-L1 (ADR-0044): `calcularSinFacturar` excluye esas liquidaciones SOLO de la suma (el conteo de trámites no
 //   cambia) y `calcularMargen` en su `WHERE` (`LIQUIDACION_VIGENTE`). El 360° lo hereda.
 import { eq, sql } from 'drizzle-orm';
-import type { SeveridadTorre, ServicioMargenTorre, TableroFinanciero } from '@operaciones/shared-types';
+import type { ServicioMargenTorre, TableroFinanciero } from '@operaciones/shared-types';
 import {
-  clients, flitoBolsasUnicas, flitoBolsasUnicasMovimientos, flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones,
-  flitoSoat, flitoTarifasProveedorVigencias, flitoTramites,
+  clients, flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones, flitoSoat, flitoTarifasProveedorVigencias, flitoTramites,
 } from '../../db/schema.js';
+import { filasBolsas } from './flito-torre.bolsas.service.js';
 import { LIQUIDACION_VIGENTE, PUNTOS_SOPORTE } from './flito-torre.catalogo.js';
 import { SIN_UMBRALES, dondeFragmento, fragmentoConjunto, type Umbrales } from './flito-torre.conjuntos.js';
 import { aConjunto, explicarFinanciera } from './flito-torre.frases.js';
-import { condicionesCompania, donde, sumarDias, type RangoResuelto } from './flito-torre.filtro.js';
+import type { RangoResuelto } from './flito-torre.filtro.js';
 import { SIN_COMPANIA, enTorre, nombresCompania, type Ejecutor } from './flito-torre.metricas.service.js';
 import { valoresUmbrales } from './flito-torre.umbrales.service.js';
-import {
-  conCacheTablero, hoyDe, num, pctONull, r1, rangoTablero, type ContextoTablero,
-} from './flito-torre.tablero-comun.js';
+import { conCacheTablero, num, pctONull, rangoTablero, type ContextoTablero } from './flito-torre.tablero-comun.js';
 
 const T = flitoTramites;
 const L = flitoLiquidaciones;
-const DIAS_CONSUMO = 30;
 
 type FilaBolsa = TableroFinanciero['bolsas']['filas'][number];
 
-/** RN-TOR-FI1. Compartido con el 360°. */
+/**
+ * RN-TOR-FI1. Compartido con el 360°. Desde B4 la cobertura y el semáforo salen del SQL de `filasBolsas` (RN-TOR-BO2):
+ * la misma expresión con que cuenta el conjunto `bolsas_cobertura`, así que el Resumen y Bolsas no pueden discrepar.
+ */
 export async function calcularBolsas(q: Ejecutor, ctx: ContextoTablero, rojo: number, amarillo: number): Promise<FilaBolsa[]> {
-  const B = flitoBolsasUnicas;
-  const M = flitoBolsasUnicasMovimientos;
-  const conds = [sql`${B.activa} = true`, sql`${B.companiaId} IS NOT NULL`, ...condicionesCompania(ctx.filtro, ctx.alcance, B.companiaId)];
-  const desde = sumarDias(hoyDe(ctx), -(DIAS_CONSUMO - 1));
-  const filas = await q<{ id: number; saldo: string; consumo: string }>(sql`SELECT ${B.companiaId} AS id,
-      COALESCE(sum(${B.saldo}), 0) AS saldo,
-      COALESCE(sum(mov.v), 0) AS consumo
-    FROM ${B} CROSS JOIN LATERAL (SELECT COALESCE(sum(${M.valor}), 0) AS v FROM ${M}
-        WHERE ${M.bolsaId} = ${B.id} AND ${M.tipo} = 'salida' AND ${M.fecha} >= ${desde}::date) mov
-    WHERE ${donde(conds)} GROUP BY 1`);
-  const nombres = await nombresCompania(q, filas.map((f) => Number(f.id)));
-  return filas.map((f) => {
-    const saldo = num(f.saldo);
-    const diario = num(f.consumo) / DIAS_CONSUMO;
-    // Saldo ≤ 0 = bolsa agotada: 0 días y crítico, con o sin consumo (días negativos no significan nada).
-    const dias = saldo <= 0 ? 0 : diario > 0 ? r1(saldo / diario) : null;
-    const sev: SeveridadTorre = saldo <= 0 ? 'critico' : dias == null ? 'ok' : dias < rojo ? 'critico' : dias < amarillo ? 'atencion' : 'ok';
-    return {
-      companiaId: Number(f.id), compania: nombres.get(Number(f.id)) ?? `Compañía ${f.id}`,
-      saldo: ctx.dinero ? saldo : null, consumoDiario: ctx.dinero ? r1(diario) : null, diasCobertura: dias, severidad: sev,
-    };
-  }).sort((a, b) => (a.diasCobertura ?? Infinity) - (b.diasCobertura ?? Infinity));
+  const filas = await filasBolsas(q, ctx, rojo, amarillo);
+  return filas.map((f) => ({
+    companiaId: f.companiaId, compania: f.compania, saldo: ctx.dinero ? f.saldo : null,
+    consumoDiario: ctx.dinero ? f.consumoDiario : null, diasCobertura: f.diasCobertura, severidad: f.severidad,
+  }));
 }
 
 /**

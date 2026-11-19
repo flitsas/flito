@@ -157,10 +157,12 @@ async function aFilas(q: Ejecutor, crudas: Record<string, unknown>[], columnas: 
       switch (col) {
         case 'compania': celdas[col] = v == null ? SIN_COMPANIA : nombres.get(Number(v)) ?? `Compañía ${v}`; break;
         case 'organismo': celdas[col] = nombreOrganismo(v == null ? null : String(v)); break;
-        case 'faltan_soportes': celdas[col] = aLista(v); break;
         case 'aprobado': celdas[col] = v == null ? null : Boolean(v); break;
         default:
-          celdas[col] = meta.tipo === 'fecha' || meta.tipo === 'texto' ? aTexto(v) : aNumero(v, meta.tipo === 'horas' ? 1 : 0);
+          // `lista`: `faltan_soportes` y (B4) las `placas` de un acta. B4: los días de cobertura van con un decimal.
+          celdas[col] = meta.tipo === 'lista' ? aLista(v)
+            : meta.tipo === 'fecha' || meta.tipo === 'texto' ? aTexto(v)
+              : aNumero(v, meta.tipo === 'horas' || col === 'dias_cobertura' ? 1 : 0);
       }
     }
     return { id: String(c.__id), tramiteId: c.__tramite == null ? null : String(c.__tramite), celdas };
@@ -235,12 +237,16 @@ export function tablaPiiDe(c: ExportarDetalle): string {
     tramite: 'flito_tramite', liquidacion: 'flito_liquidaciones', gestion_soat: 'flito_soat', impuesto: 'flito_impuestos', derecho: 'flito_derechos_tramite',
     // B3 (Productos).
     soat_incompleta: 'flito_soat_incompletas', derecho_pendiente: 'flito_derechos_pendientes',
+    // B4 (Logística y Financiera).
+    traslado: 'flito_logistica_traslados', acta: 'flito_logistica_actas', viaje_logistica: 'flito_tramite_viajes_logistica',
+    factura: 'siigo_facturas', cola_facturacion: 'siigo_cola_facturacion', bolsa: 'flito_bolsas_unicas',
+    movimiento_bolsa: 'flito_bolsas_unicas_movimientos', boleta: 'flito_conciliacion_boletas',
   };
   return TABLAS[entidad] ?? 'flito_tramite';
 }
 
-/** ¿El detalle proyecta la placa? (AC10: se registra aunque traiga 0 filas). */
+/** ¿El detalle proyecta la placa (o, B4, las placas de un acta)? (AC10: se registra aunque traiga 0 filas). */
 export function proyectaPlaca(c: ExportarDetalle): boolean {
-  const cols = c.origen.tipo === 'conjunto' ? conjuntoTorre(c.origen.conjunto).columnas : DETALLE_METRICA_TORRE[c.origen.metrica].columnas;
-  return cols.includes('placa');
+  const cols: readonly ColumnaDetalleId[] = c.origen.tipo === 'conjunto' ? conjuntoTorre(c.origen.conjunto).columnas : DETALLE_METRICA_TORRE[c.origen.metrica].columnas;
+  return cols.includes('placa') || cols.includes('placas');
 }

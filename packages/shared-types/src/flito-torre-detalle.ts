@@ -9,19 +9,22 @@ import {
   type TramoAntiguedadTorre,
 } from './flito-torre.js';
 import { CONJUNTOS_PRODUCTOS_TORRE } from './flito-torre-productos.js';
+import { CONJUNTOS_FINANCIERA_B4_TORRE, CONJUNTOS_LOGISTICA_TORRE, FUNCION_TABLERO_LOGISTICA_TORRE } from './flito-torre-logistica.js';
 
 // ── Entidades, segmentos y columnas ──────────────────────────────────────────────────────────────────────
 
 /** Entidades con detalle. B1 usa tramite / liquidacion / gestion_soat / impuesto / derecho; las demás nacen con su bloque. */
 export const ENTIDADES_TORRE = ['tramite', 'liquidacion', 'gestion_soat', 'soat_incompleta', 'impuesto', 'derecho',
-  'derecho_pendiente', 'traslado', 'acta', 'factura', 'bolsa', 'movimiento_bolsa', 'boleta', 'funcionario'] as const;
+  'derecho_pendiente', 'traslado', 'acta', 'factura', 'bolsa', 'movimiento_bolsa', 'boleta', 'funcionario',
+  // B4: un viaje adicional de logística y un trámite en la cola de facturación de Siigo.
+  'viaje_logistica', 'cola_facturacion'] as const;
 export type EntidadTorre = (typeof ENTIDADES_TORRE)[number];
 
 /**
  * Dimensiones de segmento: las agrupaciones del motor (misma expresión, D2; incluye `tramo_antiguedad` desde B2) + las
  * propias de un conjunto.
  */
-export const DIMENSIONES_SEGMENTO_TORRE = [...AGRUPACIONES_TORRE, 'nivel', 'faltante', 'severidad', 'estado', 'motivo'] as const;
+export const DIMENSIONES_SEGMENTO_TORRE = [...AGRUPACIONES_TORRE, 'nivel', 'faltante', 'severidad', 'estado', 'motivo', 'bolsa'] as const;
 export type DimensionSegmentoTorre = (typeof DIMENSIONES_SEGMENTO_TORRE)[number];
 
 /** Un corte de la cifra. `null` en `valores` = «Sin compañía» / «Sin secretaría»… (≤ `TOPES_TORRE.VALORES_SEGMENTO_MAX`). */
@@ -35,11 +38,14 @@ export interface SegmentoDetalle { dimension: DimensionSegmentoTorre; valores: (
  *   · `estado` (productos, B3): el estado del SOAT o del impuesto tal cual (`pendiente`, `solicitado`, `con_novedad`,
  *     `pagado`) · `motivo` (productos): el motivo de la incompleta, de la novedad o el concepto del recibo; `null` = sin
  *     motivo.
+ *   · `nivel` (cola de facturación, B4): `vencido` (el próximo intento ya pasó) / `agotado` (no se reintenta solo).
+ *   · `bolsa` (movimientos, B4): el uuid de la bolsa (opaco).
  */
 export const VALORES_SEVERIDAD_DETALLE = ['critico', 'atencion'] as const;
 export const VALORES_NIVEL_SOPORTES = ['0', '1', '2', '3'] as const;
 export const VALORES_NIVEL_ENTREGAS = ['primer_intento', 'con_viajes'] as const;
 export const VALORES_FALTANTE_SOPORTE = ['soat', 'impuesto', 'derecho'] as const;
+export const VALORES_NIVEL_COLA = ['vencido', 'agotado'] as const;
 
 export const COLUMNAS_DETALLE_IDS = [
   'codigo_flit', 'placa', 'compania', 'organismo', 'tipo_tramite', 'estado', 'creado_en', 'aprobado_en', 'facturado_en',
@@ -48,6 +54,12 @@ export const COLUMNAS_DETALLE_IDS = [
   // B3 (productos): fechas, vigencia y valores. La póliza va SOLO con sus 4 últimos; nunca dirección ni VIN.
   'pagado_en', 'vence_el', 'dias_para_vencer', 'poliza_ultimos', 'estado_vigencia', 'motivo', 'intentos', 'fecha_pago',
   'valor_liquidado',
+  // B4 (logística y facturación). Sin dirección de entrega, receptor, contacto, quien entrega, coordenadas, storage
+  // keys ni el mensajero; de Siigo, el error va como texto legible (nunca el código ni el payload crudo).
+  'codigo_traslado', 'origen', 'destino', 'registrado_en', 'dias_abierto', 'n_tramites', 'placas', 'proveedor_logistica',
+  'entregado_en', 'numero_viaje', 'numero_factura', 'enviada_en', 'error_factura', 'situacion_cola', 'proximo_intento',
+  'saldo', 'consumo_diario', 'dias_cobertura', 'severidad', 'tipo_movimiento', 'fecha_movimiento', 'referencia',
+  'total_declarado', 'total_cruzado', 'diferencia',
 ] as const;
 export type ColumnaDetalleId = (typeof COLUMNAS_DETALLE_IDS)[number];
 
@@ -91,6 +103,31 @@ export const COLUMNAS_DETALLE: Readonly<Record<ColumnaDetalleId, ColumnaDetalle>
   intentos: { id: 'intentos', etiqueta: 'Intentos', tipo: 'numero', dinero: false, ordenable: true },
   fecha_pago: { id: 'fecha_pago', etiqueta: 'Fecha de pago', tipo: 'fecha', dinero: false, ordenable: true },
   valor_liquidado: { id: 'valor_liquidado', etiqueta: 'Valor liquidado', tipo: 'cop', dinero: true, ordenable: true },
+  codigo_traslado: { id: 'codigo_traslado', etiqueta: 'Código del traslado', tipo: 'texto', dinero: false, ordenable: true },
+  origen: { id: 'origen', etiqueta: 'Origen', tipo: 'texto', dinero: false, ordenable: true },
+  destino: { id: 'destino', etiqueta: 'Destino', tipo: 'texto', dinero: false, ordenable: true },
+  registrado_en: { id: 'registrado_en', etiqueta: 'Registrado', tipo: 'fecha', dinero: false, ordenable: true },
+  dias_abierto: { id: 'dias_abierto', etiqueta: 'Días abierto', tipo: 'dias', dinero: false, ordenable: true },
+  n_tramites: { id: 'n_tramites', etiqueta: 'N.º de trámites', tipo: 'numero', dinero: false, ordenable: true },
+  placas: { id: 'placas', etiqueta: 'Placas', tipo: 'lista', dinero: false, ordenable: false },
+  proveedor_logistica: { id: 'proveedor_logistica', etiqueta: 'Proveedor de logística', tipo: 'texto', dinero: false, ordenable: true },
+  entregado_en: { id: 'entregado_en', etiqueta: 'Entregada', tipo: 'fecha', dinero: false, ordenable: true },
+  numero_viaje: { id: 'numero_viaje', etiqueta: 'Viaje n.º', tipo: 'numero', dinero: false, ordenable: true },
+  numero_factura: { id: 'numero_factura', etiqueta: 'N.º de factura', tipo: 'texto', dinero: false, ordenable: true },
+  enviada_en: { id: 'enviada_en', etiqueta: 'Enviada', tipo: 'fecha', dinero: false, ordenable: true },
+  error_factura: { id: 'error_factura', etiqueta: 'Error', tipo: 'texto', dinero: false, ordenable: false },
+  situacion_cola: { id: 'situacion_cola', etiqueta: 'Situación', tipo: 'texto', dinero: false, ordenable: true },
+  proximo_intento: { id: 'proximo_intento', etiqueta: 'Próximo intento', tipo: 'fecha', dinero: false, ordenable: true },
+  saldo: { id: 'saldo', etiqueta: 'Saldo', tipo: 'cop', dinero: true, ordenable: true },
+  consumo_diario: { id: 'consumo_diario', etiqueta: 'Consumo diario', tipo: 'cop', dinero: true, ordenable: true },
+  dias_cobertura: { id: 'dias_cobertura', etiqueta: 'Días de cobertura', tipo: 'dias', dinero: false, ordenable: true },
+  severidad: { id: 'severidad', etiqueta: 'Semáforo', tipo: 'texto', dinero: false, ordenable: false },
+  tipo_movimiento: { id: 'tipo_movimiento', etiqueta: 'Tipo', tipo: 'texto', dinero: false, ordenable: true },
+  fecha_movimiento: { id: 'fecha_movimiento', etiqueta: 'Fecha', tipo: 'fecha', dinero: false, ordenable: true },
+  referencia: { id: 'referencia', etiqueta: 'Boleta', tipo: 'texto', dinero: false, ordenable: true },
+  total_declarado: { id: 'total_declarado', etiqueta: 'Total declarado', tipo: 'cop', dinero: true, ordenable: true },
+  total_cruzado: { id: 'total_cruzado', etiqueta: 'Total cruzado', tipo: 'cop', dinero: true, ordenable: true },
+  diferencia: { id: 'diferencia', etiqueta: 'Diferencia', tipo: 'cop', dinero: true, ordenable: true },
 };
 
 // ── Catálogo de conjuntos (B1) ───────────────────────────────────────────────────────────────────────────
@@ -228,7 +265,8 @@ export const CONJUNTOS_TORRE = [
     fechaBase: 'aprobacion', filtrosIgnorados: [], columnas: [...COLS_TRAMITE, 'aprobado_en', 'viajes_adicionales'],
     ordenDefecto: { columna: 'aprobado_en', dir: 'desc' }, segmentosAdmitidos: ['nivel'],
     frase: '{n} {entrega|entregas} de trámites aprobados en el periodo', fraseVacio: 'No hubo entregas en el periodo.',
-    requiereDinero: false, funcionesOrigen: [OPERATIVO],
+    // B4: también la abre Logística (E2 «Entregas al primer intento»).
+    requiereDinero: false, funcionesOrigen: [OPERATIVO, FUNCION_TABLERO_LOGISTICA_TORRE],
   },
   {
     id: 'sin_facturar', entidad: 'tramite', etiqueta: 'Trabajo sin facturar',
@@ -264,6 +302,9 @@ export const CONJUNTOS_TORRE = [
   },
   // B3: el área Productos (SOAT · Impuestos · Derechos), en `flito-torre-productos.ts`.
   ...CONJUNTOS_PRODUCTOS_TORRE,
+  // B4: Logística (Traslados · Entregas) y Financiera (Facturación · Bolsas), en `flito-torre-logistica.ts`.
+  ...CONJUNTOS_LOGISTICA_TORRE,
+  ...CONJUNTOS_FINANCIERA_B4_TORRE,
 ] as const satisfies readonly ConjuntoTorreDef[];
 
 export type ConjuntoTorreId = (typeof CONJUNTOS_TORRE)[number]['id'];

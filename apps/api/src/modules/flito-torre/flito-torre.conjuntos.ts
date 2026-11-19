@@ -39,6 +39,7 @@ import {
 import type { Ejecutor } from './flito-torre.metricas.service.js';
 import { TorreConsultaInvalidaError } from './flito-torre.service.js';
 import { condTramites, rangoTablero, type ContextoTablero } from './flito-torre.tablero-comun.js';
+import { CONJUNTOS_LOGISTICA_SQL } from './flito-torre.conjuntos-logistica.js';
 import { CONJUNTOS_PRODUCTOS_SQL } from './flito-torre.conjuntos-productos.js';
 
 export type Umbrales = Record<ClaveUmbralTorre, number>;
@@ -117,8 +118,12 @@ export interface ConjuntoSql {
   /** RN-TOR-D4. */
   nivel?: { expr: SQL; valores: readonly string[] };
   faltante?: boolean;
-  /** B3: dimensiones propias del producto (`estado` del SOAT/impuesto, `motivo`); `null` en `motivo` = sin motivo. */
-  dimensiones?: Partial<Record<'estado' | 'motivo', SQL>>;
+  /** B3: dimensiones propias del producto (`estado` del SOAT/impuesto, `motivo`); `null` en `motivo` = sin motivo. B4: `bolsa`. */
+  dimensiones?: Partial<Record<'estado' | 'motivo' | 'bolsa', SQL>>;
+  /** B4: un `FROM` que depende del contexto (la ventana de consumo de las bolsas termina en «hoy»). Manda sobre `desde`. */
+  desdeCtx?: (ctx: ContextoTablero) => SQL;
+  /** B4: columnas que dependen de los umbrales vigentes (el semáforo de la bolsa). Se suman a `cols`. */
+  colsU?: (u: Umbrales) => ColsSql;
 }
 
 const FOTO_TRAMITES = (ctx: ContextoTablero): SQL[] => condTramites(ctx, null, undefined, ['rango']);
@@ -207,6 +212,8 @@ export const CONJUNTOS_SQL: Record<ConjuntoTorreId, ConjuntoSql> = {
   },
   // B3: el área Productos (`flito-torre.conjuntos-productos.ts`).
   ...CONJUNTOS_PRODUCTOS_SQL,
+  // B4: Logística y las subvistas de Financiera (`flito-torre.conjuntos-logistica.ts`).
+  ...CONJUNTOS_LOGISTICA_SQL,
 };
 
 // ── Segmentos y filtros del detalle ────────────────────────────────────────────────────────────────────
@@ -222,6 +229,7 @@ const enClave = (clave: SQL, valores: readonly (string | null)[]): SQL => {
 const esAgrupacion = (d: string): d is AgrupacionTorre => (AGRUPACIONES_TORRE as readonly string[]).includes(d);
 
 const invalido = (detalle: string): never => { throw new TorreConsultaInvalidaError('segmentos', detalle); };
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const SOPORTE_POR_FALTANTE: Record<(typeof VALORES_FALTANTE_SOPORTE)[number], SQL> = {
   soat: SOPORTE_SOAT, impuesto: SOPORTE_IMPUESTO, derecho: SOPORTE_DERECHO,
@@ -241,6 +249,11 @@ function condSegmento(c: ConjuntoSql | null, dims: DimensionesBase, fecha: Fecha
     // RN-TOR-P4: el motivo es la clave opaca (16 hex), nunca el texto.
     if (s.dimension === 'motivo' && s.valores.some((v) => v != null && !/^[0-9a-f]{16}$/.test(v))) invalido('el motivo va como clave opaca');
     return enClave(c.dimensiones[s.dimension]!, s.valores);
+  }
+  // B4: `bolsa` = el uuid de la bolsa (opaco); no admite «Sin valor».
+  if (s.dimension === 'bolsa' && c?.dimensiones?.bolsa) {
+    if (s.valores.some((v) => v == null || !UUID_RE.test(v))) invalido('la bolsa va como su identificador');
+    return enClave(c.dimensiones.bolsa, s.valores);
   }
   if (s.valores.includes(null)) invalido('ese segmento no admite «Sin valor»');
   const valores = s.valores as string[];
@@ -282,10 +295,11 @@ export function fragmentoConjunto(
   for (const s of segmentos) {
     if (!def.segmentosAdmitidos.includes(s.dimension)) invalido('esa dimensión no aplica a este conjunto');
   }
+  const cols = c.colsU ? { ...c.cols, ...c.colsU(u) } : c.cols;
   return {
-    entidad: c.entidad, tabla: c.tabla, desde: c.desde, base: c.base(ctx, rango),
-    propia: [...c.propia(u), ...segmentos.map((s) => condSegmento(c, c.dims, c.fecha, u, s)), ...condFiltrosDetalle(c.cols, c.dims, fd)],
-    id: c.id, tramiteId: c.tramiteId, cols: c.cols, dims: c.dims, fecha: c.fecha, rango, campoFecha: c.campoFecha,
+    entidad: c.entidad, tabla: c.tabla, desde: c.desdeCtx ? c.desdeCtx(ctx) : c.desde, base: c.base(ctx, rango),
+    propia: [...c.propia(u), ...segmentos.map((s) => condSegmento(c, c.dims, c.fecha, u, s)), ...condFiltrosDetalle(cols, c.dims, fd)],
+    id: c.id, tramiteId: c.tramiteId, cols, dims: c.dims, fecha: c.fecha, rango, campoFecha: c.campoFecha,
     critico: c.critico?.(u),
   };
 }

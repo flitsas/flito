@@ -100,7 +100,8 @@ describe('POST /tableros/:tablero/exportar', () => {
 
   it('400 si el body no es un FiltroTorre estricto y 404 para un tablero que no existe', async () => {
     expect((await exporta('financiera', 4, { ...MARZO, placa: 'ABC123' })).status).toBe(400);
-    expect((await exporta('logistica', 4, MARZO)).status).toBe(404);
+    // B4: `logistica` ya existe; `cartera` salió de la Épica (no hay ruta).
+    expect((await exporta('cartera', 4, MARZO)).status).toBe(404);
   });
 
   it('xlsx con una hoja por bloque, nombre torre-<tablero>-<desde>_<hasta> y, con dinero, sus columnas y el margen', async () => {

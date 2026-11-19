@@ -90,6 +90,7 @@ export const PAGINAS_NACIDAS_EN_EL_ARBOL: readonly PageSlug[] = [
   'torre_360', 'torre_comercial', 'torre_operativa', 'torre_financiera', 'torre_explorador', 'torre_umbrales',
   'torre_detalle', // ADR-0047: su propia migración
   'torre_productos', // B3: su propia migración (0307)
+  'torre_logistica', // B4: su propia migración (0308)
 ];
 
 /**

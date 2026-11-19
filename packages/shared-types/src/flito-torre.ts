@@ -553,6 +553,9 @@ export const UMBRALES_TORRE = [
   // B3 (Productos): lo siembra la 0307 (no la 0303, que ya está aplicada).
   { clave: 'dias_soat_por_vencer', grupo: 'operativo', unidad: 'dias', valorPorDefecto: 30,
     descripcion: 'Días antes del vencimiento de la póliza a partir de los cuales un SOAT se cuenta como por vencer.' },
+  // B4 (Logística): lo siembra la 0308.
+  { clave: 'dias_traslado_abierto', grupo: 'operativo', unidad: 'dias', valorPorDefecto: 3,
+    descripcion: 'Días desde el registro a partir de los cuales un traslado abierto se cuenta como demorado.' },
 ] as const satisfies readonly UmbralTorreDef[];
 
 export type ClaveUmbralTorre = (typeof UMBRALES_TORRE)[number]['clave'];

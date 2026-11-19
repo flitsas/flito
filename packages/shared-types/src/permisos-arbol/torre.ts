@@ -38,6 +38,10 @@ export const ITEMS_TORRE: readonly ItemDef[] = [
   { slug: 'torre_productos', clave: 'torre_productos', nombre: 'Torre · Productos', elemento: 'general', orden: 90, acciones: [
     a('ver', 'Ver el tablero de productos', 'Consultar el estado de los SOAT, los impuestos y los derechos de tránsito.'),
   ] },
+  // Logística (B4): traslados y entregas. Lo siembra su propia migración (0308), con el umbral nuevo.
+  { slug: 'torre_logistica', clave: 'torre_logistica', nombre: 'Torre · Logística', elemento: 'general', orden: 100, acciones: [
+    a('ver', 'Ver el tablero de logística', 'Consultar los traslados de documentos, las actas de entrega y los viajes adicionales.'),
+  ] },
 ];
 
 /** Ítems y acciones del área, padres antes que hijos. */

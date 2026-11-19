@@ -91,6 +91,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0303_flito_torre_fundacion.sql', // Épica #14590: Torre de Control — 6 ítems + 9 acciones; roles gerencia_* (con lo universal)
   '0306_flito_torre_detalle_permisos.sql', // ADR-0047 (Épica #14590, B1): ítem «Torre · Detalle» + ver/exportar (el auditor no exporta)
   '0307_flito_torre_productos.sql', // Épica #14590 (B3): ítem «Torre · Productos» + ver (los roles que ven Operativa) y su umbral
+  '0308_flito_torre_logistica.sql', // Épica #14590 (B4): ítem «Torre · Logística» + ver (el reparto de Productos) y su umbral
 ] as const;
 
 /**

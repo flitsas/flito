@@ -16,6 +16,8 @@ import {
 } from '@operaciones/shared-types';
 import { CLAVE_MOTIVO_RE } from './flito-torre.productos-sql.js';
 
+const UUID_BOLSA_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 const FECHA = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'debe ser una fecha YYYY-MM-DD')
   .refine((s) => !Number.isNaN(Date.parse(`${s}T00:00:00Z`)) && new Date(`${s}T00:00:00Z`).toISOString().startsWith(s), 'no es una fecha válida');
 
@@ -136,6 +138,10 @@ function refinarDetalle(c: BaseDetalle & { pagina?: number; tamano?: number }, c
     // B3 (RN-TOR-P4): `motivo` viaja como clave opaca (16 hex), nunca como el texto del motivo.
     if (s.dimension === 'motivo' && s.valores.some((v) => v != null && !CLAVE_MOTIVO_RE.test(v))) {
       ctx.addIssue({ code: 'custom', message: 'el motivo va como clave opaca', path: ['segmentos', i, 'valores'] });
+    }
+    // B4: `bolsa` es el uuid de la bolsa (opaco), sin «Sin valor».
+    if (s.dimension === 'bolsa' && s.valores.some((v) => v == null || !UUID_BOLSA_RE.test(v))) {
+      ctx.addIssue({ code: 'custom', message: 'la bolsa va como su identificador', path: ['segmentos', i, 'valores'] });
     }
   }
   if (c.orden && !(columnas.includes(c.orden.columna) && COLUMNAS_DETALLE[c.orden.columna].ordenable)) {

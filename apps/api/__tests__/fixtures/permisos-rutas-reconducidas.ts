@@ -842,4 +842,12 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/productos', codigo: 'torre.tablero_productos.ver' },
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/productos/exportar', codigo: 'torre.tablero_productos.ver' },
   { fichero: 'flito-torre/flito-torre.detalle.routes.ts', metodo: 'POST', ruta: '*', condicion: 'origen_productos', codigo: 'torre.tablero_productos.ver' },
+  // Épica #14590 (B4): el área Logística y las subvistas Facturación y Bolsas de Financiera.
+  { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/logistica', codigo: 'torre.tablero_logistica.ver' },
+  { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/logistica/exportar', codigo: 'torre.tablero_logistica.ver' },
+  { fichero: 'flito-torre/flito-torre.detalle.routes.ts', metodo: 'POST', ruta: '*', condicion: 'origen_logistica', codigo: 'torre.tablero_logistica.ver' },
+  { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/financiera/facturacion', codigo: 'torre.tablero_financiero.ver' },
+  { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/financiera/bolsas', codigo: 'torre.tablero_financiero.ver' },
+  { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/financiera/facturacion/exportar', codigo: 'torre.tablero_financiero.ver' },
+  { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/financiera/bolsas/exportar', codigo: 'torre.tablero_financiero.ver' },
 ];

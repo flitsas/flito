@@ -244,6 +244,14 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
       'flito-torre/flito-torre.tableros.routes.ts POST /productos',
       'flito-torre/flito-torre.tableros.routes.ts POST /productos/exportar',
       'flito-torre/flito-torre.detalle.routes.ts POST * [origen_productos]',
+      // Épica #14590 (B4): el área Logística (su función nace en el árbol, 0308) y las subvistas de Financiera.
+      'flito-torre/flito-torre.tableros.routes.ts POST /logistica',
+      'flito-torre/flito-torre.tableros.routes.ts POST /logistica/exportar',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_logistica]',
+      'flito-torre/flito-torre.tableros.routes.ts POST /financiera/facturacion',
+      'flito-torre/flito-torre.tableros.routes.ts POST /financiera/bolsas',
+      'flito-torre/flito-torre.tableros.routes.ts POST /financiera/facturacion/exportar',
+      'flito-torre/flito-torre.tableros.routes.ts POST /financiera/bolsas/exportar',
     ]);
   });
 });

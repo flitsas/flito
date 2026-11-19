@@ -12,13 +12,14 @@ import { leerRepartoSembrado } from '../../helpers/permisos-seed-sql.js';
 const SQL = readFileSync(join(__dirname, '../../../src/db/migrations/0303_flito_torre_fundacion.sql'), 'utf8');
 const SQL_DETALLE = readFileSync(join(__dirname, '../../../src/db/migrations/0306_flito_torre_detalle_permisos.sql'), 'utf8');
 const SQL_PRODUCTOS = readFileSync(join(__dirname, '../../../src/db/migrations/0307_flito_torre_productos.sql'), 'utf8');
+const SQL_LOGISTICA = readFileSync(join(__dirname, '../../../src/db/migrations/0308_flito_torre_logistica.sql'), 'utf8');
 const reparto = leerRepartoSembrado();
 const de = (rol: string) => [...(reparto.get(rol) ?? new Set<string>())];
 const deTorre = (rol: string) => de(rol).filter((f) => f.includes('torre')).sort();
 
 describe('semilla de umbrales', () => {
-  // La 0303 siembra los nueve primeros; la 0307 (B3), `dias_soat_por_vencer`.
-  const filas = [...`${SQL}\n${SQL_PRODUCTOS}`.matchAll(/^\s+\('([a-z_]+)', ([\d.]+), '([a-z]+)', '([^']+)'\)/gm)]
+  // La 0303 siembra los nueve primeros; la 0307 (B3), `dias_soat_por_vencer`; la 0308 (B4), `dias_traslado_abierto`.
+  const filas = [...`${SQL}\n${SQL_PRODUCTOS}\n${SQL_LOGISTICA}`.matchAll(/^\s+\('([a-z_]+)', ([\d.]+), '([a-z]+)', '([^']+)'\)/gm)]
     .map(([, clave, valor, unidad, descripcion]) => ({ clave, valor: Number(valor), unidad, descripcion }));
 
   it('siembra exactamente el catálogo `UMBRALES_TORRE` (clave, valor, unidad y descripción)', () => {
@@ -37,6 +38,7 @@ describe('semilla de umbrales', () => {
   it('la semilla no pisa un valor ajustado (ON CONFLICT DO NOTHING)', () => {
     expect(SQL).toMatch(/\('meta_mensual_aprobados'[^\n]*\n\s*ON CONFLICT \(clave\) DO NOTHING;/);
     expect(SQL_PRODUCTOS).toMatch(/\('dias_soat_por_vencer'[^\n]*\n\s*ON CONFLICT \(clave\) DO NOTHING;/);
+    expect(SQL_LOGISTICA).toMatch(/\('dias_traslado_abierto'[^\n]*\n\s*ON CONFLICT \(clave\) DO NOTHING;/);
   });
 });
 
@@ -119,6 +121,40 @@ describe('Productos (B3): su migración', () => {
   });
 });
 
+describe('Logística (B4): su migración', () => {
+  const bloque = (sql: string) => sql.slice(sql.indexOf('-- ÁRBOL GENERADO (inicio)\n') + '-- ÁRBOL GENERADO (inicio)\n'.length, sql.indexOf('-- ÁRBOL GENERADO (fin)'));
+
+  it('lo pegado entre las marcas es exactamente la salida del generador (tramo «logistica»)', () => {
+    expect(bloque(SQL_LOGISTICA).trim()).toBe(`${sqlSiembraTorre(catalogoCompleto(), 'logistica')}\n\n${sqlRepartoTorre('logistica')}`.trim());
+  });
+
+  it('el tramo nuevo no cambia los anteriores: ni la 0303, ni la 0306, ni la 0307 mencionan Logística', () => {
+    for (const s of [SQL, SQL_DETALLE, SQL_PRODUCTOS]) expect(bloque(s)).not.toContain('torre_logistica');
+    for (const t of ['fundacion', 'detalle', 'productos'] as const) expect(sqlRepartoTorre(t)).not.toContain('torre_logistica');
+    expect(bloque(SQL_PRODUCTOS).trim()).toBe(`${sqlSiembraTorre(catalogoCompleto(), 'productos')}\n\n${sqlRepartoTorre('productos')}`.trim());
+  });
+
+  it('es idempotente: ON CONFLICT en las tres tablas', () => {
+    expect(SQL_LOGISTICA).toMatch(/INSERT INTO flito_torre_umbrales[\s\S]+ON CONFLICT \(clave\) DO NOTHING;/);
+    expect(SQL_LOGISTICA).toMatch(/INSERT INTO permisos_funciones[\s\S]+ON CONFLICT \(codigo\) DO UPDATE/);
+    expect(SQL_LOGISTICA).toMatch(/INSERT INTO permisos_rol_funcion[\s\S]+ON CONFLICT \(rol_codigo, funcion_codigo\) DO NOTHING;/);
+  });
+
+  it('reparto: el de Productos (admin, auditor y gerencia_general); ni financiera ni gerencia_comercial', () => {
+    const con = (fn: string) => [...reparto].filter(([, fns]) => fns.has(fn)).map(([r]) => r).sort();
+    expect(con('accion.torre_logistica.ver')).toEqual(con('accion.torre_productos.ver'));
+    expect(con('accion.torre_logistica.ver')).toEqual(['admin', 'auditor', 'gerencia_general']);
+    expect(con('pagina.torre_logistica')).toEqual(['admin', 'auditor', 'gerencia_general']);
+    const f = catalogoCompleto().find((x) => x.codigo === 'accion.torre_logistica.ver')!;
+    expect(f.roles).toEqual(['admin', 'auditor', 'gerencia_general']);
+  });
+
+  it('la página por defecto la reciben los mismos roles que `torre_operativa` (sin `operaciones`)', () => {
+    const roles = (slug: string) => USER_ROLES.filter((r) => (ROLE_DEFAULT_PAGES[r] ?? []).includes(slug as never)).sort();
+    expect(roles('torre_logistica')).toEqual(roles('torre_operativa'));
+  });
+});
+
 describe('reparto de la Torre (plegadas las migraciones)', () => {
   it('NADIE salvo admin tiene «Editar los umbrales»', () => {
     const con = [...reparto].filter(([, fns]) => fns.has('accion.torre_umbrales.editar')).map(([r]) => r);
@@ -137,9 +173,10 @@ describe('reparto de la Torre (plegadas las migraciones)', () => {
     expect(deTorre('gerencia_general')).toEqual([
       'accion.torre_360.ver', 'accion.torre_comercial.ver', 'accion.torre_detalle.exportar', 'accion.torre_detalle.ver',
       'accion.torre_explorador.buscar_placa', 'accion.torre_explorador.consultar',
-      'accion.torre_explorador.exportar', 'accion.torre_explorador.ver_dinero', 'accion.torre_financiera.ver', 'accion.torre_operativa.ver',
-      'accion.torre_productos.ver', 'accion.torre_umbrales.ver', 'pagina.torre_360', 'pagina.torre_comercial', 'pagina.torre_detalle',
-      'pagina.torre_explorador', 'pagina.torre_financiera', 'pagina.torre_operativa', 'pagina.torre_productos', 'pagina.torre_umbrales',
+      'accion.torre_explorador.exportar', 'accion.torre_explorador.ver_dinero', 'accion.torre_financiera.ver', 'accion.torre_logistica.ver',
+      'accion.torre_operativa.ver', 'accion.torre_productos.ver', 'accion.torre_umbrales.ver', 'pagina.torre_360', 'pagina.torre_comercial',
+      'pagina.torre_detalle', 'pagina.torre_explorador', 'pagina.torre_financiera', 'pagina.torre_logistica', 'pagina.torre_operativa',
+      'pagina.torre_productos', 'pagina.torre_umbrales',
     ]);
   });
 

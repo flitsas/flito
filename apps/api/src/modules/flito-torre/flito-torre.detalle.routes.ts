@@ -29,7 +29,7 @@ const router = Router();
 router.use(authMiddleware);
 
 async function acceso(req: Request): Promise<AccesoDetalle> {
-  const [alcance, dinero, ejecutivo, comercial, operativo, financiero, metricas, productos] = await Promise.all([
+  const [alcance, dinero, ejecutivo, comercial, operativo, financiero, metricas, productos, logistica] = await Promise.all([
     alcanceDe(req),
     tieneFuncion(req, 'torre.metricas.dinero'),
     tieneFuncion(req, 'torre.tablero_ejecutivo.ver'),
@@ -38,6 +38,7 @@ async function acceso(req: Request): Promise<AccesoDetalle> {
     tieneFuncion(req, 'torre.tablero_financiero.ver'),
     tieneFuncion(req, 'torre.metricas.consultar'),
     tieneFuncion(req, 'torre.tablero_productos.ver'),
+    tieneFuncion(req, 'torre.tablero_logistica.ver'),
   ]);
   const funciones = new Set<string>();
   if (ejecutivo) funciones.add('torre.tablero_ejecutivo.ver');
@@ -46,6 +47,7 @@ async function acceso(req: Request): Promise<AccesoDetalle> {
   if (financiero) funciones.add('torre.tablero_financiero.ver');
   if (metricas) funciones.add('torre.metricas.consultar');
   if (productos) funciones.add('torre.tablero_productos.ver');
+  if (logistica) funciones.add('torre.tablero_logistica.ver');
   return { alcance, dinero, funciones };
 }
 

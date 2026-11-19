@@ -15,11 +15,11 @@ import { ACCIONES_TORRE, ITEMS_TORRE_ARBOL, REPARTO_TORRE } from './acciones-tor
 import { lit } from './sql-arbol.js';
 
 /**
- * Tramos que nacen DESPUÉS de la 0303 (ya aplicada), cada uno con su propia migración: el detalle (ADR-0047, 0306) y
- * Productos (B3, 0307). La salida de un tramo nunca incluye los códigos de otro, así que agregar uno no cambia las
- * anteriores.
+ * Tramos que nacen DESPUÉS de la 0303 (ya aplicada), cada uno con su propia migración: el detalle (ADR-0047, 0306),
+ * Productos (B3, 0307) y Logística (B4, 0308). La salida de un tramo nunca incluye los códigos de otro, así que agregar
+ * uno no cambia las anteriores.
  */
-const MARCA_TRAMO = { detalle: 'torre_detalle', productos: 'torre_productos' } as const;
+const MARCA_TRAMO = { detalle: 'torre_detalle', productos: 'torre_productos', logistica: 'torre_logistica' } as const;
 export type TramoTorre = 'fundacion' | keyof typeof MARCA_TRAMO;
 const tramoDe = (codigo: string): TramoTorre =>
   (Object.keys(MARCA_TRAMO) as (keyof typeof MARCA_TRAMO)[]).find((t) => codigo.includes(MARCA_TRAMO[t])) ?? 'fundacion';

@@ -16,18 +16,18 @@
 import { sql } from 'drizzle-orm';
 import {
   conjuntoTorre, fraseDeConjunto, type CifraExplicada, type ConjuntoTorreId, type DestinoCifra, type FilaTablaProductosTorre,
-  type SegmentoDetalle, type TablaProductosTorre, type TableroProductos,
+  type SegmentoDetalle, type TablaAreaTorre, type TablaProductosTorre, type TableroProductos,
 } from '@operaciones/shared-types';
 import { CONJUNTOS_SQL, contarConjuntos, dondeFragmento, fragmentoConjunto, totalFragmento, type Umbrales } from './flito-torre.conjuntos.js';
 import { claveAgrupacion } from './flito-torre.filtro.js';
 import { aConjunto, definicionDe } from './flito-torre.frases.js';
-import { enTorre, nombreOrganismo, type Ejecutor } from './flito-torre.metricas.service.js';
+import { SIN_COMPANIA, enTorre, nombreOrganismo, nombresCompania, type Ejecutor } from './flito-torre.metricas.service.js';
 import { conCacheTablero, num, rangoTablero, type ContextoTablero } from './flito-torre.tablero-comun.js';
 import { valoresUmbrales } from './flito-torre.umbrales.service.js';
 
 const NINGUNO: DestinoCifra = { tipo: 'ninguno' };
 const COP = (n: number): string => `$${Math.round(n).toLocaleString('es-CO')}`;
-const destino = (n: number, c: ConjuntoTorreId, segmentos?: SegmentoDetalle[]): DestinoCifra => (n > 0 ? aConjunto(c, segmentos) : NINGUNO);
+export const destino = (n: number, c: ConjuntoTorreId, segmentos?: SegmentoDetalle[]): DestinoCifra => (n > 0 ? aConjunto(c, segmentos) : NINGUNO);
 
 /** Estados del SOAT y del impuesto (mismo enum de valores), en el orden del flujo. */
 export const ESTADOS_PRODUCTO = ['pendiente', 'solicitado', 'con_novedad', 'pagado'] as const;
@@ -40,27 +40,41 @@ export const FILAS_TABLA_MAX = 10;
 export const CLAVE_OTROS = '__otros';
 
 /** La KPI que ES un conjunto: su frase y su definición salen del catálogo. */
-function kpi(c: ConjuntoTorreId, n: number, u: Umbrales, extra: Partial<CifraExplicada> & { cola?: string } = {}): CifraExplicada {
+export function kpi(c: ConjuntoTorreId, n: number, u: Umbrales, extra: Partial<CifraExplicada> & { cola?: string } = {}): CifraExplicada {
   const def = conjuntoTorre(c);
   const { cola, ...resto } = extra;
   const frase = fraseDeConjunto(def, n, def.umbral ? u[def.umbral] : undefined);
   return { frase: n > 0 && cola ? `${frase} ${cola}` : frase, definicion: definicionDe(c, u), destino: destino(n, c), ...resto };
 }
 
-type Dimension = TablaProductosTorre['dimension'];
+type Dimension = TablaAreaTorre['dimension'];
+
+/** B4: las tablas de Logística y Financiera reusan `tablaArea` con sus estados y su orden. */
+export interface OpcionesTabla {
+  /** Estados en el orden del flujo (se muestran aunque estén en 0); defecto, los del SOAT/impuesto. */
+  estados?: readonly string[];
+  etiquetasEstado?: Readonly<Record<string, string>>;
+  /** Ordenar por valor ↓ (solo con permiso de dinero; si no, por cantidad). */
+  ordenValor?: boolean;
+}
 
 /** RN-TOR-PR2: una tabla = el conjunto agrupado por su dimensión. */
-async function tabla(
+export async function tablaArea(
   q: Ejecutor, ctx: ContextoTablero, u: Umbrales, c: ConjuntoTorreId, dimension: Dimension, titulo: string, conValor: boolean,
-): Promise<TablaProductosTorre> {
+  op: OpcionesTabla = {},
+): Promise<TablaAreaTorre> {
+  const estados = op.estados ?? ESTADOS_PRODUCTO;
+  const etiquetasEstado = op.etiquetasEstado ?? ETIQUETA_ESTADO;
   const f = fragmentoConjunto(c, ctx, u);
   const def = conjuntoTorre(c);
-  const k = dimension === 'organismo' ? claveAgrupacion('organismo', f.dims, undefined) : CONJUNTOS_SQL[c].dimensiones![dimension]!;
+  const k = dimension === 'organismo' || dimension === 'compania' ? claveAgrupacion(dimension, f.dims, undefined)
+    : CONJUNTOS_SQL[c].dimensiones![dimension]!;
   const suma = conValor && f.cols.valor ? sql`, COALESCE(sum(${f.cols.valor}), 0)::numeric AS v` : sql`, NULL::numeric AS v`;
   // Motivo: la clave es opaca (RN-TOR-P4); la etiqueta, el motivo corto (todas las filas de una clave tienen el mismo).
   const etiquetaSql = dimension === 'motivo' ? sql`, min(${f.cols.motivo!}) AS e` : sql`, NULL::text AS e`;
+  const orden = op.ordenValor && ctx.dinero && conValor ? sql`ORDER BY 3 DESC NULLS LAST, 2 DESC, 1 ASC NULLS LAST` : sql`ORDER BY 2 DESC, 1 ASC NULLS LAST`;
   const filas = await q<{ k: string | null; n: number; v: string | null; e: string | null }>(sql`SELECT ${k} AS k, count(*)::int AS n${suma}${etiquetaSql}
-    FROM ${f.desde} WHERE ${dondeFragmento(f)} GROUP BY 1 ORDER BY 2 DESC, 1 ASC NULLS LAST`);
+    FROM ${f.desde} WHERE ${dondeFragmento(f)} GROUP BY 1 ${orden}`);
   const valor = (v: string | number | null): number | null | undefined => (!conValor ? undefined : ctx.dinero ? num(v) : null);
   const fila = (clave: string | null, etiqueta: string, n: number, v: string | number | null, conDestino = true): FilaTablaProductosTorre => {
     const out: FilaTablaProductosTorre = {
@@ -71,15 +85,18 @@ async function tabla(
     return out;
   };
   const textoMotivo = new Map(filas.map((r) => [r.k, r.e]));
-  const etiquetaDe = (clave: string | null): string => (dimension === 'estado' ? ETIQUETA_ESTADO[clave ?? ''] ?? clave ?? 'Sin estado'
-    : dimension === 'organismo' ? nombreOrganismo(clave) : etiquetaMotivo(textoMotivo.get(clave) ?? null));
+  const nombres = dimension === 'compania' ? await nombresCompania(q, filas.map((r) => r.k).filter((x): x is string => x != null).map(Number)) : null;
+  const etiquetaDe = (clave: string | null): string => (dimension === 'estado' ? etiquetasEstado[clave ?? ''] ?? clave ?? 'Sin estado'
+    : dimension === 'organismo' ? nombreOrganismo(clave)
+      : dimension === 'compania' ? (clave == null ? SIN_COMPANIA : nombres!.get(Number(clave)) ?? `Compañía ${clave}`)
+        : etiquetaMotivo(textoMotivo.get(clave) ?? null));
 
   let salida: FilaTablaProductosTorre[];
   if (dimension === 'estado') {
     const por = new Map(filas.map((r) => [r.k, r]));
     salida = [
-      ...ESTADOS_PRODUCTO.map((e) => fila(e, etiquetaDe(e), num(por.get(e)?.n), por.get(e)?.v ?? 0)),
-      ...filas.filter((r) => !(ESTADOS_PRODUCTO as readonly (string | null)[]).includes(r.k)).map((r) => fila(r.k, etiquetaDe(r.k), num(r.n), r.v)),
+      ...estados.map((e) => fila(e, etiquetaDe(e), num(por.get(e)?.n), por.get(e)?.v ?? 0)),
+      ...filas.filter((r) => !(estados as readonly (string | null)[]).includes(r.k)).map((r) => fila(r.k, etiquetaDe(r.k), num(r.n), r.v)),
     ];
   } else {
     const top = filas.slice(0, FILAS_TABLA_MAX);
@@ -98,6 +115,11 @@ async function tabla(
     filtrosIgnorados: [...def.filtrosIgnorados],
   };
 }
+
+/** Las tablas de Productos no cortan por compañía. */
+const tabla = async (
+  q: Ejecutor, ctx: ContextoTablero, u: Umbrales, c: ConjuntoTorreId, dimension: TablaProductosTorre['dimension'], titulo: string, conValor: boolean,
+): Promise<TablaProductosTorre> => (await tablaArea(q, ctx, u, c, dimension, titulo, conValor)) as TablaProductosTorre;
 
 const conValorPagado = (t: { total: number; valorTotal: number | null }, ctx: ContextoTablero): string | undefined =>
   (ctx.dinero && t.total > 0 && t.valorTotal != null ? `Valor pagado: ${COP(t.valorTotal)}.` : undefined);

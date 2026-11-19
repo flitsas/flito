@@ -817,4 +817,13 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/productos", roles: [], heredada: false },
   { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/productos/exportar", roles: [], heredada: false },
   { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_productos", roles: [], heredada: false },
+  // Épica #14590 (B4): el área Logística (tablero + Excel, nace en el árbol: 0308) y su función de origen en el detalle;
+  // las subvistas Facturación y Bolsas de Financiera reutilizan `torre.tablero_financiero.ver`.
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/logistica", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/financiera/facturacion", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/financiera/bolsas", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/logistica/exportar", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/financiera/facturacion/exportar", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/financiera/bolsas/exportar", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_logistica", roles: [], heredada: false },
 ];
