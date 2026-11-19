@@ -8,7 +8,7 @@
 //   · nunca la imagen/PDF ni su base64, ni llaves ni encabezados: el prompt se renderiza solo con su texto
 //     y los adjuntos como `[image image/png]`;
 //   · `error_mensaje` recortado a 500 y sin cédulas ni correos (Anthropic puede citar el prompt en un 400);
-//   · prompt y respuesta completos solo en el detalle (bandera `IA_CONSUMO_DETALLE`), recortados a 64 KB;
+//   · prompt y respuesta completos solo en el detalle (bandera `IA_CONSUMO_DETALLE`, encendida por defecto), recortados a 64 KB;
 //   · sin contexto ⇒ `modulo = proceso = 'desconocido'`; sin `origen` ⇒ `usuario` si hay usuario, si no `job`.
 import { createHash } from 'node:crypto';
 import { env } from '../../config/env.js';

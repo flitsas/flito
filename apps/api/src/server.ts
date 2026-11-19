@@ -19,7 +19,6 @@ import { startRetencionCron as startPesvRetencionCron, stopRetencionCron as stop
 import { startArosCron, stopArosCron } from './modules/laft/cash/aros.cron.js';
 import { startRumPurgeCron, stopRumPurgeCron } from './modules/rum/purge.cron.js';
 import { startAnthropicHealthCron, stopAnthropicHealthCron } from './modules/ai/anthropic-health.cron.js';
-import { startIaConsumoRetencionCron, stopIaConsumoRetencionCron } from './modules/ia-consumo/ia-consumo-retencion.cron.js';
 import { startPortalReminderCron, stopPortalReminderCron } from './modules/tramites/portal-reminder.cron.js';
 import { startValidacionStaleCron, stopValidacionStaleCron } from './modules/tramites/validacion-stale.cron.js';
 import { startImpuestosAnalisisCron, stopImpuestosAnalisisCron } from './modules/flito-impuestos/flito-impuestos-analisis.cron.js';
@@ -89,8 +88,6 @@ const server = app.listen(env.PORT, () => {
     startArosCron();
     startRumPurgeCron();
     startAnthropicHealthCron();
-    // Contrato ia-consumo v1 (ADR-0047): retención diaria del detalle de consumo de IA.
-    startIaConsumoRetencionCron();
     // TRAM-COMMS-02: recordatorios portal (noop si TRAM_PORTAL_REMINDER_CRON_ENABLED!=1).
     startPortalReminderCron();
     startValidacionStaleCron();
@@ -164,7 +161,6 @@ function shutdown(signal: string) {
   stopArosCron();
   stopRumPurgeCron();
   stopAnthropicHealthCron();
-  stopIaConsumoRetencionCron();
   stopPortalReminderCron();
   stopValidacionStaleCron();
   stopImpuestosAnalisisCron();
