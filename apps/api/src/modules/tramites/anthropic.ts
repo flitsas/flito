@@ -5,7 +5,7 @@
 // fallo, el caller responde con un mensaje usable que invita a continuar con
 // carga manual del documento.
 //
-// Contrato `ia-consumo` v1 (ADR-0045): es el ÚNICO punto de FLITO que habla con `api.anthropic.com`. Cada
+// Contrato `ia-consumo` v1 (ADR-0047): es el ÚNICO punto de FLITO que habla con `api.anthropic.com`. Cada
 // intento HTTP (reintentos incluidos, vía `onIntento` de `requestWithRetry`) deja una fila en
 // `ia_consumo_log` con el contexto que abrió quien llama (`conContextoIa`). El registro nunca bloquea ni
 // cambia el resultado. Tres formas, según lo que el llamador ya esperaba antes de pasar por aquí:

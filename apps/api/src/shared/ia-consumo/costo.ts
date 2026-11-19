@@ -1,4 +1,4 @@
-// Contrato `ia-consumo` v1, regla 9 (ADR-0045) — costo estimado en USD de una llamada.
+// Contrato `ia-consumo` v1, regla 9 (ADR-0047) — costo estimado en USD de una llamada.
 //
 //   costo = (entrada·p_entrada + salida·p_salida + cache_lectura·p_lectura + cache_escritura·p_escritura) / 1e6
 //

@@ -104,7 +104,7 @@ const server = app.listen(env.PORT, () => {
     startArosCron();
     startRumPurgeCron();
     startAnthropicHealthCron();
-    // Contrato ia-consumo v1 (ADR-0045): retención diaria del detalle de consumo de IA.
+    // Contrato ia-consumo v1 (ADR-0047): retención diaria del detalle de consumo de IA.
     startIaConsumoRetencionCron();
     // TRAM-COMMS-02: recordatorios portal (noop si TRAM_PORTAL_REMINDER_CRON_ENABLED!=1).
     startPortalReminderCron();

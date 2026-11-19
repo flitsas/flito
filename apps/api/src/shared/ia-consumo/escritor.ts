@@ -1,4 +1,4 @@
-// Contrato `ia-consumo` v1, regla 2 (ADR-0045) — escritor del registro de consumo de IA.
+// Contrato `ia-consumo` v1, regla 2 (ADR-0047) — escritor del registro de consumo de IA.
 //
 // Nunca bloquea ni rompe la llamada a la IA: `encolarConsumoIa` es síncrono, no lanza y no toca la BD. La
 // cola vive en memoria, acotada a TOPE_COLA filas (llena ⇒ se descarta, se cuenta en

@@ -10,7 +10,7 @@
 //            corto); el cuerpo crudo nunca sale de aquí (puede ecoar el prompt).
 // RN-DRF-K4  De una respuesta 200 solo se toman los bloques `type === "text"`, `stop_reason` y `usage`.
 //
-// Contrato `ia-consumo` v1 (ADR-0045): la llamada sale por el cliente central (`anthropicPeticion`), que registra
+// Contrato `ia-consumo` v1 (ADR-0047): la llamada sale por el cliente central (`anthropicPeticion`), que registra
 // el intento; este archivo conserva su propia clasificación (RN-DRF-K2..K4) sobre la respuesta.
 import { env } from '../../config/env.js';
 import { UpstreamError } from '../../shared/upstream.js';

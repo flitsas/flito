@@ -1,4 +1,4 @@
-// Contrato `ia-consumo` v1, regla 7 (ADR-0045) — contexto de negocio de las llamadas a IA.
+// Contrato `ia-consumo` v1, regla 7 (ADR-0047) — contexto de negocio de las llamadas a IA.
 //
 // El código que llama abre el ámbito con `conContextoIa({ ... }, fn)`; el cliente HTTP lo lee con
 // `leerContextoIa()`. Es anidable: el ámbito interior hereda del exterior y pisa solo lo que declara.

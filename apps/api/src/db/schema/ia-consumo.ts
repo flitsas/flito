@@ -1,4 +1,4 @@
-// Contrato `ia-consumo` v1 (docs/contratos/ia-consumo.v1.md, ADR-0045) — migración 0305.
+// Contrato `ia-consumo` v1 (docs/contratos/ia-consumo.v1.md, ADR-0047) — migración 0306.
 // Mismas tres tablas, columnas y tipos que en FLIT 2.0: no se cambian aquí sin una v2 del contrato.
 // Los CHECK de catálogo no van en Drizzle ni en el SQL a propósito: el catálogo puede crecer (un uso
 // nuevo) sin migración, y lo garantiza el código (`shared/ia-consumo/catalogo.ts`).

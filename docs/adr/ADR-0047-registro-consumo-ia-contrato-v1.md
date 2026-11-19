@@ -1,4 +1,4 @@
-# ADR-0045 — Registro de consumo de APIs de IA (contrato `ia-consumo` v1)
+# ADR-0047 — Registro de consumo de APIs de IA (contrato `ia-consumo` v1)
 
 - **Estado:** Propuesto — 2026-11-18. Plan aprobado por el humano (Frente B, FLITO); falta revisión del
   Líder Técnico en el PR.
@@ -64,7 +64,7 @@ ni cada placa. Había 13 puntos de llamada (6 por el cliente central `modules/tr
 
 ## Consecuencias
 
-- Migración `0305_ia_consumo_log.sql` (SQL a mano, idempotente) con semilla de tarifas Anthropic.
+- Migración `0306_ia_consumo_log.sql` (SQL a mano, idempotente) con semilla de tarifas Anthropic.
 - Banderas `IA_CONSUMO_LOG` (true), `IA_CONSUMO_DETALLE` (false), `IA_CONSUMO_DETALLE_DIAS` (30). En
   DEV/QA/PDN se fijan en `flit-gitops` si se quiere otro valor que el defecto (no se tocan en este PR).
 - Ley 1581: el registro guarda placa, usuario y huella del archivo; el detalle (apagado por defecto)

@@ -1,4 +1,4 @@
-// Contrato `ia-consumo` v1 (ADR-0045) — de una llamada a la IA a una fila de `ia_consumo_log`.
+// Contrato `ia-consumo` v1 (ADR-0047) — de una llamada a la IA a una fila de `ia_consumo_log`.
 //
 // `registrarIntentoAnthropic` lo llama el cliente central (`modules/tramites/anthropic.ts`) una vez por
 // intento HTTP; `registrarConsumoIa` es la vía genérica (respaldo Tesseract, «no configurado»). Ambos son

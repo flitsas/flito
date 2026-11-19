@@ -472,7 +472,7 @@ const envSchema = z.object({
   // HU #13989 (ADR-0033): conteo de uso de rutas legacy. Defecto encendido (una puerta positiva olvidada
   // perdería la ventana de 4 semanas); solo '0' no monta las capas.
   USO_LEGACY_CONTEO_ENABLED: z.string().optional().transform((v) => v !== '0'),
-  // Contrato `ia-consumo` v1 (ADR-0045): registro de consumo de IA. Maestra encendida por defecto (solo
+  // Contrato `ia-consumo` v1 (ADR-0047): registro de consumo de IA. Maestra encendida por defecto (solo
   // 'false'/'0' la apagan); el detalle (prompt + respuesta) apagado por defecto y con retención en días.
   IA_CONSUMO_LOG: z.string().optional().transform((v) => !['false', '0'].includes((v ?? '').trim().toLowerCase())),
   IA_CONSUMO_DETALLE: z.string().optional().transform((v) => ['true', '1'].includes((v ?? '').trim().toLowerCase())),

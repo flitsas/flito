@@ -1,4 +1,4 @@
-// Contrato `ia-consumo` v1 (ADR-0045) — contexto, costo, escritor y armado de la fila. Sin BD: el escritor
+// Contrato `ia-consumo` v1 (ADR-0047) — contexto, costo, escritor y armado de la fila. Sin BD: el escritor
 // escribe en un sumidero en memoria (`configurarSumideroIaParaTests`).
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { env } from '../../src/config/env.js';

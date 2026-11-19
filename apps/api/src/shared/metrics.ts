@@ -156,7 +156,7 @@ export const usoLegacyConteosDescartadosTotal = new Counter({
   registers: [registry],
 });
 
-// Contrato `ia-consumo` v1 (ADR-0045): escritor del registro de consumo de IA (cola en memoria + lotes).
+// Contrato `ia-consumo` v1 (ADR-0047): escritor del registro de consumo de IA (cola en memoria + lotes).
 export const iaConsumoDescartadosTotal = new Counter({
   name: 'ia_consumo_descartados_total',
   help: 'Registros de consumo de IA descartados (cola llena o lote fallido contra la BD), por motivo.',

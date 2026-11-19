@@ -1,4 +1,4 @@
-// Contrato `ia-consumo` v1 (docs/contratos/ia-consumo.v1.md, ADR-0045) — catálogos cerrados.
+// Contrato `ia-consumo` v1 (docs/contratos/ia-consumo.v1.md, ADR-0047) — catálogos cerrados.
 //
 // Los textos son los del contrato, compartidos con FLIT 2.0: NO se renombran aquí. Un uso nuevo se
 // agrega a la tabla «modulo / proceso — FLITO» del contrato Y a `PROCESOS_IA_FLITO`, en el mismo PR.

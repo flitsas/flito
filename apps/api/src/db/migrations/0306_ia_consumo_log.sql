@@ -1,4 +1,4 @@
--- 0305_ia_consumo_log.sql — Contrato `ia-consumo` v1 (docs/contratos/ia-consumo.v1.md, ADR-0045).
+-- 0306_ia_consumo_log.sql — Contrato `ia-consumo` v1 (docs/contratos/ia-consumo.v1.md, ADR-0047).
 -- Registro de consumo de APIs de IA: una fila por llamada HTTP real al proveedor. Mismo DDL que FLIT 2.0,
 -- columna por columna, para consolidar sin traducir. Escrita a mano e idempotente; sin BEGIN/COMMIT (el
 -- runner envuelve). NO drizzle-kit (AGENTS.md regla 6). Espejo Drizzle: `src/db/schema/ia-consumo.ts`.

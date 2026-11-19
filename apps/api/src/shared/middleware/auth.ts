@@ -206,7 +206,7 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     // así que un router NUEVO nace CERRADO para él. El resolutor no rechaza: el `catch` de abajo
     // sigue siendo solo el del token.
     //
-    // Contrato `ia-consumo` v1 (ADR-0045): el resto de la petición corre en el ámbito de IA con este usuario
+    // Contrato `ia-consumo` v1 (ADR-0047): el resto de la petición corre en el ámbito de IA con este usuario
     // y su organismo (`transitoCodigo` = tenant), para que cada llamada a la IA lo registre.
     await ejecutarConUsuarioIa(req, () => guardiaFrontera(req, res, next));
   } catch {

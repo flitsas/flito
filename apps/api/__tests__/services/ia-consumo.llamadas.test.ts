@@ -1,4 +1,4 @@
-// Contrato `ia-consumo` v1 (ADR-0045), B3/B4/B7 — el cliente central y cada llamada migrada a él, de punta a
+// Contrato `ia-consumo` v1 (ADR-0047), B3/B4/B7 — el cliente central y cada llamada migrada a él, de punta a
 // punta: `requestWithRetry` REAL sobre una red simulada (`node:https` mockeado). Se verifica (a) que cada
 // llamador ve lo mismo que veía antes y (b) la fila que queda en el registro (sumidero en memoria).
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

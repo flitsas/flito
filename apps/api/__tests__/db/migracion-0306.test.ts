@@ -1,4 +1,4 @@
-// Contrato `ia-consumo` v1 (ADR-0045) — la 0305 y el espejo Drizzle tienen EXACTAMENTE las columnas, tipos,
+// Contrato `ia-consumo` v1 (ADR-0047) — la 0306 y el espejo Drizzle tienen EXACTAMENTE las columnas, tipos,
 // nulabilidad y orden del DDL del contrato (`docs/contratos/ia-consumo.v1.md`), que comparte FLIT 2.0. Estática
 // siempre; contra PostgreSQL solo con TEST_DATABASE_URL (en tx con ROLLBACK).
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
@@ -16,7 +16,7 @@ vi.mock('../../src/db/client.js', () => ({
 
 const { iaConsumoDetalle, iaConsumoLog, iaTarifaModelo } = await import('../../src/db/schema/ia-consumo.js');
 
-const ARCHIVO = '0305_ia_consumo_log.sql';
+const ARCHIVO = '0306_ia_consumo_log.sql';
 const SQL = leerMigracion(ARCHIVO);
 const CONTRATO = readFileSync(
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../docs/contratos/ia-consumo.v1.md'), 'utf8',
@@ -41,7 +41,7 @@ function columnas(ddl: string, tabla: string): Columna[] {
 const indices = (ddl: string) => [...ddl.replace(/--[^\n]*/g, '').matchAll(/CREATE INDEX (?:IF NOT EXISTS )?(\w+)\s+ON (\w+) (\([^)]*\))(?: WHERE ([^;]+))?;/g)]
   .map((m) => `${m[1]}|${m[2]}|${m[3]!.replace(/\s+/g, '')}|${(m[4] ?? '').trim()}`);
 
-describe('0305 — conformidad con el contrato ia-consumo v1 (estática)', () => {
+describe('0306 — conformidad con el contrato ia-consumo v1 (estática)', () => {
   it('sin control de transacción propio', () => {
     expect(scanForTxControl(ARCHIVO, SQL)).toEqual([]);
   });
@@ -75,7 +75,7 @@ describe('0305 — conformidad con el contrato ia-consumo v1 (estática)', () =>
   });
 });
 
-describe.skipIf(!URL_BASE)('0305 — contra la base real', () => {
+describe.skipIf(!URL_BASE)('0306 — contra la base real', () => {
   let sql: ReturnType<typeof abrirBase>;
   beforeAll(() => { sql = abrirBase(); });
   afterAll(async () => { await sql?.end(); });

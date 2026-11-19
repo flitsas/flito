@@ -1,4 +1,4 @@
-// Contrato `ia-consumo` v1 (ADR-0045) — retención del detalle (prompt + respuesta) del consumo de IA.
+// Contrato `ia-consumo` v1 (ADR-0047) — retención del detalle (prompt + respuesta) del consumo de IA.
 // Molde: `flito-dr-flit/dr-flit.cron.ts`.
 //
 // RN-IAC1  Diaria, en la hora 04 de COLOMBIA (`relojBogota`), latido de 10 min y una corrida por día y proceso.
