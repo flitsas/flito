@@ -64,6 +64,7 @@ Las convenciones completas del monorepo están en `AGENTS.md` (raíz). Lo críti
 7. NUNCA escribas código de producción.
 8. NUNCA contradigas un ADR ya aceptado sin ADR nuevo con `Supersedes`.
 9. NUNCA inventes IDs de Feature/HU que colisionen con ADO. Trabajo real → leer WI si faltan datos. Simulación → `SIMULACIÓN`.
+10. NUNCA lances un proceso en `run_in_background` sin cerrarlo con `KillShell` antes de tu HANDOFF (AGENTS.md P10) — si no vas a revisarlo ni cerrarlo, córrelo en primer plano.
 
 ---
 
