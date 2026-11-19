@@ -205,6 +205,9 @@ describe.skipIf(!URL_BASE)('Torre › Operativa › Equipo contra PostgreSQL (tx
     const t5 = await s.tramite({ cia: x, flitEstado: 'Asignado' });
     await estado(t5, a, haceHoras(24 * 5));
     await estado(t5, null, haceHoras(24 * 4)); // el último lo hizo el sistema: de nadie
+    // RN-TOR-EQ5, borde del trámite: 36 h pasa el umbral de SOAT/impuesto (24 h) pero no el del trámite (48 h).
+    const t7 = await s.tramite({ cia: x, flitEstado: 'Asignado' });
+    await estado(t7, b, haceHoras(36)); // carga de Bruno dentro del ANS
     // ── SOAT, impuesto, derecho, traslado e incompleta de y.
     const s1 = await soat(y, 'solicitado');
     await historialProducto('soat', s1, c, '2035-03-10T15:00:00Z'); // gestión y carga de Carla
@@ -218,6 +221,11 @@ describe.skipIf(!URL_BASE)('Torre › Operativa › Equipo contra PostgreSQL (tx
     await tx`UPDATE flito_derechos_tramite SET registrado_por_id = ${c}, created_at = '2035-03-12T15:00:00Z' WHERE tramite_id = ${t6}`;
     await tx`INSERT INTO flito_logistica_traslados (compania_id, origen, destino, estado, registrado_en, registrado_por_id)
       VALUES (${y}, 'organismo', 'flit', 'registrado', '2035-03-15T15:00:00Z', ${a})`;
+    // RN-TOR-EQ5, borde del traslado: 12 h antes de su umbral (`dias_traslado_abierto` × 24) y por encima de los de
+    // trámite (48 h) y SOAT/impuesto (24 h) con el valor por defecto (3 días = 72 h → 60 h).
+    expect(u.dias_traslado_abierto * 24 - 12).toBeGreaterThan(48);
+    await tx`INSERT INTO flito_logistica_traslados (compania_id, origen, destino, estado, registrado_en, registrado_por_id)
+      VALUES (${y}, 'flit', 'cliente', 'en_ruta', ${haceHoras(u.dias_traslado_abierto * 24 - 12)}, ${c})`; // carga de Carla dentro del ANS
     await tx`INSERT INTO flito_soat_incompletas (soat_id_reservado, compania_id, tipo_soat, modalidad_consulta, placa,
         solicitado_por_nombre, estado, motivo_descarte, resuelta_por_id, resuelta_por_nombre, resuelta_en)
       VALUES (gen_random_uuid(), ${y}, 'renovacion', 'placa', 'ZQE009', 'Quien pidió', 'descartada', 'soat_vigente', ${a},
@@ -234,13 +242,13 @@ describe.skipIf(!URL_BASE)('Torre › Operativa › Equipo contra PostgreSQL (tx
   it('B5-AC2: cada KPI y cada celda por funcionario abre un detalle con su mismo número; la suma de las filas es la KPI', async () => {
     const { a, b, c, filtro } = await escenario();
     const t = await tableroEquipo({ filtro, alcance: TODO, dinero: true, hoy: HOY });
-    expect(t.cifras).toEqual({ funcionarios: 3, gestionesPeriodo: 8, cargaAbierta: 6, fueraAns: 2 });
+    expect(t.cifras).toEqual({ funcionarios: 3, gestionesPeriodo: 8, cargaAbierta: 8, fueraAns: 2 });
     expect(t.porFuncionario.map((f) => [f.funcionarioId, f.nombre, f.gestionesPeriodo, f.cargaAbierta, f.fueraAns])).toEqual([
       [String(a), 'Ana Restrepo', 4, 3, 1],
-      [String(b), 'Bruno Cárdenas', 2, 2, 1],
-      [String(c), 'Carla Zuluaga', 2, 1, 0],
+      [String(b), 'Bruno Cárdenas', 2, 3, 1],
+      [String(c), 'Carla Zuluaga', 2, 2, 0],
     ]);
-    expect(t.frase).toBe('3 funcionarios registraron gestiones en el periodo; hoy tienen 6 gestiones abiertas a su cargo.');
+    expect(t.frase).toBe('3 funcionarios registraron gestiones en el periodo; hoy tienen 8 gestiones abiertas a su cargo.');
     for (const col of Object.keys(CONJUNTO_POR_COLUMNA_EQUIPO) as (keyof typeof CONJUNTO_POR_COLUMNA_EQUIPO)[]) {
       const kpi = t.explicaciones[col]!;
       expect((await detalle(filtro, kpi.destino)).total, `kpi ${col}`).toBe(t.cifras[col]);
