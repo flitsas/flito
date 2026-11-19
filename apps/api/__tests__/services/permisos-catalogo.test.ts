@@ -47,7 +47,7 @@ const paginas = catalogo.filter((f) => f.tipo === 'pagina');
 const operaciones = catalogo.filter((f) => f.tipo === 'operacion');
 
 describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo era', () => {
-  it('`PAGE_GROUPS` trae 83 entradas para 82 slugs únicos: `transito` está dos veces', () => {
+  it('`PAGE_GROUPS` trae 84 entradas para 83 slugs únicos: `transito` está dos veces', () => {
     // 44 → 45 / 43 → 44 desde la HU #12375: entra `flito_tarifas` en «Finanzas».
     // 45 → 46 / 44 → 45 desde la HU #12085: entra `roles_permisos` en «Administración».
     // 46 → 47 / 45 → 46 desde la HU #12542: entra `flito_servicios_adicionales` en «Finanzas».
@@ -60,9 +60,10 @@ describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo e
     // 75 → 76 / 74 → 75 desde la HU #13941: entra `flito_dr_flit` («Dr. Flit») en «General».
     // 76 → 82 / 75 → 81 desde la Épica #14590: entran las seis páginas de la Torre de Control.
     // 82 → 83 / 81 → 82 desde el ADR-0047 (Épica #14590, B1): entra `torre_detalle` en «Torre de Control».
+    // 83 → 84 / 82 → 83 desde la Épica #14590 (B3): entra `torre_productos` en «Torre de Control».
     const entradas = PAGE_GROUPS.flatMap((g) => g.pages);
-    expect(entradas).toHaveLength(83);
-    expect(new Set(entradas).size).toBe(82);
+    expect(entradas).toHaveLength(84);
+    expect(new Set(entradas).size).toBe(83);
     const repetidos = entradas.filter((s, i) => entradas.indexOf(s) !== i);
     expect(repetidos).toEqual(['transito']);
   });
@@ -88,12 +89,13 @@ describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo e
     expect(catalogo.map((f) => f.codigo)).not.toContain('pagina.flito_ayuda');
   });
 
-  it('las funciones de tipo `pagina` del mundo plano son 73: los 83 slugs de PAGES menos `flito_ayuda`, `admin_rendimiento`, `flito_dr_flit` y las siete de la Torre', () => {
+  it('las funciones de tipo `pagina` del mundo plano son 73: los 84 slugs de PAGES menos `flito_ayuda`, `admin_rendimiento`, `flito_dr_flit` y las ocho de la Torre', () => {
     // HU #13255: +1 (`perfil`). HU #13421: +21 (una por ítem del menú PESV). HU #13422: +3 (Mantenimiento).
     // HU #13588: +1 en PAGES (`admin_rendimiento`), que nace en el árbol (la 0240): no es del mundo plano (≤ 0231).
     // HU #13941: +1 en PAGES (`flito_dr_flit`), que también nace en el árbol (la 0254).
     // Épica #14590: +6 en PAGES (`torre_*`), que nacen en el árbol (la 0303); ADR-0047: +1 (`torre_detalle`, su migración).
-    expect(Object.keys(PAGES)).toHaveLength(83);
+    // B3: +1 (`torre_productos`, la 0307).
+    expect(Object.keys(PAGES)).toHaveLength(84);
     expect(paginas).toHaveLength(73);
     const esperados = Object.keys(PAGES).filter((s) => s !== 'flito_ayuda' && s !== 'admin_rendimiento' && s !== 'flito_dr_flit' && !s.startsWith('torre_')).sort();
     expect(paginas.map((f) => f.codigo.replace('pagina.', '')).sort()).toEqual(esperados);
@@ -246,7 +248,9 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       // Épica #14590 (B2): `POST /operativa/inventario` y `/operativa/soportes` reutilizan `torre.tablero_operativo.ver`.
       // ADR-0047 (B1): el detalle exige en línea el dinero y la función de origen de la cifra (+1 a cada una).
       ['torre.metricas.consultar', 3], ['torre.metricas.dinero', 5], ['torre.placa.buscar', 2], ['torre.tablero_comercial.ver', 3],
+      // Épica #14590 (B3): Productos = su tablero, su Excel y la función de origen del detalle.
       ['torre.tablero_ejecutivo.ver', 3], ['torre.tablero_financiero.ver', 3], ['torre.tablero_operativo.ver', 5],
+      ['torre.tablero_productos.ver', 3],
       ['tramites.cola.ver', 3], ['tramites.sincronizacion.configurar', 2], ['usuarios.usuario.listar', 2],
     ]);
     // HU #13427: las de HOY (con las operaciones nuevas que parten una guarda vieja), no las del mundo plano.
@@ -326,6 +330,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       'flito-torre/flito-torre.detalle.routes.ts POST * [origen_explorador]',
       'flito-torre/flito-torre.detalle.routes.ts POST * [origen_financiero]',
       'flito-torre/flito-torre.detalle.routes.ts POST * [origen_operativo]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_productos]',
       'flito-torre/flito-torre.routes.ts POST /metricas/consultar [dinero]',
       'flito-torre/flito-torre.routes.ts POST /metricas/exportar [dinero]',
       'flito-torre/flito-torre.tableros.routes.ts POST * [dinero_exportar]',

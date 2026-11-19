@@ -27,6 +27,8 @@ export const ACCIONES_TORRE: Readonly<Record<string, AccionArbol>> = {
   // descarga). Las siembra la migración del detalle (no la 0303, que ya está aplicada).
   'accion.torre_detalle.ver': { lectura: true, operaciones: ['torre.detalle.ver'], predecesores: [] },
   'accion.torre_detalle.exportar': { operaciones: ['torre.detalle.exportar'], predecesores: [] },
+  // Productos (B3): el área SOAT · Impuestos · Derechos. La siembra su propia migración (0307), con el umbral nuevo.
+  'accion.torre_productos.ver': { lectura: true, operaciones: ['torre.tablero_productos.ver'], predecesores: [] },
 };
 
 /** Las operaciones que nacen con los ítems (ver `OPERACIONES_NACIDAS_EN_EL_ARBOL`). */
@@ -35,7 +37,7 @@ export const OPERACIONES_TORRE: readonly string[] = Object.values(ACCIONES_TORRE
 /** Los ítems (nivel 2) que estrena la 0303, en el orden del árbol. */
 export const ITEMS_TORRE_ARBOL: readonly string[] = [
   'pagina.torre_360', 'pagina.torre_comercial', 'pagina.torre_operativa', 'pagina.torre_financiera',
-  'pagina.torre_explorador', 'pagina.torre_umbrales', 'pagina.torre_detalle',
+  'pagina.torre_explorador', 'pagina.torre_umbrales', 'pagina.torre_detalle', 'pagina.torre_productos',
 ];
 
 const TABLEROS = ['torre_360', 'torre_comercial', 'torre_operativa', 'torre_financiera'] as const;
@@ -52,6 +54,7 @@ const conCadena = (items: readonly string[], acciones: readonly string[], elemen
  *   · `financiera`: su tablero, el Explorador completo.
  *   · `gerencia_comercial`: su tablero, el Explorador completo.
  *   · `gerencia_general`: los cuatro tableros, el Explorador completo y ver los umbrales.
+ *   · Productos (B3): los mismos roles que ven `torre_operativa` (`auditor` y `gerencia_general`); lo siembra la 0307.
  */
 const DETALLE_COMPLETO = ['accion.torre_detalle.ver', 'accion.torre_detalle.exportar'];
 const EXPLORADOR_COMPLETO = [
@@ -64,11 +67,13 @@ export const REPARTO_TORRE: ReadonlyArray<readonly [string, readonly string[]]> 
   ['auditor', conCadena([...TABLEROS, 'torre_explorador', 'torre_umbrales', 'torre_detalle'],
     [...TABLEROS.map((t) => `accion.${t}.ver`), 'accion.torre_explorador.consultar', 'accion.torre_explorador.buscar_placa',
       'accion.torre_explorador.ver_dinero', 'accion.torre_umbrales.ver', 'accion.torre_detalle.ver'], ['menu.general', 'menu.administracion'])],
+  ['auditor', conCadena(['torre_productos'], ['accion.torre_productos.ver'], [])],
   ['gerencia_comercial', conCadena(['torre_comercial', 'torre_explorador', 'torre_detalle'],
     ['accion.torre_comercial.ver', ...EXPLORADOR_COMPLETO, ...DETALLE_COMPLETO], ['menu.general'])],
   ['gerencia_general', conCadena([...TABLEROS, 'torre_explorador', 'torre_umbrales', 'torre_detalle'],
     [...TABLEROS.map((t) => `accion.${t}.ver`), ...EXPLORADOR_COMPLETO, 'accion.torre_umbrales.ver', ...DETALLE_COMPLETO],
     ['menu.general', 'menu.administracion'])],
+  ['gerencia_general', conCadena(['torre_productos'], ['accion.torre_productos.ver'], [])],
 ];
 
 /** El área sobre `OPERACIONES_DECLARADAS`, por prefijo del código. */

@@ -8,6 +8,8 @@
 // por tablero, para que `inventario-guardas` lea el código de cada guarda; otro `:tablero` no existe (404).
 // B2: `POST /operativa/inventario` (body `{ filtro, organismo? }`) y `POST /operativa/soportes` (body `{ filtro }`), con
 // la función del tablero Operativo: son sus pestañas «Inventario por estado» y «Soportes» (solo conteos, sin PII).
+// B3: `POST /productos` (+ `/productos/exportar`), con `torre.tablero_productos.ver`: el área Productos (SOAT ·
+// Impuestos · Derechos), solo conteos y sumas (sin PII); la lista de cada cifra va por el detalle universal.
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import type { z } from 'zod';
 import { authMiddleware } from '../../shared/middleware/auth.js';
@@ -20,6 +22,7 @@ import { detalleZod, inventarioSchema, tableroSchema } from './flito-torre.esque
 import { tableroFinanciero } from './flito-torre.financiera.service.js';
 import { inventarioEstado, soportesFaltantes } from './flito-torre.inventario.service.js';
 import { tableroOperativo } from './flito-torre.operativa.service.js';
+import { tableroProductos } from './flito-torre.productos.service.js';
 import { errorTorreAHttp } from './flito-torre.routes.js';
 import type { ContextoTablero } from './flito-torre.tablero-comun.js';
 import { exportarTablero, type TableroExportable } from './flito-torre.tablero-export.js';
@@ -66,10 +69,12 @@ router.post('/operativa', exigirFuncion('torre.tablero_operativo.ver'), tablero(
 router.post('/financiera', exigirFuncion('torre.tablero_financiero.ver'), tablero(tableroFinanciero));
 router.post('/operativa/inventario', exigirFuncion('torre.tablero_operativo.ver'), tablero((ctx, c) => inventarioEstado(ctx, c.organismo ?? null), inventarioSchema));
 router.post('/operativa/soportes', exigirFuncion('torre.tablero_operativo.ver'), tablero(soportesFaltantes));
+router.post('/productos', exigirFuncion('torre.tablero_productos.ver'), tablero(tableroProductos));
 
 router.post('/ejecutivo/exportar', exigirFuncion('torre.tablero_ejecutivo.ver'), exigirFuncion('torre.metricas.exportar'), torreExportLimiter, exportar('ejecutivo'));
 router.post('/comercial/exportar', exigirFuncion('torre.tablero_comercial.ver'), exigirFuncion('torre.metricas.exportar'), torreExportLimiter, exportar('comercial'));
 router.post('/operativa/exportar', exigirFuncion('torre.tablero_operativo.ver'), exigirFuncion('torre.metricas.exportar'), torreExportLimiter, exportar('operativa'));
 router.post('/financiera/exportar', exigirFuncion('torre.tablero_financiero.ver'), exigirFuncion('torre.metricas.exportar'), torreExportLimiter, exportar('financiera'));
+router.post('/productos/exportar', exigirFuncion('torre.tablero_productos.ver'), exigirFuncion('torre.metricas.exportar'), torreExportLimiter, exportar('productos'));
 
 export default router;

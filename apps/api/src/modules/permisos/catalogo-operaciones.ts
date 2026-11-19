@@ -598,6 +598,10 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // Épica #14590 (B2): pestañas del Operativo, con la función de su tablero (sin función ni migración nuevas).
   op(`${TTB} POST /operativa/inventario`, 'torre.tablero_operativo.ver', 'Ver el tablero operativo de la Torre', 'Consultar los tiempos, el trabajo en curso y los trámites en riesgo.'),
   op(`${TTB} POST /operativa/soportes`, 'torre.tablero_operativo.ver', 'Ver el tablero operativo de la Torre', 'Consultar los tiempos, el trabajo en curso y los trámites en riesgo.'),
+  // Épica #14590 (B3): el área Productos (SOAT · Impuestos · Derechos). Nace en el árbol; la 0307 siembra ítem y acción.
+  op(`${TTB} POST /productos`, 'torre.tablero_productos.ver', 'Ver el tablero de productos de la Torre', 'Consultar el estado de los SOAT, los impuestos y los derechos de tránsito.'),
+  op(`${TTB} POST /productos/exportar`, 'torre.tablero_productos.ver', 'Ver el tablero de productos de la Torre', 'Consultar el estado de los SOAT, los impuestos y los derechos de tránsito.'),
+  op(`${TDT} POST * [origen_productos]`, 'torre.tablero_productos.ver', 'Ver el tablero de productos de la Torre', 'Consultar el estado de los SOAT, los impuestos y los derechos de tránsito.'),
 ];
 
 // HU #13421 (ADR-0023): los módulos legacy reconducidos se declaran aparte (regla de 800 líneas).

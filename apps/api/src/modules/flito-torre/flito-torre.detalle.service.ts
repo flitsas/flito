@@ -233,6 +233,8 @@ export function tablaPiiDe(c: ExportarDetalle): string {
   const entidad = c.origen.tipo === 'conjunto' ? conjuntoTorre(c.origen.conjunto).entidad : DETALLE_METRICA_TORRE[c.origen.metrica].entidad;
   const TABLAS: Record<string, string> = {
     tramite: 'flito_tramite', liquidacion: 'flito_liquidaciones', gestion_soat: 'flito_soat', impuesto: 'flito_impuestos', derecho: 'flito_derechos_tramite',
+    // B3 (Productos).
+    soat_incompleta: 'flito_soat_incompletas', derecho_pendiente: 'flito_derechos_pendientes',
   };
   return TABLAS[entidad] ?? 'flito_tramite';
 }

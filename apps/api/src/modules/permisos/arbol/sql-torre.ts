@@ -14,10 +14,16 @@ import { ACCIONES_UNIVERSALES, ancestrosDe, ROL_CON_TODAS_LAS_ACCIONES } from '.
 import { ACCIONES_TORRE, ITEMS_TORRE_ARBOL, REPARTO_TORRE } from './acciones-torre.js';
 import { lit } from './sql-arbol.js';
 
-/** ADR-0047: el detalle nace DESPUÉS de la 0303 (ya aplicada), con su propia migración. */
-const ES_DETALLE = (codigo: string): boolean => codigo.includes('torre_detalle');
-export type TramoTorre = 'fundacion' | 'detalle';
-const enTramo = (t: TramoTorre) => (codigo: string): boolean => (t === 'detalle' ? ES_DETALLE(codigo) : !ES_DETALLE(codigo));
+/**
+ * Tramos que nacen DESPUÉS de la 0303 (ya aplicada), cada uno con su propia migración: el detalle (ADR-0047, 0306) y
+ * Productos (B3, 0307). La salida de un tramo nunca incluye los códigos de otro, así que agregar uno no cambia las
+ * anteriores.
+ */
+const MARCA_TRAMO = { detalle: 'torre_detalle', productos: 'torre_productos' } as const;
+export type TramoTorre = 'fundacion' | keyof typeof MARCA_TRAMO;
+const tramoDe = (codigo: string): TramoTorre =>
+  (Object.keys(MARCA_TRAMO) as (keyof typeof MARCA_TRAMO)[]).find((t) => codigo.includes(MARCA_TRAMO[t])) ?? 'fundacion';
+const enTramo = (t: TramoTorre) => (codigo: string): boolean => tramoDe(codigo) === t;
 const accionesDe = (t: TramoTorre): string[] => Object.keys(ACCIONES_TORRE).filter(enTramo(t));
 const itemsDe = (t: TramoTorre): string[] => ITEMS_TORRE_ARBOL.filter(enTramo(t));
 
@@ -40,7 +46,7 @@ export function sqlSiembraTorre(catalogo: FuncionCatalogo[] = catalogoCompleto()
     `-- ${items.length} ítems (nivel 2) y ${ACCIONES.length} acciones (nivel 3). Generado: no editar a mano.`,
     tramo === 'fundacion'
       ? '-- Regenerar con: npm run permisos:seed -w apps/api -- --arbol torre'
-      : '-- Generado por `sqlSiembraTorre(catalogo, \'detalle\')` (`arbol/sql-torre.ts`).',
+      : `-- Generado por \`sqlSiembraTorre(catalogo, '${tramo}')\` (\`arbol/sql-torre.ts\`).`,
     'INSERT INTO permisos_funciones (codigo, modulo, nombre_negocio, descripcion, tipo, padre_codigo, nivel, orden) VALUES',
     filas.map((f) => `  (${[f.codigo, f.modulo, f.nombreNegocio, f.descripcion, f.tipo, f.padre!, String(f.nivel), String(f.orden)].map(lit).join(', ')})`).join(',\n'),
     'ON CONFLICT (codigo) DO UPDATE SET modulo = EXCLUDED.modulo, nombre_negocio = EXCLUDED.nombre_negocio,',
@@ -57,14 +63,14 @@ export function sqlSiembraTorre(catalogo: FuncionCatalogo[] = catalogoCompleto()
 export function paresRepartoTorre(tramo: TramoTorre = 'fundacion'): [string, string][] {
   const deAdmin = [...new Set(accionesDe(tramo).flatMap(cadena))].map((fn): [string, string] => [ROL_CON_TODAS_LAS_ACCIONES, fn]);
   const otros = REPARTO_TORRE.flatMap(([rol, fns]) => fns.map((fn): [string, string] => [rol, fn]));
-  if (tramo === 'detalle') {
-    // Los elementos (menús) ya los sembró la 0303 a estos roles: el detalle solo agrega su ítem y sus acciones.
-    return [...deAdmin, ...otros].filter(([, fn]) => ES_DETALLE(fn))
+  if (tramo !== 'fundacion') {
+    // Los elementos (menús) ya los sembró la 0303 a estos roles: el tramo solo agrega su ítem y sus acciones.
+    return [...new Map([...deAdmin, ...otros].filter(([, fn]) => enTramo(tramo)(fn)).map((p) => [p.join('|'), p])).values()]
       .sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]));
   }
   const universales = [...new Set(ACCIONES_UNIVERSALES.flatMap((u) => cadena(u.accion)))];
   const deRolNuevo = ROLES_NUEVOS_TORRE.flatMap((rol) => universales.map((fn): [string, string] => [rol, fn]));
-  return [...deAdmin, ...otros.filter(([, fn]) => !ES_DETALLE(fn)), ...deRolNuevo]
+  return [...deAdmin, ...otros.filter(([, fn]) => enTramo('fundacion')(fn)), ...deRolNuevo]
     .sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]));
 }
 
@@ -75,9 +81,12 @@ export function sqlRepartoTorre(tramo: TramoTorre = 'fundacion'): string {
       '-- `admin` recibe TODAS las acciones y su cadena (ADR-0022); financiera, auditor y las dos gerencias, su',
       '-- reparto literal (`REPARTO_TORRE`); los dos roles nuevos, además, lo universal de todo rol nuevo (Perfil y',
       '-- «Ver los manuales» de Dr. Flit, con su cadena). JOIN a permisos_roles: un ambiente sin el rol recibe 0 filas.',
-    ] : [
+    ] : tramo === 'detalle' ? [
       '-- `admin` recibe las dos acciones y el ítem (ADR-0022); financiera, auditor y las dos gerencias, su reparto',
       '-- literal (`REPARTO_TORRE`: el auditor NO exporta). JOIN a permisos_roles: un ambiente sin el rol recibe 0 filas.',
+    ] : [
+      '-- `admin` recibe la acción y el ítem (ADR-0022); auditor y gerencia_general (los que ven Operativa), su reparto',
+      '-- literal (`REPARTO_TORRE`). JOIN a permisos_roles: un ambiente sin el rol recibe 0 filas.',
     ]),
     'INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo)',
     'SELECT v.rol, v.fn FROM (VALUES',

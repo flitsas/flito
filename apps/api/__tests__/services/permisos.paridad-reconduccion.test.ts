@@ -240,6 +240,10 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
       'flito-torre/flito-torre.detalle.routes.ts POST * [origen_operativo]',
       'flito-torre/flito-torre.detalle.routes.ts POST * [origen_financiero]',
       'flito-torre/flito-torre.detalle.routes.ts POST * [origen_explorador]',
+      // Épica #14590 (B3): el área Productos; su función nace en el árbol (0307).
+      'flito-torre/flito-torre.tableros.routes.ts POST /productos',
+      'flito-torre/flito-torre.tableros.routes.ts POST /productos/exportar',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_productos]',
     ]);
   });
 });

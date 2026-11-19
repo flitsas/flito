@@ -34,6 +34,10 @@ export const ITEMS_TORRE: readonly ItemDef[] = [
     a('ver', 'Ver los registros de una cifra', 'Abrir la lista de registros (placa, compañía y estado) detrás de una cifra de la Torre.'),
     a('exportar', 'Exportar los registros de una cifra', 'Descargar en Excel los registros detrás de una cifra de la Torre.'),
   ] },
+  // Productos (B3): SOAT, impuestos y derechos. Lo siembra su propia migración (0307), con el umbral nuevo.
+  { slug: 'torre_productos', clave: 'torre_productos', nombre: 'Torre · Productos', elemento: 'general', orden: 90, acciones: [
+    a('ver', 'Ver el tablero de productos', 'Consultar el estado de los SOAT, los impuestos y los derechos de tránsito.'),
+  ] },
 ];
 
 /** Ítems y acciones del área, padres antes que hijos. */

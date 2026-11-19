@@ -8,6 +8,7 @@ import {
   AGRUPACIONES_TORRE, type ClaveUmbralTorre, type FechaBaseTorre, type FiltroTorre, type MetricaTorreId,
   type TramoAntiguedadTorre,
 } from './flito-torre.js';
+import { CONJUNTOS_PRODUCTOS_TORRE } from './flito-torre-productos.js';
 
 // ── Entidades, segmentos y columnas ──────────────────────────────────────────────────────────────────────
 
@@ -20,7 +21,7 @@ export type EntidadTorre = (typeof ENTIDADES_TORRE)[number];
  * Dimensiones de segmento: las agrupaciones del motor (misma expresión, D2; incluye `tramo_antiguedad` desde B2) + las
  * propias de un conjunto.
  */
-export const DIMENSIONES_SEGMENTO_TORRE = [...AGRUPACIONES_TORRE, 'nivel', 'faltante', 'severidad'] as const;
+export const DIMENSIONES_SEGMENTO_TORRE = [...AGRUPACIONES_TORRE, 'nivel', 'faltante', 'severidad', 'estado', 'motivo'] as const;
 export type DimensionSegmentoTorre = (typeof DIMENSIONES_SEGMENTO_TORRE)[number];
 
 /** Un corte de la cifra. `null` en `valores` = «Sin compañía» / «Sin secretaría»… (≤ `TOPES_TORRE.VALORES_SEGMENTO_MAX`). */
@@ -31,6 +32,9 @@ export interface SegmentoDetalle { dimension: DimensionSegmentoTorre; valores: (
  *   · `severidad`: `critico` = pasa del DOBLE del umbral; `atencion` = pasa del umbral sin llegar al doble.
  *   · `nivel` (soportes): `0`..`3` soportes vigentes · (entregas): `primer_intento` / `con_viajes`.
  *   · `faltante` (soportes): `soat` / `impuesto` / `derecho` = le falta ese soporte.
+ *   · `estado` (productos, B3): el estado del SOAT o del impuesto tal cual (`pendiente`, `solicitado`, `con_novedad`,
+ *     `pagado`) · `motivo` (productos): el motivo de la incompleta, de la novedad o el concepto del recibo; `null` = sin
+ *     motivo.
  */
 export const VALORES_SEVERIDAD_DETALLE = ['critico', 'atencion'] as const;
 export const VALORES_NIVEL_SOPORTES = ['0', '1', '2', '3'] as const;
@@ -41,6 +45,9 @@ export const COLUMNAS_DETALLE_IDS = [
   'codigo_flit', 'placa', 'compania', 'organismo', 'tipo_tramite', 'estado', 'creado_en', 'aprobado_en', 'facturado_en',
   'dias_antiguedad', 'dias_en_estado', 'faltan_soportes', 'valor', 'horas_ciclo', 'aprobado', 'solicitado_en',
   'horas_sin_gestion', 'viajes_adicionales',
+  // B3 (productos): fechas, vigencia y valores. La póliza va SOLO con sus 4 últimos; nunca dirección ni VIN.
+  'pagado_en', 'vence_el', 'dias_para_vencer', 'poliza_ultimos', 'estado_vigencia', 'motivo', 'intentos', 'fecha_pago',
+  'valor_liquidado',
 ] as const;
 export type ColumnaDetalleId = (typeof COLUMNAS_DETALLE_IDS)[number];
 
@@ -75,6 +82,15 @@ export const COLUMNAS_DETALLE: Readonly<Record<ColumnaDetalleId, ColumnaDetalle>
   solicitado_en: { id: 'solicitado_en', etiqueta: 'Pedido', tipo: 'fecha', dinero: false, ordenable: true },
   horas_sin_gestion: { id: 'horas_sin_gestion', etiqueta: 'Horas sin soporte', tipo: 'horas', dinero: false, ordenable: true },
   viajes_adicionales: { id: 'viajes_adicionales', etiqueta: 'Viajes adicionales', tipo: 'numero', dinero: false, ordenable: true },
+  pagado_en: { id: 'pagado_en', etiqueta: 'Pagado', tipo: 'fecha', dinero: false, ordenable: true },
+  vence_el: { id: 'vence_el', etiqueta: 'Vence', tipo: 'fecha', dinero: false, ordenable: true },
+  dias_para_vencer: { id: 'dias_para_vencer', etiqueta: 'Días para vencer', tipo: 'dias', dinero: false, ordenable: true },
+  poliza_ultimos: { id: 'poliza_ultimos', etiqueta: 'Póliza (4 últimos)', tipo: 'texto', dinero: false, ordenable: false },
+  estado_vigencia: { id: 'estado_vigencia', etiqueta: 'Vigencia en el RUNT', tipo: 'texto', dinero: false, ordenable: true },
+  motivo: { id: 'motivo', etiqueta: 'Motivo', tipo: 'texto', dinero: false, ordenable: true },
+  intentos: { id: 'intentos', etiqueta: 'Intentos', tipo: 'numero', dinero: false, ordenable: true },
+  fecha_pago: { id: 'fecha_pago', etiqueta: 'Fecha de pago', tipo: 'fecha', dinero: false, ordenable: true },
+  valor_liquidado: { id: 'valor_liquidado', etiqueta: 'Valor liquidado', tipo: 'cop', dinero: true, ordenable: true },
 };
 
 // ── Catálogo de conjuntos (B1) ───────────────────────────────────────────────────────────────────────────
@@ -246,6 +262,8 @@ export const CONJUNTOS_TORRE = [
     frase: '{n} {trámite aprobado|trámites aprobados} con liquidación en el periodo', fraseVacio: 'No hay trámites aprobados en el periodo.',
     requiereDinero: true, funcionesOrigen: [FINANCIERO],
   },
+  // B3: el área Productos (SOAT · Impuestos · Derechos), en `flito-torre-productos.ts`.
+  ...CONJUNTOS_PRODUCTOS_TORRE,
 ] as const satisfies readonly ConjuntoTorreDef[];
 
 export type ConjuntoTorreId = (typeof CONJUNTOS_TORRE)[number]['id'];
@@ -313,6 +331,11 @@ export const DETALLE_METRICA_TORRE: Readonly<Record<MetricaTorreId, { entidad: E
   dias_en_estado: { entidad: 'tramite', columnas: [...COLS_TRAMITE, 'dias_en_estado'] },
   tasa_aprobacion: { entidad: 'tramite', columnas: [...COLS_METRICA_TRAMITE, 'aprobado'] },
   sin_facturar: { entidad: 'tramite', columnas: COLS_METRICA_TRAMITE },
+  // B3: sin dirección, VIN ni póliza completa (la póliza no se proyecta en el Explorador).
+  soat_gestionados: { entidad: 'gestion_soat', columnas: ['codigo_flit', 'placa', 'compania', 'organismo', 'estado', 'creado_en', 'pagado_en'] },
+  soat_pagados_valor: { entidad: 'gestion_soat', columnas: ['codigo_flit', 'placa', 'compania', 'organismo', 'estado', 'pagado_en', 'valor'] },
+  impuestos_gestionados: { entidad: 'impuesto', columnas: ['codigo_flit', 'placa', 'compania', 'organismo', 'estado', 'creado_en', 'pagado_en'] },
+  derechos_registrados: { entidad: 'derecho', columnas: ['codigo_flit', 'placa', 'compania', 'organismo', 'creado_en', 'fecha_pago'] },
 };
 
 /** Operación que da acceso al detalle de una métrica del Explorador. */

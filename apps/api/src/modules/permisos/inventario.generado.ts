@@ -813,4 +813,8 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   // Épica #14590 (B2): pestañas Inventario por estado y Soportes del Operativo; reutilizan `torre.tablero_operativo.ver`.
   { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/operativa/inventario", roles: [], heredada: false },
   { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/operativa/soportes", roles: [], heredada: false },
+  // Épica #14590 (B3): el área Productos (tablero + Excel) y su función de origen en el detalle. Nace en el árbol (0307).
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/productos", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/productos/exportar", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_productos", roles: [], heredada: false },
 ];

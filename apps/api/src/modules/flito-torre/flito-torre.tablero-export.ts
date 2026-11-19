@@ -10,9 +10,11 @@
 // RN-TOR-XT4: nombre `torre-<tablero>-<desde>_<hasta>.xlsx` con el rango resuelto del tablero.
 // RN-TOR-XT5 (ADR-0047): última hoja «Definiciones» (clave, frase y definición de cada KPI explicada).
 import ExcelJS from 'exceljs';
+import { conjuntoTorre } from '@operaciones/shared-types';
 import type { Response } from 'express';
 import type {
-  CifraExplicada, ConcentracionTorre, TableroComercial, TableroEjecutivo, TableroFinanciero, TableroOperativo,
+  CifraExplicada, ConcentracionTorre, TablaProductosTorre, TableroComercial, TableroEjecutivo, TableroFinanciero,
+  TableroOperativo, TableroProductos,
 } from '@operaciones/shared-types';
 import { MIME_XLSX, type ExcelColumn } from '../../shared/utils/excel.js';
 import { tableroComercial } from './flito-torre.comercial.service.js';
@@ -20,9 +22,10 @@ import { textoSeguro } from './flito-torre.export.js';
 import { tableroEjecutivo } from './flito-torre.ejecutivo.service.js';
 import { tableroFinanciero } from './flito-torre.financiera.service.js';
 import { tableroOperativo } from './flito-torre.operativa.service.js';
+import { tableroProductos } from './flito-torre.productos.service.js';
 import type { ContextoTablero } from './flito-torre.tablero-comun.js';
 
-export const TABLEROS_EXPORTABLES = ['comercial', 'operativa', 'financiera', 'ejecutivo'] as const;
+export const TABLEROS_EXPORTABLES = ['comercial', 'operativa', 'financiera', 'ejecutivo', 'productos'] as const;
 export type TableroExportable = (typeof TABLEROS_EXPORTABLES)[number];
 
 /** Columna con marca de dinero (se omite sin `FUNCION_TORRE_DINERO`). */
@@ -213,6 +216,45 @@ function hojasEjecutivo(t: TableroEjecutivo): HojaTablero[] {
   ];
 }
 
+/** B3: una hoja de cifras por pestaña y una por tabla (estado, motivo o secretaría; con su total). */
+function hojaTablaProductos(t: TablaProductosTorre): HojaTablero {
+  return {
+    nombre: conjuntoTorre(t.conjunto).etiqueta.slice(0, 31),
+    columnas: [col('Fila', 'etiqueta', { width: 40 }), col('Cantidad', 'n'), ...(t.conValor ? [col('Valor', 'valor', DINERO)] : [])],
+    filas: [...t.filas, t.total].map((f) => ({ etiqueta: textoSeguro(f.etiqueta), n: f.n, valor: f.valor ?? null })),
+  };
+}
+
+export function hojasProductos(t: TableroProductos): HojaTablero[] {
+  const c = t.soat.cifras;
+  const i = t.impuestos.cifras;
+  const d = t.derechos.cifras;
+  return [
+    hojaCifras('Cifras', [
+      { concepto: 'SOAT pagados en el periodo', valor: c.pagadosPeriodo },
+      { concepto: 'Valor pagado de SOAT', valor: c.pagadosValor, dinero: true },
+      { concepto: 'SOAT por vencer', valor: c.porVencer },
+      { concepto: 'SOAT sin gestión', valor: c.sinGestion },
+      { concepto: 'SOAT sin verificar en el RUNT', valor: c.vigenciaNoVerificada },
+      { concepto: 'Impuestos pagados en el periodo', valor: i.pagadosPeriodo },
+      { concepto: 'Valor pagado de impuestos', valor: i.pagadosValor, dinero: true },
+      { concepto: 'Impuestos sin gestión', valor: i.sinGestion },
+      { concepto: 'Impuestos con diferencia de valor', valor: i.conDiferencia },
+      { concepto: 'Impuestos con dirección por revisar', valor: i.direccionPendiente },
+      { concepto: 'Derechos pagados en el periodo', valor: d.pagadosPeriodo },
+      { concepto: 'Valor pagado de derechos', valor: d.pagadosValor, dinero: true },
+      { concepto: 'Derechos sin soporte', valor: d.sinSoporte },
+      { concepto: 'Recibos pendientes de asociar', valor: d.pendientesSinResolver },
+    ]),
+    ...[...t.soat.tablas, ...t.impuestos.tablas, ...t.derechos.tablas].map(hojaTablaProductos),
+  ];
+}
+
+/** Las explicaciones de las tres pestañas, con la pestaña en la clave (`soat.porVencer`). */
+export const explicacionesProductos = (t: TableroProductos): Partial<Record<string, CifraExplicada>> => Object.fromEntries(
+  (['soat', 'impuestos', 'derechos'] as const).flatMap((p) => Object.entries(t[p].explicaciones).map(([k, e]) => [`${p}.${k}`, e])),
+);
+
 /** RN-TOR-XT3: quita columnas y filas de cifras de dinero si el rol no lo ve. */
 export function aplicarDinero(hojas: (HojaTablero & { cifras?: Cifra[] })[], dinero: boolean): HojaTablero[] {
   return hojas.map((h) => ({
@@ -240,6 +282,7 @@ export async function libroTablero(
   const t = tablero === 'comercial' ? await tableroComercial(ctx).then((r) => ({ rango: r.rango, hojas: con(hojasComercial(r), r.explicaciones) }))
     : tablero === 'operativa' ? await tableroOperativo(ctx).then((r) => ({ rango: r.rango, hojas: con(hojasOperativa(r), r.explicaciones) }))
       : tablero === 'financiera' ? await tableroFinanciero(ctx).then((r) => ({ rango: r.rango, hojas: con(hojasFinanciera(r), r.explicaciones) }))
+        : tablero === 'productos' ? await tableroProductos(ctx).then((r) => ({ rango: r.rango, hojas: con(hojasProductos(r), explicacionesProductos(r)) }))
         : await tableroEjecutivo(ctx).then((r) => ({ rango: r.rango, hojas: con(hojasEjecutivo(r), r.explicaciones) }));
   return { rango: t.rango, hojas: aplicarDinero(t.hojas, ctx.dinero) };
 }

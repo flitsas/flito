@@ -838,4 +838,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-torre/flito-torre.detalle.routes.ts', metodo: 'POST', ruta: '*', condicion: 'origen_operativo', codigo: 'torre.tablero_operativo.ver' },
   { fichero: 'flito-torre/flito-torre.detalle.routes.ts', metodo: 'POST', ruta: '*', condicion: 'origen_financiero', codigo: 'torre.tablero_financiero.ver' },
   { fichero: 'flito-torre/flito-torre.detalle.routes.ts', metodo: 'POST', ruta: '*', condicion: 'origen_explorador', codigo: 'torre.metricas.consultar' },
+  // Épica #14590 (B3): el área Productos.
+  { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/productos', codigo: 'torre.tablero_productos.ver' },
+  { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/productos/exportar', codigo: 'torre.tablero_productos.ver' },
+  { fichero: 'flito-torre/flito-torre.detalle.routes.ts', metodo: 'POST', ruta: '*', condicion: 'origen_productos', codigo: 'torre.tablero_productos.ver' },
 ];

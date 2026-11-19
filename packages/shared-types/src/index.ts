@@ -166,3 +166,4 @@ export * from './flito-revisiones.js';
 // Torre de Control Gerencial (Épica #14590): catálogo de métricas, filtro, ficha de placa y umbrales.
 export * from './flito-torre.js';
 export * from './flito-torre-detalle.js';
+export * from './flito-torre-productos.js';

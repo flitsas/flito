@@ -134,6 +134,15 @@ export const METRICAS_TORRE = [
     fechasBase: ['creacion'], enConstructor: true },
   { id: 'sin_facturar', etiqueta: 'Aprobados sin facturar', unidad: 'conteo', agrupacionesPermitidas: DIMENSIONES, requiereDinero: true,
     fechasBase: ['aprobacion'], enConstructor: true },
+  // B3 (Productos): sin fecha base nueva (decisión del humano): creación del registro o pago.
+  { id: 'soat_gestionados', etiqueta: 'SOAT gestionados', unidad: 'conteo', agrupacionesPermitidas: TODAS, requiereDinero: false,
+    fechasBase: ['creacion', 'pago'], enConstructor: true },
+  { id: 'soat_pagados_valor', etiqueta: 'Valor pagado de SOAT', unidad: 'cop', agrupacionesPermitidas: TODAS, requiereDinero: true,
+    fechasBase: ['pago'], enConstructor: true },
+  { id: 'impuestos_gestionados', etiqueta: 'Impuestos gestionados', unidad: 'conteo', agrupacionesPermitidas: TODAS, requiereDinero: false,
+    fechasBase: ['creacion', 'pago'], enConstructor: true },
+  { id: 'derechos_registrados', etiqueta: 'Derechos de tránsito registrados', unidad: 'conteo', agrupacionesPermitidas: TODAS, requiereDinero: false,
+    fechasBase: ['creacion', 'pago'], enConstructor: true },
 ] as const satisfies readonly MetricaTorreDef[];
 
 export type MetricaTorreId = (typeof METRICAS_TORRE)[number]['id'];
@@ -541,6 +550,9 @@ export const UMBRALES_TORRE = [
     descripcion: 'Días de cobertura de saldo por debajo de los cuales la bolsa se pinta en rojo.' },
   { clave: 'meta_mensual_aprobados', grupo: 'general', unidad: 'conteo', valorPorDefecto: 0,
     descripcion: 'Meta mensual de trámites aprobados. 0 significa sin meta.' },
+  // B3 (Productos): lo siembra la 0307 (no la 0303, que ya está aplicada).
+  { clave: 'dias_soat_por_vencer', grupo: 'operativo', unidad: 'dias', valorPorDefecto: 30,
+    descripcion: 'Días antes del vencimiento de la póliza a partir de los cuales un SOAT se cuenta como por vencer.' },
 ] as const satisfies readonly UmbralTorreDef[];
 
 export type ClaveUmbralTorre = (typeof UMBRALES_TORRE)[number]['clave'];

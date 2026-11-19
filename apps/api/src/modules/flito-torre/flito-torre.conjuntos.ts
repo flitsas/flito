@@ -39,6 +39,7 @@ import {
 import type { Ejecutor } from './flito-torre.metricas.service.js';
 import { TorreConsultaInvalidaError } from './flito-torre.service.js';
 import { condTramites, rangoTablero, type ContextoTablero } from './flito-torre.tablero-comun.js';
+import { CONJUNTOS_PRODUCTOS_SQL } from './flito-torre.conjuntos-productos.js';
 
 export type Umbrales = Record<ClaveUmbralTorre, number>;
 export type ColsSql = Partial<Record<ColumnaDetalleId, SQL>>;
@@ -97,7 +98,7 @@ export function colsTramite(dims: DimensionesBase = DIMS_TRAMITE): ColsSql {
 
 // ── Definición SQL de cada conjunto ────────────────────────────────────────────────────────────────────
 
-interface ConjuntoSql {
+export interface ConjuntoSql {
   /** Conjuntos con el mismo grupo comparten `desde` + `base`: el tablero los cuenta en UNA consulta. */
   grupo: string;
   entidad: EntidadTorre;
@@ -116,6 +117,8 @@ interface ConjuntoSql {
   /** RN-TOR-D4. */
   nivel?: { expr: SQL; valores: readonly string[] };
   faltante?: boolean;
+  /** B3: dimensiones propias del producto (`estado` del SOAT/impuesto, `motivo`); `null` en `motivo` = sin motivo. */
+  dimensiones?: Partial<Record<'estado' | 'motivo', SQL>>;
 }
 
 const FOTO_TRAMITES = (ctx: ContextoTablero): SQL[] => condTramites(ctx, null, undefined, ['rango']);
@@ -202,6 +205,8 @@ export const CONJUNTOS_SQL: Record<ConjuntoTorreId, ConjuntoSql> = {
     ...tramites('liquidacion_aprobacion', POR_APROBACION_LIQ, () => [], { fecha: FECHA_APROBACION, campoFecha: 'fecha_aprobacion' }),
     entidad: 'liquidacion', tabla: 'flito_liquidaciones', desde: DESDE_LIQ, id: sql`${L.id}`, cols: COLS_LIQ,
   },
+  // B3: el área Productos (`flito-torre.conjuntos-productos.ts`).
+  ...CONJUNTOS_PRODUCTOS_SQL,
 };
 
 // ── Segmentos y filtros del detalle ────────────────────────────────────────────────────────────────────
@@ -229,6 +234,11 @@ function condSegmento(c: ConjuntoSql | null, dims: DimensionesBase, fecha: Fecha
       invalido('un corte de tiempo no aplica a una foto del momento');
     }
     return enClave(claveAgrupacion(s.dimension, dims, fecha), s.valores);
+  }
+  // B3: estado del producto y motivo (el motivo admite «Sin motivo»; el estado, no).
+  if ((s.dimension === 'estado' || s.dimension === 'motivo') && c?.dimensiones?.[s.dimension]) {
+    if (s.dimension === 'estado' && s.valores.includes(null)) invalido('ese segmento no admite «Sin valor»');
+    return enClave(c.dimensiones[s.dimension]!, s.valores);
   }
   if (s.valores.includes(null)) invalido('ese segmento no admite «Sin valor»');
   const valores = s.valores as string[];
@@ -282,6 +292,7 @@ const TABLA_ENTIDAD: Partial<Record<EntidadTorre, { tabla: string; id: SQL }>> =
   tramite: { tabla: 'flito_tramite', id: sql`${T.id}` },
   liquidacion: { tabla: 'flito_liquidaciones', id: sql`${L.id}` },
   impuesto: { tabla: 'flito_impuestos', id: sql`${I.id}` },
+  gestion_soat: { tabla: 'flito_soat', id: sql`${S.id}` },
   derecho: { tabla: 'flito_derechos_tramite', id: sql`${flitoDerechosTramite.id}` },
 };
 
@@ -294,7 +305,8 @@ export function fragmentoMetrica(
   segmentos: readonly SegmentoDetalle[] = [], fd?: FiltrosDetalleTorre,
 ): FragmentoDetalle {
   const ent = TABLA_ENTIDAD[entidad] ?? TABLA_ENTIDAD.tramite!;
-  const cols: ColsSql = { ...colsTramite(def.dims) };
+  // B3: las métricas de producto declaran sus columnas (estado y fechas del SOAT/impuesto/derecho, no del trámite).
+  const cols: ColsSql = { ...colsTramite(def.dims), ...def.colsDetalle };
   if (def.forma === 'suma' && def.valor) cols.valor = def.valor;
   if (def.forma === 'tasa' && def.valor) cols.aprobado = sql`(${def.valor})`;
   const base = [...def.fijas, ...condicionesTorre(ctx.filtro, ctx.alcance, def.dims, { rango, fecha: def.fecha })];

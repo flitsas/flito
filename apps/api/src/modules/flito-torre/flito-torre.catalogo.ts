@@ -22,16 +22,20 @@
 // RN-TOR-L1: costo e ingreso excluyen las liquidaciones de trámites anulados/abortados/revocados (`LIQUIDACION_VIGENTE`).
 import { sql, type SQL } from 'drizzle-orm';
 import {
-  esFechaBasePermitida, fechaBasePorDefecto, type FechaBaseTorre, type MetricaTorreId,
+  esFechaBasePermitida, fechaBasePorDefecto, type ColumnaDetalleId, type FechaBaseTorre, type MetricaTorreId,
 } from '@operaciones/shared-types';
 import {
-  flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones, flitoSoportes, flitoTramiteHistorial, flitoTramites,
+  flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones, flitoSoat, flitoSoportes, flitoTramiteHistorial, flitoTramites,
   flitoTramiteViajesLogistica, siigoFacturaTramites,
 } from '../../db/schema.js';
 import {
   BORRADOR_ABANDONADO, ENTRADA_ESTADO_ACTUAL,
 } from '../flito-tramites/flito-tramites.borrador.js';
 import type { DimensionesBase, FechaBase } from './flito-torre.filtro.js';
+import {
+  COLS_DERECHO, COLS_IMPUESTO, COLS_SOAT, DESDE_DERECHOS, DESDE_IMPUESTOS, DESDE_SOAT, DIMS_DERECHO, DIMS_IMPUESTO, DIMS_SOAT,
+  FECHA_DERECHO_CREACION, FECHA_DERECHO_PAGO, FECHA_IMPUESTO_CREACION, FECHA_IMPUESTO_PAGO, FECHA_SOAT_CREACION, FECHA_SOAT_PAGO,
+} from './flito-torre.productos-sql.js';
 import { TorreConsultaInvalidaError } from './flito-torre.service.js';
 
 export type FormaMetrica = 'conteo' | 'suma' | 'tasa' | 'tiempo';
@@ -63,6 +67,8 @@ export interface DefMetricaSql {
   fechas: Partial<Record<FechaBaseTorre, VarianteFecha>>;
   /** Solo en las de foto (sin variantes): qué declara `baseFecha.campo`. */
   campoFoto?: string;
+  /** B3: columnas del detalle propias (las de producto); el resto sale de `colsTramite`. */
+  colsDetalle?: Partial<Record<ColumnaDetalleId, SQL>>;
 }
 
 /** La métrica con su fecha base ya elegida: lo único que consume el motor. */
@@ -78,6 +84,7 @@ export interface DefResuelta {
   valor?: SQL;
   requiere?: SQL;
   sync?: SQL;
+  colsDetalle?: Partial<Record<ColumnaDetalleId, SQL>>;
 }
 
 const T = flitoTramites;
@@ -193,6 +200,10 @@ const POR_FACTURACION: VarianteFecha = {
   fecha: FECHA_FACTURACION, campoFecha: 'siigo_factura_tramites.created_at (primera activa)', fijas: [], desdeExtra: FACTURACION_TRAMITE,
 };
 
+/** B3: variantes de un producto (su fecha de creación o de pago, que exige la fecha). */
+const PRODUCTO_CREACION = (fecha: FechaBase, campoFecha: string): VarianteFecha => ({ fecha, campoFecha, fijas: [] });
+const PRODUCTO_PAGO = (fecha: FechaBase, campoFecha: string): VarianteFecha => ({ fecha, campoFecha, fijas: [sql`${fecha.expr} IS NOT NULL`] });
+
 export const CATALOGO_SQL: Record<MetricaTorreId, DefMetricaSql> = {
   // RN-TOR-M13: métrica neutra del constructor. `tramites`+creación ≡ `tramites_creados`; `tramites`+aprobación ≡
   // `tramites_aprobados` (sin mirar `flit_estado`, RN-TOR-M1: «siguen en Aprobado» es el filtro `flitEstados`).
@@ -254,6 +265,24 @@ export const CATALOGO_SQL: Record<MetricaTorreId, DefMetricaSql> = {
     desde: DESDE_TRAMITES_LIQ, dims: DIMS_TRAMITE, fijas: [sql`NOT ${FACTURADO}`], forma: 'conteo',
     fechas: { aprobacion: POR_APROBACION },
   },
+  // B3 (Productos), RN-TOR-M15: sin fecha base nueva (decisión del humano): creación del registro o pago. El SOAT se ve
+  // con su PRIMER trámite (RN-TOR-P1); impuesto y derecho, con el suyo (LEFT JOIN, como `impuestos_pagados`).
+  soat_gestionados: {
+    desde: DESDE_SOAT, dims: DIMS_SOAT, fijas: [], forma: 'conteo', colsDetalle: COLS_SOAT,
+    fechas: { creacion: PRODUCTO_CREACION(FECHA_SOAT_CREACION, 'flito_soat.created_at'), pago: PRODUCTO_PAGO(FECHA_SOAT_PAGO, 'pagado_en') },
+  },
+  soat_pagados_valor: {
+    desde: DESDE_SOAT, dims: DIMS_SOAT, fijas: [], forma: 'suma', valor: sql`COALESCE(${flitoSoat.valorPagado}, 0)`, colsDetalle: COLS_SOAT,
+    fechas: { pago: PRODUCTO_PAGO(FECHA_SOAT_PAGO, 'pagado_en') },
+  },
+  impuestos_gestionados: {
+    desde: DESDE_IMPUESTOS, dims: DIMS_IMPUESTO, fijas: [], forma: 'conteo', colsDetalle: COLS_IMPUESTO,
+    fechas: { creacion: PRODUCTO_CREACION(FECHA_IMPUESTO_CREACION, 'flito_impuestos.created_at'), pago: PRODUCTO_PAGO(FECHA_IMPUESTO_PAGO, 'pagado_en') },
+  },
+  derechos_registrados: {
+    desde: DESDE_DERECHOS, dims: DIMS_DERECHO, fijas: [], forma: 'conteo', colsDetalle: COLS_DERECHO,
+    fechas: { creacion: PRODUCTO_CREACION(FECHA_DERECHO_CREACION, 'flito_derechos_tramite.created_at'), pago: PRODUCTO_PAGO(FECHA_DERECHO_PAGO, 'fecha_pago') },
+  },
 };
 
 /**
@@ -270,6 +299,6 @@ export function resolverDef(metrica: MetricaTorreId, fechaBase?: FechaBaseTorre)
     desde: v?.desdeExtra ? sql`${def.desde} ${v.desdeExtra}` : def.desde,
     dims: def.dims, forma: def.forma, valor: def.valor, requiere: def.requiere,
     fecha: v?.fecha, fechaBase: v ? elegida : null, campoFecha: v?.campoFecha ?? def.campoFoto ?? 'estado actual',
-    fijas: [...(v?.fijas ?? []), ...def.fijas], sync: v?.sync,
+    fijas: [...(v?.fijas ?? []), ...def.fijas], sync: v?.sync, colsDetalle: def.colsDetalle,
   };
 }

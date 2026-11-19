@@ -89,6 +89,7 @@ export const PAGINAS_NACIDAS_EN_EL_ARBOL: readonly PageSlug[] = [
   // Épica #14590: la Torre de Control (la 0303).
   'torre_360', 'torre_comercial', 'torre_operativa', 'torre_financiera', 'torre_explorador', 'torre_umbrales',
   'torre_detalle', // ADR-0047: su propia migración
+  'torre_productos', // B3: su propia migración (0307)
 ];
 
 /**
