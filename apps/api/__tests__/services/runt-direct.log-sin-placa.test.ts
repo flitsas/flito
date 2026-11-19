@@ -7,6 +7,10 @@ const logMock = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), 
 logMock.child.mockReturnValue(logMock);
 
 vi.mock('../../src/modules/integraciones/http.js', () => ({ httpsJson: httpsJsonMock }));
+// El captcha sale por el cliente central de Anthropic (contrato ia-consumo v1, B4): se simula ahí.
+vi.mock('../../src/modules/tramites/anthropic.js', () => ({
+  anthropicMensajesCrudo: vi.fn(async () => ({ statusCode: 200, cuerpo: { content: [{ text: 'ABCD' }] }, consumoId: null })),
+}));
 vi.mock('../../src/shared/logger.js', () => ({ logger: logMock, loggerFor: () => logMock }));
 vi.mock('../../src/config/env.js', async (orig) => {
   const real = await orig<typeof import('../../src/config/env.js')>();
@@ -21,7 +25,6 @@ beforeEach(() => {
   httpsJsonMock.mockImplementation(async (metodo: string, url: string) => {
     if (url.includes('configuracion-sesion')) return { status: 200, data: {}, headers: {} };
     if (url.includes('libre-captcha/generar')) return { status: 200, data: { imagen: 'data:image/png;base64,AAAA', id: 'c1' }, headers: {} };
-    if (url.includes('anthropic.com')) return { status: 200, data: { content: [{ text: 'ABCD' }] }, headers: {} };
     if (metodo === 'POST' && url.endsWith('/auth')) {
       return { status: 200, data: { codigoResultado: 'OK', infoVehiculo: { placa: PLACA }, token: null }, headers: {} };
     }

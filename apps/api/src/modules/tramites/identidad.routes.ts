@@ -13,6 +13,7 @@ import { env } from '../../config/env.js';
 import rateLimit from 'express-rate-limit';
 import { loggerFor } from '../../shared/logger.js';
 import { anthropicMessages } from './anthropic.js';
+import { anotarConsumoIa, conContextoIa, procesoIa } from '../../shared/ia-consumo/index.js';
 import { extractAnthropicText, parseBiometricJson } from './biometric-json.js';
 import { recoverStaleByToken } from './validacion-recovery.js';
 import { resolverFotoBiometrica } from './identidad.fotos.js';
@@ -500,8 +501,8 @@ router.post('/completar/:token', completarLimiter, async (req: Request, res: Res
     const clean = (b64: string) => b64.replace(/^data:image\/[a-z]+;base64,/, '');
 
     // TRAM-11: Anthropic vía helper resiliente (timeout+retry+métrica, op=biometric).
-    const ai = await anthropicMessages({
-      model: 'claude-sonnet-4-6', max_tokens: 2500,
+    const ai = await conContextoIa({ ...procesoIa('validar_identidad'), origen: 'ciudadano', entidadTipo: 'tramite', entidadId: record.tramiteId }, () => anthropicMessages({
+      model: env.ANTHROPIC_MODEL_SONNET, max_tokens: 2500,
       messages: [{ role: 'user', content: [
         { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: clean(fotoRostro) } },
         { type: 'text', text: 'SELFIE' },
@@ -511,7 +512,7 @@ router.post('/completar/:token', completarLimiter, async (req: Request, res: Res
         { type: 'text', text: 'CEDULA REVERSO' },
         { type: 'text', text: prompt },
       ] }],
-    }, 'biometric');
+    }, 'biometric'));
 
     if (!ai.ok) {
       // Revertir intentos: es fallo de servicio (IA), no del usuario.
@@ -523,7 +524,7 @@ router.post('/completar/:token', completarLimiter, async (req: Request, res: Res
     const text = extractAnthropicText(r);
     const bio: any = parseBiometricJson(text);
     if (!bio) {
-      log.warn({ validacionId: record.id, textLen: text.length, hasBrace: text.includes('{') }, 'biometric json parse failed');
+      log.warn({ validacionId: record.id, textLen: text.length, hasBrace: text.includes('{') }, 'biometric json parse failed'); anotarConsumoIa(ai.consumoId, { resultado: 'respuesta_invalida', errorCodigo: 'json_no_parseable' });
       await db.update(tramitesValidaciones).set({ estado: 'enviado', procesandoDesde: null, intentos: sql`GREATEST(intentos - 1, 0)` }).where(eq(tramitesValidaciones.id, record.id));
       res.status(503).json({
         ok: false,
@@ -679,13 +680,13 @@ Donde x, y, w, h son PORCENTAJES (0 a 100) de la imagen total:
 IMPORTANTE: El recorte debe mostrar SOLO la tarjeta/cedula. Si los dedos tapan un borde, incluye hasta donde se ve la tarjeta pero NO incluyas la cara de la persona. Se generoso con el borde del documento (incluye 2-3% extra) pero estricto excluyendo la cara y el cuerpo.`;
 
     // TRAM-11: recorte de cédula vía helper resiliente (op=biometric).
-    const ai = await anthropicMessages({
-      model: 'claude-haiku-4-5-20251001', max_tokens: 100,
+    const ai = await conContextoIa({ ...procesoIa('recortar_cedula'), promptCodigo: 'recortar_cedula' }, () => anthropicMessages({
+      model: env.ANTHROPIC_MODEL_HAIKU, max_tokens: 100,
       messages: [{ role: 'user', content: [
         { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: clean } },
         { type: 'text', text: cropPrompt },
       ] }],
-    }, 'biometric');
+    }, 'biometric'));
     if (!ai.ok) { res.status(ai.status).json({ ok: false, message: ai.message }); return; }
     const r: any = ai.data;
 
