@@ -121,6 +121,10 @@ import {
   PANEL_VENCIMIENTOS_DEMO,
   EXPEDIENTE_BOLSA_DEMO,
   ESTADO_LOTE_BOLSAS_DEMO,
+  TORRE_DETALLE_DEMO,
+  TORRE_METRICA_DEMO,
+  TORRE_OPCIONES_DEMO,
+  TORRE_OPERATIVA_DEMO,
 } from '../helpers/datos-demo';
 import { accion, arbolRol, codigosDe, elemento, item, opcional, type NodoDef } from '../helpers/arbolPermisos';
 
@@ -1175,6 +1179,64 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await mostrarBarra();
 
     comprobarCierre(api, dir, ['01-estado-operativo.png', '02-atencion-y-atajos.png']);
+  });
+
+  // Épica #14590 — Torre de Control: la cifra que se explica, su lista de registros y «Ver registros» del Explorador.
+  // El Administrador demo con las funciones de la Torre (ver tableros, abrir y exportar las listas).
+  test('torre_explorador @capturas', async ({ page }) => {
+    const dir = prepararCarpeta('torre_explorador');
+    const api = await interceptarApiDemo(page, [
+      [/\/api\/flito\/torre\/opciones$/, () => ({ body: TORRE_OPCIONES_DEMO })],
+      [/\/api\/flito\/torre\/tableros\/operativa$/, () => ({ body: TORRE_OPERATIVA_DEMO })],
+      [/\/api\/flito\/torre\/detalle\/consultar$/, (route) => {
+        const c = route.request().postDataJSON() as { origen: unknown; segmentos?: unknown[] };
+        return { body: { ...TORRE_DETALLE_DEMO, origen: c.origen, segmentos: c.segmentos ?? [] } };
+      }],
+      [/\/api\/flito\/torre\/metricas\/consultar$/, () => ({ body: TORRE_METRICA_DEMO })],
+    ]);
+    const conTorre = {
+      ...ADMIN_DEMO,
+      funciones: [
+        ...FUNCIONES_POR_ROL.admin, 'torre.tablero_operativo.ver', 'torre.metricas.consultar', 'torre.metricas.exportar',
+        'torre.placa.buscar', 'torre.detalle.ver', 'torre.detalle.exportar',
+      ],
+    };
+    await entrarComoAdminDemo(page, conTorre);
+
+    // Paso 2 — La cifra con su frase, «Foto de hoy» y «¿Cómo se calcula?» desplegado.
+    await page.goto('/flito/torre/operativa');
+    const kpi = page.getByRole('article', { name: 'Borradores abandonados' });
+    await expect(kpi).toContainText(TORRE_OPERATIVA_DEMO.explicaciones.borradoresAbandonados.frase);
+    await kpi.getByRole('button', { name: /¿Cómo se calcula\?/ }).click();
+    await expect(kpi.locator('[data-torre="definicion"]')).toBeVisible();
+    const rejilla = page.locator('[data-torre="tablero"] > div').first();
+    await rejilla.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+    const mostrarBarra = await sinBarraFlotante(page);
+    await sinFoco(page);
+    await capturar(page, dir, '01-cifra-explicada', rejilla);
+    await mostrarBarra();
+
+    // Paso 4 — La lista de registros de esa cifra.
+    await kpi.getByRole('link', { name: /Ver los 4 borradores/ }).click();
+    await expect(page.locator('[data-torre="detalle"]')).toHaveAttribute('data-estado', 'lleno');
+    await expect(page.getByText(DATOS_DEMO.placas[0])).toBeVisible();
+    const ocultar = await sinBarraFlotante(page);
+    await sinFoco(page);
+    await capturar(page, dir, '02-lista-de-registros', page.locator('main'));
+    await ocultar();
+
+    // Paso 7 — El Explorador agrupado por compañía con «Ver los N registros».
+    await page.goto('/flito/torre/explorador');
+    const resultado = page.locator('[data-torre="resultado"][data-estado="lleno"]');
+    await expect(resultado.getByRole('link', { name: /Ver los 64 registros/ })).toBeVisible();
+    const tabla = resultado.locator('[data-kit="tabla"]').last();
+    await tabla.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    const sinBarra = await sinBarraFlotante(page);
+    await sinFoco(page);
+    await capturar(page, dir, '03-explorador-ver-registros', tabla);
+    await sinBarra();
+
+    comprobarCierre(api, dir, ['01-cifra-explicada.png', '02-lista-de-registros.png', '03-explorador-ver-registros.png']);
   });
 
   // HU #13775 — Organismos de tránsito: tabla y las tres pestañas de Editar. No se guarda nada.

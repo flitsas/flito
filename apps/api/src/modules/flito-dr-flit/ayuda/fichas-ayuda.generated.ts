@@ -131,6 +131,65 @@ export const FICHAS_AYUDA: readonly FichaAyudaApi[] = Object.freeze([
     ]
   },
   {
+    "clave": "torre_explorador",
+    "permiso": "torre_explorador",
+    "etiqueta": "Torre de Control",
+    "resumen": "Las cifras de gerencia en un solo lugar, cada una con lo que significa, cómo se calcula y la lista de registros que la forman.",
+    "version": "1.0",
+    "fecha": "2026-11-19",
+    "palabrasClave": [
+      "torre de control",
+      "resumen 360",
+      "tablero gerencial",
+      "indicadores",
+      "cómo se calcula",
+      "ver los registros",
+      "borradores abandonados",
+      "explorador de métricas",
+      "umbrales y alertas"
+    ],
+    "consultas": [
+      "qué significa una cifra de la torre de control",
+      "cómo se calcula un indicador del tablero",
+      "cómo veo los trámites que forman una cifra",
+      "por qué no veo el enlace ver los registros",
+      "cómo descargo en Excel la lista de una cifra",
+      "por qué la cifra no cambia al elegir otro periodo"
+    ],
+    "secciones": [
+      {
+        "ancla": "que-es",
+        "titulo": "Qué es",
+        "texto": "La Torre de Control reúne las cifras con las que la gerencia sigue la operación: Resumen 360°, Comercial, Operativa, Financiera y el Explorador. Cada cifra le dice qué es en una frase, le explica ¿Cómo se calcula? y, con Ver los N, le abre la lista de los registros que la forman. La cifra y la lista salen de la misma regla, así que el número de la tarjeta y el total de la lista coinciden."
+      },
+      {
+        "ancla": "para-quien",
+        "titulo": "Para quién",
+        "texto": "Gerencia general, gerencia comercial, gerencia financiera, el Administrador y el Auditor, cada uno con las páginas de la Torre que tenga asignadas: quien solo ve Comercial no ve las pestañas de las demás. Abrir las listas pide además el permiso de ver los registros de la Torre, y descargarlas en Excel, el de exportarlos. Sin esos permisos las cifras se siguen explicando, pero no aparecen los enlaces ni el botón."
+      },
+      {
+        "ancla": "como-se-entra",
+        "titulo": "Cómo se entra",
+        "texto": "Menú Torre de Control, ítem Resumen 360° (o Comercial, Operativa, Financiera o Explorador). Dentro de la Torre, las pestañas de arriba llevan de una página a otra. Umbrales y alertas está en el menú Administración. La lista de registros de una cifra no es un ítem del menú: se abre desde la cifra."
+      },
+      {
+        "ancla": "pasos",
+        "titulo": "Pasos",
+        "texto": "Elija arriba lo que quiere mirar: Compañía, el periodo con Desde y Hasta, un Mes o uno de los atajos (Hoy, Este mes, Mes anterior…), y Más filtros para organismo, departamento, tipo de trámite o estado. Lo que elija se mantiene al pasar de una página de la Torre a otra. Con Buscar placa abre la ficha de un vehículo sin salir de la página. Lea la tarjeta de la cifra: el número, la frase que lo explica y, si la cifra no depende del periodo, la marca Foto de hoy (cuenta lo que hay hoy, sin importar las fechas elegidas). Pulse ¿Cómo se calcula? para desplegar la regla dentro de la tarjeta; vuelva a pulsarlo, o pulse Esc, para cerrarla. Tablero Operativo con la cifra Borradores abandonados, su frase, la marca Foto de hoy, la regla de ¿Cómo se calcula? desplegada y el enlace Ver los 12 borradores Pulse Ver los N en la tarjeta (por ejemplo, Ver los 12 borradores) para abrir la lista. Las filas de los bloques también lo tienen: en Radar de estancamiento, en Clientes con caída de volumen, en Trabajo terminado sin facturar, en el comparativo de organismos y en los niveles 3 de 3 a 0 de 3 de la conciliación documental. Cuando la cifra es una lista que ya se ve más abajo, el enlace dice Ver cuáles ↓ y le lleva a ese bloque. En la lista, arriba verá el nombre de la cifra, su frase con el total y Cómo se calcula. Para acotarla use Placa (al menos 3 caracteres) y Estado; Quitar filtros los borra. Pulse el título de una columna para ordenar por ella (en el teléfono, use Ordenar por), cambie de página con las flechas y elija cuántos ver en Registros por página. Lista de Borradores abandonados con su frase y la regla, los filtros Placa y Estado, la tabla con placa, compañía, tipo de trámite, estado y días, y los botones Volver a Operativa y Descargar Excel Pulse Abrir trámite ↗ en una fila para ver la ficha de esa placa en el panel lateral, sin perder la lista. Pulse Descargar Excel para llevarse la lista con los mismos filtros y el mismo orden. El archivo trae una hoja con los registros y otra con la definición y los filtros aplicados. Pulse Volver a (por ejemplo, Volver a Operativa) para regresar a la página de la que vino. En el Explorador, cuando agrupa una métrica (por compañía, por mes…), cada fila del resultado trae Ver los N registros, y en la tabla cruzada cada celda con número abre los registros de ese cruce. La lista dice Volver al Explorador. Resultado del Explorador agrupado por compañía con el enlace Ver los N registros en cada fila En Umbrales y alertas se cambian los límites que usan las cifras (por ejemplo, los días para que un borrador cuente como abandonado). Al cambiarlos, las frases y la regla de ¿Cómo se calcula? muestran el valor nuevo. La placa que escribe en el filtro de la lista no se guarda en la dirección de la página ni en el navegador: al recargar la lista, el filtro de placa se borra. El Excel de una lista admite hasta 50.000 filas. Si la lista es más grande, la página lo avisa y el botón queda deshabilitado: acote el periodo o los filtros para descargarla. En pantalla se pueden recorrer las primeras 10.000 filas; el total siempre cuenta todas."
+      },
+      {
+        "ancla": "estados",
+        "titulo": "Estados",
+        "texto": "Cargando: el tablero muestra el contorno de sus tarjetas; la lista muestra su título y unas filas grises. Al cambiar de página o de filtro, la tabla anterior se atenúa mientras llega la nueva. Error: un mensaje con Reintentar. Si la consulta tarda demasiado, le pide acotar el periodo o agregar un filtro. Vacío: el tablero dice que no hay trámites en el periodo y ofrece Limpiar filtros. Una lista sin registros dice por qué con su propia frase (por ejemplo, que hoy ningún borrador pasa del umbral). Si está vacía por sus filtros, ofrece Quitar filtros. Una cifra en 0 no tiene Ver. Lleno: las tarjetas con su frase y los bloques de cada página; la lista con su tabla y su paginación. Lista no disponible: si abre un enlace viejo o modificado, la página dice que la lista no existe y ofrece Ir al Resumen 360°."
+      },
+      {
+        "ancla": "que-no-hace",
+        "titulo": "Qué no hace",
+        "texto": "No cambia trámites: desde la Torre se mira y se descarga; la gestión se hace en cada módulo. No muestra nombre ni cédula de compradores o propietarios en las listas. No guarda la placa que filtra: ni en la dirección de la página, ni al recargar. Las cifras en pesos solo aparecen con el permiso de ver dinero; sin él se ven con «—» y la lista no trae la columna de valor. La cifra del tablero puede tardar hasta un minuto en reflejar un cambio reciente; la lista siempre trae el total del momento."
+      }
+    ]
+  },
+  {
     "clave": "clients",
     "permiso": "clients",
     "etiqueta": "Clientes y proveedores",

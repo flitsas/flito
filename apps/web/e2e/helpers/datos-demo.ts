@@ -1320,6 +1320,95 @@ export const ORGANISMO_PLANTILLA_DEMO = {
 };
 
 /** Todos los fixtures que pinta alguna captura. La prueba de datos ficticios los recorre. */
+// ── Torre de Control: cifras explicadas y lista de registros (Épica #14590) ──
+// Sin datos del titular: placa del registro demo, compañías demo y organismos con su nombre real (entidad pública).
+const TORRE_DEF_BORRADOR = 'Trámites en estado Borrador que llevan más de 7 días en ese estado, contados desde que entraron a Borrador (o desde la creación, si nunca cambiaron). El umbral se cambia en Umbrales y alertas. Es la foto de hoy: no depende del periodo elegido.';
+const TORRE_META_FOTO = { filtrosIgnorados: ['rango'] };
+const torreConjunto = (conjunto: string, segmentos?: unknown[]) =>
+  ({ tipo: 'conjunto', origen: { tipo: 'conjunto', conjunto }, ...(segmentos ? { segmentos } : {}) });
+
+export const TORRE_OPCIONES_DEMO = {
+  companias: EMPRESAS_DEMO.map((nombre, i) => ({ id: 901 + i, nombre })),
+  organismos: [{ codigo: '17001', nombre: ORGANISMOS_REALES[0] }, { codigo: '11001', nombre: ORGANISMOS_REALES[1] }],
+  tiposTramite: [{ valor: 'TRASPASO', etiqueta: 'Traspaso' }, { valor: 'MATRICULA', etiqueta: 'Matrícula inicial' }],
+  flitEstados: [{ valor: 'borrador', etiqueta: 'Borrador' }, { valor: 'aprobado', etiqueta: 'Aprobado' }],
+};
+
+export const TORRE_OPERATIVA_DEMO = {
+  rango: { desde: '2026-10-01', hasta: '2026-10-21' }, dineroVisible: false, generadoEn: '2026-10-21T15:00:00.000Z',
+  cifras: { sinGestionFueraAns: 3, borradoresAbandonados: 4, wip: 18, primerIntentoPct: 92 },
+  explicaciones: {
+    sinGestionFueraAns: {
+      frase: '3 gestiones llevan más de 48 horas sin soporte: 2 de SOAT y 1 de impuestos. 1 pasa de 96 horas.',
+      definicion: 'Gestiones de SOAT e impuestos sin soporte cargado 48 horas después de pedidas. El umbral se cambia en Umbrales y alertas. No depende del periodo.',
+      destino: { tipo: 'bloque', bloque: 'radar' },
+    },
+    borradoresAbandonados: {
+      frase: '4 trámites llevan más de 7 días en Borrador; 1 pasa de 14 días.', definicion: TORRE_DEF_BORRADOR,
+      destino: torreConjunto('borrador_abandonado'),
+    },
+    wip: {
+      frase: '18 trámites están en curso hoy; 2 llevan en el organismo más de 10 días.',
+      definicion: 'Trámites en un estado de trabajo activo, sin contar Borrador ni los terminados. No depende del periodo.',
+      destino: torreConjunto('en_curso'),
+    },
+    primerIntentoPct: {
+      frase: 'De las 25 entregas de trámites aprobados en el periodo, 23 se hicieron al primer intento; 2 necesitaron otro viaje.',
+      definicion: 'Trámites aprobados en el periodo con logística cobrada. Cuentan como primer intento los que no tuvieron un segundo viaje.',
+      destino: torreConjunto('entregas_logistica', [{ dimension: 'nivel', valores: ['con_viajes'] }]),
+    },
+  },
+  radar: {
+    ...TORRE_META_FOTO,
+    filas: [
+      { causa: 'borrador_abandonado', etiqueta: 'Borradores abandonados', cantidad: 4, umbral: 7, unidad: 'dias', severidad: 'atencion', destino: torreConjunto('borrador_abandonado') },
+      { causa: 'soat_sin_gestion', etiqueta: 'SOAT sin gestión', cantidad: 2, umbral: 48, unidad: 'horas', severidad: 'atencion', destino: torreConjunto('soat_sin_gestion') },
+      { causa: 'impuesto_sin_gestion', etiqueta: 'Impuestos sin gestión', cantidad: 1, umbral: 48, unidad: 'horas', severidad: 'atencion', destino: torreConjunto('impuesto_sin_gestion') },
+    ],
+  },
+  carga: { ...TORRE_META_FOTO, porOrganismo: [{ clave: '17001', etiqueta: ORGANISMOS_REALES[0], valor: 11 }, { clave: '11001', etiqueta: ORGANISMOS_REALES[1], valor: 7 }], porFuncionario: null },
+  benchmarkOt: { filtrosIgnorados: [], umbralDias: 10, filas: [] },
+  logistica: { filtrosIgnorados: [], entregas: 25, primerIntento: 23, primerIntentoPct: 92, viajesAdicionales: 2, tiempoMedioEntregaDias: 1.5 },
+};
+
+const TORRE_COLUMNAS_DEMO = [
+  { id: 'placa', etiqueta: 'Placa', tipo: 'texto', dinero: false, ordenable: true },
+  { id: 'compania', etiqueta: 'Compañía', tipo: 'texto', dinero: false, ordenable: false },
+  { id: 'tipo_tramite', etiqueta: 'Tipo de trámite', tipo: 'texto', dinero: false, ordenable: true },
+  { id: 'estado', etiqueta: 'Estado', tipo: 'texto', dinero: false, ordenable: true },
+  { id: 'organismo', etiqueta: 'Secretaría', tipo: 'texto', dinero: false, ordenable: false },
+  { id: 'creado_en', etiqueta: 'Creado', tipo: 'fecha', dinero: false, ordenable: true },
+  { id: 'dias_antiguedad', etiqueta: 'Días desde creado', tipo: 'dias', dinero: false, ordenable: true },
+];
+
+/** La lista de una cifra: una fila por placa del registro demo. `origen` y `segmentos` los pone el spec. */
+export const TORRE_DETALLE_DEMO = {
+  definicion: { etiqueta: 'Borradores abandonados', definicion: TORRE_DEF_BORRADOR, fechaBase: null, campoFecha: 'fecha_creacion' },
+  frase: '4 trámites llevan más de 7 días en Borrador; 1 pasa de 14 días.',
+  fraseVacio: 'Hoy ningún borrador lleva más de 7 días.',
+  total: DATOS_DEMO.placas.length, valorTotal: null, columnas: TORRE_COLUMNAS_DEMO,
+  filas: DATOS_DEMO.placas.map((placa, i) => ({
+    id: `demo-${i + 1}`, tramiteId: `00000000-0000-4000-8000-00000000010${i + 1}`,
+    celdas: {
+      placa, compania: EMPRESAS_DEMO[i % EMPRESAS_DEMO.length], tipo_tramite: i % 2 ? 'Matrícula inicial' : 'Traspaso',
+      estado: 'borrador', organismo: ORGANISMOS_REALES[i % 2], creado_en: `2026-10-0${2 + i}`, dias_antiguedad: 19 - i * 3,
+    },
+  })),
+  pagina: 1, tamano: 25, truncado: false, filtrosIgnorados: ['rango'], rango: null, dineroVisible: false,
+  generadoEn: '2026-10-21T15:00:00.000Z',
+};
+
+/** Resultado del Explorador: trámites aprobados por compañía. */
+export const TORRE_METRICA_DEMO = {
+  metrica: 'tramites', unidad: 'conteo', truncado: false, total: { valor: 120, n: 120 },
+  baseFecha: { campo: 'fecha_aprobacion', excluidosSinFecha: 0, nBaseSincronizacion: 0, fechaBase: 'aprobacion' },
+  rango: { desde: '2026-10-01', hasta: '2026-10-21' }, generadoEn: '2026-10-21T15:00:00.000Z',
+  filas: EMPRESAS_DEMO.map((etiqueta, i) => {
+    const valor = [64, 38, 18][i];
+    return { clave: String(901 + i), etiqueta, valor, n: valor, participacion: (valor / 120) * 100 };
+  }),
+};
+
 export const FIXTURES_DEMO: Record<string, unknown> = {
   MI_RUTA_DEMO,
   LT_DEMO,
@@ -1426,6 +1515,12 @@ export const FIXTURES_DEMO: Record<string, unknown> = {
   ORGANISMOS_MODALIDAD_DEMO: ORGANISMOS_MODALIDAD_DEMO.map(({ nombre, alias, ...o }) => ({ ...o, organismo: nombre, aliasOrganismo: alias })),
   ORGANISMO_VIGENCIAS_DEMO,
   ORGANISMO_PLANTILLA_DEMO,
+  // ── Torre de Control (Épica #14590) ──
+  // El `nombre` de un organismo de tránsito es el de una entidad pública (permitido): se recorre con otra clave.
+  TORRE_OPCIONES_DEMO: { ...TORRE_OPCIONES_DEMO, organismos: TORRE_OPCIONES_DEMO.organismos.map(({ nombre, ...o }) => ({ ...o, organismo: nombre })) },
+  TORRE_OPERATIVA_DEMO,
+  TORRE_DETALLE_DEMO,
+  TORRE_METRICA_DEMO,
 };
 
 // ── Interceptación de /api ───────────────────────────────────────────────────
