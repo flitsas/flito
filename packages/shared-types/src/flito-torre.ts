@@ -32,17 +32,35 @@ export interface FiltroTorre {
 
 export const AGRUPACIONES_TORRE = [
   'dia', 'semana', 'mes', 'trimestre', 'compania', 'organismo', 'departamento', 'tipo_tramite', 'flit_estado',
+  'tramo_antiguedad',
 ] as const;
 export type AgrupacionTorre = (typeof AGRUPACIONES_TORRE)[number];
 
 const TEMPORALES = ['dia', 'semana', 'mes', 'trimestre'] as const satisfies readonly AgrupacionTorre[];
 const DIMENSIONES = ['compania', 'organismo', 'departamento', 'tipo_tramite', 'flit_estado'] as const satisfies readonly AgrupacionTorre[];
 const TODAS = [...TEMPORALES, ...DIMENSIONES] as const;
+/** Fotos del momento de trámites en curso: las dimensiones + el tramo de días en el estado actual (B2). */
+const FOTO_ESTADO = [...DIMENSIONES, 'tramo_antiguedad'] as const satisfies readonly AgrupacionTorre[];
+
+/**
+ * Tramos FIJOS de días en el estado actual (Épica #14590 B2, UX §6.2; no configurables). Días = días completos desde
+ * el último cambio de `flit_estado` (o la creación, si nunca cambió). `hasta: null` = sin tope. La API los traduce en
+ * `claveAgrupacion('tramo_antiguedad')` con estos mismos cortes (un test lo verifica).
+ */
+export const TRAMOS_ANTIGUEDAD_TORRE = [
+  { clave: '0_2', etiqueta: '0–2 días', desde: 0, hasta: 2 },
+  { clave: '3_7', etiqueta: '3–7 días', desde: 3, hasta: 7 },
+  { clave: '8_15', etiqueta: '8–15 días', desde: 8, hasta: 15 },
+  { clave: '16_30', etiqueta: '16–30 días', desde: 16, hasta: 30 },
+  { clave: 'mas_30', etiqueta: 'Más de 30', desde: 31, hasta: null },
+] as const;
+export type TramoAntiguedadTorre = (typeof TRAMOS_ANTIGUEDAD_TORRE)[number]['clave'];
 
 /** Etiquetas de las agrupaciones (las mismas cadenas que la web; el Excel cruzado las necesita). */
 export const ETIQUETAS_AGRUPACION_TORRE: Record<AgrupacionTorre, string> = {
   dia: 'Día', semana: 'Semana', mes: 'Mes', trimestre: 'Trimestre', compania: 'Compañía', organismo: 'Organismo de tránsito',
   departamento: 'Departamento', tipo_tramite: 'Tipo de trámite', flit_estado: 'Estado',
+  tramo_antiguedad: 'Días en el estado',
 };
 
 export const esAgrupacionTemporal = (a: AgrupacionTorre): boolean =>
@@ -107,7 +125,10 @@ export const METRICAS_TORRE = [
   { id: 'ingreso_liquidado', etiqueta: 'Ingreso liquidado', unidad: 'cop', agrupacionesPermitidas: TODAS, requiereDinero: true,
     fechasBase: ['aprobacion', 'facturacion'], enConstructor: true },
   // Foto del momento: no tiene serie temporal ni rango, solo cortes por dimensión.
-  { id: 'wip_activo', etiqueta: 'Trámites en curso', unidad: 'conteo', agrupacionesPermitidas: DIMENSIONES, requiereDinero: false,
+  { id: 'wip_activo', etiqueta: 'Trámites en curso', unidad: 'conteo', agrupacionesPermitidas: FOTO_ESTADO, requiereDinero: false,
+    fechasBase: [], enConstructor: true },
+  // B2: promedio de horas que los trámites en curso llevan en su estado actual (foto, como `wip_activo`).
+  { id: 'dias_en_estado', etiqueta: 'Tiempo en el estado actual', unidad: 'horas', agrupacionesPermitidas: FOTO_ESTADO, requiereDinero: false,
     fechasBase: [], enConstructor: true },
   { id: 'tasa_aprobacion', etiqueta: 'Tasa de aprobación', unidad: 'pct', agrupacionesPermitidas: TODAS, requiereDinero: false,
     fechasBase: ['creacion'], enConstructor: true },
@@ -161,8 +182,8 @@ export const TOPES_TORRE = {
   FILAS_DETALLE_EXPORTAR_MAX: 50_000,
   /** Valores por segmento del detalle. */
   VALORES_SEGMENTO_MAX: 10,
-  /** Segmentos por consulta de detalle (fila y columna de un cruce). */
-  SEGMENTOS_MAX: 2,
+  /** Segmentos por consulta de detalle (fila y columna de un cruce; en el inventario, estado × tramo × organismo). */
+  SEGMENTOS_MAX: 3,
 } as const;
 
 /** Un valor de `TOPES_TORRE.TOP_GRUPOS`. */

@@ -6,15 +6,19 @@
 // `POST /<tablero>/exportar` (body = `FiltroTorre`): la función de ESE tablero + `torre.metricas.exportar`, con
 // `torreExportLimiter` detrás; Excel de una hoja por bloque (`flito-torre.tablero-export.ts`). Rutas literales, una
 // por tablero, para que `inventario-guardas` lea el código de cada guarda; otro `:tablero` no existe (404).
+// B2: `POST /operativa/inventario` (body `{ filtro, organismo? }`) y `POST /operativa/soportes` (body `{ filtro }`), con
+// la función del tablero Operativo: son sus pestañas «Inventario por estado» y «Soportes» (solo conteos, sin PII).
 import { Router, type NextFunction, type Request, type Response } from 'express';
+import type { z } from 'zod';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { alcanceDe } from '../../shared/middleware/frontera-enlace.js';
 import { torreExportLimiter } from '../../shared/middleware/rateLimiter.js';
 import { tableroComercial } from './flito-torre.comercial.service.js';
 import { tableroEjecutivo } from './flito-torre.ejecutivo.service.js';
-import { detalleZod, tableroSchema } from './flito-torre.esquemas.js';
+import { detalleZod, inventarioSchema, tableroSchema } from './flito-torre.esquemas.js';
 import { tableroFinanciero } from './flito-torre.financiera.service.js';
+import { inventarioEstado, soportesFaltantes } from './flito-torre.inventario.service.js';
 import { tableroOperativo } from './flito-torre.operativa.service.js';
 import { errorTorreAHttp } from './flito-torre.routes.js';
 import type { ContextoTablero } from './flito-torre.tablero-comun.js';
@@ -23,13 +27,16 @@ import { exportarTablero, type TableroExportable } from './flito-torre.tablero-e
 const router = Router();
 router.use(authMiddleware);
 
-function tablero(calcular: (ctx: ContextoTablero) => Promise<unknown>) {
+/** El body validado: `{ filtro }` en los tableros; el inventario añade `organismo` (B2). */
+type CuerpoTablero = z.infer<typeof inventarioSchema>;
+
+function tablero(calcular: (ctx: ContextoTablero, cuerpo: CuerpoTablero) => Promise<unknown>, esquema: typeof tableroSchema | typeof inventarioSchema = tableroSchema) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const parsed = tableroSchema.safeParse(req.body);
+    const parsed = esquema.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: `Datos inválidos: ${detalleZod(parsed.error)}`, code: 'DATOS_INVALIDOS' }); return; }
     try {
       const [alcance, dinero] = await Promise.all([alcanceDe(req), tieneFuncion(req, 'torre.metricas.dinero')]);
-      const r = await calcular({ filtro: parsed.data.filtro, alcance, dinero });
+      const r = await calcular({ filtro: parsed.data.filtro, alcance, dinero }, parsed.data);
       res.setHeader('Cache-Control', 'no-store');
       res.json(r);
     } catch (e) {
@@ -57,6 +64,8 @@ router.post('/ejecutivo', exigirFuncion('torre.tablero_ejecutivo.ver'), tablero(
 router.post('/comercial', exigirFuncion('torre.tablero_comercial.ver'), tablero(tableroComercial));
 router.post('/operativa', exigirFuncion('torre.tablero_operativo.ver'), tablero(tableroOperativo));
 router.post('/financiera', exigirFuncion('torre.tablero_financiero.ver'), tablero(tableroFinanciero));
+router.post('/operativa/inventario', exigirFuncion('torre.tablero_operativo.ver'), tablero((ctx, c) => inventarioEstado(ctx, c.organismo ?? null), inventarioSchema));
+router.post('/operativa/soportes', exigirFuncion('torre.tablero_operativo.ver'), tablero(soportesFaltantes));
 
 router.post('/ejecutivo/exportar', exigirFuncion('torre.tablero_ejecutivo.ver'), exigirFuncion('torre.metricas.exportar'), torreExportLimiter, exportar('ejecutivo'));
 router.post('/comercial/exportar', exigirFuncion('torre.tablero_comercial.ver'), exigirFuncion('torre.metricas.exportar'), torreExportLimiter, exportar('comercial'));

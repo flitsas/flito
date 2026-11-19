@@ -6,6 +6,7 @@
 // ayuda la leen de aquí. Los marcadores `{umbral}` y `{doble}` los resuelve la API con el valor vigente del umbral.
 import {
   AGRUPACIONES_TORRE, type ClaveUmbralTorre, type FechaBaseTorre, type FiltroTorre, type MetricaTorreId,
+  type TramoAntiguedadTorre,
 } from './flito-torre.js';
 
 // ── Entidades, segmentos y columnas ──────────────────────────────────────────────────────────────────────
@@ -15,8 +16,11 @@ export const ENTIDADES_TORRE = ['tramite', 'liquidacion', 'gestion_soat', 'soat_
   'derecho_pendiente', 'traslado', 'acta', 'factura', 'bolsa', 'movimiento_bolsa', 'boleta', 'funcionario'] as const;
 export type EntidadTorre = (typeof ENTIDADES_TORRE)[number];
 
-/** Dimensiones de segmento: las agrupaciones del motor (misma expresión, D2) + las propias de un conjunto. */
-export const DIMENSIONES_SEGMENTO_TORRE = [...AGRUPACIONES_TORRE, 'nivel', 'faltante', 'tramo_antiguedad', 'severidad'] as const;
+/**
+ * Dimensiones de segmento: las agrupaciones del motor (misma expresión, D2; incluye `tramo_antiguedad` desde B2) + las
+ * propias de un conjunto.
+ */
+export const DIMENSIONES_SEGMENTO_TORRE = [...AGRUPACIONES_TORRE, 'nivel', 'faltante', 'severidad'] as const;
 export type DimensionSegmentoTorre = (typeof DIMENSIONES_SEGMENTO_TORRE)[number];
 
 /** Un corte de la cifra. `null` en `valores` = «Sin compañía» / «Sin secretaría»… (≤ `TOPES_TORRE.VALORES_SEGMENTO_MAX`). */
@@ -132,9 +136,9 @@ export const CONJUNTOS_TORRE = [
   },
   {
     id: 'borrador_abandonado', entidad: 'tramite', etiqueta: 'Borradores abandonados',
-    definicion: 'Trámites en estado Borrador cuya fecha de creación tiene más de {umbral} días. Críticos: los de más de {doble} días. El umbral se cambia en Umbrales y alertas. Es la foto de hoy: no depende del periodo elegido.',
-    fechaBase: null, filtrosIgnorados: FOTO, columnas: [...COLS_TRAMITE, 'dias_antiguedad'],
-    ordenDefecto: { columna: 'dias_antiguedad', dir: 'desc' }, segmentosAdmitidos: ['compania', 'organismo', 'severidad'],
+    definicion: 'Trámites que siguen en estado Borrador más de {umbral} días después de entrar a ese estado: se cuenta desde su último cambio de estado o, si nunca cambió, desde su creación. Críticos: los de más de {doble} días. Es la misma regla de la alerta de Gestión Trámites. El umbral se cambia en Umbrales y alertas. Es la foto de hoy: no depende del periodo elegido.',
+    fechaBase: null, filtrosIgnorados: FOTO, columnas: [...COLS_TRAMITE, 'dias_en_estado'],
+    ordenDefecto: { columna: 'dias_en_estado', dir: 'desc' }, segmentosAdmitidos: ['compania', 'organismo', 'severidad'],
     frase: '{n} {trámite lleva|trámites llevan} más de {umbral} días en Borrador', fraseVacio: 'Hoy ningún borrador lleva más de {umbral} días.', fraseCriticos: '{c} {pasa|pasan} de {doble} días',
     requiereDinero: false, funcionesOrigen: [OPERATIVO, EJECUTIVO], umbral: 'dias_borrador_abandonado',
   },
@@ -153,6 +157,14 @@ export const CONJUNTOS_TORRE = [
     ordenDefecto: { columna: 'creado_en', dir: 'asc' }, segmentosAdmitidos: ['organismo', 'compania', 'flit_estado'],
     frase: '{n} {trámite está|trámites están} en curso hoy', fraseVacio: 'No hay trámites en curso.',
     requiereDinero: false, funcionesOrigen: [OPERATIVO, EJECUTIVO],
+  },
+  {
+    id: 'inventario_estado', entidad: 'tramite', etiqueta: 'Inventario por estado',
+    definicion: 'Trámites en curso hoy, agrupados por su estado actual y por los días que llevan en él, contados desde el último cambio de estado (o desde la creación, si nunca cambió). Los umbrales se cambian en Umbrales y alertas. No depende del periodo.',
+    fechaBase: null, filtrosIgnorados: FOTO, columnas: [...COLS_TRAMITE, 'dias_en_estado'],
+    ordenDefecto: { columna: 'dias_en_estado', dir: 'desc' }, segmentosAdmitidos: ['flit_estado', 'tramo_antiguedad', 'organismo', 'compania'],
+    frase: '{n} {trámite en curso|trámites en curso} hoy', fraseVacio: 'No hay trámites en curso hoy.',
+    requiereDinero: false, funcionesOrigen: [OPERATIVO],
   },
   {
     id: 'tramites_creados', entidad: 'tramite', etiqueta: 'Trámites creados',
@@ -217,6 +229,14 @@ export const CONJUNTOS_TORRE = [
     ordenDefecto: { columna: 'aprobado_en', dir: 'desc' }, segmentosAdmitidos: ['nivel', 'faltante', 'compania'],
     frase: '{n} {trámite aprobado|trámites aprobados} en el periodo', fraseVacio: 'No hay trámites aprobados en el periodo.',
     requiereDinero: false, funcionesOrigen: [FINANCIERO, EJECUTIVO],
+  },
+  {
+    id: 'soportes_faltantes', entidad: 'tramite', etiqueta: 'Aprobados con soportes faltantes',
+    definicion: 'Trámites aprobados en el periodo a los que les falta al menos un soporte vigente de SOAT, de impuesto o de derecho. Un soporte descartado no cuenta. Por soporte se cuentan los que no tienen ese soporte: un trámite al que le faltan dos aparece en los dos.',
+    fechaBase: 'aprobacion', filtrosIgnorados: [], columnas: [...COLS_TRAMITE, 'aprobado_en', 'faltan_soportes'],
+    ordenDefecto: { columna: 'aprobado_en', dir: 'desc' }, segmentosAdmitidos: ['faltante', 'compania', 'organismo'],
+    frase: '{n} {trámite aprobado|trámites aprobados} en el periodo no {tiene|tienen} todos sus soportes', fraseVacio: 'Todos los aprobados del periodo tienen sus tres soportes.',
+    requiereDinero: false, funcionesOrigen: [OPERATIVO, FINANCIERO, EJECUTIVO],
   },
   {
     id: 'margen_aprobados', entidad: 'liquidacion', etiqueta: 'Aprobados con liquidación',
@@ -290,6 +310,7 @@ export const DETALLE_METRICA_TORRE: Readonly<Record<MetricaTorreId, { entidad: E
   derechos_pagados: { entidad: 'derecho', columnas: ['codigo_flit', 'placa', 'compania', 'organismo', 'estado', 'valor'] },
   ingreso_liquidado: { entidad: 'liquidacion', columnas: [...COLS_METRICA_TRAMITE, 'valor'] },
   wip_activo: { entidad: 'tramite', columnas: [...COLS_TRAMITE, 'dias_antiguedad'] },
+  dias_en_estado: { entidad: 'tramite', columnas: [...COLS_TRAMITE, 'dias_en_estado'] },
   tasa_aprobacion: { entidad: 'tramite', columnas: [...COLS_METRICA_TRAMITE, 'aprobado'] },
   sin_facturar: { entidad: 'tramite', columnas: COLS_METRICA_TRAMITE },
 };
@@ -315,7 +336,7 @@ export interface OrdenDetalle { columna: ColumnaDetalleId; dir: 'asc' | 'desc' }
 
 export interface ConsultaDetalle {
   origen: OrigenDetalle;
-  /** ≤ 2 (fila y columna de un cruce). */
+  /** ≤ 3 (fila y columna de un cruce; en el inventario, estado × tramo × organismo). */
   segmentos?: SegmentoDetalle[];
   filtro: FiltroTorre;
   filtrosDetalle?: FiltrosDetalleTorre;
@@ -378,3 +399,61 @@ export interface CifraExplicada {
 
 /** Explicaciones por clave de `cifras` de un tablero. */
 export type ExplicacionesTablero<C> = Partial<Record<keyof C & string, CifraExplicada>>;
+
+// ── Inventario por estado y soportes faltantes (B2: Operativa › Inventario por estado · Soportes) ─────────────
+
+/** Una cifra de la matriz. `destino` = el detalle `inventario_estado` con sus segmentos; en 0, `{ tipo: 'ninguno' }`. */
+export interface CeldaInventarioTorre {
+  n: number;
+  /**
+   * ▲ (UX §6.2): al menos un trámite de la celda pasa el umbral de SU estado (Borrador: `dias_borrador_abandonado`;
+   * «Entregado»/«Enviado a OT»: `dias_respuesta_ot`). Los estados sin umbral y los totales nunca se marcan.
+   */
+  sobreUmbral: boolean;
+  destino: DestinoCifra;
+}
+
+export interface FilaInventarioTorre {
+  /** Valor crudo de `flit_estado` (`null` = sin estado): el segmento `flit_estado` del destino. */
+  estado: string | null;
+  etiqueta: string;
+  /** Umbral que marca la fila; `null` = estado sin umbral. */
+  umbral: { clave: ClaveUmbralTorre; valor: number } | null;
+  celdas: Record<TramoAntiguedadTorre, CeldaInventarioTorre>;
+  total: CeldaInventarioTorre;
+}
+
+/** Respuesta de `POST /api/flito/torre/tableros/operativa/inventario` (foto de hoy). */
+export interface InventarioEstadoTorre {
+  /** Columnas en orden (`TRAMOS_ANTIGUEDAD_TORRE`). */
+  tramos: { clave: TramoAntiguedadTorre; etiqueta: string }[];
+  /** En el orden del flujo del trámite; los estados sin orden conocido van al final, por nombre. */
+  filas: FilaInventarioTorre[];
+  /** Totales por columna y el general (= O3 «Trámites en curso» sin organismo). */
+  totales: { celdas: Record<TramoAntiguedadTorre, CeldaInventarioTorre>; total: CeldaInventarioTorre };
+  /** Organismo elegido (se suma al filtro de la Torre) o `null` = todos. */
+  organismo: string | null;
+  /** Opciones del selector: organismos con trámites en curso bajo el filtro de la Torre (sin el organismo elegido). */
+  organismos: { codigo: string; nombre: string }[];
+  /** «312 trámites en curso hoy, por estado y por días en ese estado.» */
+  frase: string;
+  /** «¿Cómo se calcula?» (= `CONJUNTOS_TORRE.inventario_estado.definicion`). */
+  definicion: string;
+  /** «▲ Pasa el umbral de ese estado (Borrador: 7 días; en el organismo: 10 días).» */
+  leyendaUmbral: string;
+  generadoEn: string;
+}
+
+/** Respuesta de `POST /api/flito/torre/tableros/operativa/soportes` (aprobados del periodo). */
+export interface SoportesFaltantesTorre {
+  /** Aprobados del periodo (= `soportes_aprobados`). */
+  aprobados: number;
+  /** Aprobados a los que les falta al menos uno (= `soportes_faltantes`). */
+  incompletos: { n: number; destino: DestinoCifra };
+  /** Por soporte: los que no lo tienen (= `soportes_faltantes` + segmento `faltante`). */
+  porFaltante: { faltante: (typeof VALORES_FALTANTE_SOPORTE)[number]; etiqueta: string; n: number; destino: DestinoCifra }[];
+  frase: string;
+  definicion: string;
+  rango: { desde: string; hasta: string };
+  generadoEn: string;
+}

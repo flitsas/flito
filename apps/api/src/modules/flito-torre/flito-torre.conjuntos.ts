@@ -13,6 +13,8 @@
 //   id de la entidad, para que la paginación sea estable. Ningún identificador sale del body.
 // RN-TOR-D7: nunca se proyectan `flit_raw`, `compania_nit`, `flito_compradores`, el VIN ni direcciones: solo las
 //   columnas declaradas aquí (placa, compañía, estado, fechas y montos).
+// RN-TOR-D9 (B2): `tramo_antiguedad` = `tramoDeDias(DIAS_EN_ESTADO)` (días completos desde el último cambio de estado);
+//   `inventario_estado` = `en_curso` cortado por estado × tramo; `soportes_faltantes` = `soportes_aprobados` con < 3.
 // RN-TOR-D8: SOAT e impuesto sin gestión usan los predicados exportados de `flito-tablero` (`condSoatSinGestion`,
 //   `condImpuestoSinGestion`), los mismos de `contarSinGestion` con que cuenta el radar.
 import { inArray, sql, type AnyColumn, type SQL } from 'drizzle-orm';
@@ -27,9 +29,9 @@ import {
 import { condicionPorCompania } from '../../shared/alcance-filas.js';
 import { condImpuestoSinGestion, condSoatSinGestion } from '../flito-tablero/flito-tablero.service.js';
 import {
-  APROBADO, BORRADOR_ABANDONADO, DIMS_TRAMITE, EN_CURSO, ESTANCADO_OT, FACTURADO, FECHA_APROBACION, FECHA_CREACION,
+  APROBADO, BORRADOR_ABANDONADO, DIAS_EN_ESTADO, DIMS_TRAMITE, EN_CURSO, ESTANCADO_OT, FACTURADO, FECHA_APROBACION, FECHA_CREACION,
   HORAS_CICLO, LIQUIDACION_VIGENTE, PUNTOS_SOPORTE, RADICADO, RECHAZADO, SOPORTE_DERECHO, SOPORTE_IMPUESTO,
-  SOPORTE_SOAT, ULTIMO_CAMBIO_ESTADO, VIAJES_ADICIONALES, resolverDef,
+  SOPORTE_SOAT, VIAJES_ADICIONALES, resolverDef,
 } from './flito-torre.catalogo.js';
 import {
   claveAgrupacion, condicionesTorre, donde, type DimensionesBase, type FechaBase, type RangoResuelto,
@@ -88,7 +90,7 @@ export function colsTramite(dims: DimensionesBase = DIMS_TRAMITE): ColsSql {
     codigo_flit: sql`${T.idFlit}`, placa: sql`${T.plateComplete}`, compania: sql`${dims.compania}`,
     organismo: sql`${dims.organismo}`, tipo_tramite: sql`${T.tipoTramite}`, estado: sql`${T.flitEstado}`,
     creado_en: CREADO, aprobado_en: sql`${T.fechaAprobacion}`, facturado_en: FACTURADO_EN,
-    dias_antiguedad: diasDesde(CREADO), dias_en_estado: diasDesde(ULTIMO_CAMBIO_ESTADO), faltan_soportes: FALTAN,
+    dias_antiguedad: diasDesde(CREADO), dias_en_estado: DIAS_EN_ESTADO, faltan_soportes: FALTAN,
     horas_ciclo: HORAS_CICLO, viajes_adicionales: VIAJES_ADICIONALES,
   };
 }
@@ -171,6 +173,8 @@ export const CONJUNTOS_SQL: Record<ConjuntoTorreId, ConjuntoSql> = {
     critico: (u) => ESTANCADO_OT(u.dias_respuesta_ot * 2),
   }),
   en_curso: tramites('tramite_foto', FOTO_TRAMITES, () => [EN_CURSO]),
+  // B2 (RN-TOR-D9): el mismo universo que `en_curso`; la matriz lo corta por `flit_estado` × `tramo_antiguedad`.
+  inventario_estado: tramites('tramite_foto', FOTO_TRAMITES, () => [EN_CURSO], { campoFecha: 'último cambio de estado' }),
   tramites_creados: tramites('tramite_creacion', POR_CREACION, () => [], { fecha: FECHA_CREACION, campoFecha: 'fecha_creacion_flit' }),
   radicados_cohorte: tramites('tramite_creacion', POR_CREACION, () => [RADICADO], { fecha: FECHA_CREACION, campoFecha: 'fecha_creacion_flit' }),
   aprobados_cohorte: tramites('tramite_creacion', POR_CREACION, () => [APROBADO], { fecha: FECHA_CREACION, campoFecha: 'fecha_creacion_flit' }),
@@ -189,6 +193,10 @@ export const CONJUNTOS_SQL: Record<ConjuntoTorreId, ConjuntoSql> = {
   soportes_aprobados: tramites('tramite_aprobacion', POR_APROBACION, () => [], {
     fecha: FECHA_APROBACION, campoFecha: 'fecha_aprobacion',
     nivel: { expr: sql`(${PUNTOS_SOPORTE})::text`, valores: VALORES_NIVEL_SOPORTES }, faltante: true,
+  }),
+  // B2-AC3: `soportes_aprobados` sin los 3/3 (= niveles 0, 1 y 2); con `faltante`, los que no tienen ese soporte.
+  soportes_faltantes: tramites('tramite_aprobacion', POR_APROBACION, () => [sql`${PUNTOS_SOPORTE} < 3`], {
+    fecha: FECHA_APROBACION, campoFecha: 'fecha_aprobacion', faltante: true,
   }),
   margen_aprobados: {
     ...tramites('liquidacion_aprobacion', POR_APROBACION_LIQ, () => [], { fecha: FECHA_APROBACION, campoFecha: 'fecha_aprobacion' }),

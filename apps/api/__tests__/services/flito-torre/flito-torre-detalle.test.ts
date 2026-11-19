@@ -142,8 +142,10 @@ describe('AC11 · Zod cerrado (400 DATOS_INVALIDOS)', () => {
     ['campo desconocido', consulta({ sql: '1=1' })],
     ['tamano de 37', consulta({ tamano: 37 })],
     ['placa con comodín', consulta({ filtrosDetalle: { placa: 'AB%' } })],
-    ['más de 2 segmentos', consulta({ origen: { tipo: 'conjunto', conjunto: 'tramites_creados' }, segmentos: [
-      { dimension: 'compania', valores: ['1'] }, { dimension: 'organismo', valores: ['05001'] }, { dimension: 'mes', valores: ['2035-03'] }] })],
+    // B2: el tope sube a 3 (estado × tramo × organismo del inventario).
+    ['más de 3 segmentos', consulta({ origen: { tipo: 'conjunto', conjunto: 'tramites_creados' }, segmentos: [
+      { dimension: 'compania', valores: ['1'] }, { dimension: 'organismo', valores: ['05001'] }, { dimension: 'mes', valores: ['2035-03'] },
+      { dimension: 'tipo_tramite', valores: ['Traspaso'] }] })],
     ['página más allá de 10.000 filas', consulta({ pagina: 101, tamano: 100 })],
     ['fecha base fuera de la matriz', consulta({ origen: { tipo: 'metrica', metrica: 'tramites_creados', fechaBase: 'pago' } })],
   ];

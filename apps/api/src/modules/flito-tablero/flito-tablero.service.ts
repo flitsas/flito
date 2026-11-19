@@ -18,6 +18,7 @@ import {
 } from '../../db/schema.js';
 import { listar as listarCompuerta } from '../flito-compuerta/flito-compuerta.service.js';
 import { condicionAlerta } from '../flito-tramites/flito-tramites.service.js';
+import { diasBorradorAbandonado } from '../flito-tramites/flito-tramites.borrador.js';
 import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
 import { condicionPorCompania } from '../../shared/alcance-filas.js';
 
@@ -44,6 +45,8 @@ export interface TableroResumen {
  * usa el COUNT del listado, porque las condiciones referencian el proveedor SOAT y el organismo.
  */
 async function contarAlertas(porCompania?: SQL): Promise<Record<AlertaOperativa, number>> {
+  // RN-TRA-B2: el umbral de borrador es el configurable de la Torre (el mismo de `borrador_abandonado`).
+  const diasBorrador = await diasBorradorAbandonado();
   const conteos = await Promise.all(ALERTAS_OPERATIVAS.map(async (alerta) => {
     const [r] = await db.select({ n: sql<number>`count(distinct ${flitoTramites.id})::int` })
       .from(flitoTramites)
@@ -53,7 +56,7 @@ async function contarAlertas(porCompania?: SQL): Promise<Record<AlertaOperativa,
       .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
       .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
       .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
-      .where(and(condicionAlerta(alerta), porCompania));
+      .where(and(condicionAlerta(alerta, diasBorrador), porCompania));
     return [alerta, Number(r?.n ?? 0)] as const;
   }));
   return Object.fromEntries(conteos) as Record<AlertaOperativa, number>;

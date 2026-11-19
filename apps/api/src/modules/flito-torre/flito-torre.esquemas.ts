@@ -88,6 +88,12 @@ export const sugerirPlacaSchema = z.object({
 
 export const tableroSchema = z.object({ filtro: filtroTorreSchema }).strict();
 
+/** B2 (RN-TOR-I3): el inventario por estado admite además UN organismo (se suma al filtro; ausente o `null` = todos). */
+export const inventarioSchema = z.object({
+  filtro: filtroTorreSchema,
+  organismo: z.string().regex(/^\d{5}$/, 'debe ser un código DIVIPOLA de 5 dígitos').nullable().optional(),
+}).strict();
+
 // ── Detalle universal (ADR-0047) ─────────────────────────────────────────────────────────────────────
 // RN-TOR-D10: conjunto, segmento, columna de orden y campo desconocidos → 400; `tamano` ∈ {25, 50, 100};
 //   `pagina*tamano ≤ FILAS_DETALLE_PAGINABLE_MAX`. El servicio vuelve a exigir cada regla.

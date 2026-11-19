@@ -243,9 +243,10 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       // Épica #14590: `GET /opciones` reutiliza `torre.metricas.consultar`; cada `/<tablero>/exportar`, la función de su
       // tablero; el dinero se decide en línea en las dos rutas del explorador y en los dos handlers comunes de los tableros.
       // ADR-0044: `POST /placa/sugerencias` reutiliza `torre.placa.buscar`, la función de la ficha.
+      // Épica #14590 (B2): `POST /operativa/inventario` y `/operativa/soportes` reutilizan `torre.tablero_operativo.ver`.
       // ADR-0047 (B1): el detalle exige en línea el dinero y la función de origen de la cifra (+1 a cada una).
       ['torre.metricas.consultar', 3], ['torre.metricas.dinero', 5], ['torre.placa.buscar', 2], ['torre.tablero_comercial.ver', 3],
-      ['torre.tablero_ejecutivo.ver', 3], ['torre.tablero_financiero.ver', 3], ['torre.tablero_operativo.ver', 3],
+      ['torre.tablero_ejecutivo.ver', 3], ['torre.tablero_financiero.ver', 3], ['torre.tablero_operativo.ver', 5],
       ['tramites.cola.ver', 3], ['tramites.sincronizacion.configurar', 2], ['usuarios.usuario.listar', 2],
     ]);
     // HU #13427: las de HOY (con las operaciones nuevas que parten una guarda vieja), no las del mundo plano.

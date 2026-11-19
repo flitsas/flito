@@ -51787,6 +51787,7 @@ paths:
                             - impuesto_sin_gestion
                             - borrador_abandonado
                             - estancado_ot
+                            - inventario_estado
                             - tramites_creados
                             - radicados_cohorte
                             - aprobados_cohorte
@@ -51795,6 +51796,7 @@ paths:
                             - entregas_logistica
                             - sin_facturar
                             - soportes_aprobados
+                            - soportes_faltantes
                             - margen_aprobados
                       required:
                         - tipo
@@ -51818,6 +51820,7 @@ paths:
                             - derechos_pagados
                             - ingreso_liquidado
                             - wip_activo
+                            - dias_en_estado
                             - tasa_aprobacion
                         fechaBase:
                           type: string
@@ -51848,8 +51851,8 @@ paths:
                           - dia
                           - compania
                           - semana
-                          - faltante
                           - tramo_antiguedad
+                          - faltante
                       valores:
                         type: array
                         items:
@@ -51890,10 +51893,10 @@ paths:
                         - creado_en
                         - facturado_en
                         - compania
+                        - dias_en_estado
                         - codigo_flit
                         - aprobado_en
                         - dias_antiguedad
-                        - dias_en_estado
                         - faltan_soportes
                         - horas_ciclo
                         - horas_sin_gestion
@@ -51934,6 +51937,7 @@ paths:
                               - impuesto_sin_gestion
                               - borrador_abandonado
                               - estancado_ot
+                              - inventario_estado
                               - tramites_creados
                               - radicados_cohorte
                               - aprobados_cohorte
@@ -51942,6 +51946,7 @@ paths:
                               - entregas_logistica
                               - sin_facturar
                               - soportes_aprobados
+                              - soportes_faltantes
                               - margen_aprobados
                         required:
                           - tipo
@@ -51965,6 +51970,7 @@ paths:
                               - derechos_pagados
                               - ingreso_liquidado
                               - wip_activo
+                              - dias_en_estado
                               - tasa_aprobacion
                           fechaBase:
                             type: string
@@ -51995,8 +52001,8 @@ paths:
                             - dia
                             - compania
                             - semana
-                            - faltante
                             - tramo_antiguedad
+                            - faltante
                         valores:
                           type: array
                           items:
@@ -52054,10 +52060,10 @@ paths:
                             - creado_en
                             - facturado_en
                             - compania
+                            - dias_en_estado
                             - codigo_flit
                             - aprobado_en
                             - dias_antiguedad
-                            - dias_en_estado
                             - faltan_soportes
                             - horas_ciclo
                             - horas_sin_gestion
@@ -52189,6 +52195,15 @@ paths:
                                   items:
                                     type: string
                                 - type: "null"
+                            dias_en_estado:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
                             codigo_flit:
                               anyOf:
                                 - type: string
@@ -52208,15 +52223,6 @@ paths:
                                     type: string
                                 - type: "null"
                             dias_antiguedad:
-                              anyOf:
-                                - type: string
-                                - type: number
-                                - type: boolean
-                                - type: array
-                                  items:
-                                    type: string
-                                - type: "null"
-                            dias_en_estado:
                               anyOf:
                                 - type: string
                                 - type: number
@@ -52482,6 +52488,7 @@ paths:
                             - impuesto_sin_gestion
                             - borrador_abandonado
                             - estancado_ot
+                            - inventario_estado
                             - tramites_creados
                             - radicados_cohorte
                             - aprobados_cohorte
@@ -52490,6 +52497,7 @@ paths:
                             - entregas_logistica
                             - sin_facturar
                             - soportes_aprobados
+                            - soportes_faltantes
                             - margen_aprobados
                       required:
                         - tipo
@@ -52513,6 +52521,7 @@ paths:
                             - derechos_pagados
                             - ingreso_liquidado
                             - wip_activo
+                            - dias_en_estado
                             - tasa_aprobacion
                         fechaBase:
                           type: string
@@ -52543,8 +52552,8 @@ paths:
                           - dia
                           - compania
                           - semana
-                          - faltante
                           - tramo_antiguedad
+                          - faltante
                       valores:
                         type: array
                         items:
@@ -52585,10 +52594,10 @@ paths:
                         - creado_en
                         - facturado_en
                         - compania
+                        - dias_en_estado
                         - codigo_flit
                         - aprobado_en
                         - dias_antiguedad
-                        - dias_en_estado
                         - faltan_soportes
                         - horas_ciclo
                         - horas_sin_gestion
@@ -52752,7 +52761,7 @@ paths:
         content:
           application/json:
             schema:
-              "$ref": "#/components/schemas/Forma-0f51791784"
+              "$ref": "#/components/schemas/Forma-873a24abf6"
         description: Cuerpo que valida la ruta con su esquema de Zod.
       responses:
         "200":
@@ -52775,6 +52784,7 @@ paths:
                       - derechos_pagados
                       - ingreso_liquidado
                       - wip_activo
+                      - dias_en_estado
                       - tasa_aprobacion
                   unidad:
                     type: string
@@ -52885,6 +52895,7 @@ paths:
                           - dia
                           - compania
                           - semana
+                          - tramo_antiguedad
                       columnas:
                         type: array
                         items:
@@ -53163,7 +53174,7 @@ paths:
               type: object
               properties:
                 consulta:
-                  "$ref": "#/components/schemas/Forma-0f51791784"
+                  "$ref": "#/components/schemas/Forma-873a24abf6"
                 formato:
                   type: string
                   enum:
@@ -54034,13 +54045,8 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                filtro:
-                  "$ref": "#/components/schemas/Forma-b5a9d8d50c"
-              required:
-                - filtro
-        description: Cuerpo que valida la ruta con su esquema de Zod.
+              description: "[por verificar] tipo de Zod no reconocido (ZodObject<{ filtro: ZodObject<{ rango: ZodUnion<readonly [Zo)."
+        description: "[por verificar] Parte del esquema no se pudo derivar del código."
       responses:
         "200":
           description: Respuesta exitosa.
@@ -54319,13 +54325,8 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                filtro:
-                  "$ref": "#/components/schemas/Forma-b5a9d8d50c"
-              required:
-                - filtro
-        description: Cuerpo que valida la ruta con su esquema de Zod.
+              description: "[por verificar] tipo de Zod no reconocido (ZodObject<{ filtro: ZodObject<{ rango: ZodUnion<readonly [Zo)."
+        description: "[por verificar] Parte del esquema no se pudo derivar del código."
       responses:
         "200":
           description: Respuesta exitosa.
@@ -54604,13 +54605,8 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                filtro:
-                  "$ref": "#/components/schemas/Forma-b5a9d8d50c"
-              required:
-                - filtro
-        description: Cuerpo que valida la ruta con su esquema de Zod.
+              description: "[por verificar] tipo de Zod no reconocido (ZodObject<{ filtro: ZodObject<{ rango: ZodUnion<readonly [Zo)."
+        description: "[por verificar] Parte del esquema no se pudo derivar del código."
       responses:
         "200":
           description: Respuesta exitosa.
@@ -54889,13 +54885,8 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                filtro:
-                  "$ref": "#/components/schemas/Forma-b5a9d8d50c"
-              required:
-                - filtro
-        description: Cuerpo que valida la ruta con su esquema de Zod.
+              description: "[por verificar] tipo de Zod no reconocido (ZodObject<{ filtro: ZodObject<{ rango: ZodUnion<readonly [Zo)."
+        description: "[por verificar] Parte del esquema no se pudo derivar del código."
       responses:
         "200":
           description: Respuesta exitosa.
@@ -55044,6 +55035,284 @@ paths:
       responses:
         "200":
           description: Respuesta exitosa.
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/tableros/operativa/inventario:
+    post:
+      operationId: post-api-flito-torre-tableros-operativa-inventario
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/operativa/inventario
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.tablero_operativo.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.tablero_operativo.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              description: "[por verificar] tipo de Zod no reconocido (ZodObject<{ filtro: ZodObject<{ rango: ZodUnion<readonly [Zo)."
+        description: "[por verificar] Parte del esquema no se pudo derivar del código."
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                description: "[por verificar] el código la tipa como `unknown`."
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/tableros/operativa/soportes:
+    post:
+      operationId: post-api-flito-torre-tableros-operativa-soportes
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/operativa/soportes
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.tablero_operativo.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.tablero_operativo.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              description: "[por verificar] tipo de Zod no reconocido (ZodObject<{ filtro: ZodObject<{ rango: ZodUnion<readonly [Zo)."
+        description: "[por verificar] Parte del esquema no se pudo derivar del código."
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                description: "[por verificar] el código la tipa como `unknown`."
         "400":
           description: Petición inválida.
           content:
@@ -122793,72 +123062,6 @@ components:
         - anuladoPor
         - anuladoMotivo
         - createdAt
-    Forma-0f51791784:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        metrica:
-          type: string
-          enum:
-            - tramites
-            - tramites_creados
-            - sin_facturar
-            - tramites_aprobados
-            - tiempo_creacion_aprobacion
-            - costo_logistica
-            - impuestos_pagados
-            - derechos_pagados
-            - ingreso_liquidado
-            - wip_activo
-            - tasa_aprobacion
-        agrupacion:
-          type: string
-          enum:
-            - flit_estado
-            - tipo_tramite
-            - departamento
-            - organismo
-            - mes
-            - trimestre
-            - dia
-            - compania
-            - semana
-        agrupacionColumnas:
-          type: string
-          enum:
-            - flit_estado
-            - tipo_tramite
-            - departamento
-            - organismo
-            - mes
-            - trimestre
-            - dia
-            - compania
-            - semana
-        fechaBase:
-          type: string
-          enum:
-            - pago
-            - creacion
-            - aprobacion
-            - facturacion
-        filtro:
-          "$ref": "#/components/schemas/Forma-b5a9d8d50c"
-        limite:
-          type: integer
-          exclusiveMinimum: 0
-        top:
-          type: number
-          enum:
-            - 20
-            - 5
-            - 10
-            - 50
-        comparar:
-          type: boolean
-      required:
-        - metrica
-        - filtro
     Forma-0fbdd10002:
       description: Forma que comparten varias operaciones.
       type: object
@@ -127691,6 +127894,75 @@ components:
         - errores
         - estado
         - createdAt
+    Forma-873a24abf6:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        metrica:
+          type: string
+          enum:
+            - tramites
+            - tramites_creados
+            - sin_facturar
+            - tramites_aprobados
+            - tiempo_creacion_aprobacion
+            - costo_logistica
+            - impuestos_pagados
+            - derechos_pagados
+            - ingreso_liquidado
+            - wip_activo
+            - dias_en_estado
+            - tasa_aprobacion
+        agrupacion:
+          type: string
+          enum:
+            - flit_estado
+            - tipo_tramite
+            - departamento
+            - organismo
+            - mes
+            - trimestre
+            - dia
+            - compania
+            - semana
+            - tramo_antiguedad
+        agrupacionColumnas:
+          type: string
+          enum:
+            - flit_estado
+            - tipo_tramite
+            - departamento
+            - organismo
+            - mes
+            - trimestre
+            - dia
+            - compania
+            - semana
+            - tramo_antiguedad
+        fechaBase:
+          type: string
+          enum:
+            - pago
+            - creacion
+            - aprobacion
+            - facturacion
+        filtro:
+          "$ref": "#/components/schemas/Forma-b5a9d8d50c"
+        limite:
+          type: integer
+          exclusiveMinimum: 0
+        top:
+          type: number
+          enum:
+            - 20
+            - 5
+            - 10
+            - 50
+        comparar:
+          type: boolean
+      required:
+        - metrica
+        - filtro
     Forma-888a110926:
       description: Forma que comparten varias operaciones.
       type: object

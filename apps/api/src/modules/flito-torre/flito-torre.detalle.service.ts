@@ -74,7 +74,7 @@ const TEMPORALES = new Set(['dia', 'semana', 'mes', 'trimestre']);
 async function resolver(c: ExportarDetalle, acc: AccesoDetalle): Promise<Resuelto> {
   const ctx: ContextoTablero = { filtro: c.filtro, alcance: acc.alcance, dinero: acc.dinero, hoy: acc.hoy };
   const segmentos = c.segmentos ?? [];
-  if (segmentos.length > TOPES_TORRE.SEGMENTOS_MAX) throw new TorreConsultaInvalidaError('segmentos', 'a lo sumo dos');
+  if (segmentos.length > TOPES_TORRE.SEGMENTOS_MAX) throw new TorreConsultaInvalidaError('segmentos', `a lo sumo ${TOPES_TORRE.SEGMENTOS_MAX}`);
   if (segmentos.some((s) => !s.valores.length || s.valores.length > TOPES_TORRE.VALORES_SEGMENTO_MAX)) {
     throw new TorreConsultaInvalidaError('segmentos', `de 1 a ${TOPES_TORRE.VALORES_SEGMENTO_MAX} valores`);
   }

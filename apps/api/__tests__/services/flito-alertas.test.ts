@@ -26,8 +26,8 @@ const { condicionAlerta } = await import('../../src/modules/flito-tramites/flito
 const dialecto = new PgDialect();
 
 /** SQL generado + sus parámetros, aplanados en un solo texto inspeccionable. */
-function sqlDe(alerta: (typeof ALERTAS_OPERATIVAS)[number]): string {
-  const q = dialecto.sqlToQuery(condicionAlerta(alerta));
+function sqlDe(alerta: (typeof ALERTAS_OPERATIVAS)[number], diasBorrador?: number): string {
+  const q = dialecto.sqlToQuery(condicionAlerta(alerta, diasBorrador));
   const params = q.params.map((p) => `'${String(p)}'`).join(' ');
   return `${q.sql.replace(/\s+/g, ' ')} ${params}`;
 }
@@ -55,6 +55,12 @@ describe('condicionAlerta — cada alerta mira lo que dice el requerimiento', ()
     // que quede fuera de la alerta para siempre.
     expect(s).toContain('COALESCE');
     expect(s).toContain(String(ANS_OPERATIVO.BORRADOR_DIAS));
+  });
+
+  it('borrador usa el umbral configurable que recibe (B2-AC2) y el último cambio de estado, sin mirar el valor nuevo', () => {
+    const s = sqlDe('borrador_5d', 23);
+    expect(s).toContain("'23'");
+    expect(s).not.toContain('valor_nuevo');
   });
 
   it('sin aprobar cuenta Entregado y Rechazado, que es lo que espera al organismo', () => {

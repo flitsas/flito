@@ -223,6 +223,9 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
       'flito-torre/flito-torre.tableros.routes.ts POST /comercial/exportar',
       'flito-torre/flito-torre.tableros.routes.ts POST /operativa/exportar',
       'flito-torre/flito-torre.tableros.routes.ts POST /financiera/exportar',
+      // Épica #14590 (B2): pestañas del Operativo; reutilizan `torre.tablero_operativo.ver` (nace en el árbol).
+      'flito-torre/flito-torre.tableros.routes.ts POST /operativa/inventario',
+      'flito-torre/flito-torre.tableros.routes.ts POST /operativa/soportes',
       'flito-torre/flito-torre.routes.ts POST /metricas/consultar [dinero]',
       'flito-torre/flito-torre.routes.ts POST /metricas/exportar [dinero]',
       'flito-torre/flito-torre.tableros.routes.ts POST * [dinero_tablero]',

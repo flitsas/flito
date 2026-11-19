@@ -28,6 +28,9 @@ import {
   flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones, flitoSoportes, flitoTramiteHistorial, flitoTramites,
   flitoTramiteViajesLogistica, siigoFacturaTramites,
 } from '../../db/schema.js';
+import {
+  BORRADOR_ABANDONADO, ENTRADA_ESTADO_ACTUAL,
+} from '../flito-tramites/flito-tramites.borrador.js';
 import type { DimensionesBase, FechaBase } from './flito-torre.filtro.js';
 import { TorreConsultaInvalidaError } from './flito-torre.service.js';
 
@@ -81,8 +84,19 @@ const T = flitoTramites;
 const L = flitoLiquidaciones;
 const SF = siigoFacturaTramites;
 
+/**
+ * RN-TOR-O1: último cambio de `flit_estado` (historial), con respaldo en la fecha de creación. Es la «entrada al estado
+ * actual» de `flito-tramites` (RN-TRA-B1): el mismo SQL que usa la regla de borrador abandonado.
+ */
+export const ULTIMO_CAMBIO_ESTADO = ENTRADA_ESTADO_ACTUAL;
+/** Días completos en el estado actual: la columna `dias_en_estado` del detalle y el tramo de antigüedad (B2). */
+export const DIAS_EN_ESTADO = sql`floor(EXTRACT(EPOCH FROM (now() - ${ULTIMO_CAMBIO_ESTADO})) / 86400)::int`;
+/** Horas en el estado actual: el valor de la métrica `dias_en_estado` del Explorador (B2). */
+export const HORAS_EN_ESTADO = sql`(EXTRACT(EPOCH FROM (now() - ${ULTIMO_CAMBIO_ESTADO})) / 3600.0)`;
+
 export const DIMS_TRAMITE: DimensionesBase = {
   compania: T.companiaId, organismo: T.organismoCodigo, tipoTramite: T.tipoTramite, flitEstado: T.flitEstado,
+  diasEnEstado: DIAS_EN_ESTADO,
 };
 
 /** RN-TOR-M2: fecha de creación con respaldo al `created_at` de la sincronización. */
@@ -132,16 +146,14 @@ export const APROBADO = sql`${T.fechaAprobacion} IS NOT NULL`;
 // ── Fragmentos de los tableros (ADR-0047: cifra y detalle desde el MISMO SQL; vienen de operativa/comercial/financiera) ──
 
 const H = flitoTramiteHistorial;
-const CREADO = sql`COALESCE(${T.fechaCreacionFlit}, ${T.createdAt})`;
-const ESTADOS_EN_OT = ['entregado', 'enviado a ot'];
+/** «Entregado» / «Enviado a OT»: en manos del organismo (el umbral `dias_respuesta_ot` del inventario, B2). */
+export const ESTADOS_EN_OT = ['entregado', 'enviado a ot'];
 
-/** RN-TOR-O1: último cambio de `flit_estado` (historial), con respaldo en la fecha de creación. */
-export const ULTIMO_CAMBIO_ESTADO = sql`COALESCE((SELECT max(${H.createdAt}) FROM ${H} WHERE ${H.tramiteId} = ${T.id} AND ${H.campo} = 'flit_estado'),
-    ${CREADO})`;
-
-/** RN-TOR-O1: en Borrador y creado hace más de `dias` (la regla vigente; B2 la unifica con Trámites). */
-export const BORRADOR_ABANDONADO = (dias: number): SQL =>
-  sql`(lower(${T.flitEstado}) = 'borrador' AND ${CREADO} < now() - make_interval(days => ${dias}))`;
+/**
+ * RN-TOR-O1 + RN-TRA-B1 (B2-AC2): en Borrador desde hace más de `dias` días contados desde la ENTRADA al estado. Es el
+ * fragmento de `flito-tramites` (dueño del dato), el mismo de la alerta `borrador_5d`.
+ */
+export { BORRADOR_ABANDONADO };
 
 /** RN-TOR-O1: en el organismo («Entregado»/«Enviado a OT»), sin aprobar, sin cambiar de estado hace más de `dias`. */
 export const ESTANCADO_OT = (dias: number): SQL => sql`(lower(${T.flitEstado}) IN ${ESTADOS_EN_OT} AND ${T.fechaAprobacion} IS NULL
@@ -228,6 +240,11 @@ export const CATALOGO_SQL: Record<MetricaTorreId, DefMetricaSql> = {
   },
   wip_activo: {
     desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [EN_CURSO], forma: 'conteo', fechas: {}, campoFoto: 'estado actual',
+  },
+  // B2: horas que llevan los trámites en curso en su estado actual (foto, mismo universo que `wip_activo`).
+  dias_en_estado: {
+    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [EN_CURSO], forma: 'tiempo', valor: HORAS_EN_ESTADO, fechas: {},
+    campoFoto: 'último cambio de estado',
   },
   tasa_aprobacion: {
     desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [], forma: 'tasa', valor: APROBADO, fechas: { creacion: POR_CREACION },

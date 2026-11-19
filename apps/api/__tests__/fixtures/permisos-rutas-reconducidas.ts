@@ -822,6 +822,9 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/comercial/exportar', codigo: 'torre.tablero_comercial.ver' },
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/operativa/exportar', codigo: 'torre.tablero_operativo.ver' },
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/financiera/exportar', codigo: 'torre.tablero_financiero.ver' },
+  // Épica #14590 (B2): pestañas Inventario por estado y Soportes del Operativo.
+  { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/operativa/inventario', codigo: 'torre.tablero_operativo.ver' },
+  { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/operativa/soportes', codigo: 'torre.tablero_operativo.ver' },
   { fichero: 'flito-torre/flito-torre.routes.ts', metodo: 'POST', ruta: '/metricas/consultar', condicion: 'dinero', codigo: 'torre.metricas.dinero' },
   { fichero: 'flito-torre/flito-torre.routes.ts', metodo: 'POST', ruta: '/metricas/exportar', condicion: 'dinero', codigo: 'torre.metricas.dinero' },
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '*', condicion: 'dinero_tablero', codigo: 'torre.metricas.dinero' },

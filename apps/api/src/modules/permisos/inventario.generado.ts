@@ -810,4 +810,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_operativo", roles: [], heredada: false },
   { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_financiero", roles: [], heredada: false },
   { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_explorador", roles: [], heredada: false },
+  // Épica #14590 (B2): pestañas Inventario por estado y Soportes del Operativo; reutilizan `torre.tablero_operativo.ver`.
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/operativa/inventario", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/operativa/soportes", roles: [], heredada: false },
 ];

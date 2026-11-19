@@ -153,7 +153,17 @@ export interface DimensionesBase {
   organismo: AnyColumn;
   tipoTramite: AnyColumn;
   flitEstado: AnyColumn;
+  /** Días completos en el estado actual (B2); sin él, `tramo_antiguedad` queda «Sin dato». */
+  diasEnEstado?: SQL;
 }
+
+/**
+ * RN-TOR-D9 (B2): tramo de `TRAMOS_ANTIGUEDAD_TORRE` de unos días. Cortes y claves en LITERAL (sin parámetros), para que
+ * la misma expresión sirva en `GROUP BY` y en el segmento; `flito-torre-inventario.test.ts` comprueba que coinciden con
+ * el catálogo de shared-types.
+ */
+export const tramoDeDias = (dias: SQL): SQL => sql`(CASE WHEN ${dias} <= 2 THEN '0_2' WHEN ${dias} <= 7 THEN '3_7'
+  WHEN ${dias} <= 15 THEN '8_15' WHEN ${dias} <= 30 THEN '16_30' ELSE 'mas_30' END)`;
 
 export interface OpcionesCondiciones {
   /** `null` = la métrica (o el bloque) no se acota por rango. */
@@ -219,6 +229,7 @@ export function claveAgrupacion(a: AgrupacionTorre, dims: DimensionesBase, fecha
       return sql`CASE WHEN substr(${dims.organismo}, 1, 2) IN ${CODIGOS_DEPARTAMENTO} THEN substr(${dims.organismo}, 1, 2) END`;
     case 'tipo_tramite': return sql`${dims.tipoTramite}::text`;
     case 'flit_estado': return sql`${dims.flitEstado}::text`;
+    case 'tramo_antiguedad': return dims.diasEnEstado ? tramoDeDias(dims.diasEnEstado) : sql`NULL::text`;
   }
 }
 

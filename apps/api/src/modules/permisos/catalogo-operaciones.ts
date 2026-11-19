@@ -595,6 +595,9 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${TDT} POST * [origen_operativo]`, 'torre.tablero_operativo.ver', 'Ver el tablero operativo de la Torre', 'Consultar los tiempos, el trabajo en curso y los trámites en riesgo.'),
   op(`${TDT} POST * [origen_financiero]`, 'torre.tablero_financiero.ver', 'Ver el tablero financiero de la Torre', 'Consultar costos, pagos, ingreso liquidado y lo pendiente de facturar.'),
   op(`${TDT} POST * [origen_explorador]`, 'torre.metricas.consultar', 'Consultar métricas de la Torre', 'Consultar una métrica agregada del catálogo de la Torre con sus filtros y agrupación.'),
+  // Épica #14590 (B2): pestañas del Operativo, con la función de su tablero (sin función ni migración nuevas).
+  op(`${TTB} POST /operativa/inventario`, 'torre.tablero_operativo.ver', 'Ver el tablero operativo de la Torre', 'Consultar los tiempos, el trabajo en curso y los trámites en riesgo.'),
+  op(`${TTB} POST /operativa/soportes`, 'torre.tablero_operativo.ver', 'Ver el tablero operativo de la Torre', 'Consultar los tiempos, el trabajo en curso y los trámites en riesgo.'),
 ];
 
 // HU #13421 (ADR-0023): los módulos legacy reconducidos se declaran aparte (regla de 800 líneas).
