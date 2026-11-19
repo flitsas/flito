@@ -99,6 +99,7 @@ Las convenciones del repo (stack, git flow, verificación) están en `AGENTS.md`
 11. NUNCA planees suite monorepo local completa en cada HU por costumbre; usa el mínimo filtrado de `AGENTS.md` y CI como gate de suite completa.
 12. NUNCA mezcles dos Features en el mismo hilo sin bloque `DUEÑOS`. Si hay ≥2 Active, el plan los separa; un hilo de Siigo no implementa conciliación «porque era la siguiente».
 13. NUNCA lances un proceso en `run_in_background` sin cerrarlo con `KillShell` antes de entregar (AGENTS.md P10) — si no vas a revisarlo ni cerrarlo, córrelo en primer plano.
+14. NUNCA planees `backend-agent` y `frontend-agent` como dos fases separadas por un turno cuando ya hay contrato (`shared-types` + stubs de ruta) cerrado: el plan dice explícitamente «despachar los dos `Agent` en el mismo mensaje» (AGENTS.md §10 Paralelismo). Verificado el 2026-11-19: despachados en turnos separados, el solape real cae a ~68%; en el mismo mensaje es la única forma de garantizarlo. Si todavía no hay contrato, el plan lo dice y pone el paso contract-first primero — nunca paralelo sin contrato.
 
 ---
 
@@ -170,7 +171,7 @@ Ledger (el hilo rellena al cerrar; Modo Feature = una línea del Feature + `HU #
 Invocaciones listas para el hilo:
   1. Skill flit-gestion-hu — Active HU #<id>
   2. Agent architecture-agent (slim|full) — … | o «architecture: no aplica — …»
-  3. Agent backend-agent / frontend-agent — prompt denso (AC + paths)
+  3. Agent backend-agent ∥ Agent frontend-agent — **en el mismo mensaje del hilo** (dos tool calls, un turno), prompt denso cada uno (AC + paths) — nunca uno y, en un turno aparte, el otro (regla 14)
   4. Skill flit-code-review — diff origin/develop...HEAD (ANTES del PR)
   5. Agent security-agent (diff-scoped) ∥ Agent db-review-agent — si aplican
   6. … create_pull_request …
