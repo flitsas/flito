@@ -139,6 +139,10 @@ function refinarDetalle(c: BaseDetalle & { pagina?: number; tamano?: number }, c
     if (s.dimension === 'motivo' && s.valores.some((v) => v != null && !CLAVE_MOTIVO_RE.test(v))) {
       ctx.addIssue({ code: 'custom', message: 'el motivo va como clave opaca', path: ['segmentos', i, 'valores'] });
     }
+    // B5: `funcionario` es el `users.id` (entero positivo, opaco), sin «Sin valor».
+    if (s.dimension === 'funcionario' && s.valores.some((v) => v == null || !/^[1-9][0-9]{0,9}$/.test(v))) {
+      ctx.addIssue({ code: 'custom', message: 'el funcionario va como su identificador', path: ['segmentos', i, 'valores'] });
+    }
     // B4: `bolsa` es el uuid de la bolsa (opaco), sin «Sin valor».
     if (s.dimension === 'bolsa' && s.valores.some((v) => v == null || !UUID_BOLSA_RE.test(v))) {
       ctx.addIssue({ code: 'custom', message: 'la bolsa va como su identificador', path: ['segmentos', i, 'valores'] });

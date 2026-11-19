@@ -41,6 +41,7 @@ import { TorreConsultaInvalidaError } from './flito-torre.service.js';
 import { condTramites, rangoTablero, type ContextoTablero } from './flito-torre.tablero-comun.js';
 import { CONJUNTOS_LOGISTICA_SQL } from './flito-torre.conjuntos-logistica.js';
 import { CONJUNTOS_PRODUCTOS_SQL } from './flito-torre.conjuntos-productos.js';
+import { CONJUNTOS_EQUIPO_SQL } from './flito-torre.conjuntos-equipo.js';
 
 export type Umbrales = Record<ClaveUmbralTorre, number>;
 export type ColsSql = Partial<Record<ColumnaDetalleId, SQL>>;
@@ -118,8 +119,11 @@ export interface ConjuntoSql {
   /** RN-TOR-D4. */
   nivel?: { expr: SQL; valores: readonly string[] };
   faltante?: boolean;
-  /** B3: dimensiones propias del producto (`estado` del SOAT/impuesto, `motivo`); `null` en `motivo` = sin motivo. B4: `bolsa`. */
-  dimensiones?: Partial<Record<'estado' | 'motivo' | 'bolsa', SQL>>;
+  /**
+   * B3: dimensiones propias del producto (`estado` del SOAT/impuesto, `motivo`); `null` en `motivo` = sin motivo. B4:
+   * `bolsa`. B5: `funcionario` (= `users.id`).
+   */
+  dimensiones?: Partial<Record<'estado' | 'motivo' | 'bolsa' | 'funcionario', SQL>>;
   /** B4: un `FROM` que depende del contexto (la ventana de consumo de las bolsas termina en «hoy»). Manda sobre `desde`. */
   desdeCtx?: (ctx: ContextoTablero) => SQL;
   /** B4: columnas que dependen de los umbrales vigentes (el semáforo de la bolsa). Se suman a `cols`. */
@@ -214,6 +218,8 @@ export const CONJUNTOS_SQL: Record<ConjuntoTorreId, ConjuntoSql> = {
   ...CONJUNTOS_PRODUCTOS_SQL,
   // B4: Logística y las subvistas de Financiera (`flito-torre.conjuntos-logistica.ts`).
   ...CONJUNTOS_LOGISTICA_SQL,
+  // B5: Operativa › Equipo (`flito-torre.conjuntos-equipo.ts`).
+  ...CONJUNTOS_EQUIPO_SQL,
 };
 
 // ── Segmentos y filtros del detalle ────────────────────────────────────────────────────────────────────
@@ -230,6 +236,8 @@ const esAgrupacion = (d: string): d is AgrupacionTorre => (AGRUPACIONES_TORRE as
 
 const invalido = (detalle: string): never => { throw new TorreConsultaInvalidaError('segmentos', detalle); };
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** B5: `users.id` es `serial` (entero positivo). */
+export const ID_USUARIO_RE = /^[1-9][0-9]{0,9}$/;
 
 const SOPORTE_POR_FALTANTE: Record<(typeof VALORES_FALTANTE_SOPORTE)[number], SQL> = {
   soat: SOPORTE_SOAT, impuesto: SOPORTE_IMPUESTO, derecho: SOPORTE_DERECHO,
@@ -254,6 +262,11 @@ function condSegmento(c: ConjuntoSql | null, dims: DimensionesBase, fecha: Fecha
   if (s.dimension === 'bolsa' && c?.dimensiones?.bolsa) {
     if (s.valores.some((v) => v == null || !UUID_RE.test(v))) invalido('la bolsa va como su identificador');
     return enClave(c.dimensiones.bolsa, s.valores);
+  }
+  // B5: `funcionario` = el `users.id` (entero positivo, opaco); no admite «Sin valor».
+  if (s.dimension === 'funcionario' && c?.dimensiones?.funcionario) {
+    if (s.valores.some((v) => v == null || !ID_USUARIO_RE.test(v))) invalido('el funcionario va como su identificador');
+    return enClave(c.dimensiones.funcionario, s.valores);
   }
   if (s.valores.includes(null)) invalido('ese segmento no admite «Sin valor»');
   const valores = s.valores as string[];

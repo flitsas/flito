@@ -247,6 +247,8 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       // tablero; el dinero se decide en línea en las dos rutas del explorador y en los dos handlers comunes de los tableros.
       // ADR-0044: `POST /placa/sugerencias` reutiliza `torre.placa.buscar`, la función de la ficha.
       // Épica #14590 (B2): `POST /operativa/inventario` y `/operativa/soportes` reutilizan `torre.tablero_operativo.ver`.
+      // Épica #14590 (B5): Equipo = su pestaña (sin Excel) y la función de origen del detalle.
+      ['torre.equipo.ver', 2],
       // ADR-0047 (B1): el detalle exige en línea el dinero y la función de origen de la cifra (+1 a cada una).
       ['torre.metricas.consultar', 3], ['torre.metricas.dinero', 5], ['torre.placa.buscar', 2], ['torre.tablero_comercial.ver', 3],
       // Épica #14590 (B3): Productos = su tablero, su Excel y la función de origen del detalle.
@@ -330,6 +332,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       'flito-torre/flito-torre.detalle.routes.ts POST * [dinero_detalle]',
       'flito-torre/flito-torre.detalle.routes.ts POST * [origen_comercial]',
       'flito-torre/flito-torre.detalle.routes.ts POST * [origen_ejecutivo]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_equipo]',
       'flito-torre/flito-torre.detalle.routes.ts POST * [origen_explorador]',
       'flito-torre/flito-torre.detalle.routes.ts POST * [origen_financiero]',
       'flito-torre/flito-torre.detalle.routes.ts POST * [origen_logistica]',

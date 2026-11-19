@@ -29,7 +29,7 @@ const router = Router();
 router.use(authMiddleware);
 
 async function acceso(req: Request): Promise<AccesoDetalle> {
-  const [alcance, dinero, ejecutivo, comercial, operativo, financiero, metricas, productos, logistica] = await Promise.all([
+  const [alcance, dinero, ejecutivo, comercial, operativo, financiero, metricas, productos, logistica, equipo] = await Promise.all([
     alcanceDe(req),
     tieneFuncion(req, 'torre.metricas.dinero'),
     tieneFuncion(req, 'torre.tablero_ejecutivo.ver'),
@@ -39,6 +39,7 @@ async function acceso(req: Request): Promise<AccesoDetalle> {
     tieneFuncion(req, 'torre.metricas.consultar'),
     tieneFuncion(req, 'torre.tablero_productos.ver'),
     tieneFuncion(req, 'torre.tablero_logistica.ver'),
+    tieneFuncion(req, 'torre.equipo.ver'),
   ]);
   const funciones = new Set<string>();
   if (ejecutivo) funciones.add('torre.tablero_ejecutivo.ver');
@@ -48,6 +49,8 @@ async function acceso(req: Request): Promise<AccesoDetalle> {
   if (metricas) funciones.add('torre.metricas.consultar');
   if (productos) funciones.add('torre.tablero_productos.ver');
   if (logistica) funciones.add('torre.tablero_logistica.ver');
+  // B5: los conjuntos de Equipo solo los abre `torre.equipo.ver` (gerencia_general y admin).
+  if (equipo) funciones.add('torre.equipo.ver');
   return { alcance, dinero, funciones };
 }
 

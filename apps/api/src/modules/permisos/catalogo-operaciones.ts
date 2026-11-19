@@ -611,6 +611,9 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${TTB} POST /financiera/bolsas`, 'torre.tablero_financiero.ver', 'Ver el tablero financiero de la Torre', 'Consultar costos, pagos, ingreso liquidado y lo pendiente de facturar.'),
   op(`${TTB} POST /financiera/facturacion/exportar`, 'torre.tablero_financiero.ver', 'Ver el tablero financiero de la Torre', 'Consultar costos, pagos, ingreso liquidado y lo pendiente de facturar.'),
   op(`${TTB} POST /financiera/bolsas/exportar`, 'torre.tablero_financiero.ver', 'Ver el tablero financiero de la Torre', 'Consultar costos, pagos, ingreso liquidado y lo pendiente de facturar.'),
+  // Épica #14590 (B5): la pestaña Equipo de Operativa (nace en el árbol; la 0309 siembra la acción). Sin `/exportar`.
+  op(`${TTB} POST /operativa/equipo`, 'torre.equipo.ver', 'Ver la operación del equipo en la Torre', 'Consultar las gestiones, la carga abierta y los pendientes fuera de ANS de cada funcionario.'),
+  op(`${TDT} POST * [origen_equipo]`, 'torre.equipo.ver', 'Ver la operación del equipo en la Torre', 'Consultar las gestiones, la carga abierta y los pendientes fuera de ANS de cada funcionario.'),
 ];
 
 // HU #13421 (ADR-0023): los módulos legacy reconducidos se declaran aparte (regla de 800 líneas).

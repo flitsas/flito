@@ -169,12 +169,12 @@ describe('reparto de la Torre (plegadas las migraciones)', () => {
     ]);
   });
 
-  it('gerencia_general: los cuatro tableros, el Explorador completo y ver (no editar) los umbrales', () => {
+  it('gerencia_general: los cuatro tableros, el Explorador completo, ver (no editar) los umbrales y, B5, el equipo', () => {
     expect(deTorre('gerencia_general')).toEqual([
       'accion.torre_360.ver', 'accion.torre_comercial.ver', 'accion.torre_detalle.exportar', 'accion.torre_detalle.ver',
       'accion.torre_explorador.buscar_placa', 'accion.torre_explorador.consultar',
       'accion.torre_explorador.exportar', 'accion.torre_explorador.ver_dinero', 'accion.torre_financiera.ver', 'accion.torre_logistica.ver',
-      'accion.torre_operativa.ver', 'accion.torre_productos.ver', 'accion.torre_umbrales.ver', 'pagina.torre_360', 'pagina.torre_comercial',
+      'accion.torre_operativa.ver', 'accion.torre_operativa.ver_equipo', 'accion.torre_productos.ver', 'accion.torre_umbrales.ver', 'pagina.torre_360', 'pagina.torre_comercial',
       'pagina.torre_detalle', 'pagina.torre_explorador', 'pagina.torre_financiera', 'pagina.torre_logistica', 'pagina.torre_operativa',
       'pagina.torre_productos', 'pagina.torre_umbrales',
     ]);

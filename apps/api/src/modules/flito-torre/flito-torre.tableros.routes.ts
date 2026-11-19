@@ -14,6 +14,9 @@
 // Entregas, un tablero por pestañas como Productos). Financiera gana dos subvistas con SU función (`torre.tablero_financiero.ver`):
 // `POST /financiera/facturacion` y `POST /financiera/bolsas` (+ `/exportar` de cada una). Van como rutas aparte y no
 // dentro de `/financiera` porque el Resumen lo reusa el 360° y cada pestaña carga y falla por su cuenta (UX B4 §0).
+// B5: `POST /operativa/equipo` (body `{ filtro }`), con `torre.equipo.ver` (solo gerencia_general y admin): la pestaña
+// Equipo de Operativa. SIN `/exportar` en v1 (UX B5: es información de desempeño de personas; cada detalle exporta su
+// lista con las reglas de siempre). Del funcionario solo viaja el nombre.
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import type { z } from 'zod';
 import { authMiddleware } from '../../shared/middleware/auth.js';
@@ -22,6 +25,7 @@ import { alcanceDe } from '../../shared/middleware/frontera-enlace.js';
 import { torreExportLimiter } from '../../shared/middleware/rateLimiter.js';
 import { tableroBolsas } from './flito-torre.bolsas.service.js';
 import { tableroComercial } from './flito-torre.comercial.service.js';
+import { tableroEquipo } from './flito-torre.equipo.service.js';
 import { tableroFacturacion } from './flito-torre.facturacion.service.js';
 import { tableroEjecutivo } from './flito-torre.ejecutivo.service.js';
 import { detalleZod, inventarioSchema, tableroSchema } from './flito-torre.esquemas.js';
@@ -76,6 +80,7 @@ router.post('/operativa', exigirFuncion('torre.tablero_operativo.ver'), tablero(
 router.post('/financiera', exigirFuncion('torre.tablero_financiero.ver'), tablero(tableroFinanciero));
 router.post('/operativa/inventario', exigirFuncion('torre.tablero_operativo.ver'), tablero((ctx, c) => inventarioEstado(ctx, c.organismo ?? null), inventarioSchema));
 router.post('/operativa/soportes', exigirFuncion('torre.tablero_operativo.ver'), tablero(soportesFaltantes));
+router.post('/operativa/equipo', exigirFuncion('torre.equipo.ver'), tablero(tableroEquipo));
 router.post('/productos', exigirFuncion('torre.tablero_productos.ver'), tablero(tableroProductos));
 router.post('/logistica', exigirFuncion('torre.tablero_logistica.ver'), tablero(tableroLogistica));
 router.post('/financiera/facturacion', exigirFuncion('torre.tablero_financiero.ver'), tablero(tableroFacturacion));

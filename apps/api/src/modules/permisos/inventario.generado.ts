@@ -826,4 +826,8 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/financiera/facturacion/exportar", roles: [], heredada: false },
   { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/financiera/bolsas/exportar", roles: [], heredada: false },
   { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_logistica", roles: [], heredada: false },
+  // Épica #14590 (B5): la pestaña Equipo de Operativa (solo gerencia_general y admin; nace en el árbol: 0309) y su
+  // función de origen en el detalle. Sin `/exportar` del tablero.
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/operativa/equipo", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_equipo", roles: [], heredada: false },
 ];

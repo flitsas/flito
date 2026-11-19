@@ -51829,6 +51829,9 @@ paths:
                             - movimientos_bolsa_periodo
                             - boletas_sin_conciliar
                             - boletas_con_diferencia
+                            - gestiones_funcionario_periodo
+                            - carga_funcionario
+                            - fuera_ans_funcionario
                       required:
                         - tipo
                         - conjunto
@@ -51891,6 +51894,7 @@ paths:
                           - tramo_antiguedad
                           - faltante
                           - bolsa
+                          - funcionario
                       valores:
                         type: array
                         items:
@@ -51949,6 +51953,7 @@ paths:
                         - entregado_en
                         - compania
                         - dias_en_estado
+                        - funcionario
                         - codigo_flit
                         - aprobado_en
                         - dias_antiguedad
@@ -51973,6 +51978,10 @@ paths:
                         - tipo_movimiento
                         - fecha_movimiento
                         - diferencia
+                        - que_se_gestiono
+                        - gestionado_en
+                        - ultimo_movimiento
+                        - horas_desde_movimiento
                     dir:
                       type: string
                       enum:
@@ -52047,6 +52056,9 @@ paths:
                               - movimientos_bolsa_periodo
                               - boletas_sin_conciliar
                               - boletas_con_diferencia
+                              - gestiones_funcionario_periodo
+                              - carga_funcionario
+                              - fuera_ans_funcionario
                         required:
                           - tipo
                           - conjunto
@@ -52109,6 +52121,7 @@ paths:
                             - tramo_antiguedad
                             - faltante
                             - bolsa
+                            - funcionario
                         valores:
                           type: array
                           items:
@@ -52184,6 +52197,7 @@ paths:
                             - entregado_en
                             - compania
                             - dias_en_estado
+                            - funcionario
                             - codigo_flit
                             - aprobado_en
                             - dias_antiguedad
@@ -52208,6 +52222,10 @@ paths:
                             - tipo_movimiento
                             - fecha_movimiento
                             - diferencia
+                            - que_se_gestiono
+                            - gestionado_en
+                            - ultimo_movimiento
+                            - horas_desde_movimiento
                         etiqueta:
                           type: string
                         tipo:
@@ -52497,6 +52515,15 @@ paths:
                                   items:
                                     type: string
                                 - type: "null"
+                            funcionario:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
                             codigo_flit:
                               anyOf:
                                 - type: string
@@ -52511,17 +52538,10 @@ paths:
                                 - type: string
                                 - type: number
                                 - type: boolean
-                                - type: array
-                                  items:
-                                    type: string
-                                - type: "null"
-                            dias_antiguedad:
-                              anyOf:
-                                - type: string
-                                - type: number
-                                - type: boolean
                                 - description: "[por verificar] respuesta recortada por tamaño."
                                 - type: "null"
+                            dias_antiguedad:
+                              description: "[por verificar] respuesta recortada por tamaño."
                             faltan_soportes:
                               description: "[por verificar] respuesta recortada por tamaño."
                             horas_ciclo:
@@ -52563,6 +52583,14 @@ paths:
                             fecha_movimiento:
                               description: "[por verificar] respuesta recortada por tamaño."
                             diferencia:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            que_se_gestiono:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            gestionado_en:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            ultimo_movimiento:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            horas_desde_movimiento:
                               description: "[por verificar] respuesta recortada por tamaño."
                       required:
                         - id
@@ -52804,6 +52832,9 @@ paths:
                             - movimientos_bolsa_periodo
                             - boletas_sin_conciliar
                             - boletas_con_diferencia
+                            - gestiones_funcionario_periodo
+                            - carga_funcionario
+                            - fuera_ans_funcionario
                       required:
                         - tipo
                         - conjunto
@@ -52866,6 +52897,7 @@ paths:
                           - tramo_antiguedad
                           - faltante
                           - bolsa
+                          - funcionario
                       valores:
                         type: array
                         items:
@@ -52924,6 +52956,7 @@ paths:
                         - entregado_en
                         - compania
                         - dias_en_estado
+                        - funcionario
                         - codigo_flit
                         - aprobado_en
                         - dias_antiguedad
@@ -52948,6 +52981,10 @@ paths:
                         - tipo_movimiento
                         - fecha_movimiento
                         - diferencia
+                        - que_se_gestiono
+                        - gestionado_en
+                        - ultimo_movimiento
+                        - horas_desde_movimiento
                     dir:
                       type: string
                       enum:
@@ -56071,6 +56108,145 @@ paths:
         - bearerAuth: []
       x-flit-funciones:
         - torre.tablero_operativo.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              description: "[por verificar] tipo de Zod no reconocido (ZodObject<{ filtro: ZodObject<{ rango: ZodUnion<readonly [Zo)."
+        description: "[por verificar] Parte del esquema no se pudo derivar del código."
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                description: "[por verificar] el código la tipa como `unknown`."
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/tableros/operativa/equipo:
+    post:
+      operationId: post-api-flito-torre-tableros-operativa-equipo
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/operativa/equipo
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.equipo.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.equipo.ver
       requestBody:
         content:
           application/json:

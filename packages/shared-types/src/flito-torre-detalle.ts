@@ -10,6 +10,7 @@ import {
 } from './flito-torre.js';
 import { CONJUNTOS_PRODUCTOS_TORRE } from './flito-torre-productos.js';
 import { CONJUNTOS_FINANCIERA_B4_TORRE, CONJUNTOS_LOGISTICA_TORRE, FUNCION_TABLERO_LOGISTICA_TORRE } from './flito-torre-logistica.js';
+import { CONJUNTOS_EQUIPO_TORRE } from './flito-torre-equipo.js';
 
 // ── Entidades, segmentos y columnas ──────────────────────────────────────────────────────────────────────
 
@@ -24,7 +25,7 @@ export type EntidadTorre = (typeof ENTIDADES_TORRE)[number];
  * Dimensiones de segmento: las agrupaciones del motor (misma expresión, D2; incluye `tramo_antiguedad` desde B2) + las
  * propias de un conjunto.
  */
-export const DIMENSIONES_SEGMENTO_TORRE = [...AGRUPACIONES_TORRE, 'nivel', 'faltante', 'severidad', 'estado', 'motivo', 'bolsa'] as const;
+export const DIMENSIONES_SEGMENTO_TORRE = [...AGRUPACIONES_TORRE, 'nivel', 'faltante', 'severidad', 'estado', 'motivo', 'bolsa', 'funcionario'] as const;
 export type DimensionSegmentoTorre = (typeof DIMENSIONES_SEGMENTO_TORRE)[number];
 
 /** Un corte de la cifra. `null` en `valores` = «Sin compañía» / «Sin secretaría»… (≤ `TOPES_TORRE.VALORES_SEGMENTO_MAX`). */
@@ -40,6 +41,8 @@ export interface SegmentoDetalle { dimension: DimensionSegmentoTorre; valores: (
  *     motivo.
  *   · `nivel` (cola de facturación, B4): `vencido` (el próximo intento ya pasó) / `agotado` (no se reintenta solo).
  *   · `bolsa` (movimientos, B4): el uuid de la bolsa (opaco).
+ *   · `funcionario` (equipo, B5): el `users.id` del funcionario (entero positivo, opaco), sin «Sin valor». NO es una
+ *     agrupación del Explorador: la operación del equipo solo la abre `torre.equipo.ver`.
  */
 export const VALORES_SEVERIDAD_DETALLE = ['critico', 'atencion'] as const;
 export const VALORES_NIVEL_SOPORTES = ['0', '1', '2', '3'] as const;
@@ -60,6 +63,8 @@ export const COLUMNAS_DETALLE_IDS = [
   'entregado_en', 'numero_viaje', 'numero_factura', 'enviada_en', 'error_factura', 'situacion_cola', 'proximo_intento',
   'saldo', 'consumo_diario', 'dias_cobertura', 'severidad', 'tipo_movimiento', 'fecha_movimiento', 'referencia',
   'total_declarado', 'total_cruzado', 'diferencia',
+  // B5 (equipo). Del funcionario, solo el nombre (`users.name`); nunca su correo.
+  'que_se_gestiono', 'funcionario', 'gestionado_en', 'ultimo_movimiento', 'horas_desde_movimiento',
 ] as const;
 export type ColumnaDetalleId = (typeof COLUMNAS_DETALLE_IDS)[number];
 
@@ -128,6 +133,11 @@ export const COLUMNAS_DETALLE: Readonly<Record<ColumnaDetalleId, ColumnaDetalle>
   total_declarado: { id: 'total_declarado', etiqueta: 'Total declarado', tipo: 'cop', dinero: true, ordenable: true },
   total_cruzado: { id: 'total_cruzado', etiqueta: 'Total cruzado', tipo: 'cop', dinero: true, ordenable: true },
   diferencia: { id: 'diferencia', etiqueta: 'Diferencia', tipo: 'cop', dinero: true, ordenable: true },
+  que_se_gestiono: { id: 'que_se_gestiono', etiqueta: 'Qué se gestionó', tipo: 'texto', dinero: false, ordenable: true },
+  funcionario: { id: 'funcionario', etiqueta: 'Funcionario', tipo: 'texto', dinero: false, ordenable: true },
+  gestionado_en: { id: 'gestionado_en', etiqueta: 'Gestionado el', tipo: 'fecha', dinero: false, ordenable: true },
+  ultimo_movimiento: { id: 'ultimo_movimiento', etiqueta: 'Último movimiento el', tipo: 'fecha', dinero: false, ordenable: true },
+  horas_desde_movimiento: { id: 'horas_desde_movimiento', etiqueta: 'Horas desde el último movimiento', tipo: 'horas', dinero: false, ordenable: true },
 };
 
 // ── Catálogo de conjuntos (B1) ───────────────────────────────────────────────────────────────────────────
@@ -305,6 +315,8 @@ export const CONJUNTOS_TORRE = [
   // B4: Logística (Traslados · Entregas) y Financiera (Facturación · Bolsas), en `flito-torre-logistica.ts`.
   ...CONJUNTOS_LOGISTICA_TORRE,
   ...CONJUNTOS_FINANCIERA_B4_TORRE,
+  // B5: Operativa › Equipo (solo `torre.equipo.ver`), en `flito-torre-equipo.ts`.
+  ...CONJUNTOS_EQUIPO_TORRE,
 ] as const satisfies readonly ConjuntoTorreDef[];
 
 export type ConjuntoTorreId = (typeof CONJUNTOS_TORRE)[number]['id'];

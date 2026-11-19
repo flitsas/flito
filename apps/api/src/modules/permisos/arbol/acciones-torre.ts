@@ -31,6 +31,9 @@ export const ACCIONES_TORRE: Readonly<Record<string, AccionArbol>> = {
   'accion.torre_productos.ver': { lectura: true, operaciones: ['torre.tablero_productos.ver'], predecesores: [] },
   // Logística (B4): Traslados · Entregas. La siembra su propia migración (0308), con el umbral nuevo.
   'accion.torre_logistica.ver': { lectura: true, operaciones: ['torre.tablero_logistica.ver'], predecesores: [] },
+  // Equipo (B5): la pestaña Equipo de Operativa. Cuelga del ítem `pagina.torre_operativa` (no estrena PageSlug: es una
+  // pestaña, y el ítem ya lo tienen los roles que ven Operativa). La siembra su propia migración (0309).
+  'accion.torre_operativa.ver_equipo': { lectura: true, operaciones: ['torre.equipo.ver'], predecesores: [] },
 };
 
 /** Las operaciones que nacen con los ítems (ver `OPERACIONES_NACIDAS_EN_EL_ARBOL`). */
@@ -59,6 +62,8 @@ const conCadena = (items: readonly string[], acciones: readonly string[], elemen
  *   · `gerencia_general`: los cuatro tableros, el Explorador completo y ver los umbrales.
  *   · Productos (B3): los mismos roles que ven `torre_operativa` (`auditor` y `gerencia_general`); lo siembra la 0307.
  *   · Logística (B4): el mismo reparto que Productos; lo siembra la 0308.
+ *   · Equipo (B5): SOLO `gerencia_general` (y `admin`), decisión del humano del 2026-11-19; el auditor ve Operativa
+ *     pero NO el equipo (es información de desempeño de personas). Lo siembra la 0309.
  */
 const DETALLE_COMPLETO = ['accion.torre_detalle.ver', 'accion.torre_detalle.exportar'];
 const EXPLORADOR_COMPLETO = [
@@ -80,6 +85,9 @@ export const REPARTO_TORRE: ReadonlyArray<readonly [string, readonly string[]]> 
     ['menu.general', 'menu.administracion'])],
   ['gerencia_general', conCadena(['torre_productos'], ['accion.torre_productos.ver'], [])],
   ['gerencia_general', conCadena(['torre_logistica'], ['accion.torre_logistica.ver'], [])],
+  // B5: la acción cuelga de `pagina.torre_operativa`, que gerencia_general ya recibe en su lista de la 0303 (arriba): aquí
+  // solo la acción, para no repetir el ítem en el reparto de la fundación.
+  ['gerencia_general', conCadena([], ['accion.torre_operativa.ver_equipo'], [])],
 ];
 
 /** El área sobre `OPERACIONES_DECLARADAS`, por prefijo del código. */

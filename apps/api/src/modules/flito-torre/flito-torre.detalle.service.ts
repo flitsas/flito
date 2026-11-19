@@ -241,6 +241,8 @@ export function tablaPiiDe(c: ExportarDetalle): string {
     traslado: 'flito_logistica_traslados', acta: 'flito_logistica_actas', viaje_logistica: 'flito_tramite_viajes_logistica',
     factura: 'siigo_facturas', cola_facturacion: 'siigo_cola_facturacion', bolsa: 'flito_bolsas_unicas',
     movimiento_bolsa: 'flito_bolsas_unicas_movimientos', boleta: 'flito_conciliacion_boletas',
+    // B5 (Equipo): la gestión con autor; la placa sale del trámite, el SOAT, el impuesto o la incompleta.
+    funcionario: 'flito_estado_historial',
   };
   return TABLAS[entidad] ?? 'flito_tramite';
 }

@@ -16,10 +16,15 @@ import { lit } from './sql-arbol.js';
 
 /**
  * Tramos que nacen DESPUÉS de la 0303 (ya aplicada), cada uno con su propia migración: el detalle (ADR-0047, 0306),
- * Productos (B3, 0307) y Logística (B4, 0308). La salida de un tramo nunca incluye los códigos de otro, así que agregar
- * uno no cambia las anteriores.
+ * Productos (B3, 0307), Logística (B4, 0308) y Equipo (B5, 0309). La salida de un tramo nunca incluye los códigos de
+ * otro, así que agregar uno no cambia las anteriores. Un tramo puede traer acciones cuyo ítem es de OTRO tramo (Equipo
+ * cuelga de `pagina.torre_operativa`): esas van solas, después de los ítems del tramo, y el ítem no se re-siembra.
  */
-const MARCA_TRAMO = { detalle: 'torre_detalle', productos: 'torre_productos', logistica: 'torre_logistica' } as const;
+const MARCA_TRAMO = {
+  detalle: 'torre_detalle', productos: 'torre_productos', logistica: 'torre_logistica',
+  // B5: no estrena ítem (cuelga de `pagina.torre_operativa`, de la fundación): la marca es la acción misma.
+  equipo: 'torre_operativa.ver_equipo',
+} as const;
 export type TramoTorre = 'fundacion' | keyof typeof MARCA_TRAMO;
 const tramoDe = (codigo: string): TramoTorre =>
   (Object.keys(MARCA_TRAMO) as (keyof typeof MARCA_TRAMO)[]).find((t) => codigo.includes(MARCA_TRAMO[t])) ?? 'fundacion';
@@ -38,9 +43,11 @@ export function sqlSiembraTorre(catalogo: FuncionCatalogo[] = catalogoCompleto()
   const porCodigo = new Map(catalogo.map((f) => [f.codigo, f]));
   const ACCIONES = accionesDe(tramo);
   const items = itemsDe(tramo);
-  const codigos = items.flatMap((item) => [
-    item, ...ACCIONES.filter((a) => ancestrosDe(a)[0] === item).sort((a, b) => porCodigo.get(a)!.orden! - porCodigo.get(b)!.orden!),
-  ]);
+  const porOrden = (a: string, b: string): number => porCodigo.get(a)!.orden! - porCodigo.get(b)!.orden!;
+  const codigos = [
+    ...items.flatMap((item) => [item, ...ACCIONES.filter((a) => ancestrosDe(a)[0] === item).sort(porOrden)]),
+    ...ACCIONES.filter((a) => !items.includes(ancestrosDe(a)[0]!)).sort(porOrden),
+  ];
   const filas = codigos.map((c) => porCodigo.get(c)!);
   return [
     `-- ${items.length} ítems (nivel 2) y ${ACCIONES.length} acciones (nivel 3). Generado: no editar a mano.`,
@@ -84,6 +91,10 @@ export function sqlRepartoTorre(tramo: TramoTorre = 'fundacion'): string {
     ] : tramo === 'detalle' ? [
       '-- `admin` recibe las dos acciones y el ítem (ADR-0022); financiera, auditor y las dos gerencias, su reparto',
       '-- literal (`REPARTO_TORRE`: el auditor NO exporta). JOIN a permisos_roles: un ambiente sin el rol recibe 0 filas.',
+    ] : tramo === 'equipo' ? [
+      '-- `admin` recibe la acción (ADR-0022) y gerencia_general, su reparto literal (`REPARTO_TORRE`; decisión del',
+      '-- humano: nadie más ve el equipo). El ítem `pagina.torre_operativa` ya lo tienen los dos (la 0303).',
+      '-- JOIN a permisos_roles: un ambiente sin el rol recibe 0 filas.',
     ] : [
       '-- `admin` recibe la acción y el ítem (ADR-0022); auditor y gerencia_general (los que ven Operativa), su reparto',
       '-- literal (`REPARTO_TORRE`). JOIN a permisos_roles: un ambiente sin el rol recibe 0 filas.',

@@ -168,3 +168,4 @@ export * from './flito-torre.js';
 export * from './flito-torre-detalle.js';
 export * from './flito-torre-productos.js';
 export * from './flito-torre-logistica.js';
+export * from './flito-torre-equipo.js';

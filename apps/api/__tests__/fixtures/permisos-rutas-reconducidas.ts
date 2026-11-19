@@ -846,6 +846,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/logistica', codigo: 'torre.tablero_logistica.ver' },
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/logistica/exportar', codigo: 'torre.tablero_logistica.ver' },
   { fichero: 'flito-torre/flito-torre.detalle.routes.ts', metodo: 'POST', ruta: '*', condicion: 'origen_logistica', codigo: 'torre.tablero_logistica.ver' },
+  { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/operativa/equipo', codigo: 'torre.equipo.ver' },
+  { fichero: 'flito-torre/flito-torre.detalle.routes.ts', metodo: 'POST', ruta: '*', condicion: 'origen_equipo', codigo: 'torre.equipo.ver' },
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/financiera/facturacion', codigo: 'torre.tablero_financiero.ver' },
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/financiera/bolsas', codigo: 'torre.tablero_financiero.ver' },
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/financiera/facturacion/exportar', codigo: 'torre.tablero_financiero.ver' },
