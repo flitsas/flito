@@ -24,8 +24,14 @@ export const SERVICIO_IA = 'api';
 export const MAX_ERROR_MENSAJE = 500;
 export const MAX_DETALLE_BYTES = 64 * 1024;
 
-/** dev | qa | pdn | local. Misma regla que Dr. Flit: producción sin DEPLOY_ENVIRONMENT se asume PDN. */
-export function ambienteIa(e: { DEPLOY_ENVIRONMENT?: string; NODE_ENV?: string } = env): string {
+/**
+ * dev | qa | pdn | local. Orden: IA_CONSUMO_AMBIENTE (misma variable que FLIT) → DEPLOY_ENVIRONMENT → la regla de
+ * Dr. Flit (producción sin ninguna de las dos se asume PDN).
+ */
+export function ambienteIa(
+  e: { IA_CONSUMO_AMBIENTE?: string; DEPLOY_ENVIRONMENT?: string; NODE_ENV?: string } = env,
+): string {
+  if (e.IA_CONSUMO_AMBIENTE) return e.IA_CONSUMO_AMBIENTE.toLowerCase();
   if (e.DEPLOY_ENVIRONMENT) return e.DEPLOY_ENVIRONMENT.toLowerCase();
   return e.NODE_ENV === 'production' ? 'pdn' : 'local';
 }

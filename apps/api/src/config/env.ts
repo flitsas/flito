@@ -477,6 +477,12 @@ const envSchema = z.object({
   IA_CONSUMO_LOG: z.string().optional().transform((v) => !['false', '0'].includes((v ?? '').trim().toLowerCase())),
   IA_CONSUMO_DETALLE: z.string().optional().transform((v) => ['true', '1'].includes((v ?? '').trim().toLowerCase())),
   IA_CONSUMO_DETALLE_DIAS: z.preprocess(vacioComoAusente, z.coerce.number().int().min(1).max(365).default(30)),
+  // Columna `ambiente` del registro (misma variable que FLIT). La imagen trae NODE_ENV=production en los tres
+  // ambientes, así que sin esta variable (ni DEPLOY_ENVIRONMENT) DEV y QA se registrarían como PDN.
+  IA_CONSUMO_AMBIENTE: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() !== '' ? v.trim().toLowerCase() : undefined),
+    z.enum(['dev', 'qa', 'pdn', 'local']).optional(),
+  ),
 }).superRefine((data, ctx) => {
   // Feature #13978 (ADR-0034 D2): etapa estática de las llaves PII. La de arranque, con BD, está en
   // `modules/privacy/rotacion/comprobar-llaves.ts`. `process.env` porque el esquema descarta `PII_ENC_KEY_V<n>`.

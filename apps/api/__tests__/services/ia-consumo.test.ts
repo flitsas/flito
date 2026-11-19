@@ -199,7 +199,9 @@ describe('registro: armado de la fila', () => {
     });
   });
 
-  it('ambiente: DEPLOY_ENVIRONMENT en minúscula; producción sin él = pdn; si no, local', () => {
+  it('ambiente: IA_CONSUMO_AMBIENTE manda; luego DEPLOY_ENVIRONMENT en minúscula; producción sin ellos = pdn; si no, local', () => {
+    expect(ambienteIa({ IA_CONSUMO_AMBIENTE: 'qa', DEPLOY_ENVIRONMENT: 'PDN', NODE_ENV: 'production' })).toBe('qa');
+    expect(ambienteIa({ IA_CONSUMO_AMBIENTE: 'dev', NODE_ENV: 'production' })).toBe('dev');
     expect(ambienteIa({ DEPLOY_ENVIRONMENT: 'QA' })).toBe('qa');
     expect(ambienteIa({ NODE_ENV: 'production' })).toBe('pdn');
     expect(ambienteIa({ NODE_ENV: 'development' })).toBe('local');
