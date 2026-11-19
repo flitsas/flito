@@ -35,21 +35,26 @@
 //   · `pages/FlitoBolsas.tsx` y `pages/FlitoConciliacion.tsx` — solo `id` y `name`.
 //   · `pages/RndcRemesaForm.tsx` — `id`, `name` y `document`.
 //
-// La unión son las 27 columnas de `COLUMNAS_LISTADO`, de las 37 que tiene la tabla. El recorte no es
-// cosmético aunque sea de diez columnas: tres de ellas son personales —`notes` (texto libre, que es
-// donde acaba cualquier cosa), `city_texto_origen` (la ubicación que tenía la ficha antes de
-// confirmarse) y `flito_carpeta_storage` (que se deriva del NIT)— y las otras siete son internas
+// La unión son las columnas de `COLUMNAS_LISTADO`, no la tabla entera. El recorte no es cosmético
+// aunque sea de nueve columnas: tres de ellas son personales —`notes` (texto libre, que es donde
+// acaba cualquier cosa), `city_texto_origen` (la ubicación que tenía la ficha antes de confirmarse)
+// y `flito_carpeta_storage` (que se deriva del NIT)— y las otras seis son internas
 // (`flito_tolerancia_valor_impuesto`, `person_type_origen`, `city_confirmada_por`,
-// `city_confirmada_en`, `facturacion_bloqueos`, `created_at`, `active`) que ninguna pantalla lee.
+// `city_confirmada_en`, `facturacion_bloqueos`, `created_at`) que ninguna pantalla lee.
 // El efecto que más dura es el otro: la columna que se añada mañana a `clients` ya no sale sola por
 // esta ruta.
 //
-// `notes` y `active` se van aunque estén declarados en la interfaz `Client` de `Clients.tsx`:
-// declarados no es leídos —se comprobó por grep en toda la pantalla— y `notes` es justo la clase de
-// campo que no debe viajar en un listado de 500. Quedan como limpieza de dos líneas para el lado del
-// front; no se tocan desde aquí porque esta tanda no toca `apps/web`.
+// `active` SÍ sale desde la HU #13948: la pestaña Clientes de `Clients.tsx` muestra y filtra el
+// estado de cada compañía (activa / inactiva). Es un booleano interno, no un dato personal, y por eso
+// va también en `COLUMNAS_IMPERSONALES`. Lo que el listado sigue sin entregar es la compañía
+// ELIMINADA: eso lo decide `clienteVigente()` en el `WHERE` de la ruta, no esta proyección.
+//
+// `notes` se va aunque esté declarado en la interfaz `Client` de `Clients.tsx`: declarado no es
+// leído —se comprobó por grep en toda la pantalla— y es justo la clase de campo que no debe viajar
+// en un listado de 500.
 
 import type { Request } from 'express';
+import { sql } from 'drizzle-orm';
 import { clients, flitoProveedoresSoat } from '../../db/schema.js';
 import { registrarAccesoCliente } from '../siigo/siigo.pii.js';
 
@@ -73,10 +78,17 @@ export const COLUMNAS_LISTADO = {
   // pinta su columna en la misma tabla: cruzar dos rutas para una casilla dejaba a `financiera` —que
   // ve esta pantalla pero NO entra a parametrización (hoy una función que de partida solo tienen `admin` y `auditor`)— con un «—»
   // permanente que no distingue «apagado» de «no lo puedo leer».
-  soatSinTramite: clients.soatSinTramite,
+  /**
+   * @deprecated #13968 — HU #13967: la columna `clients.soat_sin_tramite` salió del esquema. El DTO
+   * sigue enviando la clave para no romper la web vieja, CALCULADA: canal abierto = la compañía tiene
+   * proveedor de SOAT sin trámite elegido. Sigue siendo una columna sin PII.
+   */
+  soatSinTramite: sql<boolean>`${clients.flitoProveedorSoatSinTramiteId} IS NOT NULL`,
   impuestosAutogestionable: clients.impuestosAutogestionable,
   logisticaAutogestionable: clients.logisticaAutogestionable,
   logisticaPermiteParcial: clients.logisticaPermiteParcial,
+  // HU #13948: la pestaña Clientes muestra y filtra activa / inactiva. Impersonal (ver abajo).
+  active: clients.active,
   personType: clients.personType,
   idType: clients.idType,
   checkDigit: clients.checkDigit,
@@ -127,6 +139,8 @@ const COLUMNAS_IMPERSONALES = new Set<ClaveListado>([
   'impuestosAutogestionable',
   'logisticaAutogestionable',
   'logisticaPermiteParcial',
+  // HU #13948: el estado de la compañía (activa / inactiva). Dice si opera, no quién es.
+  'active',
   'personType',
   'idType',
   'checkDigit',
@@ -147,7 +161,9 @@ const COLUMNAS_IMPERSONALES = new Set<ClaveListado>([
  */
 export const CAMPOS_PII_LISTADO: readonly string[] = Object.entries(COLUMNAS_LISTADO)
   .filter(([clave]) => !COLUMNAS_IMPERSONALES.has(clave as ClaveListado))
-  .map(([, columna]) => columna.name);
+  // Lo calculado (`soatSinTramite`, HU #13967) es impersonal y no llega aquí: todo lo que pasa el
+  // filtro es una columna real de `clients`, con su nombre.
+  .map(([, columna]) => (columna as { name: string }).name);
 
 // ── El gestor por defecto del canal «SOAT sin trámite», RESUELTO (HU #12079) ────────────────────
 //
@@ -240,7 +256,7 @@ function gestorResuelto(fila: FilaGestorSinTramite): GestorSinTramiteDto | null 
  * Las tres columnas planas de la unión NO se publican —se consumen aquí— para que la respuesta tenga
  * una sola forma de decir el gestor y la pantalla no tenga que elegir entre dos.
  */
-export function clienteListadoDto<T extends FilaGestorSinTramite>(fila: T) {
+export function clienteListadoDto<T extends FilaGestorSinTramite>(fila: T, permisoSinTramiteSinEfecto = false) {
   const {
     gestorSinTramiteId, gestorSinTramiteNombre, gestorSinTramiteActivo, ...cliente
   } = fila;
@@ -249,6 +265,10 @@ export function clienteListadoDto<T extends FilaGestorSinTramite>(fila: T) {
     gestorSoatSinTramite: gestorResuelto({
       gestorSinTramiteId, gestorSinTramiteNombre, gestorSinTramiteActivo,
     }),
+    // HU #13967 (AC7): la compañía NO tiene proveedor de SOAT sin trámite y algún usuario suyo ya
+    // tiene `soat.solicitud.crear` — un permiso que no surte efecto. Solo el booleano: ningún dato
+    // de usuario viaja en el listado. Lo calcula la ruta (`companiasConUsuarioConFuncion`).
+    permisoSinTramiteSinEfecto,
   };
 }
 

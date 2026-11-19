@@ -467,3 +467,16 @@ describe('logs — ni VIN ni placa en ningún desenlace', () => {
     expect(texto).not.toContain('1020304050');
   });
 });
+
+// ═══════════ HU #13947 — el reintento despacha un SOAT nuevo: con el cliente inactivo, 409 ═══════════
+
+describe('HU #13947 — reintento con la compañía inactiva', () => {
+  it('409 con el mensaje del AC, sin INSERT en `flito_soat` y la incompleta sigue sin resolver', async () => {
+    escenario({ clients: [{ proveedorId: PROVEEDOR, activo: true, name: 'Acme Transportes', active: false }] });
+    const r = await reintentar(await buildApp());
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: 'El cliente Acme Transportes está inactivo: no se pueden crear SOAT para él.' });
+    expect(espia.insertsEn('flito_soat')).toEqual([]);
+    expect(updatesIncompleta().some((d) => d.estado === 'completada')).toBe(false);
+  });
+});

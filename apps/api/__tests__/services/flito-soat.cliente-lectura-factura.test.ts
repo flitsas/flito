@@ -24,11 +24,10 @@ import { crearEspia } from '../helpers/espia-drizzle.js';
 import { testToken } from '../helpers/auth.js';
 import { conAlcance } from '../helpers/frontera.js';
 
-// Key de prueba: sin ella `extraer()` iría siempre al local (Bug #14229) y el mock de Anthropic
-// no se invocaría. OCR_LOCAL ya no gobierna el fallback; se deja en 0 por claridad.
+// El fallback local (`OCR_LOCAL=1`) no lanza y devolvería los catorce campos vacíos: sería un 200
+// que no mide nada. Aquí se ejercita la ruta de Anthropic, mockeada.
 process.env.OCR_STUB = '0';
 process.env.OCR_LOCAL = '0';
-if (!process.env.ANTHROPIC_API_KEY) process.env.ANTHROPIC_API_KEY = 'sk-ant-test-ocr-fallback';
 
 const kdb = createKeyedDb();
 const espia = crearEspia(kdb);
@@ -44,15 +43,6 @@ vi.mock('../../src/shared/middleware/audit.js', () => ({ audit: auditMock }));
 vi.mock('../../src/shared/pii-audit.js', () => ({ logPiiAccess: piiMock }));
 vi.mock('../../src/services/storage.js', () => ({ uploadEntityDocument: uploadMock }));
 vi.mock('../../src/modules/tramites/anthropic.js', () => ({ anthropicMessages: anthropicMock }));
-vi.mock('../../src/modules/flito-ocr/flito-ocr-local.js', () => ({
-  textoDocumento: vi.fn().mockResolvedValue(''),
-  camposDesdeTexto: vi.fn().mockReturnValue({}),
-}));
-
-const { env } = await import('../../src/config/env.js');
-if (!env.ANTHROPIC_API_KEY) {
-  (env as { ANTHROPIC_API_KEY?: string }).ANTHROPIC_API_KEY = 'sk-ant-test-ocr-fallback';
-}
 
 const COMPANIA = 7;
 const SOAT_PROPIO = '11111111-1111-4111-8111-111111111111';
@@ -113,7 +103,7 @@ const auth = async (role: string, id: number) =>
 function escenario(over: Partial<Record<string, unknown[]>> = {}) {
   kdb.when.scenario({
     users: [{ c: COMPANIA, s: null }],
-    clients: [{ id: COMPANIA, sinTramite: true, carpeta: 'clientes/acme' }],
+    clients: [{ id: COMPANIA, carpeta: 'clientes/acme' }],
     flito_soat: [{
       soat: { id: SOAT_PROPIO, companiaId: COMPANIA, estado: 'solicitado', origen: 'cliente' },
       dentroDeFrontera: true,
@@ -218,7 +208,7 @@ describe('AC6 — la lectura devuelve la extracción y NO persiste ni archiva na
     // El canal va APAGADO en este escenario a propósito: las que pasan el limitador mueren en 403 y
     // no llaman al OCR, así que lo que se mide es el contador y nada más. Las dos mitades hacen
     // falta: sin el «la 12.ª todavía pasa», el test seguiría verde con cualquier techo menor.
-    escenario({ clients: [{ id: COMPANIA, sinTramite: false, carpeta: null }] });
+    escenario({ clients: [] });
     const app = await buildApp();
     const insistente = await auth('cliente', siguienteUsuario());
 
@@ -232,21 +222,19 @@ describe('AC6 — la lectura devuelve la extracción y NO persiste ni archiva na
     expect((await lectura(app, await auth('cliente', siguienteUsuario()))).status).toBe(403);
   });
 
-  it('**Anthropic caído → fallback local: 200 con campos vacíos (formulario a mano; Bug #14229)**', async () => {
+  it('**el OCR caído responde 503 y no 500**: el formulario puede seguir a mano', async () => {
     escenario();
-    // Bug #14229: Anthropic no-OK ya no sale como 503 si el local responde. El formulario sigue a
-    // mano con los catorce campos en null/`confiable: false`. 503 solo si el local también falla.
+    // Los cuatro caminos de fallo de `anthropicMessages` devuelven 503, y `pasada` lo lanza como
+    // `OcrNoDisponibleError`. Sin la rama en `manejarError`, ese error se re-lanzaba al handler
+    // global de Express y salía como 500 — este aserto es lo único que lo distingue.
     anthropicMock.mockResolvedValue({ ok: false, status: 503, message: 'OCR no disponible' });
 
     const r = await lectura(await buildApp(), await auth('cliente', siguienteUsuario()));
 
-    expect(r.status).toBe(200);
-    const { CampoFacturaVenta } = await import('@operaciones/shared-types');
-    expect(Object.keys(r.body.extraccion).sort()).toEqual([...Object.values(CampoFacturaVenta)].sort());
-    expect(r.body.extraccion.placa).toEqual({ valor: null, confianza: 0, confiable: false });
-    expect(r.body.extraccion.nombres).toEqual({ valor: null, confianza: 0, confiable: false });
-    // Hubo entrega (vacía): sí se registra el acceso PII; no es el camino 503.
-    expect(piiMock).toHaveBeenCalled();
+    expect(r.status).toBe(503);
+    expect(typeof r.body.error).toBe('string');
+    // Un 503 no accedió a los datos de nadie: no se escribe la línea del artículo 17.
+    expect(piiMock).not.toHaveBeenCalled();
   });
 
   it('**un ejecutable renombrado a .pdf → 400 `archivo_no_pdf`, y no sale de la red**', async () => {
@@ -281,7 +269,7 @@ describe('AC6 — la lectura devuelve la extracción y NO persiste ni archiva na
   it('el flag «SOAT sin trámite» APAGADO → 403 `canal_desactivado`, sin quemar una llamada al modelo', async () => {
     // La guarda más barata va primera, igual que en el alta: una compañía sin el canal abierto no
     // puede gastar llamadas a un modelo de pago con PDFs de 15 MB.
-    escenario({ clients: [{ id: COMPANIA, sinTramite: false, carpeta: null }] });
+    escenario({ clients: [] });
 
     const r = await lectura(await buildApp(), await auth('cliente', siguienteUsuario()));
 

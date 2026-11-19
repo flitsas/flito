@@ -580,7 +580,12 @@ export const permisosApi = {
 /** Cuerpo del 409 anti-bloqueo (ADR-0022 + #13429): `nodo` = el más alto que hay que volver a marcar. */
 export interface CuerpoAntiBloqueo { funcion?: string; nodo?: string }
 
-/** Lee el cuerpo del 409 sin fiarse de su forma; `null` si el error no es un 409. Nunca devuelve el texto del API. */
+/**
+ * Lee el cuerpo del 409 sin fiarse de su forma; `null` si el error no es un 409. Nunca devuelve el texto del API.
+ * HU #13951: el 409 `FuncionExclusivaAdmin` llega con la misma forma (`{ error, funcion }`). Este helper no
+ * conoce el árbol, así que no decide el copy: lo decide `aviso409` (roles-permisos/arbol.ts), que mira si
+ * `funcion`/`nodo` resuelve en el índice a un nodo `exclusivaAdmin` y, si no, cae al anti-bloqueo.
+ */
 export function cuerpoAntiBloqueo(e: unknown): CuerpoAntiBloqueo | null {
   if (!(e instanceof ApiError) || e.status !== 409) return null;
   const raw = (e.rawDetails ?? {}) as Record<string, unknown>;

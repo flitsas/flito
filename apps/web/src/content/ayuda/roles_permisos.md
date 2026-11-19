@@ -8,8 +8,9 @@ palabras_clave:
 consultas:
   - qué puede hacer cada rol
   - cómo doy acceso a una pantalla
-version: 1.1
-fecha: 2026-10-22
+  - por qué no puedo marcar una función en un rol
+version: 1.2
+fecha: 2026-10-25
 ---
 ## Qué es
 
@@ -29,7 +30,7 @@ Menú **Administración**, ítem **Roles y permisos**, junto a **Usuarios**.
 2. Despliegue el elemento del menú y el ítem que quiera y marque o desmarque. Un permiso vale solo si están marcados el elemento, el ítem y la acción. Una casilla con unas marcas sí y otras no se ve como **parcial**. ![Árbol del rol desplegado en Gestión y SOAT, con elementos completos y parciales](./roles_permisos/02-arbol.png)
 3. Si desmarca un elemento o un ítem, lo de adentro **no se pierde**: queda visible, apagado y con sus marcas, con la nota «… está desmarcado: lo de adentro no aplica, pero sus marcas se conservan para cuando lo vuelvas a marcar». Al volver a marcarlo, las marcas reaparecen activas.
 4. Pulse **Guardar cambios**. El cambio queda aplicado en la siguiente acción de cada usuario con ese rol; nadie tiene que volver a entrar. La barra **Sin guardar** cuenta lo pendiente y **Descartar** lo devuelve a lo guardado. ![Barra Sin guardar con una marca pendiente, Descartar y Guardar cambios](./roles_permisos/03-sin-guardar.png)
-5. Para repartirlo todo de una vez use **Marcar todo**, que marca todos los ítems y acciones del árbol, pero **no** los opcionales; **Desmarcar todo** quita todo. Ninguno de los dos guarda por sí solo.
+5. Para repartirlo todo de una vez use **Marcar todo**, que marca todos los ítems y acciones del árbol, pero **no** los opcionales ni las funciones exclusivas del Administrador; **Desmarcar todo** quita todo (en el rol Administrador, menos sus funciones exclusivas). Ninguno de los dos guarda por sí solo.
 6. **Nuevo rol** abre el formulario: **Nombre del rol**, **Descripción** y **Enlace**, que decide qué datos ven las personas con ese rol (las cuatro opciones se explican debajo de esta lista). El rol nuevo nace con **Perfil** marcado (ver sus datos y cambiar su contraseña) para que nadie se quede sin poder cambiarla; si no lo quiere, desmárquelo y guarde. ![Formulario Nuevo rol vacío con las cuatro opciones de Enlace](./roles_permisos/04-nuevo-rol.png)
 7. **Editar rol** permite corregir nombre, descripción, enlace y si **Se puede asignar a usuarios nuevos**. El enlace solo se puede cambiar mientras ningún usuario tenga el rol; si lo tiene alguien, el formulario lo avisa y hay que cambiarles el rol primero en **Usuarios**.
 8. **Borrar rol** solo está disponible cuando ningún usuario lo tiene y no es un rol del sistema; la cabecera dice por qué cuando no se puede.
@@ -51,6 +52,7 @@ Algunos casos del árbol llevan su propia nota:
 - Las operaciones **Opcional** (por ejemplo, ver el documento del propietario sin enmascarar) no vienen con su ítem: se marcan aparte.
 - Un ítem marcado sin ninguna acción avisa «Marcado sin ninguna acción: …»; marque al menos una o desmarque el ítem.
 - **Ayuda** no se marca: cada usuario la ve sola, con los capítulos de lo que puede usar.
+- Algunas funciones son **exclusivas del Administrador** (por ejemplo, **Eliminar clientes**): solo el rol Administrador las tiene. En cualquier otro rol salen desmarcadas y bloqueadas con la nota «Exclusiva del Administrador: no se puede dar a otro rol.», y no cuentan en el «k de n» del ítem. En el rol Administrador salen marcadas y bloqueadas con la nota «Exclusiva del Administrador: este rol siempre la tiene.». Si un rol las traía marcadas de antes, salen desmarcadas y el siguiente guardado las quita.
 - En un rol con enlace, los ítems de las pantallas que ese enlace cierra salen deshabilitados con la nota «Cerrado por el enlace «Compañía»: este rol no lo verá aunque lo marque». Tampoco aparecen en el menú de quien tenga el rol, y **Marcar todo** no los marca.
 - Algunas operaciones se usan desde varias pantallas y **vienen con el módulo donde se usan**, sin casilla propia: consultar vehículos viene con **Vehículos**, **SOAT antiguo**, **Flota** y **Trámite Digital**; consultar una persona en el RUNT, leer la cédula y buscar en Fasecolda vienen con **Trámite Digital**, que incluye Traspaso. Basta con marcar el ítem.
 - El resumen de rendimiento de FLITO es el ítem **Rendimiento** de **Administración**: quien lo tenga lo verá en el menú, dentro de Administración.
@@ -63,6 +65,7 @@ Algunos casos del árbol llevan su propia nota:
 - **Lleno**: lista de roles y árbol del rol seleccionado. La cabecera dice el enlace del rol y cuántos usuarios lo tienen. Con cambios pendientes aparece la barra **Sin guardar** con **Descartar** y **Guardar cambios**.
 - **Solo lectura**: sin la acción **Asignar permisos**, un aviso lo explica y no hay casillas que cambiar.
 - **No se guardó por seguridad**: si el cambio dejaría a FLITO sin ningún usuario activo que pueda administrar Usuarios y Roles y permisos, un aviso en la página lo explica, nombra lo que hay que volver a marcar con **Mostrar dónde está**, y sus cambios siguen ahí sin guardar.
+- **No se guardó por una función exclusiva**: si el guardado intenta darle a otro rol una función exclusiva del Administrador (o quitársela al Administrador), un aviso en la página nombra la función, dice qué hacer y ofrece **Mostrar dónde está**; sus cambios siguen ahí sin guardar.
 - **Error al guardar**: «No se pudieron guardar los permisos. Tus cambios siguen aquí; vuelve a intentarlo con «Guardar cambios».»
 - **Error al guardar el rol**: el formulario muestra «No se pudo guardar el rol. Inténtalo de nuevo; si se repite, recarga la página.» sin cerrarse.
 

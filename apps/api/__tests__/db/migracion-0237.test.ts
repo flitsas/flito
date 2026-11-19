@@ -13,8 +13,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { USER_ROLES } from '@operaciones/shared-types';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
-import { sqlRepartoArbol } from '../../src/modules/permisos/arbol/sql-arbol.js';
-import { ACCIONES_LECTURA, ACCIONES_POR_AREA, predecesoresDe } from '../../src/modules/permisos/arbol/expansion.js';
+import { accionesSembradasDe, sqlRepartoArbol } from '../../src/modules/permisos/arbol/sql-arbol.js';
+import { ACCIONES_LECTURA, predecesoresDe } from '../../src/modules/permisos/arbol/expansion.js';
 import { absorbidosVivos } from '../../src/modules/permisos/arbol/reparto-arbol.js';
 import { catalogoCompleto, repartoDePartida } from '../../src/modules/permisos/catalogo.js';
 import {
@@ -27,7 +27,8 @@ const ARCHIVO = '0237_permisos_arbol_administracion_reparto.sql';
 const DIR = path.resolve(__dirname, '../../src/db/migrations');
 const SQL = readFileSync(path.join(DIR, ARCHIVO), 'utf8');
 const SIN_COMENTARIOS = SQL.replace(/--[^\n]*/g, '');
-const AREA = ACCIONES_POR_AREA.administracion;
+// HU #13945: las del área que sembró y repartió la 0237 (`accion.clientes.activar_desactivar` nace en la 0255).
+const AREA = accionesSembradasDe('administracion');
 
 describe('0237 — análisis estático', () => {
   it('sin BEGIN/COMMIT propio; número único; la anterior es la 0236; cabecera', () => {

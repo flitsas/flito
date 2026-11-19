@@ -116,7 +116,7 @@ function escenario(over: Partial<Record<string, unknown[]>> = {}) {
   kdb.when.scenario({
     users: [{ c: COMPANIA, s: null }],
     clients: [{
-      id: COMPANIA, sinTramite: true, carpeta: 'clientes/acme',
+      id: COMPANIA, carpeta: 'clientes/acme',
       proveedorId: '55555555-5555-4555-8555-555555555555', activo: true,
     }],
     flito_soat: [],
@@ -792,7 +792,7 @@ describe('ADR-0012 §8.2 — el sondeo es visible: los intentos que no entregan 
     },
     {
       nombre: 'canal_desactivado (403) — la compañía no tiene el canal abierto',
-      montar: () => escenario({ clients: [{ id: COMPANIA, sinTramite: false, carpeta: null }] }),
+      montar: () => escenario({ clients: [] }),
       peticion: (app: express.Express, token: string) => preconsultar(app, token),
       status: 403, codigo: 'canal_desactivado',
     },

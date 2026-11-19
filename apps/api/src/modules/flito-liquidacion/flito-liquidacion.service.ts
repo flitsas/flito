@@ -45,6 +45,7 @@ import {
 import {
   registrarConsumoTransito, reversarConsumoTransito,
 } from '../flito-bolsas/flito-bolsas-transito.service.js';
+import { cubiertoPorCorte, redescontarTrasReverso } from '../flito-bolsas/flito-bolsas.descuento.js';
 import { TZ_COLOMBIA } from '../../shared/utils/fecha-rango.js';
 // AC5 de la HU #11343: qué se puede hacer con la factura de un trámite que alguien intenta reversar.
 import { viaDeCorreccionDeTramite } from '../siigo/correcciones.service.js';
@@ -61,6 +62,7 @@ import {
 // lee con el `tx` que ya tomó el `FOR UPDATE` que registrar/quitar también toman (RN-04 de la HU
 // #12619). Leerlos con `db` sellaría un viaje que otro registró entre la previsualización y el sello.
 import { aDto as aDtoViaje, type FilaViaje, viajesDe } from '../flito-logistica/flito-logistica-viajes.service.js';
+import { exigirClienteOperable } from '../clients/cliente-operable.js';
 
 export class LiquidacionError extends Error {
   constructor(message: string, readonly faltantes: string[] = []) {
@@ -854,6 +856,7 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
     // aquí nadie mete ni saca un servicio de este trámite hasta el COMMIT. Se toma ANTES de leer la
     // puente, que es lo único que hace que lo sellado sea lo que estaba asignado.
     await bloquearTramite(tx, tramiteId).catch(traducirTramiteNoEncontrado);
+    await exigirClienteOperable(tx, ids?.companiaId, 'liquidaciones'); // HU #13947: cliente inactivo → 409
     // Las filas documentales, con el MISMO `tx` y bajo el mismo bloqueo (HU #12654, AC5): `aplicar`
     // toma este `FOR UPDATE` antes de escribirlas, así que lo que se lee aquí es lo aplicado al COMMIT.
     const docs = await documentalesDe(tx, tramiteId);
@@ -898,7 +901,10 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
     // que los dos lados del asiento dejaran de cuadrar entre sí. Y se calculan DENTRO de la
     // transacción, sobre el cálculo ya recompuesto: si se hicieran fuera, la bolsa descontaría el
     // importe viejo y el sellado guardaría el nuevo.
-    const salidas = ids ? salidasDe(calculo, ids) : [];
+    // HU #13902 (D7, Q6): desde el corte la bolsa la mueve el comprobante aplicado, no el sellado: ninguna
+    // bolsa (cliente ni tránsito, GMF incluido) recibe salidas de la liquidación. HU #13965: el corte es el
+    // instante registrado por la 0260 y se compara con AHORA (no con el día contable); sin fila, como antes.
+    const salidas = ids && !(await cubiertoPorCorte(tx, new Date())) ? salidasDe(calculo, ids) : [];
 
     const [fila] = await tx.insert(flitoLiquidaciones).values(valores).returning();
     await tx.insert(flitoLiquidacionEventos).values({
@@ -907,8 +913,9 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
 
     // Las salidas de la bolsa se asientan DENTRO de esta transacción (HU #11122): si el sellado no
     // cuaja, el descuento no puede quedar hecho. La compañía puede faltar en trámites que aún no
-    // cruzaron con un cliente; ahí no hay bolsa a la que cobrar.
-    if (ids?.companiaId != null) {
+    // cruzaron con un cliente; ahí no hay bolsa a la que cobrar. HU #13899 (AC6): sin bolsa, o con la
+    // bolsa inactiva, el sellado sigue y no se crea ni bolsa ni movimiento (libro único, ADR-0029).
+    if (ids?.companiaId != null && salidas.length > 0) {
       await registrarSalidasLiquidacion(
         tx,
         {
@@ -1024,7 +1031,9 @@ export async function reversar(tramiteId: string, motivo: string, usuarioId: num
     });
     // Devuelve a la bolsa lo descontado por este sellado y libera las llaves, para que volver a
     // liquidar vuelva a cobrar (HU #11122, AC5).
-    await reversarSalidasLiquidacion(tx, tramiteId, { userId: usuarioId, nombre: 'sistema' });
+    const devueltas = await reversarSalidasLiquidacion(tx, tramiteId, { userId: usuarioId, nombre: 'sistema' });
+    // HU #13902 (AC10): liquidación anterior al corte reversada después de él → se cobran sus comprobantes.
+    await redescontarTrasReverso(tx, tramiteId, devueltas.length > 0, { userId: usuarioId, nombre: 'sistema' });
     // Y lo mismo del otro lado: las bolsas de tránsito recuperan lo que este trámite les consumió
     // (HU #11161, AC9). Es un no-op si ninguna bolsa cubría sus conceptos.
     await reversarConsumoTransito(tx, tramiteId, { userId: usuarioId, nombre: 'sistema' });

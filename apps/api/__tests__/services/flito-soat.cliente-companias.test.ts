@@ -3,7 +3,7 @@
 //
 // Se mide la CONSULTA, no solo la respuesta: el mock de la base devuelve lo que el test le dé, así que
 // afirmar sobre el cuerpo prueba el mock. Lo que se afirma es la proyección (solo `id` + `nombre`,
-// nunca el NIT), el filtro por el flag del canal y el orden — leídos del SQL que el servicio armó.
+// nunca el NIT), el filtro por el proveedor del canal (HU #13967) y el orden — leídos del SQL que el servicio armó.
 //
 // `contextoSoat` se sustituye por el contexto de cada caso: lo que esta suite decide es la tabla
 // enlace → lista; cómo se calcula el alcance lo prueba `flito-soat.frontera` y su suite.
@@ -64,7 +64,7 @@ const sqlDe = (w: SQL | undefined) => (w ? new PgDialect().sqlToQuery(w) : { sql
 beforeEach(() => { consultas.length = 0; filas = []; ctxMock.mockReset(); selectMock.mockClear(); });
 
 describe('GET /cliente/companias (HU #12874)', () => {
-  it('**AC1 — enlace compañía → solo la suya, `fija: true`, filtrada por id Y por el flag**', async () => {
+  it('**AC1 — enlace compañía → solo la suya, `fija: true`, filtrada por id Y por el proveedor** (HU #13967 AC1)', async () => {
     ctxMock.mockResolvedValue(ctx('compania', 7));
     filas = [{ id: 7, nombre: 'ACME' }];
     const r = await pedir();
@@ -74,8 +74,10 @@ describe('GET /cliente/companias (HU #12874)', () => {
     expect(consultas).toHaveLength(1);
     const { sql, params } = sqlDe(consultas[0].where);
     expect(sql).toMatch(/"clients"\."id" = \$\d/);
-    expect(sql).toMatch(/"clients"\."soat_sin_tramite" = \$\d/);
-    expect(params).toEqual(expect.arrayContaining([7, true]));
+    // HU #13967: el canal es el PROVEEDOR elegido (activo o inactivo), no el interruptor retirado.
+    expect(sql).toMatch(/"clients"\."flito_proveedor_soat_sin_tramite_id" is not null/i);
+    expect(sql).not.toMatch(/soat_sin_tramite"? =/);
+    expect(params).toEqual([7]);
   });
 
   it('enlace compañía cuya compañía NO tiene el canal → lista vacía y `fija: true`', async () => {
@@ -86,7 +88,7 @@ describe('GET /cliente/companias (HU #12874)', () => {
     expect(r.body).toEqual({ fija: true, companias: [] });
   });
 
-  it('**AC2 — sin enlace → todas las del canal, `fija: false`, por nombre**', async () => {
+  it('**AC2 — sin enlace → todas las que tienen proveedor, `fija: false`, por nombre** (HU #13967 AC4)', async () => {
     ctxMock.mockResolvedValue(ctx('todo', null));
     filas = [{ id: 3, nombre: 'ALFA' }, { id: 7, nombre: 'BETA' }];
     const r = await pedir();
@@ -94,9 +96,11 @@ describe('GET /cliente/companias (HU #12874)', () => {
     expect(r.status).toBe(200);
     expect(r.body).toEqual({ fija: false, companias: filas });
     const { sql, params } = sqlDe(consultas[0].where);
-    expect(sql).toMatch(/"clients"\."soat_sin_tramite" = \$\d/);
+    // HU #13967: el canal es el PROVEEDOR elegido (activo o inactivo), no el interruptor retirado.
+    expect(sql).toMatch(/"clients"\."flito_proveedor_soat_sin_tramite_id" is not null/i);
+    expect(sql).not.toMatch(/soat_sin_tramite"? =/);
     expect(sql).not.toMatch(/"clients"\."id"/);
-    expect(params).toEqual([true]);
+    expect(params).toEqual([]);
     expect(consultas[0].orderBy).toHaveLength(1);
     expect(new PgDialect().sqlToQuery(consultas[0].orderBy[0] as SQL).sql).toBe('"clients"."name" asc');
   });

@@ -8,6 +8,7 @@
 // aislamiento 404-no-403 (CA-09), RN-05/RN-06.
 
 import { createHash } from 'crypto';
+import JSZip from 'jszip';
 import { and, asc, count, desc, eq, inArray, isNotNull, or, sql, type SQL } from 'drizzle-orm';
 import type { PgSelect } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
@@ -46,10 +47,10 @@ import { ANS_OPERATIVO,
 import { clasificacionDeTipoFlit, expresionesFlitRaw } from '../../shared/export/cola-flito-derivados.js';
 import { extraerFacturaSoat, placaDesdeNombre, type DocumentoAAnalizar } from '../flito-ocr/flito-ocr.service.js';
 import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
+import { exigirProveedorSoatUsable } from '../flito-parametrizacion/flito-proveedores-estado.service.js';
 import { uploadEntityDocument } from '../../services/storage.js';
 import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import { EXISTS_COMPROBANTE_SOAT, TIPO_FACTURA_SOAT } from './flito-soat-censo.js';
-import { abrirEnLote, abrirFacturaCifrada, expandir } from './flito-soat-factura-cifrada.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
 import { resolverPermisos, type PermisosResueltos } from '../../shared/permisos-efectivos.js';
 import { alcanceDeUsuario } from '../../shared/middleware/frontera-enlace.js';
@@ -1519,6 +1520,8 @@ export async function enviarAlGestor(
   if (alcance === null) return { enviados: [], yaEnviados: [...ids] };
 
   const enviados = await db.transaction(async (tx) => {
+    // RN-PROV-5 (HU #13959): inactivo o eliminado → 409, con FOR SHARE en ESTA tx (AC6).
+    if (destino.proveedorSoatId) await exigirProveedorSoatUsable(tx, destino.proveedorSoatId);
     // FOR UPDATE OF flito_soat SKIP LOCKED: el segundo usuario que envíe el mismo registro no
     // ve la fila que el primero bloqueó (CA-04). Solo bloquea flito_soat (no clients).
     const locked = await tx
@@ -1575,7 +1578,7 @@ export async function enviarAlGestor(
 // ───────────────────────────── Rechazo / reactivación / reversa / proveedor ──
 
 export class SoatError extends Error {
-  constructor(public status: number, message: string, public codigo?: string) { super(message); }
+  constructor(public status: number, message: string) { super(message); }
 }
 
 /** Rechazo del proveedor (CA-08). Solo desde En adquisición; motivo obligatorio. */
@@ -1645,22 +1648,32 @@ export async function reversar(id: string, estadoDestino: EstadoSoat, motivo: st
   // Dejar las dos guardas sería pedirle a `ESTADOS_SOAT_CANAL_CLIENTE` que siguiera existiendo solo
   // para defenderse de valores inalcanzables.
 
+  return db.transaction(async (tx) => reversarEnTx(tx, soat, estadoDestino, motivo, ctx));
+}
+
+/**
+ * La escritura de la reversa (RN-06) dentro de una tx ajena: la usan `reversar` y la desaplicación de un
+ * comprobante (HU #13903), que necesita deshacer el pago en la MISMA tx que cambia el comprobante. Las
+ * guardas (alcance, motivo ≥5, mismo estado) son de quien llama; aquí solo se reescribe y se deja rastro.
+ */
+export async function reversarEnTx(
+  tx: Tx, soat: Pick<typeof flitoSoat.$inferSelect, 'id' | 'estado'>,
+  estadoDestino: EstadoSoat, motivo: string, ctx: Pick<SoatCtx, 'userId' | 'username'>,
+): Promise<typeof flitoSoat.$inferSelect> {
   const limpiar = estadoDestino === EstadoSoat.PENDIENTE
     ? { enviadoPorId: null, enviadoEn: null, pagadoEn: null, valorPagado: null, motivoRechazo: null }
     : {};
-  return db.transaction(async (tx) => {
-    const [updated] = await tx.update(flitoSoat)
-      .set({ estado: estadoDestino, ...limpiar, updatedAt: new Date() })
-      .where(eq(flitoSoat.id, id)).returning();
-    // La reversa es la operación que más falta hace explicar después: es la única que saca a un VIN
-    // de `pagado`, así que el motivo va literal al historial.
-    await registrarCambio(tx, {
-      concepto: 'soat', registroId: id,
-      estadoAnterior: soat.estado, estadoNuevo: estadoDestino,
-      motivo: `Reversa: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
-    });
-    return updated;
+  const [updated] = await tx.update(flitoSoat)
+    .set({ estado: estadoDestino, ...limpiar, updatedAt: new Date() })
+    .where(eq(flitoSoat.id, soat.id)).returning();
+  // La reversa es la operación que más falta hace explicar después: es la única que saca a un VIN
+  // de `pagado`, así que el motivo va literal al historial.
+  await registrarCambio(tx, {
+    concepto: 'soat', registroId: soat.id,
+    estadoAnterior: soat.estado, estadoNuevo: estadoDestino,
+    motivo: `Reversa: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
   });
+  return updated!;
 }
 
 /**
@@ -1806,8 +1819,6 @@ export interface ArchivoSubido {
   mimetype: string;
   buffer: Buffer;
   size: number;
-  /** Clave de apertura de un PDF cifrado (Bug #14569). PII: no se loguea ni se guarda. */
-  contrasena?: string;
 }
 
 /** Campos que sí bloquean el avance a Pagado. Vigencia/expedición NO están (D-7): se leen sin exigir. */
@@ -2016,24 +2027,21 @@ export async function cargarFactura(id: string, archivo: ArchivoSubido, ctx: Soa
   const datos = await datosCargaPorId(id);
   if (!datos) throw new SoatError(404, 'El SOAT no existe');
 
-  const abierto = await abrirFacturaCifrada(archivo); // Bug #14569: nunca se guarda el cifrado
   const umbral = umbralPara(datos.umbralOcr);
-  const extraccion = await extraerFacturaSoat(docDe(abierto, umbral));
+  const extraccion = await extraerFacturaSoat(docDe(archivo, umbral));
   const veredicto = evaluarExtraccionSoat(extraccion, { vin: datos.vin, placa: datos.placa }, umbral);
 
   if (!veredicto.aprobada && (veredicto.motivo === MotivoRevision.SIN_LLAVE_DE_CRUCE || veredicto.motivo === MotivoRevision.LLAVE_NO_CRUZA)) {
-    // Bug #14569: rechazo de negocio (el comprobante es de otro vehículo) → 422, para que la web muestre
-    // el motivo; un 400 queda para validación de entrada.
-    throw new SoatError(422, `${veredicto.detalle} No corresponde a este SOAT, así que no se guardó.`);
+    throw new SoatError(400, `${veredicto.detalle} No corresponde a este SOAT, así que no se guardó.`);
   }
 
-  const hash = createHash('sha256').update(abierto.buffer).digest('hex');
+  const hash = createHash('sha256').update(archivo.buffer).digest('hex');
   if (await facturaDuplicada(hash)) {
     throw new SoatError(409, 'Esta factura ya fue cargada antes (mismo archivo). No se concilia dos veces.');
   }
 
-  const storageKey = await archivarFactura(datos, abierto);
-  await persistirCarga(datos, abierto, hash, storageKey, extraccion, veredicto, ctx);
+  const storageKey = await archivarFactura(datos, archivo);
+  await persistirCarga(datos, archivo, hash, storageKey, extraccion, veredicto, ctx);
 
   return detalle(soat.id, ctx);
 }
@@ -2047,7 +2055,6 @@ const docDe = (archivo: ArchivoSubido, umbral: number): DocumentoAAnalizar => ({
 export interface ItemCarga { archivo: string; placa: string | null; soatId: string | null; detalle: string }
 export interface ResultadoCargaMasiva {
   pagados: ItemCarga[]; enRevision: ItemCarga[]; duplicados: ItemCarga[]; noAsociados: ItemCarga[];
-  protegidos: ItemCarga[]; // Bug #14569: PDF cifrado sin clave o con clave incorrecta
 }
 
 /**
@@ -2104,22 +2111,20 @@ const OCR_CONCURRENCIA_CARGA_MASIVA = 5;
  * → cruce + archivo + persistir en serie, orden de entrada.
  */
 export async function cargarFacturasMasivo(archivos: ArchivoSubido[], ctx: SoatCtx): Promise<ResultadoCargaMasiva> {
-  const res: ResultadoCargaMasiva = { pagados: [], enRevision: [], duplicados: [], noAsociados: [], protegidos: [] };
+  const res: ResultadoCargaMasiva = { pagados: [], enRevision: [], duplicados: [], noAsociados: [] };
   const expandidos = await expandir(archivos);
 
   const pendientes: { archivo: ArchivoSubido; hash: string }[] = [];
   const hashesVistos = new Set<string>();
   for (const archivo of expandidos) {
     try {
-      const a = await abrirEnLote(archivo, res); // Bug #14569: cifrado → protegidos/noAsociados
-      if (!a) continue;
-      const hash = createHash('sha256').update(a.buffer).digest('hex');
+      const hash = createHash('sha256').update(archivo.buffer).digest('hex');
       if (hashesVistos.has(hash) || await facturaDuplicada(hash)) {
-        res.duplicados.push({ archivo: a.originalname, placa: null, soatId: null, detalle: 'Ya cargada antes (mismo archivo).' });
+        res.duplicados.push({ archivo: archivo.originalname, placa: null, soatId: null, detalle: 'Ya cargada antes (mismo archivo).' });
         continue;
       }
       hashesVistos.add(hash);
-      pendientes.push({ archivo: a, hash });
+      pendientes.push({ archivo, hash });
     } catch (e) {
       const msg = e instanceof SoatError ? e.message : 'Error procesando el archivo.';
       res.noAsociados.push({ archivo: archivo.originalname, placa: null, soatId: null, detalle: msg });
@@ -2166,6 +2171,31 @@ export async function cargarFacturasMasivo(archivos: ArchivoSubido[], ctx: SoatC
     }
   }
   return res;
+}
+
+/** Un ZIP es una caja: se abre y se procesa cada archivo que trae (PDF/imagen). */
+async function expandir(archivos: ArchivoSubido[]): Promise<ArchivoSubido[]> {
+  const salida: ArchivoSubido[] = [];
+  for (const archivo of archivos) {
+    const esZip = archivo.mimetype.includes('zip') || archivo.originalname.toLowerCase().endsWith('.zip');
+    if (!esZip) { salida.push(archivo); continue; }
+
+    const zip = await JSZip.loadAsync(archivo.buffer);
+    for (const entrada of Object.values(zip.files)) {
+      if (entrada.dir) continue;
+      if (entrada.name.startsWith('__MACOSX/')) continue;
+      const base = entrada.name.split('/').pop() || entrada.name;
+      if (base.startsWith('.')) continue;
+      const buffer = Buffer.from(await entrada.async('nodebuffer'));
+      const lower = base.toLowerCase();
+      const mimetype = lower.endsWith('.pdf') ? 'application/pdf'
+        : /\.(jpg|jpeg)$/.test(lower) ? 'image/jpeg'
+        : lower.endsWith('.png') ? 'image/png'
+        : 'application/octet-stream';
+      salida.push({ originalname: base, mimetype, buffer, size: buffer.length });
+    }
+  }
+  return salida;
 }
 
 // ─────────────────────────── Reintento de pendientes ─────────────────────────

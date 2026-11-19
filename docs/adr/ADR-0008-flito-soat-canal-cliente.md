@@ -385,6 +385,24 @@ Y la comprobación que **no** es SQL, porque es la que se rompe en silencio: que
 4. **`vehicles.plate` no es único** (§1.4): dos filas con la misma placa siguen siendo posibles. No lo empeora este Feature; tampoco lo arregla.
 5. **`/admin/rendimiento` y `/admin/tramites-metricas` no tienen `ProtectedRoute`** (`App.tsx:262-263`). Se autogestionan con `Navigate to="/"`, que para un `cliente` significa caer en el `NoAccess` del dashboard — el bucle del hallazgo C otra vez, por otra puerta. `rutaInicio` lo tapa; el gate ausente sigue ausente.
 
+## Nota de evolución — HU #13967 (2026-10): el canal lo gobiernan el permiso y el proveedor
+
+Sin reescribir lo de arriba, que documenta la decisión original: desde la HU #13967 (Feature #13966) el
+interruptor `clients.soat_sin_tramite` **dejó de decidir**. Puede solicitar SOAT sin trámite quien tenga la
+función `soat.solicitud.crear` **y** pertenezca a una compañía con proveedor elegido
+(`clients.flito_proveedor_soat_sin_tramite_id IS NOT NULL`); `NULL` = «Sin proveedor» = canal cerrado.
+
+- Un solo predicado (`canalSinTramiteAbierto`, `clients/cliente-operable.ts`) lo leen `/me`
+  (`puedeSolicitarSoat`), `canalDeLaCompania` (403 `canal_desactivado`, ahora con texto neutro que no menciona
+  al proveedor) y `companiasDelCanal`.
+- La columna sale de `schema.ts`; la física queda sin uso y con su DEFAULT hasta #13968. El DTO sigue enviando
+  `soatSinTramite`, **calculado** desde el proveedor (`@deprecated #13968`). El PATCH de parametrización lo ignora.
+- La migración `0262` deja sin proveedor a las compañías que tenían el canal apagado, retira el CHECK
+  `clients_sin_tramite_gestor_chk` (0175) y renombra la acción `accion.clientes.soat_sin_tramite` a «Elegir
+  proveedor de SOAT sin trámite» (mismo código y operaciones).
+- `GET /clients` añade `permisoSinTramiteSinEfecto` (compañía sin proveedor con algún usuario que ya tiene la
+  función), calculado con `companiasConUsuarioConFuncion` (`shared/permisos-efectivos.ts`), sin datos de usuarios.
+
 ## Relación con otros ADR
 
 - **ADR-0005** (`Aprobado` el 2026-09-09) — su regla se hereda en espíritu: la FK `users.compania_id` declara su `ON DELETE` explícitamente (§3), aunque vaya en el sentido contrario al que ese ADR gobierna.

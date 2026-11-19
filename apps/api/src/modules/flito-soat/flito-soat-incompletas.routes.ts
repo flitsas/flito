@@ -26,6 +26,7 @@ import { contextoSoat } from './flito-soat.service.js';
 import { buscarIncompletas, detalleIncompleta } from './flito-soat-incompletas.service.js';
 import { IncompletaYaResueltaError, reintentarIncompleta, type ReintentoHecho } from './flito-soat-incompletas-reintento.service.js';
 import { SolicitudSoatError } from './flito-soat-cliente.service.js';
+import { ClienteNoOperableError } from '../clients/cliente-operable.js';
 import {
   CAMPOS_PII_INCOMPLETA_DETALLE, CAMPOS_PII_INCOMPLETA_FILA, registrarAccesoIncompleta,
   registrarAccesoRuntCliente,
@@ -123,6 +124,8 @@ router.post('/cliente/incompletas/:id/reintentar', exigirFuncion('soat.solicitud
     try {
       hecho = await reintentarIncompleta(req.params.id, ctx);
     } catch (e) {
+      // HU #13947: el reintento despacha un SOAT nuevo; cliente inactivo → 409 con el mensaje del AC.
+      if (e instanceof ClienteNoOperableError) { res.status(e.status).json({ error: e.message }); return; }
       if (e instanceof SolicitudSoatError) {
         // La carrera (AC6): el RUNT SÍ se consultó antes del 409, y esa consulta queda en el registro.
         if (e instanceof IncompletaYaResueltaError && e.runtConsultado) {

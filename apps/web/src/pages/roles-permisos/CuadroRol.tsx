@@ -11,7 +11,8 @@
 //
 // AC6: sin «asignar» (`permisos.cuadro.guardar`) el árbol es de solo lectura — casillas `disabled` con
 // el nombre en tinta normal, sin «Marcar todo / Desmarcar todo» ni barra. Editar / borrar el rol, cada
-// uno con su acción. AC7: `admin` no tiene trato especial aquí.
+// uno con su acción. AC7: `admin` no tiene trato especial aquí, salvo las funciones exclusivas del
+// Administrador (HU #13951): fijas en `admin`, bloqueadas en los demás roles.
 
 import { useEffect, useMemo, useRef } from 'react';
 import type { RolCatalogo } from '@operaciones/shared-types';
@@ -19,7 +20,9 @@ import GradientButton from '../../components/flit/GradientButton';
 import StatusChip from '../../components/flit/StatusChip';
 import { FlitCard, flitBtnSecondary, flitBtnSecondarySm, flitBtnSecondaryStyle } from '../../components/flit/flitPageKit';
 import { ETIQUETA_ENLACE, desmarcadas, marcadas, notaCerradoPorEnlace } from './modulos';
-import { cerradosPorEnlace, codigosDesmarcarTodo, codigosMarcarTodo, type Aviso409, type Indice, type Nodo } from './arbol';
+import {
+  cerradosPorEnlace, codigosDesmarcarTodo, codigosExclusivos, codigosMarcarTodo, tratoExclusivasDe, type Aviso409, type Indice, type Nodo,
+} from './arbol';
 import ArbolPermisos, { type FocoArbol } from './ArbolPermisos';
 import { useFabOffset } from '../../components/drflit/useFabOffset';
 
@@ -80,6 +83,11 @@ export default function CuadroRol({
   // HU #13452: lo que el enlace del rol cierra se pinta deshabilitado y «Marcar todo» no lo marca.
   const cerrados = useMemo(() => cerradosPorEnlace(arbol, rol.tipoEnlace), [arbol, rol.tipoEnlace]);
   const idMotivo = `motivo-rol-${rol.codigo}`;
+  // HU #13951: «Marcar todo» se salta las exclusivas en otro rol; «Desmarcar todo», en el Administrador.
+  const trato = tratoExclusivasDe(rol.codigo);
+  const exclusivas = useMemo(() => codigosExclusivos(indice), [indice]);
+  const marcarTodo = () => onConjunto(codigosMarcarTodo(todos).filter((c) => !cerrados.has(c) && !(trato === 'fuera' && exclusivas.has(c))), true);
+  const desmarcarTodo = () => onConjunto(codigosDesmarcarTodo(todos).filter((c) => !(trato === 'fija' && exclusivas.has(c))), false);
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -150,10 +158,10 @@ export default function CuadroRol({
           <h3 className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Permisos del rol</h3>
           {editable && (
             <div className="flex flex-wrap gap-2">
-              <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => onConjunto(codigosMarcarTodo(todos).filter((c) => !cerrados.has(c)), true)}>
+              <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={marcarTodo}>
                 Marcar todo<span className="sr-only"> en el rol {rol.nombre}</span>
               </button>
-              <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={() => onConjunto(codigosDesmarcarTodo(todos), false)}>
+              <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={desmarcarTodo}>
                 Desmarcar todo<span className="sr-only"> en el rol {rol.nombre}</span>
               </button>
             </div>
@@ -173,6 +181,7 @@ export default function CuadroRol({
           usarEfectivoServidor={usarEfectivoServidor}
           cerrados={cerrados}
           notaCerrado={cerrados.size > 0 ? notaCerradoPorEnlace(rol.tipoEnlace) : undefined}
+          exclusivas={trato}
         />
       </FlitCard>
     </div>

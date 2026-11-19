@@ -53,7 +53,9 @@ const ESTADOS_INTERNOS_POR_SIMPLE: Record<TEstadoSimple, TEstadoDoc[]> = {
   novedad: [EstadoDocumentoLogistica.NOVEDAD, EstadoDocumentoLogistica.DEVUELTO],
 };
 const normPlaca = (s: string): string => s.toUpperCase().replace(/[\s-]/g, '');
-const aprobadoSql = sql`lower(${flitoTramites.flitEstado}) = 'aprobado'`;
+// HU #13946: un trámite retenido (cliente inactivo) puede llegar o pasar a «Aprobado» en FLIT (el sync escribe
+// `flit_estado` en cada update), pero no entra a la consola, ni al escaneo/validación de la LT, ni a las facetas.
+const aprobadoSql = sql`lower(${flitoTramites.flitEstado}) = 'aprobado' AND NOT ${flitoTramites.retenido}`;
 
 /** Error de negocio con estado HTTP sugerido (lo traduce la ruta). */
 export class LogisticaError extends Error {

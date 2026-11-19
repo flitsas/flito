@@ -15,6 +15,9 @@
 //   · P-31: «Marcar todo» marca ítems y acciones pero no opcionales; «Desmarcar todo» quita todo.
 //   · AC3 (delta §7): `sinAcciones` = ítem FLITO marcado sin ninguna acción marcada.
 //   · P-25 (delta §5): una excepción «conceder» bajo un ancestro que el usuario no tiene es «sin efecto».
+//   · HU #13951 (`docs/ux/permisos-exclusivas-admin-13951-slim.md`): las funciones `exclusivaAdmin` solo
+//     las tiene el rol `admin`. En otro rol no se marcan, no cuentan en «k de n» ni en el parcial y el
+//     `PUT` no las lleva; en el Administrador siempre van marcadas y el `PUT` siempre las lleva.
 
 import { paginaAbiertaAlEnlace, type NodoArbolDef, type TipoEnlace } from '@operaciones/shared-types';
 
@@ -36,7 +39,7 @@ export function normalizar(nodos: readonly NodoEntrada[] | undefined): Nodo[] {
     .map((n) => ({
       codigo: n.codigo, nombre: n.nombre, tipo: n.tipo, padre: n.padre, orden: n.orden,
       descripcion: n.descripcion, slug: n.slug, legado: n.legado, derivado: n.derivado, nivel: n.nivel,
-      opcional: n.opcional, efectivoServidor: n.efectivo, hijos: normalizar(n.hijos),
+      opcional: n.opcional, exclusivaAdmin: n.exclusivaAdmin, efectivoServidor: n.efectivo, hijos: normalizar(n.hijos),
     }));
 }
 
@@ -74,6 +77,35 @@ export function indexar(arbol: readonly Nodo[]): Indice {
 }
 
 export const noOpcionales = (n: Nodo): Nodo[] => n.hijos.filter((h) => !h.opcional);
+
+// ─── Exclusivas del Administrador (HU #13951) ────────────────────────────────────────────────────
+
+/** Código canónico del rol Administrador (`USER_ROLES`); el servidor decide con el mismo literal. */
+export const CODIGO_ROL_ADMIN = 'admin';
+
+/**
+ * Cómo trata el árbol las exclusivas: `fuera` = otro rol (no se marcan ni cuentan), `fija` = el
+ * Administrador (siempre marcadas), `undefined` = sin trato (modo usuario).
+ */
+export type TratoExclusivas = 'fuera' | 'fija';
+
+export const tratoExclusivasDe = (codigoRol: string): TratoExclusivas => (codigoRol === CODIGO_ROL_ADMIN ? 'fija' : 'fuera');
+
+/** Los códigos de las exclusivas del árbol. */
+export function codigosExclusivos(indice: Indice): Set<string> {
+  return new Set([...indice.porCodigo.values()].filter((n) => n.exclusivaAdmin).map((n) => n.codigo));
+}
+
+/** El conjunto con la regla aplicada: sin exclusivas en otro rol, con todas en el Administrador. */
+export function conExclusivas(marcados: ReadonlySet<string>, indice: Indice, trato: TratoExclusivas): Set<string> {
+  const s = new Set(marcados);
+  for (const c of codigosExclusivos(indice)) { if (trato === 'fija') s.add(c); else s.delete(c); }
+  return s;
+}
+
+/** Hijos que cuentan para «k de n» y el parcial: sin opcionales y, en otro rol, sin exclusivas. */
+const cuentan = (n: Nodo, trato?: TratoExclusivas): Nodo[] =>
+  noOpcionales(n).filter((h) => !(trato === 'fuera' && h.exclusivaAdmin));
 export const opcionalesDe = (n: Nodo): Nodo[] => n.hijos.filter((h) => h.opcional);
 
 /** Todos los descendientes (en profundidad, padres antes que hijos). */
@@ -82,30 +114,30 @@ export function descendientes(n: Nodo): Nodo[] {
 }
 
 /** Descendientes que cuentan: los no opcionales, bajando solo por no opcionales (P-26). */
-function contables(n: Nodo): Nodo[] {
-  return noOpcionales(n).flatMap((h) => [h, ...contables(h)]);
+function contables(n: Nodo, trato?: TratoExclusivas): Nodo[] {
+  return cuentan(n, trato).flatMap((h) => [h, ...contables(h, trato)]);
 }
 
 /** ¿Se pinta como hoja (sin «k de n» ni parcial)? Sí si no tiene hijos que cuenten. */
-export const esHoja = (n: Nodo): boolean => noOpcionales(n).length === 0;
+export const esHoja = (n: Nodo, trato?: TratoExclusivas): boolean => cuentan(n, trato).length === 0;
 
 export type EstadoCasilla = 'marcada' | 'parcial' | 'desmarcada';
 
-function completo(n: Nodo, marcados: ReadonlySet<string>): boolean {
-  return marcados.has(n.codigo) && noOpcionales(n).every((h) => completo(h, marcados));
+function completo(n: Nodo, marcados: ReadonlySet<string>, trato?: TratoExclusivas): boolean {
+  return marcados.has(n.codigo) && cuentan(n, trato).every((h) => completo(h, marcados, trato));
 }
 
 /** Tri-estado (ficha full «Casillas tri-estado»): parcial = marcado con algo de adentro sin marcar. */
-export function estadoDe(n: Nodo, marcados: ReadonlySet<string>): EstadoCasilla {
+export function estadoDe(n: Nodo, marcados: ReadonlySet<string>, trato?: TratoExclusivas): EstadoCasilla {
   if (!marcados.has(n.codigo)) return 'desmarcada';
-  return completo(n, marcados) ? 'marcada' : 'parcial';
+  return completo(n, marcados, trato) ? 'marcada' : 'parcial';
 }
 
 export interface Cuenta { k: number; n: number; opcionales: number }
 
 /** «k de n» sobre lo que cuenta, más cuántos opcionales hay marcados por debajo. */
-export function cuentaDe(nodo: Nodo, marcados: ReadonlySet<string>): Cuenta {
-  const c = contables(nodo);
+export function cuentaDe(nodo: Nodo, marcados: ReadonlySet<string>, trato?: TratoExclusivas): Cuenta {
+  const c = contables(nodo, trato);
   const opcionales = descendientes(nodo).filter((d) => d.opcional && marcados.has(d.codigo)).length;
   return { k: c.filter((d) => marcados.has(d.codigo)).length, n: c.length, opcionales };
 }
@@ -154,9 +186,13 @@ export function totalMarcables(arbol: readonly Nodo[]): number {
   return codigosDesmarcarTodo(arbol).length;
 }
 
-/** El conjunto que viaja en el `PUT`: todo lo marcado, inactivos incluidos, nunca `menu.ayuda`. */
-export function funcionesParaGuardar(borrador: ReadonlySet<string>, indice: Indice): string[] {
-  return [...borrador].filter((c) => c !== CODIGO_AYUDA && !indice.porCodigo.get(c)?.derivado).sort();
+/**
+ * El conjunto que viaja en el `PUT`: todo lo marcado, inactivos incluidos, nunca `menu.ayuda`.
+ * HU #13951: con `trato`, otro rol nunca lleva una exclusiva y el Administrador siempre las lleva.
+ */
+export function funcionesParaGuardar(borrador: ReadonlySet<string>, indice: Indice, trato?: TratoExclusivas): string[] {
+  const conjunto = trato ? conExclusivas(borrador, indice, trato) : borrador;
+  return [...conjunto].filter((c) => c !== CODIGO_AYUDA && !indice.porCodigo.get(c)?.derivado).sort();
 }
 
 // ─── Modo usuario (AC4, P-25) ────────────────────────────────────────────────────────────────────
@@ -286,10 +322,50 @@ const FIN_409 = 'Tus cambios siguen aquí, sin guardar.';
 
 export interface Aviso409 { texto: string; nodo: string | null }
 
-/** Resuelve el nombre: `nodo` → `funcion` → sin nombre (y sin «Mostrar dónde está»). */
-export function aviso409(cuerpo: { nodo?: string; funcion?: string }, indice: Indice, modo: 'rol' | 'usuario'): Aviso409 {
+/** Notas de la fila de una exclusiva (HU #13951): empiezan siempre por el literal del AC. */
+export const NOTA_EXCLUSIVA_OTRO_ROL = 'Exclusiva del Administrador: no se puede dar a otro rol.';
+export const NOTA_EXCLUSIVA_ADMIN = 'Exclusiva del Administrador: este rol siempre la tiene.';
+/** HU #13970: las mismas notas en los permisos individuales de un usuario (modo usuario). */
+export const NOTA_EXCLUSIVA_USUARIO = 'Exclusiva del Administrador: solo la tiene quien tiene ese rol.';
+export const NOTA_EXCLUSIVA_USUARIO_ADMIN = 'Exclusiva del Administrador: la da su rol y no se puede quitar.';
+export const notaExclusiva = (trato: TratoExclusivas, modo: 'rol' | 'usuario' = 'rol') => (modo === 'usuario'
+  ? (trato === 'fija' ? NOTA_EXCLUSIVA_USUARIO_ADMIN : NOTA_EXCLUSIVA_USUARIO)
+  : (trato === 'fija' ? NOTA_EXCLUSIVA_ADMIN : NOTA_EXCLUSIVA_OTRO_ROL));
+
+/** Las excepciones de un usuario sin las que tocan exclusivas (HU #13970): no son asignables ni quitables. */
+export function sinExclusivas<T extends { codigo: string }>(lista: readonly T[], indice: Indice): T[] {
+  return lista.filter((f) => !indice.porCodigo.get(f.codigo)?.exclusivaAdmin);
+}
+
+/** 409 `FuncionExclusivaAdmin` con el nombre resuelto (HU #13951; modo usuario HU #13970). Nunca el texto del API. */
+export function aviso409Exclusiva(nombre: string, trato: TratoExclusivas, modo: 'rol' | 'usuario' = 'rol'): string {
+  const alDia = 'Cierra y vuelve a abrir el usuario para ver sus permisos al día.';
+  let medio: string;
+  if (modo === 'usuario') {
+    medio = trato === 'fija'
+      ? `«${nombre}» es exclusiva del Administrador y este usuario la tiene por su rol: no se puede quitar. ${alDia}`
+      : `«${nombre}» es exclusiva del Administrador y no se puede dar a este usuario. ${alDia}`;
+  } else {
+    medio = trato === 'fija'
+      ? `«${nombre}» es exclusiva del Administrador y este rol no la puede perder. Vuelve a marcarla y guarda de nuevo.`
+      : `«${nombre}» es exclusiva del Administrador y no se puede dar a otro rol. Desmárcala y vuelve a guardar.`;
+  }
+  return `No se guardó: ${medio} ${FIN_409}`;
+}
+
+/**
+ * Resuelve el nombre: `nodo` → `funcion` → sin nombre (y sin «Mostrar dónde está»). HU #13951: si el
+ * código resuelto es una exclusiva del Administrador (y hay `trato`, es decir, panel del rol), el 409
+ * es el de `FuncionExclusivaAdmin` (mismo cuerpo `{ error, funcion }`) y lleva su propio copy.
+ */
+export function aviso409(
+  cuerpo: { nodo?: string; funcion?: string }, indice: Indice, modo: 'rol' | 'usuario', trato?: TratoExclusivas,
+): Aviso409 {
   const codigo = [cuerpo.nodo, cuerpo.funcion].find((c) => c && indice.porCodigo.has(c)) ?? null;
   const nombre = codigo ? indice.porCodigo.get(codigo)?.nombre : null;
+  if (codigo && nombre && trato && indice.porCodigo.get(codigo)?.exclusivaAdmin) {
+    return { texto: aviso409Exclusiva(nombre, trato, modo), nodo: codigo };
+  }
   if (!codigo || !nombre) {
     const donde = modo === 'rol' ? 'en este rol' : 'a este usuario';
     return { texto: `${INICIO_409} Revisa Administración, Usuarios y Roles y permisos ${donde} antes de guardar. ${FIN_409}`, nodo: null };

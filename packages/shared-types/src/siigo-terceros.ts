@@ -159,16 +159,15 @@ export const CLIENTS_COLUMNAS_PII = [
 export const CLIENTS_COLUMNAS_SIN_PII = [
   'id', 'documentType', 'city', 'active', 'createdAt',
   'cityTextoOrigen', 'cityConfirmadaPor', 'cityConfirmadaEn',
-  // `soatSinTramite` (Feature #11912): bandera de parametrización, como sus vecinas — dice qué
-  // canal tiene abierto la compañía, no quién es. No identifica a nadie y borrarla en un derecho al
-  // olvido dejaría a sus usuarios `cliente` sin poder pedir SOAT sin motivo.
-  'soatAutogestionable', 'soatSinTramite', 'impuestosAutogestionable', 'logisticaAutogestionable',
+  // `soatSinTramite` (Feature #11912) SALIÓ de esta lista en la HU #13967: ya no es columna del esquema
+  // Drizzle (la física queda sin uso hasta #13968), y una entrada huérfana es la trampa que se explica
+  // abajo con `flitoProveedorSoatId`. El canal lo dice ahora `flitoProveedorSoatSinTramiteId`.
+  'soatAutogestionable', 'impuestosAutogestionable', 'logisticaAutogestionable',
   'logisticaPermiteParcial', 'flitoCarpetaStorage', 'flitoToleranciaValorImpuesto',
   // `flitoProveedorSoatSinTramiteId` (Feature #12074, HU #12078): el uuid del gestor por defecto al
   // que van las solicitudes del canal sin trámite. Es parametrización, como sus vecinas — dice a qué
   // aseguradora despacha esta compañía, no quién es nadie. Y borrarla en un derecho al olvido
-  // dejaría el canal abierto sin destino, que es justo el estado que `clients_sin_tramite_gestor_chk`
-  // prohíbe: el 23514 haría fallar la supresión entera.
+  // le cerraría el canal a la compañía (HU #13967: el proveedor ES el canal).
   //
   // Ocupa el sitio de la entrada HUÉRFANA `'flitoProveedorSoatId'`, que estuvo aquí sin ser una
   // columna de `clients` —esa vive en `users`— y que se borra en este mismo cambio. El canario
@@ -179,6 +178,9 @@ export const CLIENTS_COLUMNAS_SIN_PII = [
   'personType', 'idType', 'checkDigit', 'fiscalResponsibilities',
   'countryCode', 'stateCode', 'cityCode', 'branchOffice',
   'personTypeOrigen', 'facturacionBloqueos',
+  // HU #13952 (0257): baja lógica del cliente —cuándo y qué usuario—, como `cityConfirmadaPor/En`. No identifica
+  // a nadie, y borrarla en un derecho al olvido devolvería a la vida un cliente dado de baja.
+  'deletedAt', 'deletedBy',
 ] as const;
 
 /**

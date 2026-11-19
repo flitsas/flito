@@ -1,6 +1,6 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { and, eq, ne, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import {
   PERSONA_TIPOS,
   SIIGO_ID_TIPOS_CODIGOS,
@@ -15,13 +15,22 @@ import {
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { clients, flitoProveedoresSoat } from '../../db/schema.js';
-import { authMiddleware } from '../../shared/middleware/auth.js';
+import { authMiddleware, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
 import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
+import { companiasConUsuarioConFuncion } from '../../shared/permisos-efectivos.js';
+import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.js';
+import { actorDeRequest } from '../../shared/historial/permisos-auditoria.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { maskName } from '../../shared/utils/pii.js';
 import {
   COLUMNAS_LISTADO, COLUMNAS_LISTADO_CON_GESTOR, clienteListadoDto, registrarAccesoListado,
 } from './clients.pii.js';
+import {
+  ClienteDuplicadoError, ClienteNoEliminableError, ClienteNoEncontradoError, EstadoClienteCambiadoError,
+  cambiarEstadoCliente, eliminarCliente, esDuplicadoNitSucursal, exigirNitSucursalLibre, impactoCliente,
+  nombreEnmascarado,
+} from './clients.service.js';
+import { clienteVigente } from './cliente-operable.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -185,21 +194,11 @@ function diffFiscal(antes: Record<string, unknown>, despues: Record<string, unkn
 
 /**
  * En Siigo la identidad de un tercero es la pareja (identificación, sucursal): el mismo número solo
- * puede repetirse si la sucursal es distinta (AC5).
- *
- * Se comprueba aquí y no con un índice único porque los datos actuales ya traen duplicados —la
- * migración 0132 los deja señalados en vez de fallar— y un índice único no se puede crear sobre
- * ellos. La restricción de base entra cuando esos conflictos estén resueltos; hasta entonces esto
- * evita que la cartera siga creciendo con parejas repetidas.
+ * puede repetirse si la sucursal es distinta. La regla (RN-CLI-7, HU #13952) vive en el servicio
+ * (`exigirNitSucursalLibre` + índice único parcial de la 0257); aquí solo se traduce a HTTP.
  */
-async function parejaOcupada(document: string, branchOffice: number, excluirId?: number) {
-  const mismos = and(
-    sql`trim(upper(${clients.document})) = ${document.trim().toUpperCase()}`,
-    eq(clients.branchOffice, branchOffice),
-    excluirId === undefined ? undefined : ne(clients.id, excluirId),
-  );
-  const [fila] = await db.select({ id: clients.id }).from(clients).where(mismos).limit(1);
-  return fila !== undefined;
+function responderDuplicado(res: Response, e: ClienteDuplicadoError): void {
+  res.status(409).json({ error: e.message, campo: 'document' });
 }
 
 /**
@@ -232,9 +231,17 @@ router.get('/', exigirFuncion('clients.clientes.ver'), async (req: Request, res:
   const offset = Math.max(0, parseInt(req.query.offset as string) || 0);
   const result = await db.select(COLUMNAS_LISTADO_CON_GESTOR).from(clients)
     .leftJoin(flitoProveedoresSoat, eq(flitoProveedoresSoat.id, clients.flitoProveedorSoatSinTramiteId))
+    // RN-CLI-9 (HU #13953, AC1): el padrón solo lista clientes vigentes; el eliminado no vuelve a aparecer.
+    .where(clienteVigente())
     .orderBy(clients.name).limit(limit).offset(offset);
   await registrarAccesoListado(req, { filas: result.length, limit, offset });
-  res.json(result.map(clienteListadoDto));
+  // HU #13967 (AC7): `permisoSinTramiteSinEfecto` solo se calcula para las compañías de ESTA página
+  // sin proveedor de SOAT sin trámite; si no hay ninguna, todas van en false y no se consulta.
+  const sinProveedor = result.filter((f) => !f.soatSinTramite).map((f) => f.id);
+  const conPermisoSinEfecto = sinProveedor.length > 0
+    ? await companiasConUsuarioConFuncion('soat.solicitud.crear', sinProveedor)
+    : new Set<number>();
+  res.json(result.map((f) => clienteListadoDto(f, !f.soatSinTramite && conPermisoSinEfecto.has(f.id))));
 });
 
 router.post('/', exigirFuncion('clients.clientes.crear'), async (req: Request, res: Response) => {
@@ -252,14 +259,12 @@ router.post('/', exigirFuncion('clients.clientes.crear'), async (req: Request, r
     return;
   }
 
-  if (datos.document && datos.document.trim() !== '') {
-    if (await parejaOcupada(datos.document, datos.branchOffice ?? 0)) {
-      res.status(409).json({
-        error: 'Ya existe un cliente con esa identificación en esa sucursal. En Siigo serían el mismo tercero.',
-        campo: 'document',
-      });
-      return;
-    }
+  const sucursalAlta = datos.branchOffice ?? 0;
+  try {
+    await exigirNitSucursalLibre(datos.document, sucursalAlta);
+  } catch (e) {
+    if (e instanceof ClienteDuplicadoError) { responderDuplicado(res, e); return; }
+    throw e;
   }
 
   // `personTypeOrigen` no está en el schema —no es escribible desde fuera— pero sí se deriva de la
@@ -271,9 +276,16 @@ router.post('/', exigirFuncion('clients.clientes.crear'), async (req: Request, r
   // siquiera es escribible por esta ruta: `createSchema` no la acepta. Se proyecta la MISMA lista que
   // entrega `GET /clients`, que es la unión medida de lo que leen los cinco consumidores, para que
   // las tres respuestas del módulo digan lo mismo y la próxima columna tampoco salga sola.
-  const [client] = await db.insert(clients)
-    .values({ ...datos, ...(datos.personType ? { personTypeOrigen: 'manual' as const } : {}) })
-    .returning(COLUMNAS_LISTADO);
+  let client;
+  try {
+    [client] = await db.insert(clients)
+      .values({ ...datos, ...(datos.personType ? { personTypeOrigen: 'manual' as const } : {}) })
+      .returning(COLUMNAS_LISTADO);
+  } catch (e) {
+    // AC6: otra alta ganó la carrera entre la validación y el INSERT → el mismo 409, nunca 500.
+    if (esDuplicadoNitSucursal(e)) { responderDuplicado(res, new ClienteDuplicadoError(datos.document!.trim(), sucursalAlta)); return; }
+    throw e;
+  }
   await audit(req, {
     action: 'create',
     resource: 'client',
@@ -300,8 +312,18 @@ router.patch('/:id', async (req: Request, res: Response) => {
 
   // Se lee ANTES de escribir: sin el estado previo no hay «valor anterior» que auditar (AC7), y
   // tampoco se puede saber contra qué sucursal validar cuando el PATCH solo trae uno de los dos.
-  const [previo] = await db.select().from(clients).where(eq(clients.id, id)).limit(1);
+  // RN-CLI-9 (HU #13953, AC2): un eliminado responde igual que uno inexistente.
+  const [previo] = await db.select().from(clients).where(and(eq(clients.id, id), clienteVigente())).limit(1);
   if (!previo) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
+
+  // HU #13945 (AC8): el estado no se cambia por la edición general sino con «Activar o desactivar» (exclusiva del
+  // Administrador, `PATCH /:id/estado`). `createSchema` no acepta `active` —se descartaría en silencio—, así que se
+  // mira el cuerpo crudo: igual al estado actual se ignora (un formulario que reenvía la fila entera no se rompe);
+  // distinto → 400.
+  if (req.body && typeof req.body === 'object' && 'active' in req.body && req.body.active !== previo.active) {
+    res.status(400).json({ error: 'El estado del cliente se cambia con Activar o Desactivar.' });
+    return;
+  }
 
   const cambios = parsed.data;
 
@@ -320,13 +342,12 @@ router.patch('/:id', async (req: Request, res: Response) => {
   const documento = cambios.document ?? previo.document;
   const sucursal = cambios.branchOffice ?? previo.branchOffice;
   const tocaIdentidad = cambios.document !== undefined || cambios.branchOffice !== undefined;
-  if (tocaIdentidad && documento && documento.trim() !== '') {
-    if (await parejaOcupada(documento, sucursal, id)) {
-      res.status(409).json({
-        error: 'Ya existe otro cliente con esa identificación en esa sucursal. En Siigo serían el mismo tercero.',
-        campo: 'document',
-      });
-      return;
+  if (tocaIdentidad) {
+    try {
+      await exigirNitSucursalLibre(documento, sucursal, id);
+    } catch (e) {
+      if (e instanceof ClienteDuplicadoError) { responderDuplicado(res, e); return; }
+      throw e;
     }
   }
 
@@ -336,9 +357,18 @@ router.patch('/:id', async (req: Request, res: Response) => {
   // campos de `CAMPOS_FISCALES_TRAZABLES` y `CAMPOS_FISCALES_PII` están todos en `COLUMNAS_LISTADO`.
   // El `previo` de arriba sí se lee entero, y eso NO es un descuido: no sale por HTTP y `diffFiscal`
   // recorre listas cerradas, así que una columna nueva no puede colarse en el `audit` por ahí.
-  const [updated] = await db.update(clients)
-    .set({ ...cambios, ...(cambios.personType ? { personTypeOrigen: 'manual' as const } : {}) })
-    .where(eq(clients.id, id)).returning(COLUMNAS_LISTADO);
+  let updated;
+  try {
+    [updated] = await db.update(clients)
+      .set({ ...cambios, ...(cambios.personType ? { personTypeOrigen: 'manual' as const } : {}) })
+      .where(and(eq(clients.id, id), clienteVigente())).returning(COLUMNAS_LISTADO);
+  } catch (e) {
+    // AC6: carrera con otra escritura sobre la misma pareja → el mismo 409, nunca 500.
+    if (esDuplicadoNitSucursal(e)) {
+      responderDuplicado(res, new ClienteDuplicadoError((documento ?? '').trim(), sucursal)); return;
+    }
+    throw e;
+  }
   if (!updated) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
 
   // Su gemelo de parametrización sí auditaba; este no. Cambiar los datos de un cliente sin dejar
@@ -351,6 +381,87 @@ router.patch('/:id', async (req: Request, res: Response) => {
     detail: `Cliente actualizado: ${maskName(updated.name)}${fiscal ? ` · Datos fiscales — ${fiscal}` : ''}`,
   });
   res.json(updated);
+});
+
+// ── HU #13945: desactivar y activar un cliente, con vista previa de su impacto ─────────────────────────────────
+// Las dos rutas exigen `clients.clientes.estado`, que concede «Activar o desactivar clientes», exclusiva del
+// Administrador (HU #13944). El impacto usa la misma función y no la de ver clientes: lo consume el modal de
+// desactivar, y sus conteos (saldo de la bolsa, procesos abiertos) no son parte de la lectura del padrón.
+
+const idCliente = (req: Request): number | null => {
+  const id = Number(req.params.id);
+  return Number.isInteger(id) && id > 0 ? id : null;
+};
+
+router.get('/:id/impacto', exigirFuncion('clients.clientes.estado'), async (req: Request, res: Response) => {
+  const id = idCliente(req);
+  if (id === null) { res.status(400).json({ error: 'ID inválido' }); return; }
+  const impacto = await impactoCliente(db, id);
+  if (!impacto) { res.status(404).json({ error: 'Cliente no encontrado' }); return; }
+  res.json(impacto);
+});
+
+const estadoSchema = z.object({ activo: z.boolean(), activoEsperado: z.boolean() }).strict();
+
+router.patch('/:id/estado', exigirFuncion('clients.clientes.estado'), async (req: Request, res: Response, next: NextFunction) => {
+  const id = idCliente(req);
+  if (id === null) { res.status(400).json({ error: 'ID inválido' }); return; }
+  const parsed = estadoSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos', details: parsed.error.flatten() }); return; }
+
+  let cambio;
+  try {
+    cambio = await cambiarEstadoCliente(id, parsed.data);
+  } catch (e) {
+    if (e instanceof ClienteNoEncontradoError) { res.status(404).json({ error: e.message }); return; }
+    if (e instanceof EstadoClienteCambiadoError) { res.status(409).json({ error: e.message }); return; }
+    // HU #13946 (AC6): p. ej. falló el arranque de un retenido al activar; la tx ya se revirtió. Al errorHandler (500):
+    // un `throw` en un handler async de Express 4 dejaría la petición colgada.
+    next(e); return;
+  }
+  // DESPUÉS del commit (patrón de `users.routes.ts`): la siguiente petición de cada usuario relee la marca.
+  for (const userId of cambio.usuariosInvalidados) invalidateSessionCacheFor(userId);
+
+  const verbo = cambio.active ? 'activado' : 'desactivado';
+  await audit(req, {
+    action: 'update',
+    resource: 'client',
+    resourceId: String(id),
+    detail: `Cliente ${verbo}: ${nombreEnmascarado(cambio.name)}`
+      + (cambio.active ? '' : ` · sesiones invalidadas: ${cambio.usuariosInvalidados.length} usuario(s)`),
+  });
+  res.json({ id: cambio.id, active: cambio.active });
+});
+
+// ── HU #13954: eliminar un cliente inactivo sin procesos abiertos ni saldo de bolsa (RN-CLI-10) ──────────────────
+// Exige `clients.clientes.eliminar`, que concede «Eliminar clientes», exclusiva del Administrador (0258). Baja lógica.
+router.delete('/:id', exigirFuncion('clients.clientes.eliminar'), async (req: Request, res: Response, next: NextFunction) => {
+  const id = idCliente(req);
+  if (id === null) { res.status(400).json({ error: 'ID inválido' }); return; }
+
+  let eliminado;
+  try {
+    eliminado = await eliminarCliente(id, actorDeRequest(req));
+  } catch (e) {
+    if (e instanceof ClienteNoEncontradoError) { res.status(404).json({ error: e.message }); return; }
+    if (e instanceof EstadoClienteCambiadoError || e instanceof ClienteNoEliminableError) {
+      res.status(409).json({ error: e.message }); return;
+    }
+    // Seguro anti-bloqueo (HU #12089): dar de baja a los usuarios del cliente dejaría sin administrador. La tx revirtió.
+    if (e instanceof BloqueoAdministracionError) { res.status(409).json({ error: e.message, funcion: e.funcion }); return; }
+    next(e); return;
+  }
+  // DESPUÉS del commit (patrón de `/estado`): la siguiente petición de cada usuario relee la baja.
+  for (const userId of eliminado.usuariosDadosDeBaja) invalidateSessionCacheFor(userId);
+
+  await audit(req, {
+    action: 'delete',
+    resource: 'client',
+    resourceId: String(id),
+    detail: `Cliente eliminado: ${nombreEnmascarado(eliminado.name)}`
+      + ` · usuarios dados de baja: ${eliminado.usuariosDadosDeBaja.length}`,
+  });
+  res.json({ id: eliminado.id, eliminado: true });
 });
 
 export default router;

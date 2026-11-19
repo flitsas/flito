@@ -31,7 +31,7 @@ const AREA = ACCIONES_POR_AREA.administracion;
 const ANEXO = `
 Administración → Usuarios: Ver usuarios · Crear usuario · Editar usuario · Cambiar la contraseña de otro usuario · Desactivar o reactivar · Dar de baja (eliminar) · Ver el historial · Exportar a Excel · Cerrar sesiones
 Administración → Roles y permisos: Ver roles · Crear rol · Editar rol · Asignar permisos · Eliminar rol
-Gestión → Clientes y proveedores: Ver clientes y proveedores · Crear y editar clientes · Crear y editar proveedores · Habilitar o revocar la autogestión del cliente · Configurar «SOAT sin trámite» · Datos fiscales
+Gestión → Clientes y proveedores: Ver clientes y proveedores · Crear y editar clientes · Crear y editar proveedores · Habilitar o revocar la autogestión del cliente · Elegir proveedor de SOAT sin trámite · Datos fiscales · Activar o desactivar clientes · Eliminar clientes · Activar o desactivar proveedores · Eliminar proveedores
 Gestión → Bitácora: Ver la bitácora
 General → Tablero: Ver (solo ver)
 Perfil → Perfil: Ver mis datos · Cambiar mi contraseña
@@ -54,9 +54,12 @@ describe('AC1 — el catálogo es exactamente la lista aprobada', () => {
     expect(lineas).toEqual(ANEXO);
   });
 
-  it('el catálogo del código emite las 24 acciones (nivel 3) y marca nivel 2 a los 6 ítems; los códigos son los del mapeo', () => {
+  // HU #13945: +1 («Activar o desactivar clientes», exclusiva del Administrador, nacida tras la siembra).
+  // HU #13954: +1 («Eliminar clientes», ídem). HU #13958: +1 («Activar o desactivar proveedores»).
+  // HU #13960: +1 («Eliminar proveedores»).
+  it('el catálogo del código emite las 28 acciones (nivel 3) y marca nivel 2 a los 6 ítems; los códigos son los del mapeo', () => {
     const accionesArbol = ARBOL.filter((n) => n.tipo === 'accion').map((n) => n.codigo).sort();
-    expect(accionesArbol).toHaveLength(24);
+    expect(accionesArbol).toHaveLength(28);
     expect(accionesArbol).toEqual([...AREA]);
     const cat = catalogoCompleto();
     const delCatalogo = cat.filter((f) => f.tipo === 'accion' && AREA.includes(f.codigo));
@@ -194,7 +197,11 @@ describe('AC4/AC5/AC7 — el paso sobre la partida real (0001..0235 plegadas): r
 
   it('AC5: pérdidas y ganancias por rol sobre la partida — nadie pierde y nadie gana (financiera tampoco: compañías y proveedores son opcionales)', () => {
     const i = informeArbol(usuarios, { filasRol, filasUsuario: [] }, undefined, AREA);
-    expect(i.cambios).toEqual([]);
+    // HU #13945: solo `admin` gana `clients.clientes.estado` («admin tiene todas las acciones»; la acción nació tras la
+    // siembra y es exclusiva suya). HU #13954: lo mismo con `clients.clientes.eliminar`; HU #13958, con
+    // `parametrizacion.proveedores.estado`; HU #13960, con `parametrizacion.proveedores.eliminar`. Nadie más gana ni pierde.
+    expect(i.cambios.map((c) => ({ rol: c.rol, pierde: c.pierde, gana: [...c.gana].sort() })))
+      .toEqual(i.cambios.length ? [{ rol: 'admin', pierde: [], gana: ['clients.clientes.eliminar', 'clients.clientes.estado', 'parametrizacion.proveedores.eliminar', 'parametrizacion.proveedores.estado'] }] : []);
     // Los opcionales se conservan donde estaban y no llegan a nadie más.
     const ef = efectivasExpandidas(usuarios, despues);
     for (const op of ['parametrizacion.companias.listar', 'parametrizacion.proveedores.listar']) {

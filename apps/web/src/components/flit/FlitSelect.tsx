@@ -48,6 +48,12 @@ export interface FlitSelectOpcion {
    * fiable entre navegadores, y aunque se pudiera, el color no puede cargar solo con la información.
    */
   nota?: string;
+  /**
+   * Aditivo (HU #13950). La opción se ve pero no se puede elegir —una compañía inactiva—. Baja como
+   * `disabled` (el navegador la pinta en gris y la salta) y `aria-disabled`, y el motivo tiene que
+   * viajar en `nota`: el gris solo no informa. Lo construye `opcionesConEstado`.
+   */
+  deshabilitada?: boolean;
 }
 
 interface Props {
@@ -119,6 +125,12 @@ interface Props {
    * `ayuda`, que es lo que el `aria-describedby` del control ya enlaza.
    */
   accesorio?: ReactNode;
+  /**
+   * Aditivo (HU #13968). Id de un texto que vive FUERA del campo —un aviso encima, por ejemplo— y
+   * que el lector debe leer al llegar al control. Va delante de la ayuda en `aria-describedby`. Sin
+   * él el marcado no cambia.
+   */
+  describedBy?: string;
 }
 
 /**
@@ -133,7 +145,7 @@ const CLASE_SELECT = `${flitInp} disabled:cursor-not-allowed `
 
 export default function FlitSelect({
   label, value, opciones, onChange, ayuda, mensaje, fallo, disabled, onReintentar, textoReintento,
-  required, error, onInvalido, accesorio,
+  required, error, onInvalido, accesorio, describedBy,
 }: Props) {
   const id = useId();
   const idMensaje = `${id}-mensaje`;
@@ -173,12 +185,17 @@ export default function FlitSelect({
         disabled={disabled}
         required={required}
         aria-invalid={error ? true : undefined}
-        aria-describedby={error ? `${idMensaje} ${idError}` : idMensaje}
+        aria-describedby={[describedBy, idMensaje, error ? idError : null].filter(Boolean).join(' ')}
         onInvalid={(e) => { if (onInvalido) { e.preventDefault(); onInvalido(); } }}
         onChange={(e) => onChange(e.target.value)}
       >
         {opciones.map((o) => (
-          <option key={o.valor} value={o.valor}>
+          <option
+            key={o.valor}
+            value={o.valor}
+            disabled={o.deshabilitada || undefined}
+            aria-disabled={o.deshabilitada ? true : undefined}
+          >
             {o.nota ? `${o.etiqueta} (${o.nota})` : o.etiqueta}
           </option>
         ))}

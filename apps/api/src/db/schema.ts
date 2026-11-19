@@ -169,6 +169,8 @@ export const users = pgTable('users', {
   // HU #12169: mismo argumento que el de arriba, para el `ON DELETE RESTRICT` de `users_role_fkey`.
   // Sin él, borrar un rol escanea `users` entera. También sirve al conteo por rol (CF-22).
   roleIdx: index('idx_users_role').on(t.role),
+  // HU #13971 (0264): impacto/desactivación/eliminación de un proveedor SOAT. Completo, no parcial (ver cabecera 0264).
+  proveedorSoatIdx: index('idx_users_flito_proveedor_soat').on(t.flitoProveedorSoatId),
 }));
 
 export const clients = pgTable('clients', {
@@ -187,28 +189,18 @@ export const clients = pgTable('clients', {
   // HU #13937 (migración 0252): las tres banderas nacen en TRUE — una compañía nueva no tiene
   // servicios gestionados por FLITO hasta que alguien los active. Las existentes no se tocaron.
   soatAutogestionable: boolean('soat_autogestionable').notNull().default(true),
-  /**
-   * FLITO — Cliente (Feature #11912): la compañía puede pedirle a FLITO el SOAT de un vehículo que
-   * NO tiene trámite digital abierto. Es lo que habilita el canal del rol `cliente`.
-   *
-   * INDEPENDIENTE de `soatAutogestionable` y lo contrario de una sub-opción suya: aquella dice que
-   * la compañía se compra el SOAT por su cuenta y que FLITO no lo gestiona; esta dice que sus
-   * usuarios pueden pedírselo a FLITO sin trámite de por medio. Las dos a la vez son una
-   * combinación válida y esperada, y es justo la que obliga a que la frontera de autogestión de
-   * `flito-soat.service.ts` deje pasar lo que nace con `origen = 'cliente'` (ADR-0008 §5).
-   *
-   * Nace APAGADO (AC3): una compañía nueva no estrena canal sin que alguien lo decida.
-   */
-  soatSinTramite: boolean('soat_sin_tramite').notNull().default(false),
+  // HU #13967: `clients.soat_sin_tramite` (Feature #11912) SALIÓ del esquema. La columna física se
+  // queda en la BD con su DEFAULT y sin uso (se retira en #13968): el canal lo abre el PROVEEDOR
+  // elegido (`flitoProveedorSoatSinTramiteId IS NOT NULL`) junto con la función `soat.solicitud.crear`.
   /**
    * FLITO — Cliente (Feature #12074, HU #12078): el gestor por defecto AL QUE VAN las solicitudes
    * que esta compañía radica por el canal SIN TRÁMITE. Desde esa HU el alta no espera a que
    * Operaciones elija destino: nace en `solicitado` con el destino ya escrito, y sale de aquí.
    *
-   * Vive pegada a `soatSinTramite` a propósito: son el mismo hecho partido en dos columnas —«el
-   * canal está abierto» y «hacia dónde»— y el CHECK `clients_sin_tramite_gestor_chk` (migración
-   * 0175, `soat_sin_tramite = false OR flito_proveedor_soat_sin_tramite_id IS NOT NULL`) las ata.
-   * Separarlas invitaría a leer una sin la otra.
+   * HU #13967: desde esta HU es ADEMÁS el interruptor del canal. `NULL` = «Sin proveedor» = canal
+   * CERRADO; no nulo = canal abierto hacia ese proveedor (si está inactivo, la solicitud cae en la
+   * contingencia de Operaciones). Puede radicar quien tenga `soat.solicitud.crear` y una compañía
+   * con proveedor. El CHECK `clients_sin_tramite_gestor_chk` (0175) se retira en la 0262.
    *
    * **SOLO del canal sin trámite, y el nombre lo dice a propósito.** El SOAT POR TRÁMITE no la lee
    * nunca: allí Operaciones elige gestor en cada `POST /flito/soat/enviar`, que es cuando alguien
@@ -217,13 +209,11 @@ export const clients = pgTable('clients', {
    * `GET /clients` también la lee, pero solo para MOSTRARLA —unida a `flito_proveedores_soat`, para
    * que la ficha de la compañía diga el nombre del gestor y si está activo—, nunca para enrutar.
    *
-   * NULLABLE, como `users.companiaId`: casi ninguna compañía tiene el canal abierto y un `NOT NULL`
-   * obligaría a inventarle un gestor a cada una. La obligatoriedad es CONDICIONAL al flag y la
-   * sostiene el CHECK, que Drizzle no declara aquí porque no lo declara ninguno de `clients`.
+   * NULLABLE, como `users.companiaId`: casi ninguna compañía tiene el canal abierto, y el nulo es
+   * justamente «canal cerrado» (HU #13967).
    *
-   * `ON DELETE RESTRICT` explícito (ADR-0005 regla 1, ADR-0008 §3): `SET NULL` crearía por la
-   * puerta de atrás el estado que el AC2c declara imposible —canal encendido, destino vacío— y en
-   * silencio. Sin índice: `clients` tiene cientos de filas y no existe `DELETE /proveedores-soat`
+   * `ON DELETE RESTRICT` explícito (ADR-0005 regla 1, ADR-0008 §3): `SET NULL` cerraría el canal de
+   * la compañía por la puerta de atrás y en silencio. Sin índice: `clients` tiene cientos de filas y no existe `DELETE /proveedores-soat`
    * (un proveedor se retira con `activo = false`, que NO dispara la FK).
    */
   flitoProveedorSoatSinTramiteId: uuid('flito_proveedor_soat_sin_tramite_id')
@@ -266,10 +256,16 @@ export const clients = pgTable('clients', {
   // Lo que la migración encontró y bloquea facturar. Vacío NO significa facturable: el veredicto
   // completo lo calcula el informe de la HU #11296, que mira además dirección, contacto y ciudad.
   facturacionBloqueos: text('facturacion_bloqueos').array().notNull().default(sql`'{}'::text[]`),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  // HU #13952 (0257) — baja lógica (la escribe la HU #13954). NULL = vigente: un cliente dado de baja no ocupa su NIT +
+  // sucursal (ni la validación de altas/ediciones ni el índice único lo cuentan). Misma línea: techo de max-lines.
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), deletedAt: timestamp('deleted_at', { withTimezone: true }), deletedBy: integer('deleted_by').references(() => users.id, { onDelete: 'restrict' }),
 }, (t) => ({
   documentIdx: index('idx_clients_document').on(t.document),
-  documentBranchIdx: index('idx_clients_document_branch').on(t.document, t.branchOffice),
+  // HU #13952 (0257) — red de seguridad de «un NIT por sucursal entre vigentes»: misma normalización que la validación
+  // previa (`upper(btrim())`); sin NIT (NULL o vacío) no participa. Se conserva el no único (búsqueda exacta, con bajas).
+  // Misma línea: techo de max-lines del archivo.
+  documentBranchIdx: index('idx_clients_document_branch').on(t.document, t.branchOffice), documentBranchVivoUq: uniqueIndex('uq_clients_document_branch_vivo').on(sql`upper(btrim(${t.document}))`, t.branchOffice).where(sql`deleted_at IS NULL AND document IS NOT NULL AND btrim(document) <> ''`),
+  proveedorSoatSinTramiteIdx: index('idx_clients_flito_proveedor_soat_sin_tramite').on(t.flitoProveedorSoatSinTramiteId), // HU #13971 (0264)
 }));
 
 export const vehicles = pgTable('vehicles', {
@@ -2664,16 +2660,17 @@ export const flitoTramiteEstadoEnum = pgEnum('flito_tramite_estado', ['asignado'
 // Modalidad del organismo: requiere_gestion | autogestionado (default). 'sin_clasificar' se deprecó.
 export const flitoModalidadEnum = pgEnum('flito_modalidad_organismo', ['requiere_gestion', 'autogestionado']);
 
-// Proveedor que adquiere el SOAT (RN-05: determina la estrategia de flujo).
+// Proveedor que adquiere el SOAT (RN-05: determina la estrategia de flujo). HU #13957 (0259): baja lógica (`deleted_at`/
+// `deleted_by`) y nombre único solo entre vigentes (exacto, como la constraint que reemplaza): un eliminado lo libera.
 export const flitoProveedoresSoat = pgTable('flito_proveedores_soat', {
   id: uuid('id').primaryKey().defaultRandom(),
-  nombre: varchar('nombre', { length: 150 }).notNull().unique(),
+  nombre: varchar('nombre', { length: 150 }).notNull(),
   estrategia: varchar('estrategia', { length: 40 }).notNull().default('portal'),
   umbralOcr: numeric('umbral_ocr', { precision: 4, scale: 3 }),
   slaHoras: integer('sla_horas'),
   activo: boolean('activo').notNull().default(true),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), deletedAt: timestamp('deleted_at', { withTimezone: true }), deletedBy: integer('deleted_by').references(() => users.id, { onDelete: 'restrict' }),
+}, (t) => ({ nombreVivoUq: uniqueIndex('uq_flito_proveedores_soat_nombre_vivo').on(t.nombre).where(sql`deleted_at IS NULL`) }));
 
 /**
  * CA-10 (HU #12053, Feature #12052) — los organismos de tránsito que ve un `gestor_impuestos`.
@@ -3104,7 +3101,9 @@ export const flitoTramites = pgTable('flito_tramites', {
   // HU #13091 (0215): identidad y versión del trámite en FLIT 2. Null en los de FLIT 1.
   idFlit2: uuid('id_flit2'), syncVersion: bigint('sync_version', { mode: 'number' }),
   // HU #13094 (0216): leído de FLIT 2 sin el scope de datos personales; espera la relectura.
-  flit2PiiEnmascarada: boolean('flit2_pii_enmascarada').notNull().default(false),
+  // HU #13946 (0256) `retenido`: llegó de FLIT con su compañía inactiva. No sale en la bandeja ni arranca SOAT/impuesto
+  // hasta que el cliente se active (`liberarTramitesRetenidos`, en la misma transacción). Misma línea: techo de max-lines.
+  flit2PiiEnmascarada: boolean('flit2_pii_enmascarada').notNull().default(false), retenido: boolean('retenido').notNull().default(false),
   sincronizadoEn: timestamp('sincronizado_en', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -3118,7 +3117,8 @@ export const flitoTramites = pgTable('flito_tramites', {
   idFlit2Uq: uniqueIndex('uq_flito_tramites_id_flit2').on(t.idFlit2).where(sql`${t.idFlit2} IS NOT NULL`),
   fuenteIdFlit2Ck: check('ck_flito_tramites_fuente_id_flit2', sql`(${t.fuente} = 'flit2') = (${t.idFlit2} IS NOT NULL)`),
   syncVersionCk: check('ck_flito_tramites_flit2_sync_version', sql`${t.idFlit2} IS NULL OR ${t.syncVersion} IS NOT NULL`),
-  flit2PiiIdx: index('idx_flito_tramites_flit2_pii_enmascarada').on(t.id).where(sql`${t.flit2PiiEnmascarada}`),
+  // HU #13946 (0256): índice parcial de los retenidos por compañía (misma línea: techo de max-lines del archivo).
+  flit2PiiIdx: index('idx_flito_tramites_flit2_pii_enmascarada').on(t.id).where(sql`${t.flit2PiiEnmascarada}`), retenidoIdx: index('idx_flito_tramites_retenido_compania').on(t.companiaId).where(sql`${t.retenido}`),
 }));
 
 // Historial de cambios del trámite (auditoría campo por campo, Fase 8 / integración FLIT). Cada

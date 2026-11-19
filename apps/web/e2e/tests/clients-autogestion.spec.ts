@@ -237,7 +237,7 @@ test.describe('Clientes y proveedores · módulo fusionado', () => {
     await expect(page.getByText('Concesionario Norte')).toBeVisible();
 
     await page.getByRole('button', { name: 'Proveedores', exact: true }).click();
-    await expect(page.getByRole('cell', { name: 'Seguros Alfa' })).toBeVisible();
+    await expect(page.getByRole('cell', { name: 'Seguros Alfa', exact: true })).toBeVisible();
     await expect(page.getByRole('cell', { name: 'portal' })).toBeVisible();
   });
 

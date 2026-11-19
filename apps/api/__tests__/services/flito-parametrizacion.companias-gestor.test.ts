@@ -2,8 +2,7 @@
 // compañía: `PATCH /api/flito/parametrizacion/companias/:id`.
 //
 // Es la otra mitad de la HU. El alta despacha al gestor por defecto de la compañía; aquí se
-// configura ese gestor, y sobre todo se impide el estado que lo haría imposible: canal abierto sin
-// destinatario (AC2c).
+// configura ese gestor. Desde la HU #13967 el gestor ES el canal: `null` = «Sin proveedor» = cerrado.
 //
 // ── Lo que se prueba y por qué así ───────────────────────────────────────────────────────────────
 //
@@ -19,9 +18,8 @@
 // los dos llegan a la misma invariante desde lados distintos. Por eso el handler lee la fila previa
 // y por eso aquí se registran previas distintas.
 //
-// **El CHECK de la base también se prueba.** Con las guardas de arriba no debería llegar nunca un
-// 23514 desde una sola petición; sí puede llegar de dos PATCH concurrentes, cada uno legal contra el
-// estado que leyó. Sin traducción sale como 500, y el `errorHandler` genérico ya lo demuestra.
+// **HU #13967:** el flag y el CHECK `clients_sin_tramite_gestor_chk` se retiraron (0262). El proveedor
+// ES el canal: `null` lo cierra y no hay estado ilegal que vigilar entre dos columnas.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
@@ -48,8 +46,8 @@ const OTRO = '66666666-6666-4666-8666-666666666666';
 /**
  * La app con el `errorHandler` REAL montado, como en `app.ts`.
  *
- * No es decoración: el handler traduce el `23514` del CHECK a un 400 y deja pasar todo lo demás por
- * `next(e)`. Sin el `errorHandler`, «todo lo demás» acabaría en la página por defecto de Express y
+ * No es decoración: el handler deja pasar por `next(e)` todo error que no sea de proveedor no usable
+ * (HU #13967: ya no traduce el `23514` del CHECK retirado). Sin el `errorHandler`, «todo lo demás» acabaría en la página por defecto de Express y
  * el caso que comprueba que el `catch` es ESTRECHO no estaría midiendo el camino de producción.
  */
 async function buildApp() {
@@ -81,13 +79,13 @@ const filaCompania = (over: Record<string, unknown> = {}) => ({
  * consulta el catálogo solo cuando el cuerpo trae un uuid.
  */
 function escenario(opciones: {
-  previa?: { soatSinTramite: boolean; proveedorSinTramiteId: string | null } | null;
+  previa?: { proveedorSinTramiteId: string | null } | null;
   proveedores?: { id: string; activo: boolean }[];
   devuelve?: Record<string, unknown>;
   updateFalla?: unknown;
 } = {}) {
   const previa = opciones.previa === undefined
-    ? { soatSinTramite: false, proveedorSinTramiteId: null }
+    ? { proveedorSinTramiteId: null }
     : opciones.previa;
 
   kdb.when.scenario({
@@ -163,7 +161,7 @@ describe('AC2b — el endpoint acepta el gestor y lo valida contra el catálogo 
   it('**si el cuerpo NO trae gestor, el catálogo ni se consulta**', async () => {
     // Una consulta por PATCH que no la necesita. Se mide contando lecturas de la tabla del catálogo:
     // el mock enruta por nombre de tabla, así que esto no depende de lo que devuelva.
-    escenario({ previa: { soatSinTramite: false, proveedorSinTramiteId: GESTOR } });
+    escenario({ previa: { proveedorSinTramiteId: GESTOR } });
 
     const r = await patch({ carpetaStorage: 'clientes/acme' });
 
@@ -196,161 +194,60 @@ describe('AC2b — el endpoint acepta el gestor y lo valida contra el catálogo 
   });
 });
 
-// ═══════════ AC2c — no se abre el canal sin decir a dónde van ════════════════
+// ═══════════ HU #13967 — el proveedor es el canal (antes AC2c: flag + CHECK) ═══
 
-describe('AC2c — no se puede abrir el canal sin destinatario', () => {
-  it('**encender el flag en una compañía SIN gestor → 400 y el flag NO se enciende**', async () => {
-    escenario({ previa: { soatSinTramite: false, proveedorSinTramiteId: null } });
-
-    const r = await patch({ soatSinTramite: true });
-
-    expect(r.status).toBe(400);
-    expect(espia.updatesEn('clients')).toHaveLength(0);
-    // El mensaje es lo ÚNICO que el usuario ve entre esta HU y la #12079 (el selector), así que
-    // tiene que decir qué falta y no «datos inválidos».
-    expect(String(r.body.error)).toMatch(/gestor/i);
-    expect(String(r.body.error)).toContain('proveedorSoatSinTramiteId');
-  });
-
-  it('**encender el flag Y mandar el gestor en la MISMA operación → 200**', async () => {
-    // El camino que la pantalla usará desde la HU #12079. Si la guarda mirara solo lo que llega en
-    // vez del estado resultante, este caso también saldría 400 y el canal no se podría abrir nunca.
+describe('HU #13967 — el proveedor ES el canal: no hay flag que atar', () => {
+  it('**elegir un proveedor activo abre el canal**: solo se escribe el proveedor, `soatSinTramite` se ignora', async () => {
     escenario({
-      previa: { soatSinTramite: false, proveedorSinTramiteId: null },
+      previa: { proveedorSinTramiteId: null },
       proveedores: [{ id: GESTOR, activo: true }],
       devuelve: filaCompania({ soatSinTramite: true, flitoProveedorSoatSinTramiteId: GESTOR }),
     });
 
-    const r = await patch({ soatSinTramite: true, proveedorSoatSinTramiteId: GESTOR });
+    const r = await patch({ soatSinTramite: false, proveedorSoatSinTramiteId: GESTOR });
 
     expect(r.status).toBe(200);
-    expect(setEscrito()).toEqual({ soatSinTramite: true, flitoProveedorSoatSinTramiteId: GESTOR });
+    expect(setEscrito()).toEqual({ flitoProveedorSoatSinTramiteId: GESTOR });
+    expect(r.body.soatSinTramite).toBe(true);
   });
 
-  it('**encender el flag cuando el gestor YA estaba configurado → 200**', async () => {
+  it('**«Sin proveedor» (`null`) con el canal abierto se guarda**: es cómo se cierra (ya no hay 400)', async () => {
     escenario({
-      previa: { soatSinTramite: false, proveedorSinTramiteId: GESTOR },
-      devuelve: filaCompania({ soatSinTramite: true, flitoProveedorSoatSinTramiteId: GESTOR }),
+      previa: { proveedorSinTramiteId: GESTOR },
+      devuelve: filaCompania(),
     });
+
+    const r = await patch({ soatSinTramite: true, proveedorSoatSinTramiteId: null });
+
+    expect(r.status).toBe(200);
+    expect(setEscrito()).toEqual({ flitoProveedorSoatSinTramiteId: null });
+    expect(r.body.soatSinTramite).toBe(false);
+  });
+
+  it('**un PATCH con SOLO `soatSinTramite` → 400 «Nada que actualizar» y CERO escrituras**', async () => {
+    escenario({ previa: { proveedorSinTramiteId: null } });
 
     const r = await patch({ soatSinTramite: true });
 
-    expect(r.status).toBe(200);
-    expect(setEscrito()).toEqual({ soatSinTramite: true });
-  });
-
-  it('**quitar el gestor con el canal ABIERTO → 400**: es el mismo estado ilegal por el otro lado', async () => {
-    escenario({ previa: { soatSinTramite: true, proveedorSinTramiteId: GESTOR } });
-
-    const r = await patch({ proveedorSoatSinTramiteId: null });
-
     expect(r.status).toBe(400);
+    expect(r.body.error).toBe('Nada que actualizar');
     expect(espia.updatesEn('clients')).toHaveLength(0);
   });
 
-  it('**quitar el gestor con el canal CERRADO sí se puede**: es cómo se desconfigura', async () => {
+  it('**un 23514 de la base ya no se traduce a un consejo de configuración**: sale por `errorHandler`', async () => {
     escenario({
-      previa: { soatSinTramite: false, proveedorSinTramiteId: GESTOR },
-      devuelve: filaCompania(),
+      previa: { proveedorSinTramiteId: null },
+      proveedores: [{ id: GESTOR, activo: true }],
+      updateFalla: Object.assign(new Error('violates check constraint'),
+        { code: '23514', constraint_name: 'clients_sin_tramite_gestor_chk' }),
     });
 
-    const r = await patch({ proveedorSoatSinTramiteId: null });
-
-    expect(r.status).toBe(200);
-    // `null` explícito llega al UPDATE y no se pierde por ser «falsy», igual que el `false` del flag.
-    expect(setEscrito()).toEqual({ flitoProveedorSoatSinTramiteId: null });
-  });
-
-  it('**apagar el flag NO obliga a quitar el gestor, y NO lo quita**', async () => {
-    // La segunda mitad del AC2c, y la que un CHECK bidireccional habría roto. El mutante que mata:
-    // colgar un `set.flitoProveedorSoatSinTramiteId = null` del `if` del flag «para dejarlo limpio»
-    // — obligaría a reconfigurar cada vez que el canal se cierra y se vuelve a abrir.
-    escenario({
-      previa: { soatSinTramite: true, proveedorSinTramiteId: GESTOR },
-      devuelve: filaCompania({ flitoProveedorSoatSinTramiteId: GESTOR }),
-    });
-
-    const r = await patch({ soatSinTramite: false });
-
-    expect(r.status).toBe(200);
-    expect(setEscrito()).toEqual({ soatSinTramite: false });
-    expect(setEscrito()).not.toHaveProperty('flitoProveedorSoatSinTramiteId');
-    // Y el gestor sigue ahí, listo para cuando el canal se vuelva a abrir.
-    expect(r.body.proveedorSoatSinTramiteId).toBe(GESTOR);
-  });
-
-  it('**apagar el flag y quitar el gestor a la vez también se puede**', async () => {
-    escenario({
-      previa: { soatSinTramite: true, proveedorSinTramiteId: GESTOR },
-      devuelve: filaCompania(),
-    });
-
-    const r = await patch({ soatSinTramite: false, proveedorSoatSinTramiteId: null });
-
-    expect(r.status).toBe(200);
-    expect(setEscrito()).toEqual({ soatSinTramite: false, flitoProveedorSoatSinTramiteId: null });
-  });
-
-  it('**el 23514 del CHECK se traduce a 400**, no sale como 500', async () => {
-    // La carrera de dos PATCH concurrentes: uno enciende el flag y otro quita el gestor, cada uno
-    // legal contra el estado que leyó. El CHECK es la única capa que ve las dos escrituras, y sin
-    // esta traducción el usuario recibiría un 500 sin pista de qué hacer.
-    //
-    // El error se construye como lo entrega el driver: `postgres` (porsager) copia los campos del
-    // error de PostgreSQL con sus nombres largos —`constraint_name`, no `constraint`— y drizzle-orm
-    // 0.45 lo deja subir sin envolver, que es lo mismo que hace legible `code`.
-    escenario({
-      previa: { soatSinTramite: false, proveedorSinTramiteId: GESTOR },
-      updateFalla: Object.assign(
-        new Error('new row for relation "clients" violates check constraint "clients_sin_tramite_gestor_chk"'),
-        { code: '23514', constraint_name: 'clients_sin_tramite_gestor_chk' },
-      ),
-    });
-
-    const r = await patch({ soatSinTramite: true });
-
-    expect(r.status).toBe(400);
-    expect(String(r.body.error)).toMatch(/gestor/i);
-  });
-
-  it('**un 23514 de OTRO CHECK de `clients` no se traduce**: el consejo sería equivocado', async () => {
-    // `clients` tiene otros seis CHECK. Atribuirle a este cualquier `23514` del UPDATE es correcto
-    // hoy por casualidad —ninguno de los otros cubre lo que este PATCH escribe— y deja de serlo el
-    // día que la tabla gane una restricción sobre otro campo: quien la violara recibiría «configure
-    // el gestor por defecto» y se iría a buscar un problema del canal SOAT donde hay otro.
-    //
-    // El mutante que mata: volver a `code === '23514'` a secas. Este caso saldría 400 con el mensaje
-    // del gestor.
-    escenario({
-      previa: { soatSinTramite: false, proveedorSinTramiteId: GESTOR },
-      updateFalla: Object.assign(
-        new Error('new row for relation "clients" violates check constraint "clients_tolerancia_no_negativa_chk"'),
-        { code: '23514', constraint_name: 'clients_tolerancia_no_negativa_chk' },
-      ),
-    });
-
-    const r = await patch({ soatSinTramite: true });
+    const r = await patch({ proveedorSoatSinTramiteId: GESTOR });
 
     expect(r.status).toBe(500);
-    expect(r.body).toEqual({ error: 'Error interno del servidor' });
-  });
-
-  it('cualquier otro error de la base NO se traga como 400', async () => {
-    // El mutante que mata: un `catch` que devuelve 400 a secas. Un fallo de conexión respondería
-    // «configure el gestor», y quien lo lea buscaría un problema de datos donde hay uno de red.
-    escenario({
-      previa: { soatSinTramite: false, proveedorSinTramiteId: GESTOR },
-      updateFalla: Object.assign(new Error('connection terminated'), { code: '08006' }),
-    });
-
-    const r = await patch({ soatSinTramite: true });
-
-    expect(r.status).toBe(500);
-    expect(r.body).toEqual({ error: 'Error interno del servidor' });
+    expect(JSON.stringify(r.body)).not.toMatch(/gestor por defecto|proveedorSoatSinTramiteId/);
   });
 });
-
-// ═══════════ El listado ══════════════════════════════════════════════════════
 
 describe('GET /companias devuelve el gestor por defecto', () => {
   it('**el DTO lo trae, y separado de la bandera**: son dos preguntas', async () => {
@@ -391,7 +288,7 @@ describe('el `audit` del PATCH dice QUÉ cambió, no solo quién y cuándo', () 
 
   it('**redirigir el canal a otra aseguradora deja el uuid del gestor en el `detail`**', async () => {
     escenario({
-      previa: { soatSinTramite: false, proveedorSinTramiteId: OTRO },
+      previa: { proveedorSinTramiteId: OTRO },
       proveedores: [{ id: GESTOR, activo: true }],
       devuelve: filaCompania({ flitoProveedorSoatSinTramiteId: GESTOR }),
     });
@@ -404,9 +301,9 @@ describe('el `audit` del PATCH dice QUÉ cambió, no solo quién y cuándo', () 
     expect(detalleAuditado()).toContain(GESTOR);
   });
 
-  it('**encender el canal se registra como tal**, junto al gestor contra el que se encendió', async () => {
+  it('**elegir el proveedor se registra como «Proveedor SOAT sin trámite: X»**, sin «activado»', async () => {
     escenario({
-      previa: { soatSinTramite: false, proveedorSinTramiteId: null },
+      previa: { proveedorSinTramiteId: null },
       proveedores: [{ id: GESTOR, activo: true }],
       devuelve: filaCompania({ soatSinTramite: true, flitoProveedorSoatSinTramiteId: GESTOR }),
     });
@@ -414,35 +311,20 @@ describe('el `audit` del PATCH dice QUÉ cambió, no solo quién y cuándo', () 
     const r = await patch({ soatSinTramite: true, proveedorSoatSinTramiteId: GESTOR });
 
     expect(r.status).toBe(200);
-    expect(detalleAuditado()).toMatch(/activado/i);
-    expect(detalleAuditado()).toContain(GESTOR);
+    expect(detalleAuditado()).toContain(`Proveedor SOAT sin trámite: ${GESTOR}`);
+    expect(detalleAuditado()).not.toMatch(/activado|desactivado/i);
   });
 
-  it('**apagar el canal no se confunde con encenderlo**', async () => {
+  it('**«Sin proveedor» se registra**: un `null` es una decisión, no una clave ausente', async () => {
     escenario({
-      previa: { soatSinTramite: true, proveedorSinTramiteId: GESTOR },
-      devuelve: filaCompania({ flitoProveedorSoatSinTramiteId: GESTOR }),
-    });
-
-    const r = await patch({ soatSinTramite: false });
-
-    expect(r.status).toBe(200);
-    expect(detalleAuditado()).toMatch(/desactivado/i);
-    // «desactivado» CONTIENE «activado»: sin los límites de palabra, este aserto sería verde con el
-    // mensaje contrario escrito.
-    expect(detalleAuditado()).not.toMatch(/\bactivado\b/i);
-  });
-
-  it('**desconfigurar el gestor se registra**: un `null` es una decisión, no una clave ausente', async () => {
-    escenario({
-      previa: { soatSinTramite: false, proveedorSinTramiteId: GESTOR },
+      previa: { proveedorSinTramiteId: GESTOR },
       devuelve: filaCompania(),
     });
 
     const r = await patch({ proveedorSoatSinTramiteId: null });
 
     expect(r.status).toBe(200);
-    expect(detalleAuditado()).toMatch(/gestor por defecto: sin configurar/i);
+    expect(detalleAuditado()).toContain('Proveedor SOAT sin trámite: Sin proveedor');
   });
 
   it('**un PATCH que no toca el canal no inventa el cambio**: se registra lo que VINO en el cuerpo', async () => {
@@ -450,7 +332,7 @@ describe('el `audit` del PATCH dice QUÉ cambió, no solo quién y cuándo', () 
     // Un PATCH de la carpeta de storage dejaría escrito «gestor por defecto: …» sin que nadie lo
     // hubiera tocado, y el registro afirmaría una decisión que no se tomó.
     escenario({
-      previa: { soatSinTramite: true, proveedorSinTramiteId: GESTOR },
+      previa: { proveedorSinTramiteId: GESTOR },
       devuelve: filaCompania({ soatSinTramite: true, flitoProveedorSoatSinTramiteId: GESTOR }),
     });
 

@@ -23,6 +23,7 @@ import { consolidarPorRegistro, emitirZipConsolidado } from '../../shared/soport
 import {
   desbloquear, revocar, ExcepcionError, MOTIVO_MINIMO,
 } from '../flito-excepciones/flito-excepciones.service.js';
+import { ClienteNoOperableError } from '../clients/cliente-operable.js';
 import {
   crearEmpresaDesdeTramite, crearTramiteDemo, entregar, esOrdenListado, facetas, historial, listar,
   registrosZipTramites, solicitarAmbos, solicitarImpuestos, solicitarSoat,
@@ -339,7 +340,10 @@ router.post('/:id/desbloquear-autogestion', exigirFuncion('tramites.autogestion.
     });
     res.status(201).json(e);
   } catch (err) {
-    if (err instanceof ExcepcionError) { res.status(err.status).json({ error: err.message }); return; }
+    // HU #13947: cliente inactivo → 409 con el mensaje del AC.
+    if (err instanceof ExcepcionError || err instanceof ClienteNoOperableError) {
+      res.status(err.status).json({ error: err.message }); return;
+    }
     throw err;
   }
 });

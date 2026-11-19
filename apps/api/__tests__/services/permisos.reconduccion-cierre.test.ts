@@ -27,6 +27,8 @@ import {
 } from '../../src/modules/permisos/inventario-guardas.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import { OPERACIONES_DECLARADAS } from '../../src/modules/permisos/catalogo-operaciones.js';
+// HU #13945: operaciones que nacen absorbidas por una acción del árbol (no son transitorios de la reconducción).
+import { OPERACIONES_NACIDAS_EN_EL_ARBOL as NACIDAS_EN_EL_ARBOL } from '../../src/modules/permisos/arbol/acciones-finanzas.js';
 import { PAGINAS_MANTENIMIENTO_POR_ITEM, PAGINAS_PESV_POR_ITEM } from '@operaciones/shared-types';
 
 /** Los 26 directorios: los 19 del enunciado (cadena SOAT + resto de FLITO, trámites incluidos, y usuarios) + permisos (HU #12084) + finanzas-servicios-adicionales (HU #12545, nace reconducido) + flito-comprobantes (HU #12611, nace reconducido) + los legacy pesv, drivers, jornadas y rum (HU #13421, ADR-0023) + los ocho de operación (HU #13422) + los seis sensibles y runt/integraciones (HU #13423). */
@@ -202,8 +204,13 @@ describe('el lector de montajes cubre la foto entera', () => {
     // +2 por la HU #13838 (`POST /buscar` de flito-impuestos y de flito-derechos para Dr. Flit).
     // + 3 en línea de la HU #13941 (funciones de Dr. Flit).
     // +1 por la HU #13964 (`POST /documentos/:documentoId/retirar`, reutiliza `bolsas.documentos.cargar`).
-    expect(GUARDAS_MEDIDAS).toHaveLength(627);
-    expect(montajes).toHaveLength(627);
+    // +2 por la HU #13945 (clientes: `GET /:id/impacto` y `PATCH /:id/estado`, ambas con `clients.clientes.estado`,
+    // la operación absorbida por la acción exclusiva del Administrador `accion.clientes.activar_desactivar`).
+    // +1 por la HU #13954 (clientes: `DELETE /:id` con `clients.clientes.eliminar`, absorbida por `accion.clientes.eliminar`).
+    // +2 por la HU #13958 (proveedores SOAT: `GET /:id/impacto` y `PATCH /:id/estado` con `parametrizacion.proveedores.estado`).
+    // +1 por la HU #13960 (proveedores SOAT: `DELETE /:id` con `parametrizacion.proveedores.eliminar`).
+    expect(GUARDAS_MEDIDAS).toHaveLength(633);
+    expect(montajes).toHaveLength(633);
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     // En línea: 2 del Bug #12642 + forzar_continuar + contraseña ajena + operar actas ajenas (HU #13425)
@@ -416,8 +423,10 @@ describe('HU #13422 — los ocho directorios de operación: página por ítem y 
           expect(pagina, llave).toBe(fichero === 'rutas/pernocta.routes.ts' ? 'pesv_pernocta' : 'pesv_rutas');
         }
         const funcion = /exigirFuncion\('([a-z0-9_.]+)'\)/.exec(m[3]!)?.[1];
-        // `vehicles.vehiculos.consultar` es de la HU #13423 (una de las cuatro de solo sesión).
-        if (funcion && !PERMANENTES_13422.includes(funcion) && funcion !== 'vehicles.vehiculos.consultar') expect(funcion, llave).toMatch(/\.administrar$/);
+        // `vehicles.vehiculos.consultar` es de la HU #13423 (una de las cuatro de solo sesión). Las operaciones
+        // NACIDAS EN EL ÁRBOL (HU #13945: `clients.clientes.estado`, exclusiva del Administrador) no son
+        // transitorios de la reconducción: nacen absorbidas por su acción y no terminan en `.administrar`.
+        if (funcion && !PERMANENTES_13422.includes(funcion) && funcion !== 'vehicles.vehiculos.consultar' && !NACIDAS_EN_EL_ARBOL.has(funcion)) expect(funcion, llave).toMatch(/\.administrar$/);
       }
     });
   }
@@ -437,7 +446,8 @@ describe('HU #13422 — los ocho directorios de operación: página por ítem y 
   it('las tres operaciones permanentes y la guarda en línea del documento del propietario están montadas', () => {
     expect(sinComentarios(leer('vehicles/vehicles.routes.ts'))).toMatch(/tieneFuncion\(req, 'vehicles\.propietario\.ver_documento'\)/);
     const codigos = new Set(OPERACIONES_DECLARADAS.filter((o) => LEGADO_13422.some((f) => o.llave.startsWith(`${f.fichero} `))).map((o) => o.codigo));
-    expect([...codigos].filter((c) => !c.endsWith('.administrar') && c !== 'vehicles.vehiculos.consultar').sort()).toEqual([...PERMANENTES_13422].sort());
+    // HU #13945: las nacidas en el árbol (exclusivas del Administrador) no son permanentes de la reconducción.
+    expect([...codigos].filter((c) => !c.endsWith('.administrar') && c !== 'vehicles.vehiculos.consultar' && !NACIDAS_EN_EL_ARBOL.has(c)).sort()).toEqual([...PERMANENTES_13422].sort());
   });
 
   it('el aviso del envío RNDC fallido va a quien tiene `rndc.manifiestos.administrar`, no al rol `admin`', () => {

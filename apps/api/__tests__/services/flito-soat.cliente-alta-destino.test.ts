@@ -173,7 +173,7 @@ function espiar(): void {
 
 /** La consulta del resolutor: la única que proyecta exactamente esas dos columnas. */
 const consultaDelResolutor = () =>
-  consultas.filter((c) => c.columnas.join(',') === 'proveedorId,activo');
+  consultas.filter((c) => c.columnas.join(',') === 'proveedorId,activo,deletedAt'); // HU #13959: + deletedAt (AC5)
 
 // ───────────────────────────── Escenario ─────────────────────────────────────
 
@@ -184,7 +184,7 @@ const consultaDelResolutor = () =>
 function escenario(gestor: { proveedorId: string | null; activo: boolean | null } = { proveedorId: GESTOR, activo: true }) {
   kdb.when.scenario({
     users: [{ c: COMPANIA, s: null }],
-    clients: [{ id: COMPANIA, sinTramite: true, carpeta: 'clientes/acme', ...gestor }],
+    clients: [{ id: COMPANIA, carpeta: 'clientes/acme', ...gestor }],
     flito_soat: [],
     organismos_transito_config: [{ codigo: ORGANISMO_FUNZA, alias: 'FUNZA' }],
     vehicles: [],
@@ -343,7 +343,7 @@ describe('AC2 — el destino sale del gestor por defecto de la compañía', () =
     escenario();
     await alta(await appAlta(), await auth('cliente', siguienteUsuario()));
 
-    const indiceResolutor = consultas.findIndex((c) => c.columnas.join(',') === 'proveedorId,activo');
+    const indiceResolutor = consultas.findIndex((c) => c.columnas.join(',') === 'proveedorId,activo,deletedAt');
     const indiceVehiculo = consultas.findIndex((c) => c.tabla === 'vehicles' && c.columnas.includes('clientId'));
     expect(indiceResolutor).toBeGreaterThan(-1);
     // La relectura `FOR UPDATE` del vehículo es la primera consulta DE LA TRANSACCIÓN; el resolutor
@@ -469,8 +469,10 @@ describe('AC2e — el destino del SOAT POR TRÁMITE no depende de la configuraci
     // «unificara» los dos destinos, la fila saldría con GESTOR y este caso lo vería.
     const { enviarAlGestor } = await import('../../src/modules/flito-soat/flito-soat.service.js');
     kdb.when.scenario({
-      clients: [{ id: COMPANIA, sinTramite: true, proveedorId: GESTOR, activo: true }],
+      clients: [{ id: COMPANIA, proveedorId: GESTOR, activo: true }],
       flito_soat: [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }],
+      // HU #13959 (RN-PROV-5): el envío relee el proveedor elegido `FOR SHARE`; activo y vigente.
+      flito_proveedores_soat: [{ id: OTRO_GESTOR, nombre: 'Otro', activo: true, deletedAt: null }],
     });
 
     const r = await enviarAlGestor(
@@ -637,5 +639,24 @@ describe('el gestor por defecto no sale por ninguna respuesta que no lo haya ped
     // `desenlace` es ADITIVO desde la HU #12996 (unión 201/202); el resto sigue siendo `{ id, estado }`.
     expect(Object.keys(r.body).sort()).toEqual(['desenlace', 'estado', 'id']);
     expect(JSON.stringify(r.body)).not.toContain(GESTOR);
+  });
+});
+
+// ═══════════ HU #13947 — un cliente inactivo no admite SOAT nuevos ═══════
+
+describe('HU #13947 — alta del canal Cliente con la compañía inactiva', () => {
+  it('**409 con el mensaje del AC y sin INSERT en `flito_soat` ni historial**', async () => {
+    escenario();
+    kdb.when.select('clients', [{
+      id: COMPANIA, carpeta: 'clientes/acme', proveedorId: GESTOR, activo: true,
+      name: 'Acme Transportes', active: false,
+    }]);
+
+    const r = await alta(await appAlta(), await auth('cliente', siguienteUsuario()));
+
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: 'El cliente Acme Transportes está inactivo: no se pueden crear SOAT para él.' });
+    expect(espia.insertsEn('flito_soat')).toEqual([]);
+    expect(espia.insertsEn('flito_estado_historial')).toEqual([]);
   });
 });

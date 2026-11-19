@@ -35,6 +35,10 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export class TarifaError extends Error {}
 /** La vigencia o la compañía pedida no existe (404). */
 export class TarifaNoEncontradaError extends TarifaError {}
+/** RN-CLI-9 (HU #13953, AC4): la compañía pedida está eliminada (404, mismo texto que el módulo de clientes). */
+export class TarifaClienteEliminadoError extends TarifaNoEncontradaError {
+  constructor() { super('Cliente no encontrado'); }
+}
 /** Alguien se adelantó: la llave ya tiene vigencia abierta o la pedida ya está cerrada (409). */
 export class TarifaConflictoError extends TarifaError {
   constructor(message: string, public readonly vigenciaId: string | null = null) { super(message); }
@@ -189,9 +193,13 @@ export interface VistaTarifasCompania {
 }
 
 async function companiaDe(companiaId: number) {
-  const [c] = await db.select({ id: clients.id, name: clients.name, logisticaAutogestionable: clients.logisticaAutogestionable })
-    .from(clients).where(eq(clients.id, companiaId)).limit(1);
+  const [c] = await db.select({
+    id: clients.id, name: clients.name, logisticaAutogestionable: clients.logisticaAutogestionable,
+    deletedAt: clients.deletedAt,
+  }).from(clients).where(eq(clients.id, companiaId)).limit(1);
   if (!c) throw new TarifaNoEncontradaError('La compañía no existe');
+  // `!= null`: dobles de prueba sin la clave no se leen como eliminados.
+  if (c.deletedAt != null) throw new TarifaClienteEliminadoError();
   return c;
 }
 
@@ -321,7 +329,10 @@ export async function fijarTarifa(d: DatosFijar, usuarioId: number | null): Prom
   validarValor(d.valor);
   const tipo = tipoDeLlave(d.concepto, d.tipoTramite);
   if (d.valor === 0 && !d.confirmarCero) throw new TarifaCeroSinConfirmarError();
-  await companiaDe(d.companiaId).catch(() => { throw new TarifaError('La compañía no existe'); });
+  await companiaDe(d.companiaId).catch((e: unknown) => {
+    if (e instanceof TarifaClienteEliminadoError) throw e;
+    throw new TarifaError('La compañía no existe');
+  });
 
   const ahora = new Date();
   const vigenteDesde = new Date(VIGENCIA_DESDE_SIEMPRE);

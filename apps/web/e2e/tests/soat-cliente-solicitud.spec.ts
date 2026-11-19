@@ -908,11 +908,13 @@ test.describe('HU #11967 — el canal, el adjunto y las salidas', () => {
 
     await page.goto('/flito/soat');
     await expect(page.getByRole('link', { name: 'Solicitar SOAT' })).toHaveCount(0);
-    await expect(page.getByText('Su compañía todavía no tiene habilitado este canal, así que por ahora aquí solo puede consultar sus SOAT.')).toBeVisible();
+    await expect(page.getByText('Esta opción no está disponible por ahora para su compañía. Si la necesita, comuníquese con su asesor de FLITO.')).toBeVisible();
 
     await page.goto('/flito/soat/solicitud');
-    await expect(page.getByText('Su compañía todavía no tiene habilitado este canal, así que por ahora aquí solo puede consultar sus SOAT.')).toBeVisible();
+    await expect(page.getByText('Esta opción no está disponible por ahora para su compañía. Si la necesita, comuníquese con su asesor de FLITO.')).toBeVisible();
     await expect(page.getByText(/No tienes acceso/)).toHaveCount(0);
+    // HU #13968 (AC5/AC6): al Cliente nunca se le nombra al proveedor.
+    await expect(page.getByRole('main').getByText(/proveedor/i)).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Volver a mis SOAT' })).toBeVisible();
   });
 
@@ -926,7 +928,7 @@ test.describe('HU #11967 — el canal, el adjunto y las salidas', () => {
     await llenarTodoYConsultar(page);
     await btnEnviar(page).click();
 
-    await expect(page.getByText('El canal se deshabilitó mientras llenaba el formulario, así que no se envió nada.')).toBeVisible();
+    await expect(page.getByText('Esta opción dejó de estar disponible mientras llenaba el formulario, así que no se envió nada.')).toBeVisible();
     await expect(btnEnviar(page)).toHaveCount(0);
   });
 
@@ -1101,7 +1103,7 @@ test.describe('HU #11967 · la ficha de ayuda in-app del módulo SOAT', () => {
       'Para enviar falta: consultar el RUNT, VIN y 10 datos más.',
       'la solicitud queda en Solicitado, sale al gestor por defecto de su compañía',
       'No pasa por ninguna revisión de FLITO',
-      'se configuran en Clientes y proveedores, en la columna SOAT sin trámite',
+      'se elige en Clientes y proveedores, en la columna SOAT sin trámite',
       // HU #12091 — el VIN dejó de ser opcional y pasó a ser el ÚNICO dato del vehículo: la ficha no
       // puede seguir mandando a escribir la placa y el documento antes de consultar.
       'Escriba el VIN',

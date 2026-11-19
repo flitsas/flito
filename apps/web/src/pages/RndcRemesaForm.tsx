@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../lib/api';
+import { esInactivo, NOTA_INACTIVO } from '../components/flit/opcionesConEstado';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 
@@ -10,7 +11,8 @@ interface Municipio { codigoDane: string; nombre: string; departamentoNombre: st
 interface Producto { codigo: string; nombre: string; }
 interface Empaque { codigo: string; nombre: string; }
 interface Unidad { codigo: string; nombre: string; }
-interface Cliente { id: number; name: string; document: string | null; }
+/** `active` (HU #13948): un cliente inactivo se ve pero no se elige (HU #13950). */
+interface Cliente { id: number; name: string; document: string | null; active?: boolean; }
 interface PropDest { id: number; nombre: string; documento: string; }
 
 interface FormState {
@@ -159,7 +161,7 @@ export default function RndcRemesaForm() {
 
       <div className="space-y-6 bg-white p-6" style={CARD}>
         <Section title="Partes">
-          <Field label="Cliente"><Select value={form.clientId} onChange={(v) => setForm({ ...form, clientId: v as number | null })} options={clientes.map((c) => [c.id, c.name])} placeholder="(Sin cliente)" /></Field>
+          <Field label="Cliente"><Select value={form.clientId} onChange={(v) => setForm({ ...form, clientId: v as number | null })} options={clientes.map((c) => (esInactivo({ activo: c.active }) ? [c.id, `${c.name} (${NOTA_INACTIVO})`, c.id !== form.clientId] : [c.id, c.name]))} placeholder="(Sin cliente)" /></Field>
           <Field label="Propietario de carga"><Select value={form.propietarioCargaId} onChange={(v) => setForm({ ...form, propietarioCargaId: v as number | null })} options={propietarios.map((p) => [p.id, `${p.nombre} (${p.documento})`])} placeholder="(Sin propietario)" /></Field>
           <Field label="Destinatario"><Select value={form.destinatarioCargaId} onChange={(v) => setForm({ ...form, destinatarioCargaId: v as number | null })} options={destinatarios.map((d) => [d.id, `${d.nombre} (${d.documento})`])} placeholder="(Sin destinatario)" /></Field>
         </Section>
@@ -229,12 +231,13 @@ function Input({ type = 'text', value, onChange }: { type?: string; value: strin
 }
 
 type SelectVal = string | number | null;
-function Select({ value, onChange, options, placeholder }: { value: SelectVal; onChange: (v: SelectVal) => void; options: Array<[string | number, string]>; placeholder?: string }) {
+/** El tercer elemento opcional de cada opción la deshabilita (HU #13950: cliente inactivo). */
+function Select({ value, onChange, options, placeholder }: { value: SelectVal; onChange: (v: SelectVal) => void; options: Array<[string | number, string, boolean?]>; placeholder?: string }) {
   const firstIsNumber = typeof options[0]?.[0] === 'number';
   return (
     <select value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? null : (firstIsNumber ? Number(e.target.value) : e.target.value))} className={inputCls}>
       {placeholder !== undefined && <option value="">{placeholder}</option>}
-      {options.map(([v, l]) => <option key={String(v)} value={v}>{l}</option>)}
+      {options.map(([v, l, off]) => <option key={String(v)} value={v} disabled={off || undefined} aria-disabled={off || undefined}>{l}</option>)}
     </select>
   );
 }
