@@ -269,6 +269,10 @@ describe('RN-07 cambiosPorResultado (puro)', () => {
 
 // ── RN-03 toma ───────────────────────────────────────────────────────────────────────────────────
 describe('RN-03 toma (SQL renderizado)', () => {
+  it('Bug #14630: los excluidos se derivan del mapeo del feed → [Anulado, Revocado]', () => {
+    expect([...cola.FLIT_ESTADOS_NO_ADMITEN_ADJUNTO]).toEqual(['Anulado', 'Revocado']);
+  });
+
   it('una sola sentencia SKIP LOCKED; pendiente vencida o en_espera despertada por el feed o el sondeo; solo pagado y flit2', async () => {
     await cola.tomarLoteEnvios({ limite: 50, tomadoPor: 'host-1', ahora: AHORA });
     const [g] = q(/WITH candidatas/);
@@ -278,9 +282,14 @@ describe('RN-03 toma (SQL renderizado)', () => {
     // HU #13310 (AC8): la toma FLIT 2 no se lleva filas de FLIT 1.
     expect(g.sql).toMatch(/e\.destino = 'flit2' AND t\.fuente = 'flit2' AND t\.id_flit2 IS NOT NULL/);
     expect(g.sql).toMatch(/e\.estado = 'pendiente' AND e\.proximo_intento_en <= \$\d+::timestamptz/);
-    expect(g.sql).toMatch(/e\.estado = 'en_espera' AND \(\s*e\.proximo_intento_en <= \$\d+::timestamptz\s*OR \(t\.sync_version > e\.sync_version_espera AND t\.flit_estado IN \(\$\d+, \$\d+, \$\d+, \$\d+\)\)\)/);
+    // Bug #14630: despierta por versión en cualquier estado salvo anulado/revocado; NULL también despierta.
+    expect(g.sql).toMatch(/e\.estado = 'en_espera' AND \(\s*e\.proximo_intento_en <= \$\d+::timestamptz\s*OR \(t\.sync_version > e\.sync_version_espera AND \(t\.flit_estado IS NULL OR t\.flit_estado NOT IN \(\$\d+, \$\d+\)\)\)\)/);
+    expect(g.sql).not.toMatch(/t\.flit_estado IN \(/);
     // La grafía la deriva `estadoDesdeFlit2` (la que escribe el feed), no un literal a mano.
-    expect(g.params).toEqual(expect.arrayContaining(['Preasignacion', 'Asignado', 'Entregado', 'Rechazado']));
+    expect(g.params).toEqual(expect.arrayContaining(['Anulado', 'Revocado']));
+    for (const e of ['Aprobado', 'Borrador', 'Preparado', 'Preasignacion', 'Asignado', 'Entregado', 'Rechazado']) {
+      expect(g.params).not.toContain(e);
+    }
     expect(g.params).toContain(50);
     // postgres.js no serializa un Date crudo en db.execute: solo texto ISO.
     expect(g.params.some((p) => p instanceof Date)).toBe(false);
