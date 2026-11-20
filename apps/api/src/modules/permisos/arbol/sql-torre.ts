@@ -15,8 +15,8 @@ import { ACCIONES_TORRE, ITEMS_TORRE_ARBOL, REPARTO_TORRE } from './acciones-tor
 import { lit } from './sql-arbol.js';
 
 /**
- * Tramos que nacen DESPUÉS de la 0303 (ya aplicada), cada uno con su propia migración: el detalle (ADR-0047, 0306),
- * Productos (B3, 0307), Logística (B4, 0308) y Equipo (B5, 0309). La salida de un tramo nunca incluye los códigos de
+ * Tramos que nacen DESPUÉS de la 0303 (ya aplicada), cada uno con su propia migración: el detalle (ADR-0047, 0307),
+ * Productos (B3, 0308), Logística (B4, 0309) y Equipo (B5, 0310). La salida de un tramo nunca incluye los códigos de
  * otro, así que agregar uno no cambia las anteriores. Un tramo puede traer acciones cuyo ítem es de OTRO tramo (Equipo
  * cuelga de `pagina.torre_operativa`): esas van solas, después de los ítems del tramo, y el ítem no se re-siembra.
  */

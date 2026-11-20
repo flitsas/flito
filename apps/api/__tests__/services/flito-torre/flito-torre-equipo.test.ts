@@ -120,7 +120,7 @@ describe('catálogo de Equipo (B5) — sin base', () => {
 });
 
 describe('permisos de Equipo (B5): su migración', () => {
-  const SQL_EQUIPO = MIG('0309_flito_torre_equipo.sql');
+  const SQL_EQUIPO = MIG('0310_flito_torre_equipo.sql');
   const reparto = leerRepartoSembrado();
   const con = (fn: string) => [...reparto].filter(([, fns]) => fns.has(fn)).map(([r]) => r).sort();
 
@@ -128,9 +128,9 @@ describe('permisos de Equipo (B5): su migración', () => {
     expect(bloque(SQL_EQUIPO).trim()).toBe(`${sqlSiembraTorre(catalogoCompleto(), 'equipo')}\n\n${sqlRepartoTorre('equipo')}`.trim());
   });
 
-  it('el tramo nuevo no cambia los anteriores (ni la 0303, ni la 0306, ni la 0307, ni la 0308)', () => {
-    const previas = { fundacion: '0303_flito_torre_fundacion.sql', detalle: '0306_flito_torre_detalle_permisos.sql',
-      productos: '0307_flito_torre_productos.sql', logistica: '0308_flito_torre_logistica.sql' } as const;
+  it('el tramo nuevo no cambia los anteriores (ni la 0303, ni la 0307, ni la 0308, ni la 0309)', () => {
+    const previas = { fundacion: '0303_flito_torre_fundacion.sql', detalle: '0307_flito_torre_detalle_permisos.sql',
+      productos: '0308_flito_torre_productos.sql', logistica: '0309_flito_torre_logistica.sql' } as const;
     for (const [tramo, archivo] of Object.entries(previas) as [keyof typeof previas, string][]) {
       expect(bloque(MIG(archivo)), archivo).not.toContain('ver_equipo');
       expect(sqlRepartoTorre(tramo), tramo).not.toContain('ver_equipo');

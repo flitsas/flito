@@ -1,12 +1,10 @@
 -- Torre de Control Gerencial (Épica #14590, bloque B5) — Operativa › EQUIPO: la acción «Ver la operación del equipo»
 -- (`torre.equipo.ver`).
 --
--- NÚMERO PROVISIONAL: al integrar la pila con develop se renumera (como la 0306, la 0307 y la 0308).
---
 -- La acción cuelga del ítem que ya existe `pagina.torre_operativa` (Equipo es una pestaña de Operativa, no una página:
 -- no estrena PageSlug) y se reparte SOLO a `admin` y `gerencia_general` (decisión del humano del 2026-11-19), con el
 -- reparto literal de `REPARTO_TORRE` (`apps/api/src/modules/permisos/arbol/acciones-torre.ts`). El auditor, que ve
--- Operativa, NO la recibe. La 0303, la 0306, la 0307 y la 0308 no se tocan.
+-- Operativa, NO la recibe. La 0303, la 0307, la 0308 y la 0309 no se tocan.
 -- Idempotente: `ON CONFLICT` en las dos tablas. La operación nace en el árbol (no se siembra). Sin umbral nuevo: el ANS
 -- usa `horas_soat_impuesto_sin_soporte` y `dias_traslado_abierto`, que ya existen.
 -- Índices: ninguno. Los candidatos del diseño (§12 B5) se midieron con EXPLAIN y no hacen falta (ver el PR).

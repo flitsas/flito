@@ -588,10 +588,10 @@ export const UMBRALES_TORRE = [
     descripcion: 'Días de cobertura de saldo por debajo de los cuales la bolsa se pinta en rojo.' },
   { clave: 'meta_mensual_aprobados', grupo: 'general', unidad: 'conteo', valorPorDefecto: 0,
     descripcion: 'Meta mensual de trámites aprobados. 0 significa sin meta.' },
-  // B3 (Productos): lo siembra la 0307 (no la 0303, que ya está aplicada).
+  // B3 (Productos): lo siembra la 0308 (no la 0303, que ya está aplicada).
   { clave: 'dias_soat_por_vencer', grupo: 'operativo', unidad: 'dias', valorPorDefecto: 30,
     descripcion: 'Días antes del vencimiento de la póliza a partir de los cuales un SOAT se cuenta como por vencer.' },
-  // B4 (Logística): lo siembra la 0308.
+  // B4 (Logística): lo siembra la 0309.
   { clave: 'dias_traslado_abierto', grupo: 'operativo', unidad: 'dias', valorPorDefecto: 3,
     descripcion: 'Días desde el registro a partir de los cuales un traslado abierto se cuenta como demorado.' },
 ] as const satisfies readonly UmbralTorreDef[];

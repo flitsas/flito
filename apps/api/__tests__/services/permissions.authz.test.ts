@@ -218,7 +218,7 @@ describe('paridad de catálogos y roles (anti-drift USR-7)', () => {
       'torre_360', 'torre_comercial', 'torre_operativa', 'torre_financiera', 'torre_explorador', 'torre_umbrales',
       // ADR-0047 (B1): el detalle de las cifras, en lectura (su migración no le da exportar).
       'torre_detalle',
-      // Épica #14590 (B3/B4): Productos y Logística, con el reparto de Operativa (la 0307 y la 0308).
+      // Épica #14590 (B3/B4): Productos y Logística, con el reparto de Operativa (la 0308 y la 0309).
       'torre_productos', 'torre_logistica',
     ].sort());
   });

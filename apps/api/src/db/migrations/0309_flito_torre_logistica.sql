@@ -1,14 +1,12 @@
 -- Torre de Control Gerencial (Épica #14590, bloque B4) — área LOGÍSTICA (Traslados · Entregas). Las subvistas nuevas
 -- de Financiera (Facturación · Bolsas) usan la función que ya existe (`torre.tablero_financiero.ver`): no siembran nada.
 --
--- NÚMERO PROVISIONAL: al integrar la pila con develop se renumera (como la 0306 y la 0307).
---
 -- 1. Umbral nuevo `dias_traslado_abierto` (días desde el registro a partir de los cuales un traslado abierto se cuenta
 --    como demorado; defecto 3 = `UMBRALES_TORRE`). Se cambia en Umbrales y alertas. `ON CONFLICT DO NOTHING`: un valor
 --    ya ajustado no se pisa.
 -- 2. El ítem «Torre · Logística» (General) y su acción `torre.tablero_logistica.ver` (lectura), con el reparto literal
 --    de `REPARTO_TORRE` (`apps/api/src/modules/permisos/arbol/acciones-torre.ts`): admin y los roles que ven Operativa
---    (auditor y gerencia_general), el mismo de Productos. La 0303, la 0306 y la 0307 no se tocan.
+--    (auditor y gerencia_general), el mismo de Productos. La 0303, la 0307 y la 0308 no se tocan.
 -- Idempotente: `ON CONFLICT` en las tres tablas. Las operaciones nacen en el árbol (no se siembran).
 -- Índices: ninguno. Los candidatos del diseño (§12 B4) se midieron con EXPLAIN y no hacen falta (ver el PR).
 

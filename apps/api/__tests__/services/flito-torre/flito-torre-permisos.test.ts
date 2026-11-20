@@ -10,15 +10,15 @@ import { fijarFuenteDePermisos, invalidarPermisosDe, resolverPermisos } from '..
 import { leerRepartoSembrado } from '../../helpers/permisos-seed-sql.js';
 
 const SQL = readFileSync(join(__dirname, '../../../src/db/migrations/0303_flito_torre_fundacion.sql'), 'utf8');
-const SQL_DETALLE = readFileSync(join(__dirname, '../../../src/db/migrations/0306_flito_torre_detalle_permisos.sql'), 'utf8');
-const SQL_PRODUCTOS = readFileSync(join(__dirname, '../../../src/db/migrations/0307_flito_torre_productos.sql'), 'utf8');
-const SQL_LOGISTICA = readFileSync(join(__dirname, '../../../src/db/migrations/0308_flito_torre_logistica.sql'), 'utf8');
+const SQL_DETALLE = readFileSync(join(__dirname, '../../../src/db/migrations/0307_flito_torre_detalle_permisos.sql'), 'utf8');
+const SQL_PRODUCTOS = readFileSync(join(__dirname, '../../../src/db/migrations/0308_flito_torre_productos.sql'), 'utf8');
+const SQL_LOGISTICA = readFileSync(join(__dirname, '../../../src/db/migrations/0309_flito_torre_logistica.sql'), 'utf8');
 const reparto = leerRepartoSembrado();
 const de = (rol: string) => [...(reparto.get(rol) ?? new Set<string>())];
 const deTorre = (rol: string) => de(rol).filter((f) => f.includes('torre')).sort();
 
 describe('semilla de umbrales', () => {
-  // La 0303 siembra los nueve primeros; la 0307 (B3), `dias_soat_por_vencer`; la 0308 (B4), `dias_traslado_abierto`.
+  // La 0303 siembra los nueve primeros; la 0308 (B3), `dias_soat_por_vencer`; la 0309 (B4), `dias_traslado_abierto`.
   const filas = [...`${SQL}\n${SQL_PRODUCTOS}\n${SQL_LOGISTICA}`.matchAll(/^\s+\('([a-z_]+)', ([\d.]+), '([a-z]+)', '([^']+)'\)/gm)]
     .map(([, clave, valor, unidad, descripcion]) => ({ clave, valor: Number(valor), unidad, descripcion }));
 
@@ -92,7 +92,7 @@ describe('Productos (B3): su migración', () => {
     expect(bloque(SQL_PRODUCTOS).trim()).toBe(`${sqlSiembraTorre(catalogoCompleto(), 'productos')}\n\n${sqlRepartoTorre('productos')}`.trim());
   });
 
-  it('el tramo nuevo no cambia los anteriores: ni la 0303 ni la 0306 mencionan Productos', () => {
+  it('el tramo nuevo no cambia los anteriores: ni la 0303 ni la 0307 mencionan Productos', () => {
     expect(bloque(SQL)).not.toContain('torre_productos');
     expect(bloque(SQL_DETALLE)).not.toContain('torre_productos');
     expect(sqlRepartoTorre('detalle')).not.toContain('torre_productos');
@@ -128,7 +128,7 @@ describe('Logística (B4): su migración', () => {
     expect(bloque(SQL_LOGISTICA).trim()).toBe(`${sqlSiembraTorre(catalogoCompleto(), 'logistica')}\n\n${sqlRepartoTorre('logistica')}`.trim());
   });
 
-  it('el tramo nuevo no cambia los anteriores: ni la 0303, ni la 0306, ni la 0307 mencionan Logística', () => {
+  it('el tramo nuevo no cambia los anteriores: ni la 0303, ni la 0307, ni la 0308 mencionan Logística', () => {
     for (const s of [SQL, SQL_DETALLE, SQL_PRODUCTOS]) expect(bloque(s)).not.toContain('torre_logistica');
     for (const t of ['fundacion', 'detalle', 'productos'] as const) expect(sqlRepartoTorre(t)).not.toContain('torre_logistica');
     expect(bloque(SQL_PRODUCTOS).trim()).toBe(`${sqlSiembraTorre(catalogoCompleto(), 'productos')}\n\n${sqlRepartoTorre('productos')}`.trim());

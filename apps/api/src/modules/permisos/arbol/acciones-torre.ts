@@ -27,12 +27,12 @@ export const ACCIONES_TORRE: Readonly<Record<string, AccionArbol>> = {
   // descarga). Las siembra la migración del detalle (no la 0303, que ya está aplicada).
   'accion.torre_detalle.ver': { lectura: true, operaciones: ['torre.detalle.ver'], predecesores: [] },
   'accion.torre_detalle.exportar': { operaciones: ['torre.detalle.exportar'], predecesores: [] },
-  // Productos (B3): el área SOAT · Impuestos · Derechos. La siembra su propia migración (0307), con el umbral nuevo.
+  // Productos (B3): el área SOAT · Impuestos · Derechos. La siembra su propia migración (0308), con el umbral nuevo.
   'accion.torre_productos.ver': { lectura: true, operaciones: ['torre.tablero_productos.ver'], predecesores: [] },
-  // Logística (B4): Traslados · Entregas. La siembra su propia migración (0308), con el umbral nuevo.
+  // Logística (B4): Traslados · Entregas. La siembra su propia migración (0309), con el umbral nuevo.
   'accion.torre_logistica.ver': { lectura: true, operaciones: ['torre.tablero_logistica.ver'], predecesores: [] },
   // Equipo (B5): la pestaña Equipo de Operativa. Cuelga del ítem `pagina.torre_operativa` (no estrena PageSlug: es una
-  // pestaña, y el ítem ya lo tienen los roles que ven Operativa). La siembra su propia migración (0309).
+  // pestaña, y el ítem ya lo tienen los roles que ven Operativa). La siembra su propia migración (0310).
   'accion.torre_operativa.ver_equipo': { lectura: true, operaciones: ['torre.equipo.ver'], predecesores: [] },
 };
 
@@ -60,10 +60,10 @@ const conCadena = (items: readonly string[], acciones: readonly string[], elemen
  *   · `financiera`: su tablero, el Explorador completo.
  *   · `gerencia_comercial`: su tablero, el Explorador completo.
  *   · `gerencia_general`: los cuatro tableros, el Explorador completo y ver los umbrales.
- *   · Productos (B3): los mismos roles que ven `torre_operativa` (`auditor` y `gerencia_general`); lo siembra la 0307.
- *   · Logística (B4): el mismo reparto que Productos; lo siembra la 0308.
+ *   · Productos (B3): los mismos roles que ven `torre_operativa` (`auditor` y `gerencia_general`); lo siembra la 0308.
+ *   · Logística (B4): el mismo reparto que Productos; lo siembra la 0309.
  *   · Equipo (B5): SOLO `gerencia_general` (y `admin`), decisión del humano del 2026-11-19; el auditor ve Operativa
- *     pero NO el equipo (es información de desempeño de personas). Lo siembra la 0309.
+ *     pero NO el equipo (es información de desempeño de personas). Lo siembra la 0310.
  */
 const DETALLE_COMPLETO = ['accion.torre_detalle.ver', 'accion.torre_detalle.exportar'];
 const EXPLORADOR_COMPLETO = [

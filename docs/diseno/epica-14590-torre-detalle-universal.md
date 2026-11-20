@@ -341,7 +341,7 @@ Reparto (`REPARTO_TORRE`; `admin` lo recibe todo por ADR-0022):
 
 - `funcionesOrigen` hace que `ver` no alcance para ver conjuntos de un tablero que el rol no tiene. Un `gerencia_comercial` no ve `margen_aprobados` porque no tiene `torre.tablero_financiero.ver`.
 - PageSlug `torre_detalle: 'Torre · Detalle'` en `packages/shared-types/src/permissions.ts`, junto a los demás `torre_*`. Entra en `PAGE_GROUPS` y en `ROLE_DEFAULT_PAGES` igual que los otros ítems de la Torre: hay que replicar exactamente lo que hacen `torre_explorador` y sus vecinos.
-- **Siembra:** migración nueva `NNNN_flito_torre_detalle_permisos.sql`. El número se asigna al integrar; hoy el siguiente libre es `0306`. Inserta en `permisos_funciones` (el ítem y las 2 acciones, con `ON CONFLICT DO NOTHING`) y en `permisos_rol_funcion` el reparto literal, igual que la 0303. Es idempotente. **No** se modifica la 0303, que ya está aplicada. Dispara `db-review-agent`.
+- **Siembra:** migración nueva `NNNN_flito_torre_detalle_permisos.sql`. El número se asigna al integrar; quedó en `0307` al integrar con develop. Inserta en `permisos_funciones` (el ítem y las 2 acciones, con `ON CONFLICT DO NOTHING`) y en `permisos_rol_funcion` el reparto literal, igual que la 0303. Es idempotente. **No** se modifica la 0303, que ya está aplicada. Dispara `db-review-agent`.
 - El test `flito-torre-permisos.test.ts` vigila que el auditor no tenga `exportar`, que el reparto coincida con la migración y que solo `admin` tenga `umbrales.editar`, regla que ya existía.
 
 ## 11. Topes, caché, índices y la regla de borrador

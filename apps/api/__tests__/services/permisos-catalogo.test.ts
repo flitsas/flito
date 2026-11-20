@@ -95,7 +95,7 @@ describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo e
     // HU #13588: +1 en PAGES (`admin_rendimiento`), que nace en el árbol (la 0240): no es del mundo plano (≤ 0231).
     // HU #13941: +1 en PAGES (`flito_dr_flit`), que también nace en el árbol (la 0254).
     // Épica #14590: +6 en PAGES (`torre_*`), que nacen en el árbol (la 0303); ADR-0047: +1 (`torre_detalle`, su migración).
-    // B3: +1 (`torre_productos`, la 0307). B4: +1 (`torre_logistica`, la 0308).
+    // B3: +1 (`torre_productos`, la 0308). B4: +1 (`torre_logistica`, la 0309).
     expect(Object.keys(PAGES)).toHaveLength(85);
     expect(paginas).toHaveLength(73);
     const esperados = Object.keys(PAGES).filter((s) => s !== 'flito_ayuda' && s !== 'admin_rendimiento' && s !== 'flito_dr_flit' && !s.startsWith('torre_')).sort();

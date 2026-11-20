@@ -292,9 +292,9 @@ export const PAGES = {
   torre_umbrales: 'Torre · Umbrales',
   // Detalle universal (ADR-0047, B1): los registros detrás de cada cifra. No es pestaña; lo siembra su migración.
   torre_detalle: 'Torre · Detalle',
-  // Productos (B3): SOAT, impuestos y derechos; lo siembra su migración (0307).
+  // Productos (B3): SOAT, impuestos y derechos; lo siembra su migración (0308).
   torre_productos: 'Torre · Productos',
-  // Logística (B4): traslados y entregas; lo siembra su migración (0308).
+  // Logística (B4): traslados y entregas; lo siembra su migración (0309).
   torre_logistica: 'Torre · Logística',
   // Ayuda FLITO (HU #11893): contenedor del índice in-app. El slug existe SOLO para el label de
   // NoAccess y el ítem de nav. NO entra en `PAGE_GROUPS` (Users no debe ofrecer concederlo a mano)

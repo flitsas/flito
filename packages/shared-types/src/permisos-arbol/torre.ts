@@ -16,7 +16,7 @@ export const ITEMS_TORRE: readonly ItemDef[] = [
   { slug: 'torre_operativa', clave: 'torre_operativa', nombre: 'Torre · Operativa', elemento: 'general', orden: 50, acciones: [
     a('ver', 'Ver el tablero operativo', 'Consultar los tiempos, el trabajo en curso y los trámites en riesgo.'),
     // B5: la pestaña Equipo (solo gerencia_general y admin). Sin ítem propio: es una pestaña de Operativa, no una
-    // página; la siembra su propia migración (0309), no la 0303.
+    // página; la siembra su propia migración (0310), no la 0303.
     a('ver_equipo', 'Ver la operación del equipo', 'Consultar las gestiones, la carga abierta y los pendientes fuera de ANS de cada funcionario.'),
   ] },
   { slug: 'torre_financiera', clave: 'torre_financiera', nombre: 'Torre · Financiera', elemento: 'general', orden: 60, acciones: [
@@ -37,11 +37,11 @@ export const ITEMS_TORRE: readonly ItemDef[] = [
     a('ver', 'Ver los registros de una cifra', 'Abrir la lista de registros (placa, compañía y estado) detrás de una cifra de la Torre.'),
     a('exportar', 'Exportar los registros de una cifra', 'Descargar en Excel los registros detrás de una cifra de la Torre.'),
   ] },
-  // Productos (B3): SOAT, impuestos y derechos. Lo siembra su propia migración (0307), con el umbral nuevo.
+  // Productos (B3): SOAT, impuestos y derechos. Lo siembra su propia migración (0308), con el umbral nuevo.
   { slug: 'torre_productos', clave: 'torre_productos', nombre: 'Torre · Productos', elemento: 'general', orden: 90, acciones: [
     a('ver', 'Ver el tablero de productos', 'Consultar el estado de los SOAT, los impuestos y los derechos de tránsito.'),
   ] },
-  // Logística (B4): traslados y entregas. Lo siembra su propia migración (0308), con el umbral nuevo.
+  // Logística (B4): traslados y entregas. Lo siembra su propia migración (0309), con el umbral nuevo.
   { slug: 'torre_logistica', clave: 'torre_logistica', nombre: 'Torre · Logística', elemento: 'general', orden: 100, acciones: [
     a('ver', 'Ver el tablero de logística', 'Consultar los traslados de documentos, las actas de entrega y los viajes adicionales.'),
   ] },

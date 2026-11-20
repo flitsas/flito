@@ -606,11 +606,11 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // Épica #14590 (B2): pestañas del Operativo, con la función de su tablero (sin función ni migración nuevas).
   op(`${TTB} POST /operativa/inventario`, 'torre.tablero_operativo.ver', 'Ver el tablero operativo de la Torre', 'Consultar los tiempos, el trabajo en curso y los trámites en riesgo.'),
   op(`${TTB} POST /operativa/soportes`, 'torre.tablero_operativo.ver', 'Ver el tablero operativo de la Torre', 'Consultar los tiempos, el trabajo en curso y los trámites en riesgo.'),
-  // Épica #14590 (B3): el área Productos (SOAT · Impuestos · Derechos). Nace en el árbol; la 0307 siembra ítem y acción.
+  // Épica #14590 (B3): el área Productos (SOAT · Impuestos · Derechos). Nace en el árbol; la 0308 siembra ítem y acción.
   op(`${TTB} POST /productos`, 'torre.tablero_productos.ver', 'Ver el tablero de productos de la Torre', 'Consultar el estado de los SOAT, los impuestos y los derechos de tránsito.'),
   op(`${TTB} POST /productos/exportar`, 'torre.tablero_productos.ver', 'Ver el tablero de productos de la Torre', 'Consultar el estado de los SOAT, los impuestos y los derechos de tránsito.'),
   op(`${TDT} POST * [origen_productos]`, 'torre.tablero_productos.ver', 'Ver el tablero de productos de la Torre', 'Consultar el estado de los SOAT, los impuestos y los derechos de tránsito.'),
-  // Épica #14590 (B4): el área Logística (nace en el árbol; la 0308 siembra ítem y acción) y las subvistas Facturación y
+  // Épica #14590 (B4): el área Logística (nace en el árbol; la 0309 siembra ítem y acción) y las subvistas Facturación y
   // Bolsas de Financiera, con la función de su tablero (sin función ni migración nuevas).
   op(`${TTB} POST /logistica`, 'torre.tablero_logistica.ver', 'Ver el tablero de logística de la Torre', 'Consultar los traslados de documentos, las actas de entrega y los viajes adicionales.'),
   op(`${TTB} POST /logistica/exportar`, 'torre.tablero_logistica.ver', 'Ver el tablero de logística de la Torre', 'Consultar los traslados de documentos, las actas de entrega y los viajes adicionales.'),
@@ -619,7 +619,7 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${TTB} POST /financiera/bolsas`, 'torre.tablero_financiero.ver', 'Ver el tablero financiero de la Torre', 'Consultar costos, pagos, ingreso liquidado y lo pendiente de facturar.'),
   op(`${TTB} POST /financiera/facturacion/exportar`, 'torre.tablero_financiero.ver', 'Ver el tablero financiero de la Torre', 'Consultar costos, pagos, ingreso liquidado y lo pendiente de facturar.'),
   op(`${TTB} POST /financiera/bolsas/exportar`, 'torre.tablero_financiero.ver', 'Ver el tablero financiero de la Torre', 'Consultar costos, pagos, ingreso liquidado y lo pendiente de facturar.'),
-  // Épica #14590 (B5): la pestaña Equipo de Operativa (nace en el árbol; la 0309 siembra la acción). Sin `/exportar`.
+  // Épica #14590 (B5): la pestaña Equipo de Operativa (nace en el árbol; la 0310 siembra la acción). Sin `/exportar`.
   op(`${TTB} POST /operativa/equipo`, 'torre.equipo.ver', 'Ver la operación del equipo en la Torre', 'Consultar las gestiones, la carga abierta y los pendientes fuera de ANS de cada funcionario.'),
   op(`${TDT} POST * [origen_equipo]`, 'torre.equipo.ver', 'Ver la operación del equipo en la Torre', 'Consultar las gestiones, la carga abierta y los pendientes fuera de ANS de cada funcionario.'),
 ];

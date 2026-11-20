@@ -4,7 +4,7 @@
 --    cambia en Umbrales y alertas. `ON CONFLICT DO NOTHING`: un valor ya ajustado no se pisa.
 -- 2. El ítem «Torre · Productos» (General) y su acción `torre.tablero_productos.ver` (lectura), con el reparto literal
 --    de `REPARTO_TORRE` (`apps/api/src/modules/permisos/arbol/acciones-torre.ts`): admin y los roles que ven Operativa
---    (auditor y gerencia_general). La 0303 y la 0306 (ya aplicadas) no se tocan.
+--    (auditor y gerencia_general). La 0303 (ya aplicada) y la 0307 no se tocan.
 -- Idempotente: `ON CONFLICT` en las tres tablas. Las operaciones nacen en el árbol (no se siembran).
 
 -- ── 1. Umbral ───────────────────────────────────────────────────────────────────────────────────────
