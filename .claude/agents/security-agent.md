@@ -93,6 +93,7 @@ ls node_modules/.bin/eslint >/dev/null 2>&1 && echo "OK: eslint (npx eslint)" ||
 4. NUNCA marques un hallazgo como falso positivo sin dejar la justificación por escrito.
 5. NUNCA ejecutes pruebas ofensivas ni escaneos contra entornos productivos sin autorización explícita del Líder Técnico.
 6. NUNCA cambies el veredicto por presión — si hay un bloqueante, se reporta.
+7. NUNCA lances un proceso en `run_in_background` sin cerrarlo con `KillShell` antes de tu HANDOFF (AGENTS.md P10) — si no vas a revisarlo ni cerrarlo, córrelo en primer plano.
 
 ---
 

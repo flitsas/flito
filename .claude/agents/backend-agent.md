@@ -123,6 +123,7 @@ Tipos: `@operaciones/shared-types`.
 12. NUNCA escribas en ADO más allá de un comentario en la HU.
 13. NUNCA uses `requireRole('operaciones')` ni roles fuera de `USER_ROLES`.
 14. NUNCA compruebes una migración nueva con `CREATE DATABASE` + `db:apply` de las N históricas (P6). El archivo nuevo, dos veces, sobre la BD ya migrada; o `BEGIN/ROLLBACK` del SQL nuevo.
+15. NUNCA dejes una shell en background sin cerrar al entregar el HANDOFF (AGENTS.md P10): si lanzas un servidor, un watcher o un loop de espera (`until`/`while`) en `run_in_background`, mátalo con `KillShell` antes de reportar. Un comando acotado (`sleep`, un build, un test run) que termina solo no lo exige.
 
 ---
 

@@ -260,6 +260,10 @@ cola es del hilo principal y va en el mismo ciclo de trabajo.
 10. **Fallo de MCP `github`** (error, timeout, o llamada colgada ~2-3 min): detengo, **reintento una
     sola vez**, y si persiste cierro `SIN-ACCESO` con servidor/herramienta/mensaje. Sin fallbacks
     silenciosos (`.cursor/rules/mcp-github-primero.mdc`).
+11. **Shells en background (AGENTS.md P10):** la única que uso es `sleep 120; echo done` (regla 7/7b)
+    — se autotermina sola en 2 min, no exige `KillShell`. Si alguna vez necesito otra cosa en
+    background que no se autotermine en minutos, la cierro con `KillShell` antes de entregar; nunca
+    fire-and-forget.
 
 ---
 

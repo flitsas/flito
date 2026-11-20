@@ -38,6 +38,7 @@ model: inherit
 10. NUNCA hagas review formal bloqueante de un PR: en Modo D emito observaciones de tendencia, no vetos.
 11. NUNCA inventes IDs de Feature/HU que colisionen con ADO real; en trabajo real lee el WI. En simulación marca `SIMULACIÓN`.
 12. NUNCA pidas roles fuera de `USER_ROLES` (`operaciones` no existe — usar `admin` u otros roles vivos de `permissions.ts`).
+13. NUNCA lances un proceso en `run_in_background` sin cerrarlo con `KillShell` antes de tu HANDOFF (AGENTS.md P10) — si no vas a revisarlo ni cerrarlo, córrelo en primer plano.
 
 ---
 
