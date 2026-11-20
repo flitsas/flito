@@ -1,7 +1,7 @@
 // Torre de Control (Épica #14590) — esqueleto común de las 5 páginas (spec UX §7): cabecera con la única primaria,
 // pestañas de la Torre (solo las que el rol ve, y solo si ve 2 o más), barra de filtros transversal y la ficha de
 // placa. La página crea el estado con `useTorre()` (así su primaria puede depender de lo que muestra).
-import { useRef, type ReactNode, type RefObject } from 'react';
+import { useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { PageSlug } from '../../lib/permissions';
 import { hasPage } from '../../lib/permissions';
 import { useAuth } from '../../lib/auth';
@@ -15,6 +15,8 @@ export const PAGINAS_TORRE: readonly { slug: PageSlug; to: string; etiqueta: str
   { slug: 'torre_360', to: '/flito/torre/resumen', etiqueta: 'Resumen 360°' },
   { slug: 'torre_comercial', to: '/flito/torre/comercial', etiqueta: 'Comercial' },
   { slug: 'torre_operativa', to: '/flito/torre/operativa', etiqueta: 'Operativa' },
+  { slug: 'torre_productos', to: '/flito/torre/productos', etiqueta: 'Productos' },
+  { slug: 'torre_logistica', to: '/flito/torre/logistica', etiqueta: 'Logística' },
   { slug: 'torre_financiera', to: '/flito/torre/financiera', etiqueta: 'Financiera' },
   { slug: 'torre_explorador', to: '/flito/torre/explorador', etiqueta: 'Explorador' },
 ];
@@ -27,6 +29,9 @@ export interface ContextoTorre {
   limpiar: () => void;
   restablecer: () => void;
   abrirFicha: (placa: string) => void;
+  /** Desde > Hasta o una fecha incompleta en la barra: no se consulta y queda el último resultado válido (spec §3). */
+  rangoInvalido: boolean;
+  setRangoInvalido: (v: boolean) => void;
   /** Interno de `PaginaTorre`: contenedor del buscador (el foco vuelve aquí al cerrar la ficha) y el Drawer. */
   buscadorRef: RefObject<HTMLDivElement>;
   drawer: ReactNode;
@@ -37,7 +42,11 @@ export function useTorre(): ContextoTorre {
   const { filtros, setFiltros, limpiar, restablecer } = useFiltrosTorre();
   const buscadorRef = useRef<HTMLDivElement>(null);
   const ficha = useFichaPlaca(buscadorRef);
-  return { filtros, setFiltros, limpiar, restablecer, abrirFicha: ficha.abrir, buscadorRef, drawer: ficha.drawer };
+  const [rangoInvalido, setRangoInvalido] = useState(false);
+  return {
+    filtros, setFiltros, limpiar, restablecer, abrirFicha: ficha.abrir, rangoInvalido, setRangoInvalido,
+    buscadorRef, drawer: ficha.drawer,
+  };
 }
 
 export default function PaginaTorre({ torre, titulo, subtitulo, acciones, children }: {
@@ -57,7 +66,7 @@ export default function PaginaTorre({ torre, titulo, subtitulo, acciones, childr
         <Pestanas etiqueta="Páginas de la Torre de Control" pestanas={visibles.map((p) => ({ id: p.slug, etiqueta: p.etiqueta, to: p.to }))} />
       )}
       <BarraFiltrosTorre filtros={torre.filtros} onCambio={torre.setFiltros} onLimpiar={torre.limpiar}
-        onBuscarPlaca={torre.abrirFicha} buscadorRef={torre.buscadorRef} />
+        onBuscarPlaca={torre.abrirFicha} buscadorRef={torre.buscadorRef} onRangoInvalido={torre.setRangoInvalido} />
       {children}
       {torre.drawer}
     </div>
@@ -69,7 +78,9 @@ export function BloqueTorre({ titulo, subtitulo, accion, ancho = false, children
   titulo: string; subtitulo?: string; accion?: ReactNode; ancho?: boolean; children: ReactNode; idPrueba?: string;
 }) {
   return (
-    <section className={`card min-w-0${ancho ? ' lg:col-span-2' : ''}`} aria-label={titulo} data-torre={idPrueba}>
+    // `id` + `tabIndex=-1`: «Ver cuáles ↓» de una KPI cuyo destino es este bloque (ADR-0047 D3) lleva el foco aquí.
+    <section id={idPrueba} tabIndex={idPrueba ? -1 : undefined} className={`card min-w-0 focus:outline-none${ancho ? ' lg:col-span-2' : ''}`}
+      aria-label={titulo} data-torre={idPrueba}>
       <div className="card__cabeza flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h2>{titulo}</h2>

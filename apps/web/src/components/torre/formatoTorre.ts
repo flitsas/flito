@@ -43,6 +43,136 @@ export function opcionesPeriodo(): { valor: string; etiqueta: string }[] {
   ];
 }
 
+// ── Barra de fechas (RN-TOR-W2, spec vistas flexibles §3) ───────────────────
+
+/** Atajos de la barra, en el orden de la spec. «Mes» (los `m:YYYY-MM`) va en su propio select. */
+export const ATAJOS_PERIODO = [
+  { valor: 'hoy', etiqueta: 'Hoy' }, { valor: 'ayer', etiqueta: 'Ayer' }, { valor: 'ultimos_7', etiqueta: 'Últimos 7 días' },
+  { valor: 'mes', etiqueta: 'Este mes' }, { valor: 'mes_anterior', etiqueta: 'Mes anterior' },
+  { valor: 'ultimos_6m', etiqueta: 'Últimos 6 meses' }, { valor: 'anio', etiqueta: 'Este año' },
+] as const satisfies readonly { valor: PeriodoTorre; etiqueta: string }[];
+
+/** Aritmética de días sobre el texto `YYYY-MM-DD`, en UTC para que ningún horario de verano mueva el día. */
+function sumarDiasIso(base: string, n: number): string {
+  const [y, m, d] = base.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+const primeroDeMes = (y: number, m0: number) => new Date(Date.UTC(y, m0, 1)).toISOString().slice(0, 10);
+const finDeMes = (y: number, m0: number) => new Date(Date.UTC(y, m0 + 1, 0)).toISOString().slice(0, 10);
+
+/**
+ * Fechas reales de un periodo, como texto `YYYY-MM-DD` de Bogotá (nunca `Date`, lección de #805). Misma regla que
+ * `resolverRango` de la API (RN-TOR-F5): «Últimos 6 meses» va alineado a mes (18 nov → 1 jun), «Mes anterior» es el
+ * mes calendario completo y un mes suelto en curso llega hasta hoy. La web sigue enviando el preset; esto solo llena
+ * los campos Desde/Hasta, y el subtítulo del resultado sigue usando `res.rango`.
+ */
+export function rangoDePeriodo(f: Pick<FiltrosTorre, 'periodo' | 'rango'>, hoy = hoyBogota()): { desde: string; hasta: string } {
+  const [y, m] = hoy.split('-').map(Number);
+  switch (f.periodo) {
+    case 'hoy': return { desde: hoy, hasta: hoy };
+    case 'ayer': { const a = sumarDiasIso(hoy, -1); return { desde: a, hasta: a }; }
+    case 'ultimos_7': return { desde: sumarDiasIso(hoy, -6), hasta: hoy };
+    case 'mes': return { desde: primeroDeMes(y, m - 1), hasta: hoy };
+    case 'mes_anterior': return { desde: primeroDeMes(y, m - 2), hasta: finDeMes(y, m - 2) };
+    case 'ultimos_6m': return { desde: primeroDeMes(y, m - 6), hasta: hoy };
+    case 'anio': return { desde: `${y}-01-01`, hasta: hoy };
+    case 'personalizado': return f.rango ?? { desde: primeroDeMes(y, m - 1), hasta: hoy };
+    default: {
+      const [ym, mm] = f.periodo.slice(2).split('-').map(Number);
+      const fin = finDeMes(ym, mm - 1);
+      return { desde: primeroDeMes(ym, mm - 1), hasta: fin > hoy ? hoy : fin };
+    }
+  }
+}
+
+/** «Mes»: el mes en curso y los 12 cerrados anteriores, del más reciente al más antiguo. */
+export function opcionesMes(hoy = hoyBogota()): { valor: string; etiqueta: string }[] {
+  const [y, m] = hoy.split('-').map(Number);
+  const actual = { valor: `m:${y}-${String(m).padStart(2, '0')}`, etiqueta: `${MESES[m - 1]} ${y}` };
+  return [actual, ...mesesConNombre(hoy).map((x) => ({ valor: x.clave, etiqueta: x.etiqueta }))];
+}
+
+/** «1 de noviembre de 2026» (anuncio del lector de pantalla). */
+export function fechaLarga(v: string): string {
+  const [y, m, d] = v.split('-').map(Number);
+  return `${d} de ${MESES[m - 1].toLowerCase()} de ${y}`;
+}
+
+// ── Etiquetas del eje de tiempo (G1, spec vistas flexibles §4) ──────────────
+
+const DIAS_SEMANA = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+const diaSemana = (iso: string) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return DIAS_SEMANA[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+};
+const TRIMESTRE = /^(\d{4})-?(?:T|Q)([1-4])$/i;
+
+/**
+ * Etiquetas de los cortes de un eje temporal a partir de la clave ISO: la corta para el eje y las cabeceras de la
+ * tabla cruzada («1 jun», «jun 2026», «T3 2026») y la larga para el tip y el `aria-label`. En día y semana, el
+ * primer corte y cada 1 de enero llevan el año. Una clave que no se reconoce conserva la etiqueta de la API.
+ */
+export function etiquetasCortesTorre(agrupacion: AgrupacionTorre, cortes: readonly { clave: string; etiqueta: string }[]): { cortas: string[]; largas: string[] } {
+  const cortas: string[] = [];
+  const largas: string[] = [];
+  cortes.forEach(({ clave, etiqueta }, i) => {
+    const dia = /^(\d{4})-(\d{2})-(\d{2})/.exec(clave);
+    const mes = /^(\d{4})-(\d{2})$/.exec(clave);
+    const tri = TRIMESTRE.exec(clave);
+    if ((agrupacion === 'dia' || agrupacion === 'semana') && dia) {
+      const [y, m, d] = [Number(dia[1]), Number(dia[2]), Number(dia[3])];
+      const conAnio = i === 0 || (m === 1 && (agrupacion === 'dia' ? d === 1 : d <= 7));
+      cortas.push(`${d} ${MESES_CORTOS[m - 1]}${conAnio ? ` ${y}` : ''}`);
+      if (agrupacion === 'dia') largas.push(`${diaSemana(clave.slice(0, 10))} ${d} ${MESES_CORTOS[m - 1]} ${y}`);
+      else {
+        const [yf, mf, df] = sumarDiasIso(clave.slice(0, 10), 6).split('-').map(Number);
+        largas.push(mf === m ? `Semana del ${d} al ${df} ${MESES_CORTOS[m - 1]} ${y}`
+          : `Semana del ${d} ${MESES_CORTOS[m - 1]}${yf === y ? '' : ` ${y}`} al ${df} ${MESES_CORTOS[mf - 1]} ${yf}`);
+      }
+    } else if (agrupacion === 'mes' && (mes || dia)) {
+      const r = (mes ?? dia)!;
+      const [y, m] = [Number(r[1]), Number(r[2])];
+      cortas.push(`${MESES_CORTOS[m - 1]} ${y}`);
+      largas.push(`${MESES[m - 1].toLowerCase()} de ${y}`);
+    } else if (agrupacion === 'trimestre' && (tri || dia || mes)) {
+      const y = Number((tri ?? dia ?? mes)![1]);
+      const q = tri ? Number(tri[2]) : Math.floor((Number((dia ?? mes)![2]) - 1) / 3) + 1;
+      cortas.push(`T${q} ${y}`);
+      largas.push(`T${q} ${y} (${MESES_CORTOS[(q - 1) * 3]}–${MESES_CORTOS[(q - 1) * 3 + 2]})`);
+    } else {
+      cortas.push(etiqueta);
+      largas.push(etiqueta);
+    }
+  });
+  return { cortas, largas };
+}
+
+// ── Comparación con el periodo anterior (V, RN-TOR-K3) ──────────────────────
+
+export interface VariacionTorre { texto: string; accesible: string; flecha: '▲' | '▼' | '=' | null }
+
+const NUEVO: VariacionTorre = { texto: 'Nuevo', accesible: 'nuevo, sin registros en el periodo anterior', flecha: null };
+const SIN_BASE: VariacionTorre = { texto: '—', accesible: 'sin datos para comparar', flecha: null };
+
+/**
+ * «▲ 12,0 %», «▼ 3,2 pp», «= 0,0 %», «Nuevo» (anterior en 0 o inexistente y actual > 0) o «—» (los dos en 0). Sin
+ * color: la flecha va `aria-hidden` y el texto accesible dice «sube/baja X %». `v` es la variación de la API
+ * (RN-TOR-K3); `null` = sin base.
+ */
+export function textoVariacion(actual: number, anterior: number | null, v: number | null, en: 'relativa' | 'puntos'): VariacionTorre {
+  if (v === null) return actual > 0 && (anterior === null || anterior === 0) ? NUEVO : SIN_BASE;
+  const pts = en === 'puntos';
+  const abs = Math.abs(v).toLocaleString('es-CO', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const u = pts ? 'pp' : '%';
+  if (v > 0) return { texto: `${abs} ${u}`, accesible: `sube ${abs} ${pts ? 'puntos' : '%'}`, flecha: '▲' };
+  if (v < 0) return { texto: `${abs} ${u}`, accesible: `baja ${abs} ${pts ? 'puntos' : '%'}`, flecha: '▼' };
+  return { texto: `0,0 ${u}`, accesible: 'sin cambio', flecha: '=' };
+}
+
+/** Variación relativa calculada en la web (solo para «Los demás», que suma sus grupos). */
+export const variacionRelativa = (actual: number, anterior: number): number | null =>
+  anterior === 0 ? null : Math.round(((actual - anterior) / anterior) * 1000) / 10;
+
 /** '2026-10-02' → '2 oct 2026'. A mano, sin `Date`, para que el día no se corra de zona. */
 export function fechaCorta(v: string | null | undefined): string {
   if (!v) return '—';

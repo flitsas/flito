@@ -290,6 +290,12 @@ export const PAGES = {
   torre_financiera: 'Torre · Financiera',
   torre_explorador: 'Torre · Explorador',
   torre_umbrales: 'Torre · Umbrales',
+  // Detalle universal (ADR-0047, B1): los registros detrás de cada cifra. No es pestaña; lo siembra su migración.
+  torre_detalle: 'Torre · Detalle',
+  // Productos (B3): SOAT, impuestos y derechos; lo siembra su migración (0308).
+  torre_productos: 'Torre · Productos',
+  // Logística (B4): traslados y entregas; lo siembra su migración (0309).
+  torre_logistica: 'Torre · Logística',
   // Ayuda FLITO (HU #11893): contenedor del índice in-app. El slug existe SOLO para el label de
   // NoAccess y el ítem de nav. NO entra en `PAGE_GROUPS` (Users no debe ofrecer concederlo a mano)
   // ni en ninguna fila de `ROLE_DEFAULT_PAGES`: la visibilidad es derivada (`hasPage` de ≥1 slug
@@ -336,7 +342,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   // grupos —una rareza que nadie sabía explicar— porque el portal la tenía prestada.
   { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'flito_soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta', 'flito_bolsas', 'flito_comparendos', 'flito_conciliacion'] },
   { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'finanzas_gastos_diarios', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas', 'flito_servicios_adicionales', 'flito_comprobantes'] },
-  { label: 'Torre de Control', pages: ['torre_360', 'torre_comercial', 'torre_operativa', 'torre_financiera', 'torre_explorador'] },
+  { label: 'Torre de Control', pages: ['torre_360', 'torre_comercial', 'torre_operativa', 'torre_financiera', 'torre_explorador', 'torre_detalle', 'torre_productos', 'torre_logistica'] },
   { label: 'Administración', pages: ['users', 'privacy', 'siigo_credenciales', 'roles_permisos', 'admin_rendimiento', 'torre_umbrales'] },
 ];
 
@@ -390,7 +396,8 @@ const DEFAULTS_POR_ROL: Record<Exclude<UserRole, 'admin'>, readonly PageSlug[]> 
     // `usuarios.auditoria.ver` y `usuarios.auditoria.filtrar`, y la pantalla le monta solo el historial.
     'users',
     // Torre de Control (Épica #14590, 0303): los cuatro tableros, el Explorador (sin exportar) y ver los umbrales.
-    'torre_360', 'torre_comercial', 'torre_operativa', 'torre_financiera', 'torre_explorador', 'torre_umbrales'],
+    'torre_360', 'torre_comercial', 'torre_operativa', 'torre_financiera', 'torre_explorador', 'torre_umbrales', 'torre_detalle',
+    'torre_productos', 'torre_logistica'],
   // FLITO — el operador del dominio ES el admin (despliegue FLITO-only): admin ya obtiene TODAS
   // las páginas arriba, así que no hay una fila `operaciones` aparte.
   // FLITO — Gestor de Impuestos: solo su portal (filtrado por organismo en el servidor).
@@ -421,7 +428,7 @@ const DEFAULTS_POR_ROL: Record<Exclude<UserRole, 'admin'>, readonly PageSlug[]> 
   // página a los mismos dos roles; sin esta línea la paridad con el catálogo del código se rompe.
   financiera: ['dashboard', 'finanzas_reporte_costos', 'clients', 'flito_bolsas', 'flito_conciliacion', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas', 'flito_servicios_adicionales', 'flito_comprobantes',
     // Torre de Control (Épica #14590, 0303): su tablero y el Explorador.
-    'torre_financiera', 'torre_explorador'],
+    'torre_financiera', 'torre_explorador', 'torre_detalle'],
   // FLITO — Cliente (Feature #11912): UNA sola página, y a propósito SIN `dashboard`.
   //
   // El tablero es de la operación: consolida trámites, SOAT e impuestos de TODAS las compañías, así
@@ -436,8 +443,9 @@ const DEFAULTS_POR_ROL: Record<Exclude<UserRole, 'admin'>, readonly PageSlug[]> 
   // Torre de Control (Épica #14590): SOLO páginas de la Torre, y a propósito sin `dashboard` (el tablero de la
   // operación lista trámites de todas las compañías; su inicio es la primera página permitida, como `cliente`).
   // Sin datos del titular, sin usuarios, sin mutaciones. La 0303 siembra lo mismo y además sus acciones.
-  gerencia_comercial: ['torre_comercial', 'torre_explorador'],
-  gerencia_general: ['torre_360', 'torre_comercial', 'torre_operativa', 'torre_financiera', 'torre_explorador', 'torre_umbrales'],
+  gerencia_comercial: ['torre_comercial', 'torre_explorador', 'torre_detalle'],
+  gerencia_general: ['torre_360', 'torre_comercial', 'torre_operativa', 'torre_financiera', 'torre_explorador', 'torre_umbrales', 'torre_detalle',
+    'torre_productos', 'torre_logistica'],
 };
 
 /**

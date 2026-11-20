@@ -167,5 +167,9 @@ export * from './flito-tarifas-proveedor.js';
 export * from './flito-revisiones.js';
 // Torre de Control Gerencial (Épica #14590): catálogo de métricas, filtro, ficha de placa y umbrales.
 export * from './flito-torre.js';
+export * from './flito-torre-detalle.js';
+export * from './flito-torre-productos.js';
+export * from './flito-torre-logistica.js';
+export * from './flito-torre-equipo.js';
 // Detalle de trámite en modal de Gestión Trámites (ADR-0046).
 export * from './flito-tramites-detalle.js';

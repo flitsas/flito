@@ -22,12 +22,20 @@
 // RN-TOR-L1: costo e ingreso excluyen las liquidaciones de trámites anulados/abortados/revocados (`LIQUIDACION_VIGENTE`).
 import { sql, type SQL } from 'drizzle-orm';
 import {
-  esFechaBasePermitida, fechaBasePorDefecto, type FechaBaseTorre, type MetricaTorreId,
+  esFechaBasePermitida, fechaBasePorDefecto, type ColumnaDetalleId, type FechaBaseTorre, type MetricaTorreId,
 } from '@operaciones/shared-types';
 import {
-  flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones, flitoTramites, siigoFacturaTramites,
+  flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones, flitoSoat, flitoSoportes, flitoTramiteHistorial, flitoTramites,
+  flitoTramiteViajesLogistica, siigoFacturaTramites,
 } from '../../db/schema.js';
+import {
+  BORRADOR_ABANDONADO, ENTRADA_ESTADO_ACTUAL,
+} from '../flito-tramites/flito-tramites.borrador.js';
 import type { DimensionesBase, FechaBase } from './flito-torre.filtro.js';
+import {
+  COLS_DERECHO, COLS_IMPUESTO, COLS_SOAT, DESDE_DERECHOS, DESDE_IMPUESTOS, DESDE_SOAT, DIMS_DERECHO, DIMS_IMPUESTO, DIMS_SOAT,
+  FECHA_DERECHO_CREACION, FECHA_DERECHO_PAGO, FECHA_IMPUESTO_CREACION, FECHA_IMPUESTO_PAGO, FECHA_SOAT_CREACION, FECHA_SOAT_PAGO,
+} from './flito-torre.productos-sql.js';
 import { TorreConsultaInvalidaError } from './flito-torre.service.js';
 
 export type FormaMetrica = 'conteo' | 'suma' | 'tasa' | 'tiempo';
@@ -59,6 +67,8 @@ export interface DefMetricaSql {
   fechas: Partial<Record<FechaBaseTorre, VarianteFecha>>;
   /** Solo en las de foto (sin variantes): qué declara `baseFecha.campo`. */
   campoFoto?: string;
+  /** B3: columnas del detalle propias (las de producto); el resto sale de `colsTramite`. */
+  colsDetalle?: Partial<Record<ColumnaDetalleId, SQL>>;
 }
 
 /** La métrica con su fecha base ya elegida: lo único que consume el motor. */
@@ -74,14 +84,26 @@ export interface DefResuelta {
   valor?: SQL;
   requiere?: SQL;
   sync?: SQL;
+  colsDetalle?: Partial<Record<ColumnaDetalleId, SQL>>;
 }
 
 const T = flitoTramites;
 const L = flitoLiquidaciones;
 const SF = siigoFacturaTramites;
 
+/**
+ * RN-TOR-O1: último cambio de `flit_estado` (historial), con respaldo en la fecha de creación. Es la «entrada al estado
+ * actual» de `flito-tramites` (RN-TRA-B1): el mismo SQL que usa la regla de borrador abandonado.
+ */
+export const ULTIMO_CAMBIO_ESTADO = ENTRADA_ESTADO_ACTUAL;
+/** Días completos en el estado actual: la columna `dias_en_estado` del detalle y el tramo de antigüedad (B2). */
+export const DIAS_EN_ESTADO = sql`floor(EXTRACT(EPOCH FROM (now() - ${ULTIMO_CAMBIO_ESTADO})) / 86400)::int`;
+/** Horas en el estado actual: el valor de la métrica `dias_en_estado` del Explorador (B2). */
+export const HORAS_EN_ESTADO = sql`(EXTRACT(EPOCH FROM (now() - ${ULTIMO_CAMBIO_ESTADO})) / 3600.0)`;
+
 export const DIMS_TRAMITE: DimensionesBase = {
   compania: T.companiaId, organismo: T.organismoCodigo, tipoTramite: T.tipoTramite, flitEstado: T.flitEstado,
+  diasEnEstado: DIAS_EN_ESTADO,
 };
 
 /** RN-TOR-M2: fecha de creación con respaldo al `created_at` de la sincronización. */
@@ -126,7 +148,50 @@ const DESDE_TRAMITES = sql`${T}`;
 const DESDE_LIQUIDACIONES = sql`${L} INNER JOIN ${T} ON ${T.id} = ${L.tramiteId}`;
 const DESDE_TRAMITES_LIQ = sql`${T} LEFT JOIN ${L} ON ${L.tramiteId} = ${T.id}`;
 
-const APROBADO = sql`${T.fechaAprobacion} IS NOT NULL`;
+export const APROBADO = sql`${T.fechaAprobacion} IS NOT NULL`;
+
+// ── Fragmentos de los tableros (ADR-0047: cifra y detalle desde el MISMO SQL; vienen de operativa/comercial/financiera) ──
+
+const H = flitoTramiteHistorial;
+/** «Entregado» / «Enviado a OT»: en manos del organismo (el umbral `dias_respuesta_ot` del inventario, B2). */
+export const ESTADOS_EN_OT = ['entregado', 'enviado a ot'];
+
+/**
+ * RN-TOR-O1 + RN-TRA-B1 (B2-AC2): en Borrador desde hace más de `dias` días contados desde la ENTRADA al estado. Es el
+ * fragmento de `flito-tramites` (dueño del dato), el mismo de la alerta `borrador_5d`.
+ */
+export { BORRADOR_ABANDONADO };
+
+/** RN-TOR-O1: en el organismo («Entregado»/«Enviado a OT»), sin aprobar, sin cambiar de estado hace más de `dias`. */
+export const ESTANCADO_OT = (dias: number): SQL => sql`(lower(${T.flitEstado}) IN ${ESTADOS_EN_OT} AND ${T.fechaAprobacion} IS NULL
+    AND ${ULTIMO_CAMBIO_ESTADO} < now() - make_interval(days => ${dias}))`;
+
+/** RN-TOR-C3: radicado = pasó por «Entregado»/«Enviado a OT» o ya está aprobado. */
+export const RADICADO = sql`(${T.fechaAprobacion} IS NOT NULL
+  OR lower(${T.flitEstado}) IN ${['entregado', 'enviado a ot', 'aprobado']}
+  OR EXISTS (SELECT 1 FROM ${H} WHERE ${H.tramiteId} = ${T.id} AND ${H.campo} = 'flit_estado'
+    AND lower(${H.valorNuevo}) IN ${['entregado', 'enviado a ot']}))`;
+
+export const RECHAZADO = sql`lower(${T.flitEstado}) = 'rechazado'`;
+
+/** RN-TOR-FI4: soportes vigentes (no descartados) de SOAT, impuesto y derecho del trámite. */
+const S = flitoSoportes;
+// `descartado` es NOT NULL: sin COALESCE, para que los índices `idx_flito_soportes_*_tipo` sirvan (db-review).
+const SOPORTE_VIGENTE = sql`${S.descartado} = false`;
+export const SOPORTE_SOAT = sql`EXISTS (SELECT 1 FROM ${S} WHERE ${S.soatId} = ${T.soatId} AND ${SOPORTE_VIGENTE})`;
+export const SOPORTE_IMPUESTO = sql`EXISTS (SELECT 1 FROM ${S} INNER JOIN ${flitoImpuestos} ON ${flitoImpuestos.id} = ${S.impuestoId}
+  WHERE ${flitoImpuestos.tramiteId} = ${T.id} AND ${SOPORTE_VIGENTE})`;
+export const SOPORTE_DERECHO = sql`EXISTS (SELECT 1 FROM ${flitoDerechosTramite} WHERE ${flitoDerechosTramite.tramiteId} = ${T.id}
+  AND (${flitoDerechosTramite.soporteId} IS NOT NULL
+    OR EXISTS (SELECT 1 FROM ${S} WHERE ${S.derechoId} = ${flitoDerechosTramite.id} AND ${SOPORTE_VIGENTE})))`;
+/** 0..3 soportes vigentes. */
+export const PUNTOS_SOPORTE = sql`(CASE WHEN ${SOPORTE_SOAT} THEN 1 ELSE 0 END
+  + CASE WHEN ${SOPORTE_IMPUESTO} THEN 1 ELSE 0 END
+  + CASE WHEN ${SOPORTE_DERECHO} THEN 1 ELSE 0 END)`;
+
+/** RN-TOR-O4: viajes adicionales (`numero >= 2`) de la logística del trámite. */
+const V = flitoTramiteViajesLogistica;
+export const VIAJES_ADICIONALES = sql`(SELECT count(*)::int FROM ${V} WHERE ${V.tramiteId} = ${T.id} AND ${V.numero} >= 2)`;
 
 // ── Variantes reutilizables (RN-TOR-M11) ──────────────────────────────────────────────────────────────────────
 const POR_CREACION: VarianteFecha = { fecha: FECHA_CREACION, campoFecha: 'fecha_creacion_flit', fijas: [], sync: SIN_FECHA_FLIT };
@@ -134,6 +199,10 @@ const POR_APROBACION: VarianteFecha = { fecha: FECHA_APROBACION, campoFecha: 'fe
 const POR_FACTURACION: VarianteFecha = {
   fecha: FECHA_FACTURACION, campoFecha: 'siigo_factura_tramites.created_at (primera activa)', fijas: [], desdeExtra: FACTURACION_TRAMITE,
 };
+
+/** B3: variantes de un producto (su fecha de creación o de pago, que exige la fecha). */
+const PRODUCTO_CREACION = (fecha: FechaBase, campoFecha: string): VarianteFecha => ({ fecha, campoFecha, fijas: [] });
+const PRODUCTO_PAGO = (fecha: FechaBase, campoFecha: string): VarianteFecha => ({ fecha, campoFecha, fijas: [sql`${fecha.expr} IS NOT NULL`] });
 
 export const CATALOGO_SQL: Record<MetricaTorreId, DefMetricaSql> = {
   // RN-TOR-M13: métrica neutra del constructor. `tramites`+creación ≡ `tramites_creados`; `tramites`+aprobación ≡
@@ -183,6 +252,11 @@ export const CATALOGO_SQL: Record<MetricaTorreId, DefMetricaSql> = {
   wip_activo: {
     desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [EN_CURSO], forma: 'conteo', fechas: {}, campoFoto: 'estado actual',
   },
+  // B2: horas que llevan los trámites en curso en su estado actual (foto, mismo universo que `wip_activo`).
+  dias_en_estado: {
+    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [EN_CURSO], forma: 'tiempo', valor: HORAS_EN_ESTADO, fechas: {},
+    campoFoto: 'último cambio de estado',
+  },
   tasa_aprobacion: {
     desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [], forma: 'tasa', valor: APROBADO, fechas: { creacion: POR_CREACION },
   },
@@ -190,6 +264,24 @@ export const CATALOGO_SQL: Record<MetricaTorreId, DefMetricaSql> = {
   sin_facturar: {
     desde: DESDE_TRAMITES_LIQ, dims: DIMS_TRAMITE, fijas: [sql`NOT ${FACTURADO}`], forma: 'conteo',
     fechas: { aprobacion: POR_APROBACION },
+  },
+  // B3 (Productos), RN-TOR-M15: sin fecha base nueva (decisión del humano): creación del registro o pago. El SOAT se ve
+  // con su PRIMER trámite (RN-TOR-P1); impuesto y derecho, con el suyo (LEFT JOIN, como `impuestos_pagados`).
+  soat_gestionados: {
+    desde: DESDE_SOAT, dims: DIMS_SOAT, fijas: [], forma: 'conteo', colsDetalle: COLS_SOAT,
+    fechas: { creacion: PRODUCTO_CREACION(FECHA_SOAT_CREACION, 'flito_soat.created_at'), pago: PRODUCTO_PAGO(FECHA_SOAT_PAGO, 'pagado_en') },
+  },
+  soat_pagados_valor: {
+    desde: DESDE_SOAT, dims: DIMS_SOAT, fijas: [], forma: 'suma', valor: sql`COALESCE(${flitoSoat.valorPagado}, 0)`, colsDetalle: COLS_SOAT,
+    fechas: { pago: PRODUCTO_PAGO(FECHA_SOAT_PAGO, 'pagado_en') },
+  },
+  impuestos_gestionados: {
+    desde: DESDE_IMPUESTOS, dims: DIMS_IMPUESTO, fijas: [], forma: 'conteo', colsDetalle: COLS_IMPUESTO,
+    fechas: { creacion: PRODUCTO_CREACION(FECHA_IMPUESTO_CREACION, 'flito_impuestos.created_at'), pago: PRODUCTO_PAGO(FECHA_IMPUESTO_PAGO, 'pagado_en') },
+  },
+  derechos_registrados: {
+    desde: DESDE_DERECHOS, dims: DIMS_DERECHO, fijas: [], forma: 'conteo', colsDetalle: COLS_DERECHO,
+    fechas: { creacion: PRODUCTO_CREACION(FECHA_DERECHO_CREACION, 'flito_derechos_tramite.created_at'), pago: PRODUCTO_PAGO(FECHA_DERECHO_PAGO, 'fecha_pago') },
   },
 };
 
@@ -207,6 +299,6 @@ export function resolverDef(metrica: MetricaTorreId, fechaBase?: FechaBaseTorre)
     desde: v?.desdeExtra ? sql`${def.desde} ${v.desdeExtra}` : def.desde,
     dims: def.dims, forma: def.forma, valor: def.valor, requiere: def.requiere,
     fecha: v?.fecha, fechaBase: v ? elegida : null, campoFecha: v?.campoFecha ?? def.campoFoto ?? 'estado actual',
-    fijas: [...(v?.fijas ?? []), ...def.fijas], sync: v?.sync,
+    fijas: [...(v?.fijas ?? []), ...def.fijas], sync: v?.sync, colsDetalle: def.colsDetalle,
   };
 }

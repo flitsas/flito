@@ -108,7 +108,8 @@ test.describe('Torre de Control · Explorador (Épica #14590)', () => {
     expect(cuerpos.length).toBe(antes + 1);
     await resultado(page).getByRole('button', { name: 'Ver los últimos 6 meses' }).click();
     await expect.poll(() => (cuerpos.at(-1) as { filtro: { rango: unknown } }).filtro.rango).toEqual({ preset: 'ultimos_6m' });
-    await expect(page.getByLabel('Periodo')).toHaveValue('ultimos_6m');
+    // Vistas flexibles: el «Periodo» pasó a atajos (spec vistas flexibles §3).
+    await expect(page.getByRole('group', { name: 'Atajos de periodo' }).getByRole('button', { name: 'Últimos 6 meses' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   test('una pregunta frecuente recalcula sola y cambia el periodo de la barra compartida', async ({ page }) => {
@@ -120,7 +121,7 @@ test.describe('Torre de Control · Explorador (Épica #14590)', () => {
     await page.getByRole('button', { name: 'Aprobados hoy' }).click();
     await expect(page.getByRole('button', { name: 'Aprobados hoy' })).toHaveAttribute('aria-pressed', 'true');
     await expect.poll(() => (cuerpos.at(-1) as { filtro: { rango: unknown } }).filtro.rango).toEqual({ preset: 'hoy' });
-    await expect(page.getByLabel('Periodo')).toHaveValue('hoy');
+    await expect(page.getByRole('group', { name: 'Atajos de periodo' }).getByRole('button', { name: 'Hoy' })).toHaveAttribute('aria-pressed', 'true');
     const guardado = await page.evaluate(() => sessionStorage.getItem('flito-torre-filtros'));
     expect(JSON.parse(guardado ?? '{}').periodo).toBe('hoy');
     expect(page.url()).not.toContain('hoy');

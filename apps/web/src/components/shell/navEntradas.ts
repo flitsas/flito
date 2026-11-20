@@ -196,6 +196,8 @@ export const NAV_ENTRADAS: NavItemDecl[] = [
   { page: 'torre_360',        to: '/flito/torre/resumen',          section: 'torre',         etiqueta: 'Resumen 360°', keywords: 'torre control gerencia resumen 360 ejecutivo proyeccion riesgos' },
   { page: 'torre_comercial',  to: '/flito/torre/comercial',        section: 'torre',         etiqueta: 'Comercial',    keywords: 'torre control gerencia comercial clientes caida fuga concentracion venta cruzada' },
   { page: 'torre_operativa',  to: '/flito/torre/operativa',        section: 'torre',         etiqueta: 'Operativa',    keywords: 'torre control gerencia operativa estancamiento ans organismos carga logistica' },
+  { page: 'torre_productos',  to: '/flito/torre/productos',        section: 'torre',         etiqueta: 'Productos',    keywords: 'torre control gerencia productos soat impuestos derechos transito vencer vigencia soporte' },
+  { page: 'torre_logistica',  to: '/flito/torre/logistica',        section: 'torre',         etiqueta: 'Logística',    keywords: 'torre control gerencia logistica traslados entregas actas devueltas viajes mensajeria' },
   { page: 'torre_financiera', to: '/flito/torre/financiera',       section: 'torre',         etiqueta: 'Financiera',   keywords: 'torre control gerencia financiera bolsas cobertura sin facturar margen conciliacion' },
   { page: 'torre_explorador', to: '/flito/torre/explorador',       section: 'torre',         etiqueta: 'Explorador',   keywords: 'torre control explorador metricas consulta preguntas placa tiempos costos' },
   { page: 'torre_umbrales',   to: '/flito/torre/umbrales',         section: 'admin',         etiqueta: 'Umbrales y alertas', keywords: 'torre control umbrales alertas limites ans meta cobertura' },

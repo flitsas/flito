@@ -66,6 +66,11 @@ describe('consultaMetricaSchema v2 por HTTP (RN-TOR-M11, RN-TOR-C1)', () => {
     ['la misma agrupación dos veces', { metrica: 'tramites', agrupacion: 'compania', agrupacionColumnas: 'compania' }, 'agrupacionColumnas'],
     ['dos agrupaciones temporales', { metrica: 'tramites', agrupacion: 'mes', agrupacionColumnas: 'semana' }, 'agrupacionColumnas'],
     ['columnas no permitidas por la métrica', { metrica: 'wip_activo', agrupacion: 'compania', agrupacionColumnas: 'mes' }, 'agrupacionColumnas'],
+    ['top fuera de 5/10/20/50 (RN-TOR-K4)', { metrica: 'tramites', agrupacion: 'compania', top: 7 }, 'top'],
+    ['top no entero', { metrica: 'tramites', agrupacion: 'compania', top: 'diez' }, 'top'],
+    ['comparar en una foto (RN-TOR-K2)', { metrica: 'wip_activo', comparar: true }, 'comparar'],
+    ['comparar en el cruce (RN-TOR-K2)', { metrica: 'tramites', agrupacion: 'compania', agrupacionColumnas: 'mes', comparar: true }, 'comparar'],
+    ['comparar no booleano', { metrica: 'tramites', comparar: 'si' }, 'comparar'],
   ])('400 DATOS_INVALIDOS: %s', async (_caso, consulta, campo) => {
     const r = await pide('/metricas/consultar', 1, { ...consulta, filtro: MARZO });
     expect(r.status).toBe(400);
@@ -83,6 +88,17 @@ describe('consultaMetricaSchema v2 por HTTP (RN-TOR-M11, RN-TOR-C1)', () => {
     expect(r.body.baseFecha.fechaBase).toBe(fechaBase);
     if ('agrupacionColumnas' in consulta) expect(r.body.cruce).toEqual({ agrupacion: 'mes', columnas: [], celdas: [], truncadoColumnas: false });
     else expect(r.body.cruce).toBeUndefined();
+  });
+
+  it('200 aditivo (RN-TOR-K1..K4): `top` y `comparar` llegan al motor; sin ellos no hay `anterior`', async () => {
+    const r = await pide('/metricas/consultar', 1, { metrica: 'tramites', agrupacion: 'compania', top: 5, comparar: true, filtro: { rango: { preset: 'mes' } } });
+    expect(r.status).toBe(200);
+    expect(r.body.anterior).toMatchObject({ total: { valor: 0, n: 0 }, variacion: null, en: 'relativa', filas: [] });
+    const [d, h] = [r.body.rango.desde as string, r.body.anterior.rango.hasta as string];
+    expect(Date.parse(`${d}T00:00:00Z`) - Date.parse(`${h}T00:00:00Z`)).toBe(86_400_000); // termina el día antes
+    const sin = await pide('/metricas/consultar', 1, { metrica: 'tramites', agrupacion: 'compania', top: 50, filtro: MARZO });
+    expect(sin.status).toBe(200);
+    expect(sin.body).not.toHaveProperty('anterior');
   });
 
   it('400 RANGO_EXCEDIDO (campo rango) si el eje temporal del cruce pasa de 62 cortes', async () => {

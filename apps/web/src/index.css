@@ -219,3 +219,10 @@ body {
 .flit-success-bg { background: var(--flit-chip-success-bg); }
 .flit-warning-bg { background: var(--flit-chip-warning-bg); }
 .flit-danger-bg { background: var(--flit-chip-danger-bg); }
+
+/* Torre de Control (Épica #14590, maqueta `torre-kpi-explicable.html`) — KPI explicable sobre `.metrica`: el contenido
+   arriba (rótulo con el chip «Foto de hoy» a la derecha, cifra, frase) y las acciones al pie, sin huecos repartidos. */
+[data-torre="kpi-explicable"] > .metrica { align-items: start; align-content: start; grid-template-rows: auto auto 1fr; }
+[data-torre="kpi-explicable"] > .metrica > .metrica__etiqueta { justify-content: space-between; }
+[data-torre="kpi-explicable"] > .metrica > div:last-child { display: flex; flex-direction: column; gap: var(--space-8); height: 100%; }
+[data-torre="kpi-explicable"] [data-torre="kpi-acciones"] { margin-top: auto; }

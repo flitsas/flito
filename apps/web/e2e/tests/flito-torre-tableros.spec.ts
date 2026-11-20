@@ -301,3 +301,76 @@ test.describe('Torre de Control · tableros con varias compañías (Épica #1459
     expect(guardado).not.toHaveProperty('companiaId');
   });
 });
+
+// ── Vistas flexibles (Épica #14590, spec UX docs/ux/flito-torre-vistas-flexibles.md §3 y §4) ─────────────────────
+
+const GERENCIA_TODAS: UsuarioFixture = {
+  id: 703, username: 'e2e_gerencia_todas', name: 'Gerencia General E2E', role: 'gerencia_general',
+  allowedPages: ['torre_360', 'torre_comercial', 'torre_operativa', 'torre_financiera', 'torre_explorador'],
+  funciones: [
+    'torre.metricas.consultar', 'torre.placa.buscar', 'torre.tablero_ejecutivo.ver', 'torre.tablero_comercial.ver',
+    'torre.tablero_operativo.ver', 'torre.tablero_financiero.ver', 'perfil.datos.ver',
+  ],
+};
+
+test.describe('Torre · barra de fechas y eje legible en los tableros (Épica #14590, vistas flexibles)', () => {
+  test.use({ viewport: { width: 1366, height: 768 } });
+  test.beforeEach(async ({ page }) => { await page.clock.setFixedTime(new Date('2026-11-18T15:00:00.000Z')); });
+
+  test('Desde y Hasta a la vista en las 5 pestañas, sin el select «Periodo» ni «Rango personalizado»', async ({ page }) => {
+    await loginAs(page, GERENCIA_TODAS);
+    await mockOpciones(page);
+    await page.route('**/api/flito/torre/tableros/**', (route) => route.fulfill(json({ error: 'x' }, 500)));
+    await page.route('**/api/flito/torre/metricas/consultar', (route) => route.fulfill(json({ error: 'x' }, 500)));
+    for (const ruta of ['resumen', 'comercial', 'operativa', 'financiera', 'explorador']) {
+      await page.goto(`/flito/torre/${ruta}`);
+      await expect(barra(page).getByLabel('Desde', { exact: true }), ruta).toHaveValue('2026-11-01');
+      await expect(barra(page).getByLabel('Hasta', { exact: true })).toHaveValue('2026-11-18');
+      await expect(barra(page).getByRole('group', { name: 'Atajos de periodo' }).getByRole('button', { name: 'Este mes' }))
+        .toHaveAttribute('aria-pressed', 'true');
+      await expect(barra(page).getByLabel('Periodo', { exact: true })).toHaveCount(0);
+      await expect(barra(page).getByText('Rango personalizado')).toHaveCount(0);
+    }
+  });
+
+  test('Comercial: un atajo llena los campos y manda el preset; con Desde > Hasta no hay petición', async ({ page }) => {
+    await loginAs(page, COMERCIAL_CON_EXPORTAR);
+    await mockOpciones(page);
+    const cuerpos: { filtro: { rango: unknown } }[] = [];
+    await page.route('**/api/flito/torre/tableros/comercial', async (route) => {
+      cuerpos.push(route.request().postDataJSON());
+      await route.fulfill(json(TABLERO_COMERCIAL));
+    });
+    await page.goto('/flito/torre/comercial');
+    await expect(page.locator('[data-torre="tablero"]')).toHaveAttribute('data-estado', 'lleno');
+
+    await barra(page).getByRole('button', { name: 'Mes anterior' }).click();
+    await expect(barra(page).getByLabel('Desde', { exact: true })).toHaveValue('2026-10-01');
+    await expect(barra(page).getByLabel('Hasta', { exact: true })).toHaveValue('2026-10-31');
+    await expect.poll(() => cuerpos.at(-1)?.filtro.rango).toEqual({ preset: 'mes_anterior' });
+
+    const antes = cuerpos.length;
+    await barra(page).getByLabel('Hasta', { exact: true }).fill('2026-09-15');
+    await expect(barra(page).getByText('La fecha «Desde» es posterior a «Hasta». Corrija una de las dos.')).toBeVisible();
+    await expect(barra(page).getByLabel('Desde', { exact: true })).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.getByText('El resultado corresponde al último periodo válido: 1 oct – 31 oct 2026.')).toBeVisible();
+    await page.waitForTimeout(300);
+    expect(cuerpos.length).toBe(antes);
+    await expect(page.locator('[data-torre="tablero"]')).toHaveAttribute('data-estado', 'lleno');
+  });
+
+  test('gráfica de tendencia en modo fluido: el viewBox mide la caja y cada corte tiene marca y rótulo', async ({ page }) => {
+    await loginAs(page, COMERCIAL_CON_EXPORTAR);
+    await mockOpciones(page);
+    await mockTablero(page);
+    await page.goto('/flito/torre/comercial');
+    const linea = page.locator('[data-torre="bloque-tendencia"] [data-kit="linea"]');
+    await expect(linea).toHaveAttribute('data-fluido', 'true');
+    const caja = (await linea.boundingBox())!.width;
+    const vb = await linea.locator('svg[role="img"]').getAttribute('viewBox');
+    expect(Math.abs(Number(vb!.split(' ')[2]) - caja)).toBeLessThanOrEqual(2);
+    const n = await linea.locator('.grafico__columna').count();
+    await expect(linea.locator('.grafico__marca')).toHaveCount(n);
+    await expect(linea.locator('[data-rotulo="x"]')).toHaveCount(n);
+  });
+});

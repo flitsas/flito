@@ -2,14 +2,16 @@
 // La pregunta tiene dos mitades: QUÉ se mide (tarjeta «¿Qué quiere saber?»: medida, fecha base y hasta 2 agrupaciones) y
 // SOBRE QUÉ conjunto (la barra compartida de la Torre). No hay botón «Consultar»: cada cambio recalcula y gana la última
 // petición. Única primaria: «Exportar a Excel». Sin la función de dinero, las medidas `requiereDinero` no se ofrecen.
+// Vistas flexibles (spec §5): la fila de vista del resultado manda `top` y `comparar` en el cuerpo y guarda los tres
+// valores en sessionStorage (nunca en la URL). Con el rango de la barra inválido no se consulta (spec §3).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  FUNCION_TORRE_DINERO, METRICAS_TORRE, metricaTorre,
+  FUNCION_TORRE_DINERO, METRICAS_TORRE, esTopGruposTorre, metricaTorre,
   type AgrupacionTorre, type ConsultaMetrica, type FechaBaseTorre, type MetricaTorreId, type ResultadoMetrica,
 } from '@operaciones/shared-types';
 import { api, ApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { hayMasFiltros } from '../../lib/torreFiltros';
+import { CLAVE_VISTA_TORRE, hayMasFiltros } from '../../lib/torreFiltros';
 import GradientButton from '../../components/flit/GradientButton';
 import InlineAlert from '../../components/flit/InlineAlert';
 import { Icono } from '../../components/flit/kit/Icono';
@@ -17,6 +19,8 @@ import { ErrorVista, Vacio } from '../../components/flit/Cargador';
 import { toastError, toastOk } from '../../components/flit/ToastFlito';
 import PaginaTorre, { useTorre, type ContextoTorre } from '../../components/torre/PaginaTorre';
 import ResultadoExplorador from '../../components/torre/ResultadoExplorador';
+import OpcionesVistaTorre, { VISTA_TORRE_INICIAL, type VistaTorre } from '../../components/torre/OpcionesVistaTorre';
+import { esAditiva } from '../../components/torre/TablaCruzadaTorre';
 import { ROTULO_FILTRO, nombresFiltros, useOpcionesTorre } from '../../components/torre/BarraFiltrosTorre';
 import ConstructorConsultaTorre, { PREGUNTAS_TORRE, type PreguntaTorre } from '../../components/torre/ConstructorConsultaTorre';
 import {
@@ -51,6 +55,21 @@ export default function TorreExplorador() {
 const minuscula = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
 const mismos = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x) => b.includes(x));
 
+/** La fila de vista guardada; lo dudoso cae al default. */
+function leerVista(): VistaTorre {
+  try {
+    const o = JSON.parse(sessionStorage.getItem(CLAVE_VISTA_TORRE) ?? 'null') as Partial<VistaTorre> | null;
+    if (!o || typeof o !== 'object') return { ...VISTA_TORRE_INICIAL };
+    return {
+      top: typeof o.top === 'number' && esTopGruposTorre(o.top) ? o.top : VISTA_TORRE_INICIAL.top,
+      pct: o.pct === true,
+      comparar: o.comparar === true,
+    };
+  } catch {
+    return { ...VISTA_TORRE_INICIAL };
+  }
+}
+
 /** 400 `campo: 'rango'` con dos agrupaciones y una por día o semana: más de 62 cortes (RN-TOR-C3), no un fallo. */
 function esDemasiadosCortes(e: unknown, agr: AgrupacionTorre | '', col: AgrupacionTorre | ''): boolean {
   if (!(e instanceof ApiError) || e.status !== 400 || !col) return false;
@@ -62,7 +81,7 @@ function Explorador({ ctx, onExportar }: {
   ctx: ContextoTorre;
   onExportar: (e: { habilitado: boolean; ejecutar: () => Promise<void> }) => void;
 }) {
-  const { filtros, setFiltros, abrirFicha } = ctx;
+  const { filtros, setFiltros, abrirFicha, rangoInvalido } = ctx;
   const { hasFuncion } = useAuth();
   const veDinero = hasFuncion(FUNCION_TORRE_DINERO);
   const metricas = useMemo(() => METRICAS_TORRE.filter((m) => m.enConstructor && (veDinero || !m.requiereDinero)), [veDinero]);
@@ -75,6 +94,10 @@ function Explorador({ ctx, onExportar }: {
   const [agrupacion, setAgrupacion] = useState<AgrupacionTorre | ''>('compania');
   const [columnas, setColumnas] = useState<AgrupacionTorre | ''>('');
   const [ajuste, setAjuste] = useState('');
+  const [vistaGuardada, setVista] = useState<VistaTorre>(leerVista);
+  useEffect(() => {
+    try { sessionStorage.setItem(CLAVE_VISTA_TORRE, JSON.stringify(vistaGuardada)); } catch { /* sin almacenamiento: solo memoria */ }
+  }, [vistaGuardada]);
   const [estado, setEstado] = useState<Estado>({ tipo: 'cargando' });
   const [intento, setIntento] = useState(0);
   const ultima = useRef(0);
@@ -91,16 +114,34 @@ function Explorador({ ctx, onExportar }: {
   const opcionesColumnas = agr ? permitidas.filter((a) => a !== agr && !(esTemporal(agr) && esTemporal(a))) : [];
   const col: AgrupacionTorre | '' = columnas && opcionesColumnas.includes(columnas) ? columnas : '';
 
+  // Qué controles de vista aplican (spec §5). Al dejar de aplicar, Comparar se apaga y % vuelve a Absoluto (no queda
+  // un estado oculto); Top conserva su valor.
+  const conTop = (agr !== '' && !esTemporal(agr)) || (col !== '' && !esTemporal(col));
+  const conPct = !!col && esAditiva(def.unidad);
+  const conComparar = !foto && !col && !rangoInvalido;
+  const vista: VistaTorre = { ...vistaGuardada, pct: conPct && vistaGuardada.pct, comparar: conComparar && vistaGuardada.comparar };
+  useEffect(() => {
+    if ((!conPct && vistaGuardada.pct) || (!conComparar && vistaGuardada.comparar)) {
+      setVista((v) => ({ ...v, pct: conPct && v.pct, comparar: conComparar && v.comparar }));
+    }
+  }, [conPct, conComparar, vistaGuardada.pct, vistaGuardada.comparar]);
+  const notaTop = col && !esTemporal(col) && esTemporal(agr) && vista.top > 12
+    ? `Con ${ETIQUETA_AGRUPACION[col as AgrupacionTorre].toLowerCase()} en columnas se ven hasta 12.` : undefined;
+
   const filtroTorre = useMemo(() => aFiltroTorre(filtros), [filtros]);
   const consulta: ConsultaMetrica = useMemo(() => ({
     metrica, filtro: filtroTorre,
     ...(fecha ? { fechaBase: fecha } : {}),
     ...(agr ? { agrupacion: agr } : {}),
     ...(col ? { agrupacionColumnas: col } : {}),
-  }), [metrica, fecha, agr, col, filtroTorre]);
+    ...(conTop ? { top: vista.top } : {}),
+    ...(vista.comparar ? { comparar: true } : {}),
+  }), [metrica, fecha, agr, col, filtroTorre, conTop, vista.top, vista.comparar]);
   const claveConsulta = JSON.stringify(consulta);
 
   useEffect(() => {
+    // Rango inválido en la barra: no se consulta y queda el último resultado válido (spec §3 regla 5).
+    if (rangoInvalido) return;
     const id = ++ultima.current;
     setEstado({ tipo: 'cargando' });
     api.post<ResultadoMetrica>('/flito/torre/metricas/consultar', consulta)
@@ -109,7 +150,7 @@ function Explorador({ ctx, onExportar }: {
         if (id === ultima.current) setEstado({ tipo: esDemasiadosCortes(e, agr, col) ? 'cortes' : 'error' });
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `claveConsulta` resume `consulta`
-  }, [claveConsulta, intento]);
+  }, [claveConsulta, intento, rangoInvalido]);
 
   // Vacío = el CONJUNTO vacío; una tabla con celdas en 0 es lleno.
   const vacio = estado.tipo === 'listo' && estado.res.total.n === 0 && estado.res.filas.length === 0;
@@ -224,7 +265,9 @@ function Explorador({ ctx, onExportar }: {
 
       <p className="sr-only" role="status" aria-live="polite">{ajuste ? `${ajuste} ${anuncio}` : anuncio}</p>
 
-      {estado.tipo === 'cargando' && <EsqueletoResultado cruzado={!!col} conGrafica={!!col && (esTemporal(agr) || esTemporal(col))} />}
+      {estado.tipo === 'cargando' && (
+        <EsqueletoResultado cruzado={!!col} conGrafica={!!col && (esTemporal(agr) || esTemporal(col))} comparar={vista.comparar} />
+      )}
       {estado.tipo === 'error' && (
         <section className="card min-w-0" data-torre="resultado" data-estado="error">
           <ErrorVista texto="No pudimos calcular esta consulta. Revise su conexión e intente de nuevo." onReintentar={() => setIntento((n) => n + 1)} />
@@ -254,14 +297,22 @@ function Explorador({ ctx, onExportar }: {
       )}
       {lleno && estado.tipo === 'listo' && (
         <ResultadoExplorador res={estado.res} def={def} agrupacion={agr} titulo={titulo} subtitulo={subtitulo} onVerFicha={abrirFicha}
-          avisos={avisoEstado} medida={medida} />
+          avisos={avisoEstado} medida={medida} vista={vista}
+          opciones={<OpcionesVistaTorre vista={vista} onCambio={setVista} conTop={conTop} conPct={conPct} conComparar={conComparar} notaTop={notaTop} />} />
       )}
     </>
   );
 }
 
 /** Esqueleto de la estructura que viene: simple (cifra + ranking + filas) o cruzado (cifra, gráfica y rejilla). */
-function EsqueletoResultado({ cruzado, conGrafica }: { cruzado: boolean; conGrafica: boolean }) {
+function EsqueletoResultado({ cruzado, conGrafica, comparar }: { cruzado: boolean; conGrafica: boolean; comparar: boolean }) {
+  // Con Comparar: una línea corta bajo la cifra y 2 columnas más en las filas (spec §6).
+  const cifra = (
+    <div className="flex flex-col gap-2 lg:max-w-[18rem]">
+      <div className="kit-esqueleto h-[104px]" aria-hidden="true" />
+      {comparar && <div className="kit-esqueleto h-4 w-2/3" aria-hidden="true" />}
+    </div>
+  );
   return (
     <section className="card min-w-0" aria-busy="true" aria-label="Calculando la consulta" data-torre="resultado" data-estado="cargando">
       <div className="kit-esqueleto mb-2 h-6 w-2/3" aria-hidden="true" />
@@ -269,16 +320,23 @@ function EsqueletoResultado({ cruzado, conGrafica }: { cruzado: boolean; conGraf
       {!cruzado ? (
         <>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
-            <div className="kit-esqueleto h-[104px]" aria-hidden="true" />
+            {cifra}
             <div className="flex flex-col gap-2">{[0, 1, 2, 3].map((i) => <div key={i} className="kit-esqueleto h-6" aria-hidden="true" />)}</div>
           </div>
-          <div className="mt-4 flex flex-col gap-2">{[0, 1, 2, 3, 4].map((i) => <div key={i} className="kit-esqueleto h-10" aria-hidden="true" />)}</div>
+          <div className="mt-4 flex flex-col gap-2" aria-hidden="true">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div key={i} className={comparar ? 'grid grid-cols-[minmax(0,2fr)_repeat(4,minmax(0,1fr))] gap-1.5' : ''}>
+                {comparar ? [0, 1, 2, 3, 4].map((c) => <div key={c} className="kit-esqueleto h-10" />) : <div className="kit-esqueleto h-10" />}
+              </div>
+            ))}
+          </div>
         </>
       ) : (
         <>
-          <div className={conGrafica ? 'grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]' : 'grid grid-cols-1 gap-4'}>
-            <div className="kit-esqueleto h-[104px] lg:max-w-[18rem]" aria-hidden="true" />
-            {conGrafica && <div className="kit-esqueleto h-48" aria-hidden="true" />}
+          {/* Con eje temporal, la gráfica va a todo el ancho bajo la cifra (spec §4). */}
+          <div className="grid grid-cols-1 gap-4">
+            {cifra}
+            {conGrafica && <div className="kit-esqueleto h-[250px]" aria-hidden="true" />}
           </div>
           <div className="mt-4 flex flex-col gap-1.5" aria-hidden="true">
             {[0, 1, 2, 3, 4, 5, 6].map((f) => (

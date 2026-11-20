@@ -79,6 +79,7 @@ const BDOC = 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts'; // HU 
 const DRF = 'flito-dr-flit/dr-flit.funciones.ts'; // HU #13941
 const TOR = 'flito-torre/flito-torre.routes.ts'; // Épica #14590
 const TTB = 'flito-torre/flito-torre.tableros.routes.ts'; // Épica #14590
+const TDT = 'flito-torre/flito-torre.detalle.routes.ts'; // ADR-0047 (Épica #14590, B1)
 const VCOL = 'flito-vistas-columnas/flito-vistas-columnas.routes.ts'; // Épica #14560 (ADR-0045)
 
 const OPERACIONES_FLITO: OperacionDeclarada[] = [
@@ -592,6 +593,35 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${TOR} POST /metricas/exportar [dinero]`, 'torre.metricas.dinero', 'Ver las métricas de dinero de la Torre', 'Ver costos, impuestos, derechos, ingreso liquidado y lo pendiente de facturar en la Torre; sin ella, esas cifras salen vacías.'),
   op(`${TTB} POST * [dinero_tablero]`, 'torre.metricas.dinero', 'Ver las métricas de dinero de la Torre', 'Ver costos, impuestos, derechos, ingreso liquidado y lo pendiente de facturar en la Torre; sin ella, esas cifras salen vacías.'),
   op(`${TTB} POST * [dinero_exportar]`, 'torre.metricas.dinero', 'Ver las métricas de dinero de la Torre', 'Ver costos, impuestos, derechos, ingreso liquidado y lo pendiente de facturar en la Torre; sin ella, esas cifras salen vacías.'),
+  // ADR-0047 (B1): el detalle universal. Nacen en el árbol (`arbol/acciones-torre.ts`); su migración siembra ítem y acciones.
+  // En línea: el dinero y la función de origen de la cifra (sin ninguna de las del conjunto, 403 SIN_ORIGEN).
+  op(`${TDT} POST /consultar`, 'torre.detalle.ver', 'Ver los registros de una cifra de la Torre', 'Abrir la lista de registros (placa, compañía y estado) detrás de una cifra de la Torre.'),
+  op(`${TDT} POST /exportar`, 'torre.detalle.exportar', 'Exportar los registros de una cifra de la Torre', 'Descargar en Excel los registros detrás de una cifra de la Torre.'),
+  op(`${TDT} POST * [dinero_detalle]`, 'torre.metricas.dinero', 'Ver las métricas de dinero de la Torre', 'Ver costos, impuestos, derechos, ingreso liquidado y lo pendiente de facturar en la Torre; sin ella, esas cifras salen vacías.'),
+  op(`${TDT} POST * [origen_ejecutivo]`, 'torre.tablero_ejecutivo.ver', 'Ver la vista 360° de la Torre', 'Consultar el tablero ejecutivo de la Torre de Control.'),
+  op(`${TDT} POST * [origen_comercial]`, 'torre.tablero_comercial.ver', 'Ver el tablero comercial de la Torre', 'Consultar el volumen y la evolución por compañía.'),
+  op(`${TDT} POST * [origen_operativo]`, 'torre.tablero_operativo.ver', 'Ver el tablero operativo de la Torre', 'Consultar los tiempos, el trabajo en curso y los trámites en riesgo.'),
+  op(`${TDT} POST * [origen_financiero]`, 'torre.tablero_financiero.ver', 'Ver el tablero financiero de la Torre', 'Consultar costos, pagos, ingreso liquidado y lo pendiente de facturar.'),
+  op(`${TDT} POST * [origen_explorador]`, 'torre.metricas.consultar', 'Consultar métricas de la Torre', 'Consultar una métrica agregada del catálogo de la Torre con sus filtros y agrupación.'),
+  // Épica #14590 (B2): pestañas del Operativo, con la función de su tablero (sin función ni migración nuevas).
+  op(`${TTB} POST /operativa/inventario`, 'torre.tablero_operativo.ver', 'Ver el tablero operativo de la Torre', 'Consultar los tiempos, el trabajo en curso y los trámites en riesgo.'),
+  op(`${TTB} POST /operativa/soportes`, 'torre.tablero_operativo.ver', 'Ver el tablero operativo de la Torre', 'Consultar los tiempos, el trabajo en curso y los trámites en riesgo.'),
+  // Épica #14590 (B3): el área Productos (SOAT · Impuestos · Derechos). Nace en el árbol; la 0308 siembra ítem y acción.
+  op(`${TTB} POST /productos`, 'torre.tablero_productos.ver', 'Ver el tablero de productos de la Torre', 'Consultar el estado de los SOAT, los impuestos y los derechos de tránsito.'),
+  op(`${TTB} POST /productos/exportar`, 'torre.tablero_productos.ver', 'Ver el tablero de productos de la Torre', 'Consultar el estado de los SOAT, los impuestos y los derechos de tránsito.'),
+  op(`${TDT} POST * [origen_productos]`, 'torre.tablero_productos.ver', 'Ver el tablero de productos de la Torre', 'Consultar el estado de los SOAT, los impuestos y los derechos de tránsito.'),
+  // Épica #14590 (B4): el área Logística (nace en el árbol; la 0309 siembra ítem y acción) y las subvistas Facturación y
+  // Bolsas de Financiera, con la función de su tablero (sin función ni migración nuevas).
+  op(`${TTB} POST /logistica`, 'torre.tablero_logistica.ver', 'Ver el tablero de logística de la Torre', 'Consultar los traslados de documentos, las actas de entrega y los viajes adicionales.'),
+  op(`${TTB} POST /logistica/exportar`, 'torre.tablero_logistica.ver', 'Ver el tablero de logística de la Torre', 'Consultar los traslados de documentos, las actas de entrega y los viajes adicionales.'),
+  op(`${TDT} POST * [origen_logistica]`, 'torre.tablero_logistica.ver', 'Ver el tablero de logística de la Torre', 'Consultar los traslados de documentos, las actas de entrega y los viajes adicionales.'),
+  op(`${TTB} POST /financiera/facturacion`, 'torre.tablero_financiero.ver', 'Ver el tablero financiero de la Torre', 'Consultar costos, pagos, ingreso liquidado y lo pendiente de facturar.'),
+  op(`${TTB} POST /financiera/bolsas`, 'torre.tablero_financiero.ver', 'Ver el tablero financiero de la Torre', 'Consultar costos, pagos, ingreso liquidado y lo pendiente de facturar.'),
+  op(`${TTB} POST /financiera/facturacion/exportar`, 'torre.tablero_financiero.ver', 'Ver el tablero financiero de la Torre', 'Consultar costos, pagos, ingreso liquidado y lo pendiente de facturar.'),
+  op(`${TTB} POST /financiera/bolsas/exportar`, 'torre.tablero_financiero.ver', 'Ver el tablero financiero de la Torre', 'Consultar costos, pagos, ingreso liquidado y lo pendiente de facturar.'),
+  // Épica #14590 (B5): la pestaña Equipo de Operativa (nace en el árbol; la 0310 siembra la acción). Sin `/exportar`.
+  op(`${TTB} POST /operativa/equipo`, 'torre.equipo.ver', 'Ver la operación del equipo en la Torre', 'Consultar las gestiones, la carga abierta y los pendientes fuera de ANS de cada funcionario.'),
+  op(`${TDT} POST * [origen_equipo]`, 'torre.equipo.ver', 'Ver la operación del equipo en la Torre', 'Consultar las gestiones, la carga abierta y los pendientes fuera de ANS de cada funcionario.'),
 ];
 
 // HU #13421 (ADR-0023): los módulos legacy reconducidos se declaran aparte (regla de 800 líneas).

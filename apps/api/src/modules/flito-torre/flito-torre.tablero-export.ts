@@ -8,19 +8,29 @@
 // RN-TOR-XT3: sin `FUNCION_TORRE_DINERO` las columnas (y filas de cifras) de dinero NO van al archivo, y una hoja que
 //   solo tiene dinero (concentración por ingreso, margen) tampoco.
 // RN-TOR-XT4: nombre `torre-<tablero>-<desde>_<hasta>.xlsx` con el rango resuelto del tablero.
+// RN-TOR-XT5 (ADR-0047): última hoja «Definiciones» (clave, frase y definición de cada KPI explicada).
 import ExcelJS from 'exceljs';
+import { conjuntoTorre } from '@operaciones/shared-types';
 import type { Response } from 'express';
 import type {
-  ConcentracionTorre, TableroComercial, TableroEjecutivo, TableroFinanciero, TableroOperativo,
+  CifraExplicada, ConcentracionTorre, TablaAreaTorre, TableroBolsas, TableroComercial, TableroEjecutivo, TableroFacturacion,
+  TableroFinanciero, TableroLogistica, TableroOperativo, TableroProductos,
 } from '@operaciones/shared-types';
 import { MIME_XLSX, type ExcelColumn } from '../../shared/utils/excel.js';
+import { tableroBolsas } from './flito-torre.bolsas.service.js';
 import { tableroComercial } from './flito-torre.comercial.service.js';
+import { tableroFacturacion } from './flito-torre.facturacion.service.js';
+import { tableroLogistica } from './flito-torre.logistica.service.js';
+import { textoSeguro } from './flito-torre.export.js';
 import { tableroEjecutivo } from './flito-torre.ejecutivo.service.js';
 import { tableroFinanciero } from './flito-torre.financiera.service.js';
 import { tableroOperativo } from './flito-torre.operativa.service.js';
+import { tableroProductos } from './flito-torre.productos.service.js';
 import type { ContextoTablero } from './flito-torre.tablero-comun.js';
 
-export const TABLEROS_EXPORTABLES = ['comercial', 'operativa', 'financiera', 'ejecutivo'] as const;
+// B4: `logistica` (Traslados · Entregas) y las subvistas de Financiera `facturacion` y `bolsas` (cada una su Excel:
+// la primaria exporta la subvista activa, UX B4).
+export const TABLEROS_EXPORTABLES = ['comercial', 'operativa', 'financiera', 'ejecutivo', 'productos', 'logistica', 'facturacion', 'bolsas'] as const;
 export type TableroExportable = (typeof TABLEROS_EXPORTABLES)[number];
 
 /** Columna con marca de dinero (se omite sin `FUNCION_TORRE_DINERO`). */
@@ -211,6 +221,118 @@ function hojasEjecutivo(t: TableroEjecutivo): HojaTablero[] {
   ];
 }
 
+/** B3: una hoja de cifras por pestaña y una por tabla (estado, motivo o secretaría; con su total). */
+function hojaTablaProductos(t: TablaAreaTorre): HojaTablero {
+  return {
+    nombre: conjuntoTorre(t.conjunto).etiqueta.slice(0, 31),
+    columnas: [col('Fila', 'etiqueta', { width: 40 }), col('Cantidad', 'n'), ...(t.conValor ? [col('Valor', 'valor', DINERO)] : [])],
+    filas: [...t.filas, t.total].map((f) => ({ etiqueta: textoSeguro(f.etiqueta), n: f.n, valor: f.valor ?? null })),
+  };
+}
+
+export function hojasProductos(t: TableroProductos): HojaTablero[] {
+  const c = t.soat.cifras;
+  const i = t.impuestos.cifras;
+  const d = t.derechos.cifras;
+  return [
+    hojaCifras('Cifras', [
+      { concepto: 'SOAT pagados en el periodo', valor: c.pagadosPeriodo },
+      { concepto: 'Valor pagado de SOAT', valor: c.pagadosValor, dinero: true },
+      { concepto: 'SOAT por vencer', valor: c.porVencer },
+      { concepto: 'SOAT sin gestión', valor: c.sinGestion },
+      { concepto: 'SOAT sin verificar en el RUNT', valor: c.vigenciaNoVerificada },
+      { concepto: 'Impuestos pagados en el periodo', valor: i.pagadosPeriodo },
+      { concepto: 'Valor pagado de impuestos', valor: i.pagadosValor, dinero: true },
+      { concepto: 'Impuestos sin gestión', valor: i.sinGestion },
+      { concepto: 'Impuestos con diferencia de valor', valor: i.conDiferencia },
+      { concepto: 'Impuestos con dirección por revisar', valor: i.direccionPendiente },
+      { concepto: 'Derechos pagados en el periodo', valor: d.pagadosPeriodo },
+      { concepto: 'Valor pagado de derechos', valor: d.pagadosValor, dinero: true },
+      { concepto: 'Derechos sin soporte', valor: d.sinSoporte },
+      { concepto: 'Recibos pendientes de asociar', valor: d.pendientesSinResolver },
+    ]),
+    ...[...t.soat.tablas, ...t.impuestos.tablas, ...t.derechos.tablas].map(hojaTablaProductos),
+  ];
+}
+
+/** Las explicaciones de las tres pestañas, con la pestaña en la clave (`soat.porVencer`). */
+export const explicacionesProductos = (t: TableroProductos): Partial<Record<string, CifraExplicada>> => Object.fromEntries(
+  (['soat', 'impuestos', 'derechos'] as const).flatMap((p) => Object.entries(t[p].explicaciones).map(([k, e]) => [`${p}.${k}`, e])),
+);
+
+// ── B4 ──
+
+export function hojasLogistica(t: TableroLogistica): HojaTablero[] {
+  const tr = t.traslados.cifras;
+  const e = t.entregas.cifras;
+  return [
+    hojaCifras('Cifras', [
+      { concepto: 'Traslados abiertos', valor: tr.abiertos },
+      { concepto: `Traslados abiertos hace más de ${t.traslados.umbralDias} días`, valor: tr.abiertosMasDeN },
+      { concepto: 'Actas pendientes de entrega', valor: e.pendientesEntrega },
+      { concepto: 'Entregas del periodo', valor: e.entregasPeriodo },
+      { concepto: 'Entregas al primer intento', valor: e.primerIntento },
+      { concepto: 'Entregas al primer intento %', valor: e.primerIntentoPct },
+      { concepto: 'Actas devueltas en el periodo', valor: e.devueltasPeriodo },
+      { concepto: 'Viajes adicionales en el periodo', valor: e.viajesAdicionales },
+    ]),
+    {
+      nombre: 'Abiertos por ruta',
+      columnas: [col('Ruta', 'etiqueta', { width: 30 }), col('Traslados', 'n')],
+      filas: t.traslados.rutasAbiertas.map((r) => ({ etiqueta: r.etiqueta, n: r.n })),
+    },
+    ...[...t.traslados.tablas, ...t.entregas.tablas].map(hojaTablaProductos),
+  ];
+}
+
+export const explicacionesLogistica = (t: TableroLogistica): Partial<Record<string, CifraExplicada>> => Object.fromEntries(
+  (['traslados', 'entregas'] as const).flatMap((p) => Object.entries(t[p].explicaciones).map(([k, x]) => [`${p}.${k}`, x])),
+);
+
+export function hojasFacturacion(t: TableroFacturacion): HojaTablero[] {
+  const c = t.cifras;
+  return [
+    hojaCifras('Cifras', [
+      { concepto: 'Trámites sin facturar', valor: c.sinFacturar },
+      { concepto: 'Valor sin facturar', valor: c.sinFacturarValor, dinero: true },
+      { concepto: 'Facturas con error', valor: c.conError },
+      { concepto: 'Facturas rechazadas por la DIAN', valor: c.rechazadasDian },
+      { concepto: 'Trámites con la cola de facturación detenida', valor: c.colaAtascada },
+      { concepto: 'Facturas emitidas en el periodo', valor: c.facturadasPeriodo },
+      { concepto: 'Valor facturado en el periodo', valor: c.facturadoValor, dinero: true },
+    ]),
+    ...t.tablas.map(hojaTablaProductos),
+  ];
+}
+
+export function hojasBolsas(t: TableroBolsas): HojaTablero[] {
+  const c = t.cifras;
+  return [
+    hojaCifras('Cifras', [
+      { concepto: 'Bolsas activas', valor: c.activas },
+      { concepto: 'Bolsas en crítico', valor: c.enCritico },
+      { concepto: 'Bolsas en atención', valor: c.enAtencion },
+      { concepto: 'Bolsas agotadas', valor: c.agotadas },
+      { concepto: 'Movimientos del periodo', valor: c.movimientosPeriodo },
+      { concepto: 'Recargas del periodo', valor: c.recargas },
+      { concepto: 'Consumos del periodo', valor: c.consumos },
+      { concepto: 'Valor recargado', valor: c.recargasValor, dinero: true },
+      { concepto: 'Valor consumido', valor: c.consumosValor, dinero: true },
+      { concepto: 'Boletas sin conciliar', valor: c.boletasSinConciliar },
+      { concepto: 'Boletas con diferencia', valor: c.boletasConDiferencia },
+    ]),
+    {
+      nombre: 'Cobertura por bolsa',
+      columnas: [col('Compañía', 'compania', { width: 36 }), col('Saldo', 'saldo', DINERO), col('Consumo diario', 'consumoDiario', DINERO),
+        col('Días de cobertura', 'diasCobertura'), col('Semáforo', 'severidad'), col('Movimientos del periodo', 'movimientos')],
+      filas: t.cobertura.filas.map((f) => ({
+        compania: textoSeguro(f.compania), saldo: f.saldo, consumoDiario: f.consumoDiario, diasCobertura: f.diasCobertura ?? 'Sin consumo',
+        severidad: f.severidad === 'critico' ? 'Crítico' : f.severidad === 'atencion' ? 'Atención' : 'Al día', movimientos: f.movimientos,
+      })),
+    },
+  ];
+}
+
 /** RN-TOR-XT3: quita columnas y filas de cifras de dinero si el rol no lo ve. */
 export function aplicarDinero(hojas: (HojaTablero & { cifras?: Cifra[] })[], dinero: boolean): HojaTablero[] {
   return hojas.map((h) => ({
@@ -220,14 +342,29 @@ export function aplicarDinero(hojas: (HojaTablero & { cifras?: Cifra[] })[], din
   }));
 }
 
+/** RN-TOR-XT5 (ADR-0047): hoja «Definiciones» con la clave, la frase y la definición de cada cifra explicada. */
+export function hojaDefiniciones(explicaciones: Partial<Record<string, CifraExplicada>>): HojaTablero {
+  return {
+    nombre: 'Definiciones',
+    columnas: [col('Cifra', 'clave', { width: 28 }), col('Qué dice', 'frase', { width: 80 }), col('Cómo se calcula', 'definicion', { width: 90 })],
+    filas: Object.entries(explicaciones).filter((e): e is [string, CifraExplicada] => e[1] != null)
+      .map(([clave, e]) => ({ clave, frase: textoSeguro(e.frase), definicion: textoSeguro(e.definicion) })),
+  };
+}
+
 /** Hojas del libro (puro sobre el servicio; para los tests). */
 export async function libroTablero(
   tablero: TableroExportable, ctx: ContextoTablero,
 ): Promise<{ rango: { desde: string; hasta: string }; hojas: HojaTablero[] }> {
-  const t = tablero === 'comercial' ? await tableroComercial(ctx).then((r) => ({ rango: r.rango, hojas: hojasComercial(r) }))
-    : tablero === 'operativa' ? await tableroOperativo(ctx).then((r) => ({ rango: r.rango, hojas: hojasOperativa(r) }))
-      : tablero === 'financiera' ? await tableroFinanciero(ctx).then((r) => ({ rango: r.rango, hojas: hojasFinanciera(r) }))
-        : await tableroEjecutivo(ctx).then((r) => ({ rango: r.rango, hojas: hojasEjecutivo(r) }));
+  const con = (h: HojaTablero[], e: Partial<Record<string, CifraExplicada>>) => [...h, hojaDefiniciones(e)];
+  const t = tablero === 'comercial' ? await tableroComercial(ctx).then((r) => ({ rango: r.rango, hojas: con(hojasComercial(r), r.explicaciones) }))
+    : tablero === 'operativa' ? await tableroOperativo(ctx).then((r) => ({ rango: r.rango, hojas: con(hojasOperativa(r), r.explicaciones) }))
+      : tablero === 'financiera' ? await tableroFinanciero(ctx).then((r) => ({ rango: r.rango, hojas: con(hojasFinanciera(r), r.explicaciones) }))
+        : tablero === 'productos' ? await tableroProductos(ctx).then((r) => ({ rango: r.rango, hojas: con(hojasProductos(r), explicacionesProductos(r)) }))
+        : tablero === 'logistica' ? await tableroLogistica(ctx).then((r) => ({ rango: r.rango, hojas: con(hojasLogistica(r), explicacionesLogistica(r)) }))
+        : tablero === 'facturacion' ? await tableroFacturacion(ctx).then((r) => ({ rango: r.rango, hojas: con(hojasFacturacion(r), r.explicaciones) }))
+        : tablero === 'bolsas' ? await tableroBolsas(ctx).then((r) => ({ rango: r.rango, hojas: con(hojasBolsas(r), r.explicaciones) }))
+        : await tableroEjecutivo(ctx).then((r) => ({ rango: r.rango, hojas: con(hojasEjecutivo(r), r.explicaciones) }));
   return { rango: t.rango, hojas: aplicarDinero(t.hojas, ctx.dinero) };
 }
 

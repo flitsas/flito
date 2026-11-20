@@ -227,10 +227,38 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
       'flito-torre/flito-torre.tableros.routes.ts POST /comercial/exportar',
       'flito-torre/flito-torre.tableros.routes.ts POST /operativa/exportar',
       'flito-torre/flito-torre.tableros.routes.ts POST /financiera/exportar',
+      // Épica #14590 (B2): pestañas del Operativo; reutilizan `torre.tablero_operativo.ver` (nace en el árbol).
+      'flito-torre/flito-torre.tableros.routes.ts POST /operativa/inventario',
+      'flito-torre/flito-torre.tableros.routes.ts POST /operativa/soportes',
       'flito-torre/flito-torre.routes.ts POST /metricas/consultar [dinero]',
       'flito-torre/flito-torre.routes.ts POST /metricas/exportar [dinero]',
       'flito-torre/flito-torre.tableros.routes.ts POST * [dinero_tablero]',
       'flito-torre/flito-torre.tableros.routes.ts POST * [dinero_exportar]',
+      // ADR-0047 (B1): el detalle universal; sus dos funciones nacen en el árbol (su migración), y en línea reutiliza el
+      // dinero y las funciones de los tableros y del Explorador (también del árbol).
+      'flito-torre/flito-torre.detalle.routes.ts POST /consultar',
+      'flito-torre/flito-torre.detalle.routes.ts POST /exportar',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [dinero_detalle]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_ejecutivo]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_comercial]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_operativo]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_financiero]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_explorador]',
+      // Épica #14590 (B3): el área Productos; su función nace en el árbol (0308).
+      'flito-torre/flito-torre.tableros.routes.ts POST /productos',
+      'flito-torre/flito-torre.tableros.routes.ts POST /productos/exportar',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_productos]',
+      // Épica #14590 (B4): el área Logística (su función nace en el árbol, 0309) y las subvistas de Financiera.
+      'flito-torre/flito-torre.tableros.routes.ts POST /logistica',
+      'flito-torre/flito-torre.tableros.routes.ts POST /logistica/exportar',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_logistica]',
+      // Épica #14590 (B5): la pestaña Equipo de Operativa (su función nace en el árbol, 0310; sin `/exportar`).
+      'flito-torre/flito-torre.tableros.routes.ts POST /operativa/equipo',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_equipo]',
+      'flito-torre/flito-torre.tableros.routes.ts POST /financiera/facturacion',
+      'flito-torre/flito-torre.tableros.routes.ts POST /financiera/bolsas',
+      'flito-torre/flito-torre.tableros.routes.ts POST /financiera/facturacion/exportar',
+      'flito-torre/flito-torre.tableros.routes.ts POST /financiera/bolsas/exportar',
     ]);
   });
 });

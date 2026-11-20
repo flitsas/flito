@@ -1365,6 +1365,315 @@ export const ORGANISMO_PLANTILLA_DEMO = {
 };
 
 /** Todos los fixtures que pinta alguna captura. La prueba de datos ficticios los recorre. */
+// ── Torre de Control: cifras explicadas y lista de registros (Épica #14590) ──
+// Sin datos del titular: placa del registro demo, compañías demo y organismos con su nombre real (entidad pública).
+const TORRE_DEF_BORRADOR = 'Trámites en estado Borrador que llevan más de 7 días en ese estado, contados desde que entraron a Borrador (o desde la creación, si nunca cambiaron). El umbral se cambia en Umbrales y alertas. Es la foto de hoy: no depende del periodo elegido.';
+const TORRE_META_FOTO = { filtrosIgnorados: ['rango'] };
+const torreConjunto = (conjunto: string, segmentos?: unknown[]) =>
+  ({ tipo: 'conjunto', origen: { tipo: 'conjunto', conjunto }, ...(segmentos ? { segmentos } : {}) });
+
+export const TORRE_OPCIONES_DEMO = {
+  companias: EMPRESAS_DEMO.map((nombre, i) => ({ id: 901 + i, nombre })),
+  organismos: [{ codigo: '17001', nombre: ORGANISMOS_REALES[0] }, { codigo: '11001', nombre: ORGANISMOS_REALES[1] }],
+  tiposTramite: [{ valor: 'TRASPASO', etiqueta: 'Traspaso' }, { valor: 'MATRICULA', etiqueta: 'Matrícula inicial' }],
+  flitEstados: [{ valor: 'borrador', etiqueta: 'Borrador' }, { valor: 'aprobado', etiqueta: 'Aprobado' }],
+};
+
+export const TORRE_OPERATIVA_DEMO = {
+  rango: { desde: '2026-10-01', hasta: '2026-10-21' }, dineroVisible: false, generadoEn: '2026-10-21T15:00:00.000Z',
+  cifras: { sinGestionFueraAns: 3, borradoresAbandonados: 4, wip: 18, primerIntentoPct: 92 },
+  explicaciones: {
+    sinGestionFueraAns: {
+      frase: '3 gestiones llevan más de 48 horas sin soporte: 2 de SOAT y 1 de impuestos. 1 pasa de 96 horas.',
+      definicion: 'Gestiones de SOAT e impuestos sin soporte cargado 48 horas después de pedidas. El umbral se cambia en Umbrales y alertas. No depende del periodo.',
+      destino: { tipo: 'bloque', bloque: 'radar' },
+    },
+    borradoresAbandonados: {
+      frase: '4 trámites llevan más de 7 días en Borrador; 1 pasa de 14 días.', definicion: TORRE_DEF_BORRADOR,
+      destino: torreConjunto('borrador_abandonado'),
+    },
+    wip: {
+      frase: '18 trámites están en curso hoy; 2 llevan en el organismo más de 10 días.',
+      definicion: 'Trámites en un estado de trabajo activo, sin contar Borrador ni los terminados. No depende del periodo.',
+      destino: torreConjunto('en_curso'),
+    },
+    primerIntentoPct: {
+      frase: 'De las 25 entregas de trámites aprobados en el periodo, 23 se hicieron al primer intento; 2 necesitaron otro viaje.',
+      definicion: 'Trámites aprobados en el periodo con logística cobrada. Cuentan como primer intento los que no tuvieron un segundo viaje.',
+      destino: torreConjunto('entregas_logistica', [{ dimension: 'nivel', valores: ['con_viajes'] }]),
+    },
+  },
+  radar: {
+    ...TORRE_META_FOTO,
+    filas: [
+      { causa: 'borrador_abandonado', etiqueta: 'Borradores abandonados', cantidad: 4, umbral: 7, unidad: 'dias', severidad: 'atencion', destino: torreConjunto('borrador_abandonado') },
+      { causa: 'soat_sin_gestion', etiqueta: 'SOAT sin gestión', cantidad: 2, umbral: 48, unidad: 'horas', severidad: 'atencion', destino: torreConjunto('soat_sin_gestion') },
+      { causa: 'impuesto_sin_gestion', etiqueta: 'Impuestos sin gestión', cantidad: 1, umbral: 48, unidad: 'horas', severidad: 'atencion', destino: torreConjunto('impuesto_sin_gestion') },
+    ],
+  },
+  carga: { ...TORRE_META_FOTO, porOrganismo: [{ clave: '17001', etiqueta: ORGANISMOS_REALES[0], valor: 11 }, { clave: '11001', etiqueta: ORGANISMOS_REALES[1], valor: 7 }], porFuncionario: null },
+  benchmarkOt: { filtrosIgnorados: [], umbralDias: 10, filas: [] },
+  logistica: { filtrosIgnorados: [], entregas: 25, primerIntento: 23, primerIntentoPct: 92, viajesAdicionales: 2, tiempoMedioEntregaDias: 1.5 },
+};
+
+const TORRE_COLUMNAS_DEMO = [
+  { id: 'placa', etiqueta: 'Placa', tipo: 'texto', dinero: false, ordenable: true },
+  { id: 'compania', etiqueta: 'Compañía', tipo: 'texto', dinero: false, ordenable: false },
+  { id: 'tipo_tramite', etiqueta: 'Tipo de trámite', tipo: 'texto', dinero: false, ordenable: true },
+  { id: 'estado', etiqueta: 'Estado', tipo: 'texto', dinero: false, ordenable: true },
+  { id: 'organismo', etiqueta: 'Secretaría', tipo: 'texto', dinero: false, ordenable: false },
+  { id: 'creado_en', etiqueta: 'Creado', tipo: 'fecha', dinero: false, ordenable: true },
+  { id: 'dias_antiguedad', etiqueta: 'Días desde creado', tipo: 'dias', dinero: false, ordenable: true },
+];
+
+/** Operativa › Inventario por estado (B2): matriz estado × días en el estado; ▲ solo donde pasa el umbral del estado. */
+const TRAMOS_INVENTARIO_DEMO = [
+  { clave: '0_2', etiqueta: '0–2 días' }, { clave: '3_7', etiqueta: '3–7 días' }, { clave: '8_15', etiqueta: '8–15 días' },
+  { clave: '16_30', etiqueta: '16–30 días' }, { clave: 'mas_30', etiqueta: 'Más de 30' },
+] as const;
+const celdaInventarioDemo = (n: number, segmentos: { dimension: string; valores: string[] }[], sobreUmbral = false) => ({
+  n, sobreUmbral,
+  destino: n === 0 ? { tipo: 'ninguno' } : { tipo: 'conjunto', origen: { tipo: 'conjunto', conjunto: 'inventario_estado' }, segmentos },
+});
+const FILAS_INVENTARIO_DEMO: [string, string, number[], number | null][] = [
+  ['borrador', 'Borrador', [9, 5, 8, 3, 1], 2],
+  ['radicado', 'Radicado', [40, 31, 12, 4, 0], null],
+  ['enviado_ot', 'Enviado a OT', [22, 35, 28, 9, 4], 2],
+  ['entregado', 'Entregado', [18, 20, 9, 4, 0], null],
+];
+export const TORRE_INVENTARIO_DEMO = (() => {
+  const filas = FILAS_INVENTARIO_DEMO.map(([estado, etiqueta, ns, desde]) => ({
+    estado, etiqueta, umbral: desde === null ? null : { clave: estado === 'borrador' ? 'dias_borrador_abandonado' : 'dias_respuesta_ot', valor: estado === 'borrador' ? 7 : 10 },
+    celdas: Object.fromEntries(TRAMOS_INVENTARIO_DEMO.map((t, i) => [t.clave, celdaInventarioDemo(ns[i], [
+      { dimension: 'flit_estado', valores: [estado] }, { dimension: 'tramo_antiguedad', valores: [t.clave] },
+    ], desde !== null && i >= desde && ns[i] > 0)])),
+    total: celdaInventarioDemo(ns.reduce((a, b) => a + b, 0), [{ dimension: 'flit_estado', valores: [estado] }]),
+  }));
+  const porTramo = TRAMOS_INVENTARIO_DEMO.map((_, i) => FILAS_INVENTARIO_DEMO.reduce((a, f) => a + f[2][i], 0));
+  const total = porTramo.reduce((a, b) => a + b, 0);
+  return {
+    tramos: TRAMOS_INVENTARIO_DEMO, filas,
+    totales: {
+      celdas: Object.fromEntries(TRAMOS_INVENTARIO_DEMO.map((t, i) => [t.clave, celdaInventarioDemo(porTramo[i], [{ dimension: 'tramo_antiguedad', valores: [t.clave] }])])),
+      total: celdaInventarioDemo(total, []),
+    },
+    organismo: null, organismos: [{ codigo: '17001', nombre: ORGANISMOS_REALES[0] }, { codigo: '11001', nombre: ORGANISMOS_REALES[1] }],
+    frase: `${total} trámites en curso hoy, por estado y por días en ese estado.`,
+    definicion: 'Trámites en curso hoy, agrupados por su estado actual y por los días que llevan en él, contados desde el último cambio de estado (o desde la creación, si nunca cambió). Los umbrales se cambian en Umbrales y alertas. No depende del periodo.',
+    leyendaUmbral: '▲ Pasa el umbral de ese estado (Borrador: 7 días; en el organismo: 10 días).',
+    generadoEn: '2026-10-21T15:00:00.000Z',
+  };
+})();
+
+/** Productos (B3): las tres pestañas; la captura usa SOAT. Sin datos del titular: estados, motivos y conteos. */
+export const TORRE_PRODUCTOS_DEMO = (() => {
+  const dest = (conjunto: string, segmentos: { dimension: string; valores: (string | null)[] }[] = []) => ({ tipo: 'conjunto', origen: { tipo: 'conjunto', conjunto }, segmentos });
+  const kpi = (frase: string, conjunto: string, definicion: string) => ({ frase, definicion, destino: dest(conjunto) });
+  const fila = (conjunto: string, dimension: string, clave: string, etiqueta: string, n: number, valor?: number) => ({
+    clave, etiqueta, n, ...(valor !== undefined ? { valor } : {}),
+    destino: n === 0 || clave === '__otros' ? { tipo: 'ninguno' } : dest(conjunto, [{ dimension, valores: [clave] }]),
+  });
+  const tabla = (titulo: string, conjunto: string, dimension: string, filas: ReturnType<typeof fila>[], conValor: boolean, foto: boolean) => ({
+    titulo, dimension, conjunto, definicion: titulo, conValor, filas, filtrosIgnorados: foto ? ['rango'] : [],
+    total: { clave: null, etiqueta: 'Total', n: filas.reduce((a, f) => a + f.n, 0), ...(conValor ? { valor: filas.reduce((a, f) => a + (f.valor ?? 0), 0) } : {}), destino: dest(conjunto) },
+  });
+  return {
+    rango: { desde: '2026-10-01', hasta: '2026-10-21' }, dineroVisible: true, generadoEn: '2026-10-21T15:00:00.000Z',
+    soat: {
+      cifras: { pagadosPeriodo: 138, pagadosValor: 96_400_000, porVencer: 27, sinGestion: 9, vigenciaNoVerificada: 15 },
+      explicaciones: {
+        sinGestion: kpi('9 gestiones de SOAT llevan más de 48 horas sin soporte.', 'soat_sin_gestion', 'Gestiones de SOAT sin soporte cargado 48 horas después de pedidas. No depende del periodo.'),
+        porVencer: kpi('27 SOAT vencen en los próximos 30 días.', 'soat_por_vencer', 'SOAT pagados cuya póliza vence entre hoy y los próximos 30 días. No depende del periodo.'),
+        vigenciaNoVerificada: kpi('15 SOAT pagados no tienen su vigencia verificada en el RUNT.', 'soat_vigencia_no_verificada', 'SOAT pagados sin respuesta del RUNT sobre su vigencia. No depende del periodo.'),
+        pagadosPeriodo: kpi('138 SOAT pagados en el periodo por $ 96,4 M.', 'soat_pagados_periodo', 'SOAT cuya fecha de pago cae en el periodo elegido.'),
+      },
+      tablas: [
+        tabla('SOAT del periodo por estado', 'soat_por_estado', 'estado', [
+          fila('soat_por_estado', 'estado', 'pendiente', 'Pendiente', 41, 0),
+          fila('soat_por_estado', 'estado', 'solicitado', 'Solicitado', 88, 0),
+          fila('soat_por_estado', 'estado', 'novedad', 'Con novedad', 6, 0),
+          fila('soat_por_estado', 'estado', 'pagado', 'Pagado', 138, 96_400_000),
+        ], true, false),
+        tabla('Solicitudes de SOAT incompletas, por motivo', 'soat_incompletas_abiertas', 'motivo', [
+          fila('soat_incompletas_abiertas', 'motivo', '4c1e0a9b7d2f6e38', 'RUNT sin respuesta', 7),
+          fila('soat_incompletas_abiertas', 'motivo', 'b72d05e9a1c3f468', 'Placa no encontrada', 3),
+        ], false, true),
+      ],
+    },
+    impuestos: {
+      cifras: { pagadosPeriodo: 97, pagadosValor: 41_000_000, sinGestion: 5, conDiferencia: 8, direccionPendiente: 4 },
+      explicaciones: {
+        sinGestion: kpi('5 gestiones de impuesto llevan más de 48 horas sin soporte.', 'impuesto_sin_gestion', 'Gestiones de impuesto sin soporte cargado 48 horas después de pedidas.'),
+        conDiferencia: kpi('8 impuestos tienen diferencia entre lo liquidado y lo pagado.', 'impuestos_con_diferencia', 'Impuestos marcados con diferencia de valor.'),
+        direccionPendiente: kpi('4 impuestos tienen la dirección pendiente de revisión.', 'impuestos_direccion_pendiente', 'La dirección no se muestra. No depende del periodo.'),
+        pagadosPeriodo: kpi('97 impuestos pagados en el periodo por $ 41 M.', 'impuestos_pagados_periodo', 'Impuestos cuya fecha de pago cae en el periodo elegido.'),
+      },
+      tablas: [
+        tabla('Impuestos del periodo por estado', 'impuestos_por_estado', 'estado', [
+          fila('impuestos_por_estado', 'estado', 'pendiente', 'Pendiente', 120, 0),
+          fila('impuestos_por_estado', 'estado', 'novedad', 'Con novedad', 19, 0),
+          fila('impuestos_por_estado', 'estado', 'pagado', 'Pagado', 97, 41_000_000),
+        ], true, false),
+        tabla('Impuestos con novedad, por motivo', 'impuestos_rechazados_periodo', 'motivo', [
+          fila('impuestos_rechazados_periodo', 'motivo', '9f3a6c21b0d4e875', 'Placa no corresponde al organismo', 6),
+          fila('impuestos_rechazados_periodo', 'motivo', '__otros', 'Otros', 2),
+        ], false, false),
+      ],
+    },
+    derechos: {
+      cifras: { pagadosPeriodo: 184, pagadosValor: 23_000_000, sinSoporte: 7, pendientesSinResolver: 11 },
+      explicaciones: {
+        pagadosPeriodo: kpi('184 derechos de tránsito pagados en el periodo por $ 23 M.', 'derechos_pagados_periodo', 'Derechos con fecha de pago en el periodo elegido.'),
+        sinSoporte: kpi('7 derechos de tránsito no tienen soporte.', 'derechos_sin_soporte', 'Derechos sin recibo vigente. No depende del periodo.'),
+        pendientesSinResolver: kpi('11 recibos siguen sin asociar a un trámite.', 'derechos_pendientes_sin_resolver', 'Recibos cargados sin trámite asociado. No depende del periodo.'),
+      },
+      tablas: [],
+    },
+  };
+})();
+
+/** Logística y Financiera por pestañas (B4). Sin datos del titular: estados, motivos (clave opaca), compañías demo y conteos. */
+const destinoDemoB4 = (conjunto: string, segmentos: { dimension: string; valores: (string | null)[] }[] = []) => ({ tipo: 'conjunto', origen: { tipo: 'conjunto', conjunto }, segmentos });
+const kpiDemoB4 = (frase: string, conjunto: string, definicion: string, extra: Record<string, unknown> = {}) => ({ frase, definicion, destino: destinoDemoB4(conjunto), ...extra });
+function tablaDemoB4(titulo: string, conjunto: string, dimension: string, filas: [string, string, number, number?][], foto: boolean) {
+  const conValor = filas.some((f) => f[3] !== undefined);
+  const fs = filas.map(([clave, etiqueta, n, valor]) => ({
+    clave, etiqueta, n, ...(valor !== undefined ? { valor } : {}),
+    destino: n === 0 || clave === '__otros' ? { tipo: 'ninguno' } : destinoDemoB4(conjunto, [{ dimension, valores: [clave] }]),
+  }));
+  return {
+    titulo, dimension, conjunto, definicion: titulo, conValor, filas: fs, filtrosIgnorados: foto ? ['rango'] : [],
+    total: { clave: null, etiqueta: 'Total', n: fs.reduce((a, f) => a + f.n, 0), ...(conValor ? { valor: filas.reduce((a, f) => a + (f[3] ?? 0), 0) } : {}), destino: destinoDemoB4(conjunto) },
+  };
+}
+export const TORRE_LOGISTICA_DEMO = {
+  rango: { desde: '2026-10-01', hasta: '2026-10-21' }, dineroVisible: true, generadoEn: '2026-10-21T15:00:00.000Z',
+  traslados: {
+    cifras: { abiertos: 58, abiertosMasDeN: 6 }, umbralDias: 3, rutasAbiertas: [{ origen: 'sede', destino: 'ot', etiqueta: 'Sede → organismo', n: 40 }],
+    explicaciones: {
+      abiertos: kpiDemoB4('58 traslados siguen abiertos hoy.', 'traslados_por_estado', 'Traslados registrados que todavía no se cierran como recibidos. No depende del periodo.', { desglose: [{ etiqueta: 'Sede → organismo', valor: 40 }, { etiqueta: 'Organismo → sede', valor: 18 }] }),
+      abiertosMasDeN: kpiDemoB4('6 traslados llevan abiertos más de 3 días.', 'traslados_abiertos_mas_de_n', 'Traslados abiertos hace más de 3 días. No depende del periodo.', { desglose: [{ etiqueta: 'Más de 6 días', valor: 2, destino: destinoDemoB4('traslados_abiertos_mas_de_n', [{ dimension: 'severidad', valores: ['critico'] }]) }] }),
+    },
+    tablas: [tablaDemoB4('Traslados por estado', 'traslados_por_estado', 'estado', [['registrado', 'Registrado', 31], ['en_ruta', 'En camino', 27], ['recibido', 'Recibido', 140]], true)],
+  },
+  entregas: {
+    cifras: { pendientesEntrega: 23, entregasPeriodo: 240, primerIntento: 221, primerIntentoPct: 92.1, devueltasPeriodo: 12, viajesAdicionales: 26, tramitesConViajes: 19 },
+    explicaciones: {
+      pendientesEntrega: kpiDemoB4('23 actas siguen pendientes de entrega hoy.', 'actas_pendientes_entrega', 'Actas sin fecha de entrega ni devolución. No depende del periodo.'),
+      primerIntento: kpiDemoB4('De las 240 entregas del periodo, 221 se hicieron al primer intento; 19 necesitaron otro viaje.', 'entregas_logistica', 'Trámites aprobados en el periodo con logística cobrada.', { desglose: [{ etiqueta: 'Con otro viaje', valor: 19, destino: destinoDemoB4('entregas_logistica', [{ dimension: 'nivel', valores: ['con_viajes'] }]) }] }),
+      devueltasPeriodo: kpiDemoB4('12 actas volvieron sin entregarse en el periodo. El motivo más común: Destinatario ausente (5).', 'actas_devueltas_periodo', 'Actas con devolución registrada en el periodo.'),
+      viajesAdicionales: kpiDemoB4('26 viajes adicionales en el periodo, en 19 trámites.', 'viajes_adicionales_periodo', 'Viajes después del primero, dentro del periodo.'),
+    },
+    tablas: [tablaDemoB4('Devueltas en el periodo, por motivo', 'actas_devueltas_periodo', 'motivo', [['a41c9e07d2b5f863', 'Destinatario ausente', 5], ['0be27c5d9f14a368', 'Dirección no encontrada', 4], ['__otros', 'Otros', 3]], false)],
+  },
+};
+export const TORRE_FACTURACION_DEMO = {
+  rango: { desde: '2026-10-01', hasta: '2026-10-21' }, dineroVisible: true, generadoEn: '2026-10-21T15:00:00.000Z',
+  cifras: { sinFacturar: 63, sinFacturarValor: 48_000_000, conError: 9, rechazadasDian: 3, colaAtascada: 5, facturadasPeriodo: 180, facturadoValor: 212_000_000 },
+  explicaciones: {
+    sinFacturar: kpiDemoB4('63 trámites aprobados en el periodo siguen sin factura. Valor estimado: $ 48.000.000.', 'sin_facturar', 'Trámites aprobados en el periodo que aún no tienen factura.'),
+    conError: kpiDemoB4('9 facturas tienen un error de Siigo o quedaron para revisión.', 'facturas_con_error', 'Facturas con error de Siigo o en revisión. No depende del periodo.'),
+    rechazadasDian: kpiDemoB4('3 facturas fueron rechazadas por la DIAN y siguen sin corregir.', 'facturas_rechazadas_dian', 'Último estado ante la DIAN: rechazada. No depende del periodo.'),
+    colaAtascada: kpiDemoB4('5 trámites esperan en la cola de facturación: 3 con el reintento vencido y 2 con los intentos agotados.', 'cola_facturacion_atascada', 'Cola de facturación detenida. No depende del periodo.', {
+      desglose: [
+        { etiqueta: 'Reintento vencido', valor: 3, destino: destinoDemoB4('cola_facturacion_atascada', [{ dimension: 'estado', valores: ['vencido'] }]) },
+        { etiqueta: 'Intentos agotados', valor: 2, destino: destinoDemoB4('cola_facturacion_atascada', [{ dimension: 'estado', valores: ['agotado'] }]) },
+      ],
+    }),
+    facturadasPeriodo: kpiDemoB4('En el periodo se facturaron $ 212.000.000 en 180 facturas.', 'facturado_periodo', 'Facturas emitidas en el periodo.'),
+  },
+  tablas: [tablaDemoB4('Sin facturar por compañía', 'sin_facturar', 'compania', [['1', EMPRESAS_DEMO[0], 31, 24_100_000], ['2', EMPRESAS_DEMO[1], 18, 13_600_000], ['3', EMPRESAS_DEMO[2 % EMPRESAS_DEMO.length], 14, 10_300_000]], false)],
+};
+export const TORRE_BOLSAS_DEMO = {
+  rango: { desde: '2026-10-01', hasta: '2026-10-21' }, dineroVisible: true, generadoEn: '2026-10-21T15:00:00.000Z',
+  cifras: {
+    activas: 14, enCritico: 3, enAtencion: 2, criticasConSaldo: 2, agotadas: 1, movimientosPeriodo: 412, recargas: 50, consumos: 362,
+    recargasValor: 180_000_000, consumosValor: 166_000_000, boletasSinConciliar: 17, boletasConDiferencia: 4,
+  },
+  explicaciones: {
+    enCritico: kpiDemoB4('3 bolsas alcanzan para menos de 5 días al ritmo de los últimos 30.', 'bolsas_cobertura', 'Saldo de hoy dividido entre el consumo diario de los últimos 30 días. No depende del periodo.', {
+      desglose: [
+        { etiqueta: 'En atención', valor: 2, destino: destinoDemoB4('bolsas_cobertura', [{ dimension: 'severidad', valores: ['atencion'] }]) },
+        { etiqueta: 'Agotadas', valor: 1, destino: destinoDemoB4('bolsas_agotadas') },
+      ],
+    }),
+    agotadas: kpiDemoB4('1 bolsa activa está sin saldo.', 'bolsas_agotadas', 'Bolsas activas con saldo cero o negativo hoy. No depende del periodo.'),
+    movimientosPeriodo: kpiDemoB4('412 movimientos en el periodo: $ 180.000.000 en recargas y $ 166.000.000 en consumos.', 'movimientos_bolsa_periodo', 'Recargas, consumos y ajustes del periodo.', { desglose: [{ etiqueta: 'Recargas', valor: 50 }, { etiqueta: 'Consumos', valor: 362 }] }),
+    boletasSinConciliar: kpiDemoB4('17 boletas de pago al organismo aún no se cruzan con sus trámites.', 'boletas_sin_conciliar', 'Boletas sin conciliar.'),
+    boletasConDiferencia: kpiDemoB4('4 boletas tienen diferencia entre el total declarado y el cruzado.', 'boletas_con_diferencia', 'Boletas con diferencia.'),
+  },
+  cobertura: {
+    filtrosIgnorados: ['rango', 'organismos', 'departamentos', 'tiposTramite', 'flitEstados'], umbralCriticoDias: 5, umbralAtencionDias: 10,
+    filas: ([
+      ['3f0c2a5e-8b1d-4c7a-9e21-6d4f0b8a1c33', EMPRESAS_DEMO[0], 2_800_000, 1_400_000, 2, 'critico', 38],
+      ['7a9e1c44-2d3b-4f6e-8a10-c5b2d9e0f117', EMPRESAS_DEMO[1], 0, 600_000, 0, 'critico', 21],
+      ['c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f', EMPRESAS_DEMO[2 % EMPRESAS_DEMO.length], 5_400_000, 700_000, 7.7, 'atencion', 44],
+      ['0f1e2d3c-4b5a-4968-8776-5a4b3c2d1e0f', 'Concesionario Demo Oriente', 9_000_000, 0, null, 'ok', 0],
+    ] as const).map(([bolsaId, compania, saldo, consumoDiario, diasCobertura, severidad, movimientos], i) => ({
+      bolsaId, companiaId: i + 1, compania, saldo, consumoDiario, diasCobertura, severidad, movimientos,
+      destino: movimientos ? destinoDemoB4('movimientos_bolsa_periodo', [{ dimension: 'bolsa', valores: [bolsaId] }]) : { tipo: 'ninguno' },
+    })),
+  },
+};
+
+/** Resumen 360° (B6): «Para hoy» con sus frentes ya ordenados y «Lo que cambió en el periodo». Sin datos del titular. */
+const frenteDemoB6 = (conjunto: string, cifra: number, frase: string, severidad: 'critico' | 'atencion', segmentos: { dimension: string; valores: string[] }[] = [], mes = false) => ({
+  clave: conjunto, conjunto, cifra, frase, severidad, accion: 'ver', destino: destinoDemoB4(conjunto, segmentos), rango: mes ? { preset: 'mes' } : null,
+});
+export const TORRE_EJECUTIVO_DEMO = {
+  rango: { desde: '2026-10-01', hasta: '2026-10-21' }, dineroVisible: true, generadoEn: '2026-10-21T15:00:00.000Z',
+  comercial: { tramitesMes: 1240, clientesEnCaida: 3 }, operativo: { pctDentroAns: 88, umbralDias: 10 },
+  financiero: { margenPct: 21, sinFacturarValor: 48_000_000 },
+  proyeccion: {
+    diasMes: 31, diasTranscurridos: 21, meta: null, proyeccionCierre: 1830, totalMesAnterior: 1700, variacionPct: 7.6,
+    acumulado: Array.from({ length: 21 }, (_, i) => ({ dia: i + 1, valor: Math.round((i + 1) * 59) })),
+    mesAnterior: Array.from({ length: 31 }, (_, i) => ({ dia: i + 1, valor: Math.round((i + 1) * 54.8) })),
+  },
+  riesgos: [],
+  paraHoy: [
+    frenteDemoB6('soat_sin_gestion', 14, 'gestiones de SOAT e impuestos llevan más de 48 horas sin soporte.', 'critico'),
+    frenteDemoB6('bolsas_cobertura', 3, `bolsas alcanzan para menos de 5 días; la más baja, ${EMPRESAS_DEMO[1]}.`, 'critico', [{ dimension: 'severidad', valores: ['critico'] }]),
+    frenteDemoB6('borrador_abandonado', 12, 'trámites llevan más de 7 días en Borrador.', 'atencion'),
+    frenteDemoB6('estancado_ot', 41, 'trámites llevan en el organismo más de 10 días.', 'atencion'),
+    frenteDemoB6('sin_facturar', 63, 'trámites aprobados este mes aún no tienen factura ($ 48 M).', 'atencion', [], true),
+    { clave: 'fuga', conjunto: null, cifra: 3, frase: 'compañías crearon al menos 30 % menos trámites que su promedio.', severidad: 'atencion', accion: 'revisar', destino: { tipo: 'bloque', bloque: 'fuga' }, rango: null },
+  ],
+  hallazgos: [
+    { regla: 'H1', frase: 'Se crearon 1.240 trámites, 7 % más que en el periodo anterior (1.155).', area: 'comercial' },
+    { regla: 'H4', frase: 'Lo aprobado sin facturar pasó de 40 a 63 trámites frente al periodo anterior.', area: 'financiera', vista: 'facturacion' },
+    { regla: 'H5', frase: 'Las entregas al primer intento bajaron de 95 % a 92 %.', area: 'logistica', vista: 'entregas' },
+  ],
+  explicaciones: {},
+};
+
+/** La lista de una cifra: una fila por placa del registro demo. `origen` y `segmentos` los pone el spec. */
+export const TORRE_DETALLE_DEMO = {
+  definicion: { etiqueta: 'Borradores abandonados', definicion: TORRE_DEF_BORRADOR, fechaBase: null, campoFecha: 'fecha_creacion' },
+  frase: '4 trámites llevan más de 7 días en Borrador; 1 pasa de 14 días.',
+  fraseVacio: 'Hoy ningún borrador lleva más de 7 días.',
+  total: DATOS_DEMO.placas.length, valorTotal: null, columnas: TORRE_COLUMNAS_DEMO,
+  filas: DATOS_DEMO.placas.map((placa, i) => ({
+    id: `demo-${i + 1}`, tramiteId: `00000000-0000-4000-8000-00000000010${i + 1}`,
+    celdas: {
+      placa, compania: EMPRESAS_DEMO[i % EMPRESAS_DEMO.length], tipo_tramite: i % 2 ? 'Matrícula inicial' : 'Traspaso',
+      estado: 'borrador', organismo: ORGANISMOS_REALES[i % 2], creado_en: `2026-10-0${2 + i}`, dias_antiguedad: 19 - i * 3,
+    },
+  })),
+  pagina: 1, tamano: 25, truncado: false, filtrosIgnorados: ['rango'], rango: null, dineroVisible: false,
+  generadoEn: '2026-10-21T15:00:00.000Z',
+};
+
+/** Resultado del Explorador: trámites aprobados por compañía. */
+export const TORRE_METRICA_DEMO = {
+  metrica: 'tramites', unidad: 'conteo', truncado: false, total: { valor: 120, n: 120 },
+  baseFecha: { campo: 'fecha_aprobacion', excluidosSinFecha: 0, nBaseSincronizacion: 0, fechaBase: 'aprobacion' },
+  rango: { desde: '2026-10-01', hasta: '2026-10-21' }, generadoEn: '2026-10-21T15:00:00.000Z',
+  filas: EMPRESAS_DEMO.map((etiqueta, i) => {
+    const valor = [64, 38, 18][i];
+    return { clave: String(901 + i), etiqueta, valor, n: valor, participacion: (valor / 120) * 100 };
+  }),
+};
+
 export const FIXTURES_DEMO: Record<string, unknown> = {
   MI_RUTA_DEMO,
   LT_DEMO,
@@ -1476,6 +1785,18 @@ export const FIXTURES_DEMO: Record<string, unknown> = {
   ORGANISMOS_MODALIDAD_DEMO: ORGANISMOS_MODALIDAD_DEMO.map(({ nombre, alias, ...o }) => ({ ...o, organismo: nombre, aliasOrganismo: alias })),
   ORGANISMO_VIGENCIAS_DEMO,
   ORGANISMO_PLANTILLA_DEMO,
+  // ── Torre de Control (Épica #14590) ──
+  // El `nombre` de un organismo de tránsito es el de una entidad pública (permitido): se recorre con otra clave.
+  TORRE_OPCIONES_DEMO: { ...TORRE_OPCIONES_DEMO, organismos: TORRE_OPCIONES_DEMO.organismos.map(({ nombre, ...o }) => ({ ...o, organismo: nombre })) },
+  TORRE_OPERATIVA_DEMO,
+  TORRE_INVENTARIO_DEMO: { ...TORRE_INVENTARIO_DEMO, organismos: TORRE_INVENTARIO_DEMO.organismos.map(({ nombre, ...o }) => ({ ...o, organismo: nombre })) },
+  TORRE_DETALLE_DEMO,
+  TORRE_METRICA_DEMO,
+  TORRE_PRODUCTOS_DEMO,
+  TORRE_LOGISTICA_DEMO,
+  TORRE_FACTURACION_DEMO,
+  TORRE_BOLSAS_DEMO,
+  TORRE_EJECUTIVO_DEMO,
 };
 
 // ── Interceptación de /api ───────────────────────────────────────────────────

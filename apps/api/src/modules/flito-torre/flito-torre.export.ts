@@ -10,6 +10,7 @@
 //   SQL, RN-TOR-C4). En tiempos la celda es la MEDIANA en horas y la cabecera lo dice. Topes 2.000 × 100 (RN-TOR-C3).
 // RN-TOR-X5: nombre `torre-<metrica>-<fechaBase>-<periodo>.xlsx` (sin fecha base en las de foto), con `-cruce` si hay
 //   dos agrupaciones. Sin compañías, placas ni NIT.
+// RN-TOR-K4 (vistas flexibles): el Excel ignora `top` y `comparar` (siempre todos los grupos, sin periodo anterior).
 // RN-TOR-X6: ninguna celda de texto empieza por `=`, `+`, `-` ni `@` (inyección de fórmulas): se antepone un apóstrofo.
 import type { Response } from 'express';
 import {
@@ -62,7 +63,7 @@ export function libroCruce(
 export async function libroMetrica(
   c: ConsultaMetrica, alcance: AlcanceResuelto, op: OpcionesConsulta,
 ): Promise<{ columnas: ExcelColumn[]; filas: Record<string, unknown>[] }> {
-  const r = await consultarMetrica({ ...c, limite: undefined }, alcance, { ...op, limiteMax: GRUPOS_MAX, modo: 'exportar' });
+  const r = await consultarMetrica({ ...c, limite: undefined, top: undefined, comparar: undefined }, alcance, { ...op, limiteMax: GRUPOS_MAX, modo: 'exportar' });
   if (r.cruce) return libroCruce(c, r);
   const tiempo = r.unidad === 'horas';
   const columnas: ExcelColumn[] = [

@@ -1,11 +1,10 @@
 // Torre de Control (Épica #14590) — tablero Operativo (spec UX §7.2), con el molde de Comercial. Extiende
 // `FlitoTablero` sin duplicarlo: no repite los conteos por estado, lo enlaza («Abrir el tablero operativo»).
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import type { CausaRadarTorre, TableroOperativo } from '@operaciones/shared-types';
+import { Link, useSearchParams } from 'react-router-dom';
+import type { TableroOperativo } from '@operaciones/shared-types';
 import { useAuth } from '../../lib/auth';
-import { hasPage, type PageSlug } from '../../lib/permissions';
-import KpiCard from '../../components/flit/KpiCard';
+import { hasPage } from '../../lib/permissions';
 import DataTable, { type ColumnaTabla } from '../../components/flit/DataTable';
 import FiltroSegmentado from '../../components/flit/FiltroSegmentado';
 import { ListaFila } from '../../components/flit/Bloques';
@@ -14,17 +13,27 @@ import { Dona, SERIE_KIT } from '../../components/flit/Graficos';
 import PaginaTorre, { BloqueTorre, REJILLA_2, REJILLA_KPI, useTorre } from '../../components/torre/PaginaTorre';
 import MoldeTablero, { ExportarTablero, Etiqueta, Semaforo, notaFiltros, useTablero } from '../../components/torre/MoldeTablero';
 import RankingTorre from '../../components/torre/RankingTorre';
+import KpiExplicable, { EnlaceDestino } from '../../components/torre/KpiExplicable';
 import { conteo, porcentaje } from '../../components/torre/formatoTorre';
+import Pestanas from '../../components/flit/Pestanas';
+import InventarioPorEstado from '../../components/torre/InventarioPorEstado';
+import SoportesOperativa from '../../components/torre/SoportesOperativa';
+import EquipoOperativa from '../../components/torre/EquipoOperativa';
+import { FUNCION_EQUIPO_TORRE } from '@operaciones/shared-types';
+import { VISTAS_ORIGEN, type VistaOrigenTorre } from '../../lib/torreDetalle';
+
+/** Subvistas de Operativa (spec UX §6.1). «Equipo» llega con su bloque: no se pintan pestañas vacías. */
+type VistaOperativa = 'resumen' | VistaOrigenTorre;
+const PESTANAS_OPERATIVA: { id: VistaOperativa; etiqueta: string }[] = [
+  { id: 'resumen', etiqueta: 'Resumen' },
+  ...Object.entries(VISTAS_ORIGEN.operativa).map(([id, etiqueta]) => ({ id: id as VistaOrigenTorre, etiqueta })),
+];
+/** «Equipo» solo existe con `torre.equipo.ver` (B5): sin ella no se pinta y `?vista=equipo` cae en Resumen. */
+const pestanasVisibles = (verEquipo: boolean) => PESTANAS_OPERATIVA.filter((p) => p.id !== 'equipo' || verEquipo);
+const leerVista = (v: string | null, pestanas: typeof PESTANAS_OPERATIVA): VistaOperativa =>
+  (pestanas.some((p) => p.id === v) ? (v as VistaOperativa) : 'resumen');
 
 type FilaOt = TableroOperativo['benchmarkOt']['filas'][number];
-
-/** «Ver cola»: la cola existente que atiende cada causa. */
-const COLA: Record<CausaRadarTorre, { to: string; page: PageSlug }> = {
-  soat_sin_gestion: { to: '/flito/soat', page: 'flito_soat' },
-  impuesto_sin_gestion: { to: '/flito/impuestos', page: 'flito_impuestos' },
-  borrador_abandonado: { to: '/flito/tramites', page: 'flito_tramites' },
-  estancado_ot: { to: '/flito/tramites', page: 'flito_tramites' },
-};
 
 const dias = (n: number | null) => (n === null ? '—' : `${n.toLocaleString('es-CO', { maximumFractionDigits: 1 })} ${n === 1 ? 'día' : 'días'}`);
 
@@ -32,14 +41,32 @@ const esVacio = (d: TableroOperativo): boolean => d.cifras.wip === 0 && d.benchm
 
 export default function TorreOperativa() {
   const torre = useTorre();
-  const { estado, reintentar } = useTablero<TableroOperativo>('operativa', torre.filtros);
+  // La pestaña activa vive en la URL (`?vista=`): «Atrás» y «Volver a …» del detalle vuelven a ella (§6.1).
+  const [params, setParams] = useSearchParams();
+  const { hasFuncion } = useAuth();
+  const pestanas = pestanasVisibles(hasFuncion(FUNCION_EQUIPO_TORRE));
+  const vista = leerVista(params.get('vista'), pestanas);
+  const elegir = (id: string) => setParams((q) => {
+    const n = new URLSearchParams(q);
+    if (id === 'resumen') n.delete('vista'); else n.set('vista', id);
+    return n;
+  });
+  // El tablero solo se pide en «Resumen»; la primaria del encabezado exporta la subvista activa y solo «Resumen» tiene Excel.
+  const { estado, reintentar } = useTablero<TableroOperativo>('operativa', torre.filtros, vista === 'resumen');
   return (
     <PaginaTorre torre={torre} titulo="Operativa" subtitulo="Dónde se está quedando el trabajo y qué organismo responde más lento."
-      acciones={<ExportarTablero area="operativa" filtros={torre.filtros} estado={estado} esVacio={esVacio} />}>
-      <MoldeTablero estado={estado} nombre="Operativo" onReintentar={reintentar} onLimpiar={torre.restablecer}
-        esVacio={esVacio}>
-        {(d) => <Contenido d={d} />}
-      </MoldeTablero>
+      acciones={vista === 'resumen' ? <ExportarTablero area="operativa" filtros={torre.filtros} estado={estado} esVacio={esVacio} /> : undefined}>
+      <Pestanas etiqueta="Subvistas de Operativa" pestanas={pestanas} activa={vista} onElegir={elegir} />
+      <div role="tabpanel" aria-label={pestanas.find((p) => p.id === vista)?.etiqueta} className="flex min-w-0 flex-col gap-4" data-torre={`vista-${vista}`}>
+        {vista === 'resumen' && (
+          <MoldeTablero estado={estado} nombre="Operativo" onReintentar={reintentar} onLimpiar={torre.restablecer} esVacio={esVacio}>
+            {(d) => <Contenido d={d} />}
+          </MoldeTablero>
+        )}
+        {vista === 'inventario' && <InventarioPorEstado filtros={torre.filtros} />}
+        {vista === 'soportes' && <SoportesOperativa filtros={torre.filtros} />}
+        {vista === 'equipo' && <EquipoOperativa filtros={torre.filtros} onLimpiar={torre.restablecer} />}
+      </div>
     </PaginaTorre>
   );
 }
@@ -48,6 +75,7 @@ function Contenido({ d }: { d: TableroOperativo }) {
   const { user } = useAuth();
   const [vistaCarga, setVistaCarga] = useState<'organismo' | 'funcionario'>('organismo');
   const c = d.cifras;
+  const x = d.explicaciones ?? {};
   const carga = vistaCarga === 'funcionario' && d.carga.porFuncionario ? d.carga.porFuncionario : d.carga.porOrganismo;
   const topCarga = carga.slice(0, 8);
   const maxCarga = Math.max(1, ...topCarga.map((s) => s.valor));
@@ -63,15 +91,25 @@ function Contenido({ d }: { d: TableroOperativo }) {
       key: 'mediana', header: 'Mediana de respuesta', align: 'right',
       render: (f) => (f.sobreUmbral ? <Etiqueta tono="warn">{dias(f.medianaRespuestaDias)}</Etiqueta> : dias(f.medianaRespuestaDias)),
     },
+    {
+      key: 'acciones', header: <span className="sr-only">Registros</span>, acciones: true,
+      render: (f) => <EnlaceDestino destino={f.destino} cantidad={f.volumen} nombre={`trámites de ${f.organismo}`} volver="operativa" texto="Ver trámites" />,
+    },
   ];
 
   return (
     <>
       <div className={REJILLA_KPI}>
-        <KpiCard label="Sin gestión fuera de ANS" value={conteo(c.sinGestionFueraAns)} pendiente={c.sinGestionFueraAns > 0} hint="SOAT e impuestos" />
-        <KpiCard label="Borradores abandonados" value={conteo(c.borradoresAbandonados)} pendiente={c.borradoresAbandonados > 0} />
-        <KpiCard label="Trámites en curso" value={conteo(c.wip)} hint="Trabajo activo hoy" />
-        <KpiCard label="Entregas al primer intento" value={c.primerIntentoPct === null ? '—' : porcentaje(c.primerIntentoPct)} />
+        <KpiExplicable volver="operativa" label="Gestiones sin soporte fuera de ANS" value={conteo(c.sinGestionFueraAns)}
+          pendiente={c.sinGestionFueraAns > 0} explicacion={x.sinGestionFueraAns} cantidad={c.sinGestionFueraAns} hintSinExplicacion="SOAT e impuestos" />
+        <KpiExplicable volver="operativa" label="Borradores abandonados" value={conteo(c.borradoresAbandonados)}
+          pendiente={c.borradoresAbandonados > 0} explicacion={x.borradoresAbandonados} cantidad={c.borradoresAbandonados}
+          verEtiqueta={`Ver los ${conteo(c.borradoresAbandonados)} borradores`} />
+        <KpiExplicable volver="operativa" label="Trámites en curso" value={conteo(c.wip)} explicacion={x.wip} cantidad={c.wip}
+          hintSinExplicacion="Trabajo activo hoy" nombreLista="trámites en curso" />
+        <KpiExplicable volver="operativa" label="Entregas al primer intento" value={c.primerIntentoPct === null ? '—' : porcentaje(c.primerIntentoPct)}
+          explicacion={x.primerIntentoPct} cantidad={c.primerIntentoPct === null ? 0 : l.entregas - l.primerIntento}
+          verEtiqueta={`Ver las ${conteo(l.entregas - l.primerIntento)} con reintento`} />
       </div>
 
       <div className={REJILLA_2}>
@@ -80,15 +118,12 @@ function Contenido({ d }: { d: TableroOperativo }) {
             ? <p className="grafico-vacio">Nada estancado fuera de umbral.</p>
             : (
               <ListaFila filas={d.radar.filas.filter((f) => f.cantidad > 0).map((f) => {
-                const cola = COLA[f.causa];
                 return {
                   id: f.causa,
                   titulo: <span className="tabular-nums">{f.etiqueta}: {conteo(f.cantidad)}</span>,
                   detalle: `Umbral: ${f.umbral} ${f.unidad === 'horas' ? 'horas' : 'días'}`,
                   extra: <Semaforo severidad={f.severidad} />,
-                  accion: hasPage(user, cola.page)
-                    ? <Link to={cola.to} className={claseBoton('ghost', 'sm')} aria-label={`Ver cola: ${f.etiqueta}`}>Ver cola</Link>
-                    : undefined,
+                  accion: <EnlaceDestino destino={f.destino} cantidad={f.cantidad} nombre={f.etiqueta} volver="operativa" />,
                 };
               })} />
             )}

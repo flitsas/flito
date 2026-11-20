@@ -14,22 +14,26 @@ import { etiquetaKit, ETIQUETA_PUNTO_CLS, type TonoKit } from '../flit/kit/tonos
 import { aFiltroTorre } from './formatoTorre';
 import { REJILLA_2, REJILLA_KPI } from './PaginaTorre';
 
-export type AreaTablero = 'ejecutivo' | 'comercial' | 'operativa' | 'financiera';
+/** Ruta bajo `/flito/torre/tableros/`: un área o la subvista de un área (`financiera/bolsas`), cada una con su `/exportar`. */
+export type AreaTablero = 'ejecutivo' | 'comercial' | 'operativa' | 'financiera' | 'productos' | 'logistica'
+  | 'financiera/facturacion' | 'financiera/bolsas' | 'operativa/equipo';
 export type EstadoTablero<T> = { tipo: 'cargando' } | { tipo: 'error' } | { tipo: 'listo'; datos: T };
 
-export function useTablero<T>(area: AreaTablero, filtros: FiltrosTorre) {
+/** `activo = false` no pide (una subvista que no es el tablero, spec §6.1); al volver a `true`, pide. */
+export function useTablero<T>(area: AreaTablero, filtros: FiltrosTorre, activo = true) {
   const [estado, setEstado] = useState<EstadoTablero<T>>({ tipo: 'cargando' });
   const [intento, setIntento] = useState(0);
   const ultima = useRef(0);
   const filtro: FiltroTorre = aFiltroTorre(filtros);
   const clave = JSON.stringify(filtro);
   useEffect(() => {
+    if (!activo) return;
     const id = ++ultima.current;
     setEstado({ tipo: 'cargando' });
     api.post<T>(`/flito/torre/tableros/${area}`, { filtro: JSON.parse(clave) as FiltroTorre })
       .then((datos) => { if (id === ultima.current) setEstado({ tipo: 'listo', datos }); })
       .catch(() => { if (id === ultima.current) setEstado({ tipo: 'error' }); });
-  }, [area, clave, intento]);
+  }, [area, clave, intento, activo]);
   return { estado, reintentar: () => setIntento((n) => n + 1) };
 }
 
@@ -53,7 +57,7 @@ export function ExportarTablero<T>({ area, filtros, estado, esVacio }: {
   const habilitado = estado.tipo === 'listo' && !esVacio(estado.datos);
   const ejecutar = async (): Promise<void> => {
     try {
-      await api.downloadPostNamed(`/flito/torre/tableros/${area}/exportar`, `torre-${area}.xlsx`, { filtro: aFiltroTorre(filtros) });
+      await api.downloadPostNamed(`/flito/torre/tableros/${area}/exportar`, `torre-${area.replace('/', '-')}.xlsx`, { filtro: aFiltroTorre(filtros) });
       toastOk('Listo: descargamos el Excel de este tablero.', { id: 'torre-exportar' });
     } catch {
       toastError('No pudimos generar el Excel. Intente de nuevo en un momento.', () => { void ejecutar(); }, { id: 'torre-exportar' });

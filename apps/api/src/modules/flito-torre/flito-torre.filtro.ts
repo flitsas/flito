@@ -5,6 +5,7 @@
 // RN-TOR-F2: los rangos son días calendario de Bogotá (`TZ_COLOMBIA`) y se aplican como `[desde, hasta+1)`.
 // RN-TOR-F3: topes del ADR — 24 meses de rango; 366 días si se agrupa por día. Más → `RangoTorreExcedidoError` (400).
 // RN-TOR-F5: el preset `ultimos_6m` lo resuelve la API (`resolverRango`), alineado al mes, con el `hoy` de Bogotá.
+// RN-TOR-K1: `periodoAnterior` = el periodo inmediatamente anterior de igual duración (comparar del Explorador).
 // RN-TOR-C3: `exigirTopesCruce` limita los cortes del eje temporal de un cruce (62) antes de consultar.
 // RN-TOR-F4: el departamento es `substr(organismo_codigo, 1, 2)` acotado a `DEPARTAMENTO_POR_CODIGO`; un código nulo
 //   o con prefijo desconocido cae en «Sin secretaría». Una compañía nula cae en «Sin compañía».
@@ -46,6 +47,14 @@ const primeroDeMes = (s: string): string => `${s.slice(0, 7)}-01`;
 export function mesAnterior(s: string): RangoResuelto {
   const finAnterior = sumarDias(primeroDeMes(s), -1);
   return { desde: primeroDeMes(finAnterior), hasta: finAnterior };
+}
+
+/**
+ * RN-TOR-K1: el periodo inmediatamente anterior de igual duración, `{ desde − d, desde − 1 }` con `d = diasDeRango(r)`
+ * (la fórmula del tablero Comercial). Sobre el rango YA resuelto: «Este mes» 1–18 nov → 14–31 oct.
+ */
+export function periodoAnterior(r: RangoResuelto): RangoResuelto {
+  return { desde: sumarDias(r.desde, -diasDeRango(r)), hasta: sumarDias(r.desde, -1) };
 }
 
 /** Preset o rango explícito → días de Bogotá. `hoy` se inyecta para los tests. */
@@ -144,7 +153,17 @@ export interface DimensionesBase {
   organismo: AnyColumn;
   tipoTramite: AnyColumn;
   flitEstado: AnyColumn;
+  /** Días completos en el estado actual (B2); sin él, `tramo_antiguedad` queda «Sin dato». */
+  diasEnEstado?: SQL;
 }
+
+/**
+ * RN-TOR-D9 (B2): tramo de `TRAMOS_ANTIGUEDAD_TORRE` de unos días. Cortes y claves en LITERAL (sin parámetros), para que
+ * la misma expresión sirva en `GROUP BY` y en el segmento; `flito-torre-inventario.test.ts` comprueba que coinciden con
+ * el catálogo de shared-types.
+ */
+export const tramoDeDias = (dias: SQL): SQL => sql`(CASE WHEN ${dias} <= 2 THEN '0_2' WHEN ${dias} <= 7 THEN '3_7'
+  WHEN ${dias} <= 15 THEN '8_15' WHEN ${dias} <= 30 THEN '16_30' ELSE 'mas_30' END)`;
 
 export interface OpcionesCondiciones {
   /** `null` = la métrica (o el bloque) no se acota por rango. */
@@ -210,6 +229,7 @@ export function claveAgrupacion(a: AgrupacionTorre, dims: DimensionesBase, fecha
       return sql`CASE WHEN substr(${dims.organismo}, 1, 2) IN ${CODIGOS_DEPARTAMENTO} THEN substr(${dims.organismo}, 1, 2) END`;
     case 'tipo_tramite': return sql`${dims.tipoTramite}::text`;
     case 'flit_estado': return sql`${dims.flitEstado}::text`;
+    case 'tramo_antiguedad': return dims.diasEnEstado ? tramoDeDias(dims.diasEnEstado) : sql`NULL::text`;
   }
 }
 

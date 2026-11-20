@@ -7,6 +7,7 @@
 // Los umbrales configurables (`UMBRALES_TORRE`) viven en `flito_torre_umbrales` (migración 0303).
 // Los operativos nacen con el ANS de la operación (`ANS_OPERATIVO`) para que la Torre y el tablero
 // operativo no puedan discrepar el día uno.
+import type { CifraExplicada, ConjuntoTorreId, DestinoCifra, ExplicacionesTablero } from './flito-torre-detalle.js';
 import { ANS_OPERATIVO } from './flito-estados.js';
 
 // ── Rango y filtro ───────────────────────────────────────────────────────────────────────────────
@@ -31,17 +32,35 @@ export interface FiltroTorre {
 
 export const AGRUPACIONES_TORRE = [
   'dia', 'semana', 'mes', 'trimestre', 'compania', 'organismo', 'departamento', 'tipo_tramite', 'flit_estado',
+  'tramo_antiguedad',
 ] as const;
 export type AgrupacionTorre = (typeof AGRUPACIONES_TORRE)[number];
 
 const TEMPORALES = ['dia', 'semana', 'mes', 'trimestre'] as const satisfies readonly AgrupacionTorre[];
 const DIMENSIONES = ['compania', 'organismo', 'departamento', 'tipo_tramite', 'flit_estado'] as const satisfies readonly AgrupacionTorre[];
 const TODAS = [...TEMPORALES, ...DIMENSIONES] as const;
+/** Fotos del momento de trámites en curso: las dimensiones + el tramo de días en el estado actual (B2). */
+const FOTO_ESTADO = [...DIMENSIONES, 'tramo_antiguedad'] as const satisfies readonly AgrupacionTorre[];
+
+/**
+ * Tramos FIJOS de días en el estado actual (Épica #14590 B2, UX §6.2; no configurables). Días = días completos desde
+ * el último cambio de `flit_estado` (o la creación, si nunca cambió). `hasta: null` = sin tope. La API los traduce en
+ * `claveAgrupacion('tramo_antiguedad')` con estos mismos cortes (un test lo verifica).
+ */
+export const TRAMOS_ANTIGUEDAD_TORRE = [
+  { clave: '0_2', etiqueta: '0–2 días', desde: 0, hasta: 2 },
+  { clave: '3_7', etiqueta: '3–7 días', desde: 3, hasta: 7 },
+  { clave: '8_15', etiqueta: '8–15 días', desde: 8, hasta: 15 },
+  { clave: '16_30', etiqueta: '16–30 días', desde: 16, hasta: 30 },
+  { clave: 'mas_30', etiqueta: 'Más de 30', desde: 31, hasta: null },
+] as const;
+export type TramoAntiguedadTorre = (typeof TRAMOS_ANTIGUEDAD_TORRE)[number]['clave'];
 
 /** Etiquetas de las agrupaciones (las mismas cadenas que la web; el Excel cruzado las necesita). */
 export const ETIQUETAS_AGRUPACION_TORRE: Record<AgrupacionTorre, string> = {
   dia: 'Día', semana: 'Semana', mes: 'Mes', trimestre: 'Trimestre', compania: 'Compañía', organismo: 'Organismo de tránsito',
   departamento: 'Departamento', tipo_tramite: 'Tipo de trámite', flit_estado: 'Estado',
+  tramo_antiguedad: 'Días en el estado',
 };
 
 export const esAgrupacionTemporal = (a: AgrupacionTorre): boolean =>
@@ -106,12 +125,24 @@ export const METRICAS_TORRE = [
   { id: 'ingreso_liquidado', etiqueta: 'Ingreso liquidado', unidad: 'cop', agrupacionesPermitidas: TODAS, requiereDinero: true,
     fechasBase: ['aprobacion', 'facturacion'], enConstructor: true },
   // Foto del momento: no tiene serie temporal ni rango, solo cortes por dimensión.
-  { id: 'wip_activo', etiqueta: 'Trámites en curso', unidad: 'conteo', agrupacionesPermitidas: DIMENSIONES, requiereDinero: false,
+  { id: 'wip_activo', etiqueta: 'Trámites en curso', unidad: 'conteo', agrupacionesPermitidas: FOTO_ESTADO, requiereDinero: false,
+    fechasBase: [], enConstructor: true },
+  // B2: promedio de horas que los trámites en curso llevan en su estado actual (foto, como `wip_activo`).
+  { id: 'dias_en_estado', etiqueta: 'Tiempo en el estado actual', unidad: 'horas', agrupacionesPermitidas: FOTO_ESTADO, requiereDinero: false,
     fechasBase: [], enConstructor: true },
   { id: 'tasa_aprobacion', etiqueta: 'Tasa de aprobación', unidad: 'pct', agrupacionesPermitidas: TODAS, requiereDinero: false,
     fechasBase: ['creacion'], enConstructor: true },
   { id: 'sin_facturar', etiqueta: 'Aprobados sin facturar', unidad: 'conteo', agrupacionesPermitidas: DIMENSIONES, requiereDinero: true,
     fechasBase: ['aprobacion'], enConstructor: true },
+  // B3 (Productos): sin fecha base nueva (decisión del humano): creación del registro o pago.
+  { id: 'soat_gestionados', etiqueta: 'SOAT gestionados', unidad: 'conteo', agrupacionesPermitidas: TODAS, requiereDinero: false,
+    fechasBase: ['creacion', 'pago'], enConstructor: true },
+  { id: 'soat_pagados_valor', etiqueta: 'Valor pagado de SOAT', unidad: 'cop', agrupacionesPermitidas: TODAS, requiereDinero: true,
+    fechasBase: ['pago'], enConstructor: true },
+  { id: 'impuestos_gestionados', etiqueta: 'Impuestos gestionados', unidad: 'conteo', agrupacionesPermitidas: TODAS, requiereDinero: false,
+    fechasBase: ['creacion', 'pago'], enConstructor: true },
+  { id: 'derechos_registrados', etiqueta: 'Derechos de tránsito registrados', unidad: 'conteo', agrupacionesPermitidas: TODAS, requiereDinero: false,
+    fechasBase: ['creacion', 'pago'], enConstructor: true },
 ] as const satisfies readonly MetricaTorreDef[];
 
 export type MetricaTorreId = (typeof METRICAS_TORRE)[number]['id'];
@@ -150,7 +181,26 @@ export const TOPES_TORRE = {
   COLUMNAS_CRUCE_EXPORTAR_MAX: 100,
   /** Cortes del eje temporal de un cruce (pantalla y Excel); se valida antes de consultar. */
   CORTES_TEMPORALES_CRUCE_MAX: 62,
+  /** Top N del Explorador (RN-TOR-K4): grupos que se ven antes de «Otros» / «Los demás». */
+  TOP_GRUPOS: [5, 10, 20, 50] as const,
+  /** Top N por defecto en la web. */
+  TOP_GRUPOS_DEFECTO: 10,
+  /** Detalle (ADR-0047): `pagina*tamano` no pasa de esto (sin OFFSET profundo); el `total` se cuenta igual. */
+  FILAS_DETALLE_PAGINABLE_MAX: 10_000,
+  /** Detalle en Excel: más que esto es 422 (nunca un recorte silencioso). */
+  FILAS_DETALLE_EXPORTAR_MAX: 50_000,
+  /** Valores por segmento del detalle. */
+  VALORES_SEGMENTO_MAX: 10,
+  /** Segmentos por consulta de detalle (fila y columna de un cruce; en el inventario, estado × tramo × organismo). */
+  SEGMENTOS_MAX: 3,
 } as const;
+
+/** Un valor de `TOPES_TORRE.TOP_GRUPOS`. */
+export type TopGruposTorre = (typeof TOPES_TORRE.TOP_GRUPOS)[number];
+
+/** ¿`v` es un Top N admitido? */
+export const esTopGruposTorre = (v: number): v is TopGruposTorre =>
+  (TOPES_TORRE.TOP_GRUPOS as readonly number[]).includes(v);
 
 // ── Consulta y resultado ─────────────────────────────────────────────────────────────────────────
 
@@ -165,6 +215,33 @@ export interface ConsultaMetrica {
   filtro: FiltroTorre;
   /** Simple: ≤ `TOPES_TORRE.FILAS_PANTALLA_MAX`. Cruce: el motor lo acota además a `FILAS_CRUCE_PANTALLA_MAX`. */
   limite?: number;
+  /**
+   * RN-TOR-K4: Top N del eje de DIMENSIÓN del cruce en pantalla (el resto se pliega en «Otros»). En la agrupación
+   * simple y en el Excel el servidor lo ignora. Ausente = comportamiento de siempre (cruce 50 × 12).
+   */
+  top?: TopGruposTorre;
+  /**
+   * RN-TOR-K1..K3: compara con el periodo inmediatamente anterior de igual duración. Prohibido (400) en las métricas
+   * de foto y en el cruce. El Excel lo ignora. Ausente/false = sin `anterior`.
+   */
+  comparar?: boolean;
+}
+
+/** RN-TOR-K1..K3: el periodo anterior de una consulta con `comparar`. */
+export interface AnteriorTorre {
+  /** Ya resuelto, ambos inclusive: `{ desde − d, desde − 1 }` con `d` = días del rango actual. */
+  rango: { desde: string; hasta: string };
+  /** En tiempos, `valor` es la mediana (como en `total.valor`). */
+  total: { valor: number; n: number };
+  /** Variación del total. `null` si la base anterior es 0 (la UI pinta «Nuevo» o «—»). */
+  variacion: number | null;
+  /** `puntos` solo si la unidad es `pct` (diferencia de tasas); si no, % relativo. */
+  en: 'relativa' | 'puntos';
+  /**
+   * Exactamente las claves de `filas`, en el mismo orden. `valor: null` = el grupo no existía en el periodo anterior.
+   * `[]` con agrupación temporal (las claves no se emparejan, RN-TOR-K2) o sin agrupación.
+   */
+  filas: { clave: string; valor: number | null; variacion: number | null }[];
 }
 
 /** Una celda del cruce (`filas[i]` × `columnas[j]`). */
@@ -217,9 +294,14 @@ export interface ResultadoMetrica {
    * Ausente en las métricas de foto (`wip_activo`), que no filtran por fecha.
    */
   rango?: { desde: string; hasta: string };
+  /** Solo si la consulta trae `comparar: true` (RN-TOR-K1..K3). */
+  anterior?: AnteriorTorre;
   /** ISO 8601. */
   generadoEn: string;
 }
+
+/** Fila de bloque que abre su detalle (ADR-0047): aditivo, los consumidores actuales no cambian. */
+interface ConDestino { destino?: DestinoCifra }
 
 // ── Ficha de placa (sin PII del comprador) ───────────────────────────────────────────────────────
 
@@ -321,7 +403,8 @@ export interface TableroComercial extends BaseTablero {
     /** Creados por día del periodo (para el `Sparkline`). */
     sparkline: number[];
   };
-  fuga: MetaBloqueTorre & { umbralPct: number; ventanaDias: number; filas: FugaClienteTorre[] };
+  explicaciones: ExplicacionesTablero<TableroComercial['cifras']>;
+  fuga: MetaBloqueTorre & { umbralPct: number; ventanaDias: number; filas: (FugaClienteTorre & ConDestino)[] };
   concentracion: MetaBloqueTorre & { volumen: ConcentracionTorre; ingreso: ConcentracionTorre | null };
   embudo: MetaBloqueTorre & { pasos: { paso: 'creados' | 'radicados' | 'aprobados' | 'facturados'; valor: number; pct: number }[] };
   /** Últimos 6 meses cerrados (mensual) y sus trimestres. No depende del rango. */
@@ -337,8 +420,9 @@ export type CausaRadarTorre = (typeof CAUSAS_RADAR_TORRE)[number];
 
 export interface TableroOperativo extends BaseTablero {
   cifras: { sinGestionFueraAns: number; borradoresAbandonados: number; wip: number; primerIntentoPct: number | null };
+  explicaciones: ExplicacionesTablero<TableroOperativo['cifras']>;
   radar: MetaBloqueTorre & {
-    filas: { causa: CausaRadarTorre; etiqueta: string; cantidad: number; umbral: number; unidad: 'horas' | 'dias'; severidad: SeveridadTorre }[];
+    filas: ({ causa: CausaRadarTorre; etiqueta: string; cantidad: number; umbral: number; unidad: 'horas' | 'dias'; severidad: SeveridadTorre } & ConDestino)[];
   };
   carga: MetaBloqueTorre & {
     porOrganismo: SerieTorre[];
@@ -347,10 +431,10 @@ export interface TableroOperativo extends BaseTablero {
   };
   benchmarkOt: MetaBloqueTorre & {
     umbralDias: number;
-    filas: {
+    filas: ({
       organismoCodigo: string | null; organismo: string; volumen: number; pctAprobado: number; pctRechazado: number;
       pendientes: number; medianaRespuestaDias: number | null; sobreUmbral: boolean;
-    }[];
+    } & ConDestino)[];
   };
   logistica: MetaBloqueTorre & {
     entregas: number; primerIntento: number; primerIntentoPct: number | null;
@@ -370,6 +454,7 @@ export interface TableroFinanciero extends BaseTablero {
     margenPct: number | null;
     soportesCompletosPct: number | null;
   };
+  explicaciones: ExplicacionesTablero<TableroFinanciero['cifras']>;
   /** Saldo de hoy y consumo de los últimos 30 días; de menor a mayor cobertura. No depende del rango. */
   bolsas: MetaBloqueTorre & {
     umbralAtencionDias: number; umbralCriticoDias: number;
@@ -380,14 +465,18 @@ export interface TableroFinanciero extends BaseTablero {
     }[];
   };
   sinFacturar: MetaBloqueTorre & {
-    filas: { companiaId: number | null; compania: string; tramites: number; valorEstimado: number | null; masAntiguoDias: number }[];
+    filas: ({ companiaId: number | null; compania: string; tramites: number; valorEstimado: number | null; masAntiguoDias: number } & ConDestino)[];
   };
   /** `null` si el rol no ve dinero. `costo: null` + `sinCostoRegistrado` cuando FLITO no tiene el costo. */
   margen: (MetaBloqueTorre & {
     porServicio: { servicio: ServicioMargenTorre; cobrado: number; costo: number | null; sinCostoRegistrado: boolean }[];
     porCliente: { companiaId: number | null; compania: string; cobrado: number; costo: number; margenPct: number | null; sinCostoRegistrado: boolean }[];
   }) | null;
-  conciliacion: MetaBloqueTorre & { completos: number; dos: number; uno: number; cero: number; total: number; pctCompletos: number | null };
+  conciliacion: MetaBloqueTorre & {
+    completos: number; dos: number; uno: number; cero: number; total: number; pctCompletos: number | null;
+    /** Destino de cada nivel (`nivel:[n]` de `soportes_aprobados`). */
+    destinos?: Record<'completos' | 'dos' | 'uno' | 'cero', DestinoCifra>;
+  };
 }
 
 export interface RiesgoTorre {
@@ -398,6 +487,40 @@ export interface RiesgoTorre {
   severidad: Exclude<SeveridadTorre, 'ok'>;
   /** Para ordenar dentro de la misma severidad: monto o volumen afectado. */
   impacto: number;
+}
+
+/**
+ * B6 (Épica #14590, UX §7 + B6.2) — un frente de «Para hoy». Solo entran frentes con `cifra > 0` y cuyo conjunto de
+ * origen el usuario puede abrir (`funcionesOrigen`). Orden: crítico primero y luego por cifra. La UI muestra 8 y el
+ * resto en disclosure.
+ */
+export interface FrenteTorre {
+  /** Clave estable del frente (= el conjunto, o `fuga`). */
+  clave: string;
+  /** El conjunto que lista la cifra; `null` en «Clientes en caída» (no es conjunto: `accion: 'revisar'`). */
+  conjunto: ConjuntoTorreId | null;
+  /** = `total` del detalle de `destino` (RN-TOR-D1). */
+  cifra: number;
+  /** Frase SIN la cifra, que va en su columna: «trámites llevan más de 7 días en Borrador.». */
+  frase: string;
+  severidad: Exclude<SeveridadTorre, 'ok'>;
+  /** `ver` → abre el detalle del conjunto; `revisar` → lleva al bloque del área (`destino.tipo = 'bloque'`). */
+  accion: 'ver' | 'revisar';
+  destino: DestinoCifra;
+  /**
+   * Solo `sin_facturar`: el detalle se abre con el rango del MES EN CURSO (`{ preset: 'mes' }`), no el de la barra.
+   * El resto de frentes es foto de hoy (`null`).
+   */
+  rango: { preset: 'mes' } | null;
+}
+
+/** B6.3 — una frase de «Lo que cambió en el periodo» (reglas H1–H6, deterministas, sin LLM). Máx. 4. */
+export interface HallazgoTorre {
+  regla: 'H1' | 'H2' | 'H3' | 'H4' | 'H5' | 'H6';
+  frase: string;
+  /** Área (y subvista, si aplica) del enlace «Ver en …». */
+  area: 'comercial' | 'financiera' | 'logistica' | 'productos';
+  vista?: string;
 }
 
 export interface TableroEjecutivo extends BaseTablero {
@@ -418,6 +541,12 @@ export interface TableroEjecutivo extends BaseTablero {
   };
   /** Top 5: críticos primero y luego por impacto. */
   riesgos: RiesgoTorre[];
+  /** B6: «Para hoy» (reemplaza a `riesgos` en la UI). */
+  paraHoy: FrenteTorre[];
+  /** B6: «Lo que cambió en el periodo» (mes en curso frente al mes anterior hasta el mismo día). */
+  hallazgos: HallazgoTorre[];
+  /** Explicación de cada cifra del 360° (clave `area.campo`, p. ej. `comercial.clientesEnCaida`). */
+  explicaciones: Partial<Record<string, CifraExplicada>>;
 }
 
 // ── Umbrales configurables ───────────────────────────────────────────────────────────────────────
@@ -459,6 +588,12 @@ export const UMBRALES_TORRE = [
     descripcion: 'Días de cobertura de saldo por debajo de los cuales la bolsa se pinta en rojo.' },
   { clave: 'meta_mensual_aprobados', grupo: 'general', unidad: 'conteo', valorPorDefecto: 0,
     descripcion: 'Meta mensual de trámites aprobados. 0 significa sin meta.' },
+  // B3 (Productos): lo siembra la 0308 (no la 0303, que ya está aplicada).
+  { clave: 'dias_soat_por_vencer', grupo: 'operativo', unidad: 'dias', valorPorDefecto: 30,
+    descripcion: 'Días antes del vencimiento de la póliza a partir de los cuales un SOAT se cuenta como por vencer.' },
+  // B4 (Logística): lo siembra la 0309.
+  { clave: 'dias_traslado_abierto', grupo: 'operativo', unidad: 'dias', valorPorDefecto: 3,
+    descripcion: 'Días desde el registro a partir de los cuales un traslado abierto se cuenta como demorado.' },
 ] as const satisfies readonly UmbralTorreDef[];
 
 export type ClaveUmbralTorre = (typeof UMBRALES_TORRE)[number]['clave'];

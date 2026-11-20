@@ -12,10 +12,12 @@ vi.mock('../../../src/shared/redis.js', () => ({ getRedis: () => redis.cliente, 
 const { abrirTx, cerrarBase, cerrarTx, sembrador, placaNueva, URL_BASE } = await import('./torre-pg.js');
 const { consultarMetrica, rangoDeConsulta, TorreDineroDenegadoError } = await import('../../../src/modules/flito-torre/flito-torre.metricas.service.js');
 const { TorreConsultaInvalidaError } = await import('../../../src/modules/flito-torre/flito-torre.service.js');
-const { RangoTorreExcedidoError, exigirTopesRango, resolverRango } = await import('../../../src/modules/flito-torre/flito-torre.filtro.js');
+const { RangoTorreExcedidoError, exigirTopesRango, periodoAnterior, resolverRango } = await import('../../../src/modules/flito-torre/flito-torre.filtro.js');
+const { variacionTorre } = await import('../../../src/modules/flito-torre/flito-torre.comparar.js');
 const { buscarPlaca, enmascararVin, PlacaTorreNoEncontradaError } = await import('../../../src/modules/flito-torre/flito-torre.placa.service.js');
 const { libroMetrica, nombreArchivoTorre } = await import('../../../src/modules/flito-torre/flito-torre.export.js');
 import type { AlcanceResuelto } from '../../../src/shared/middleware/frontera-enlace.js';
+import type { ConsultaMetrica } from '@operaciones/shared-types';
 
 const TODO: AlcanceResuelto = { enlace: 'ninguno' };
 const HOY = '2035-03-20';
@@ -75,6 +77,36 @@ describe('rango y topes (sin base)', () => {
         .toEqual({ desde: '2026-06-01', hasta: '2026-11-18' });
     }
     expect(rangoDeConsulta({ metrica: 'wip_activo', filtro: { rango: { preset: 'ultimos_6m' } } }, '2026-11-18')).toBeNull();
+  });
+
+  it('RN-TOR-K1: periodo anterior = igual duración, inmediatamente antes, sobre el rango ya resuelto', () => {
+    const hoy = '2026-11-18'; // miércoles
+    const ant = (preset: Parameters<typeof resolverRango>[0]) => periodoAnterior(resolverRango(preset, hoy));
+    expect(ant({ preset: 'hoy' })).toEqual({ desde: '2026-11-17', hasta: '2026-11-17' });
+    expect(ant({ preset: 'ayer' })).toEqual({ desde: '2026-11-16', hasta: '2026-11-16' });
+    expect(ant({ preset: 'mes' })).toEqual({ desde: '2026-10-14', hasta: '2026-10-31' }); // 1–18 nov → 14–31 oct
+    expect(ant({ preset: 'semana' })).toEqual({ desde: '2026-11-13', hasta: '2026-11-15' }); // lun–mié → vie–dom
+    expect(ant({ preset: 'ultimos_6m' })).toEqual({ desde: '2025-12-12', hasta: '2026-05-31' }); // 171 días
+    expect(periodoAnterior({ desde: '2026-01-01', hasta: '2026-01-10' })).toEqual({ desde: '2025-12-22', hasta: '2025-12-31' });
+    expect(periodoAnterior({ desde: '2028-02-01', hasta: '2028-02-29' })).toEqual({ desde: '2028-01-03', hasta: '2028-01-31' }); // bisiesto
+  });
+
+  it('RN-TOR-K2: el motor rechaza `comparar` en la foto y en el cruce (400), sin tocar la base', async () => {
+    await expect(consultarMetrica({ metrica: 'wip_activo', comparar: true, filtro: { rango: MARZO } }, TODO, OP))
+      .rejects.toBeInstanceOf(TorreConsultaInvalidaError);
+    await expect(consultarMetrica({ metrica: 'tramites', agrupacion: 'compania', agrupacionColumnas: 'mes', comparar: true, filtro: { rango: MARZO } }, TODO, OP))
+      .rejects.toBeInstanceOf(TorreConsultaInvalidaError);
+  });
+
+  it('RN-TOR-K3: variación relativa (1 decimal) o en puntos en `pct`; null sin base o sin grupo', () => {
+    expect(variacionTorre('conteo', 4, { valor: 3, n: 3 })).toBe(33.3);
+    expect(variacionTorre('cop', 50, { valor: 100, n: 2 })).toBe(-50);
+    expect(variacionTorre('horas', 30, { valor: 24, n: 5 })).toBe(25);
+    expect(variacionTorre('conteo', 4, { valor: 0, n: 0 })).toBeNull(); // base 0: «Nuevo», nunca +∞
+    expect(variacionTorre('conteo', 4, undefined)).toBeNull(); // el grupo no existía
+    expect(variacionTorre('pct', 75, { valor: 50, n: 2 })).toBe(25); // puntos, no 50 %
+    expect(variacionTorre('pct', 40, { valor: 0, n: 3 })).toBe(40); // 0 % con registros sí es base
+    expect(variacionTorre('pct', 40, { valor: 0, n: 0 })).toBeNull(); // sin registros no hay tasa anterior
   });
 });
 
@@ -187,6 +219,76 @@ describe.skipIf(!URL_BASE)('fecha base y RN-TOR-L1 contra PostgreSQL (tx con ROL
     expect(claves).toHaveLength(4);
     expect(claves[0]).toBe(claves[1]);
     expect(new Set(claves).size).toBe(3);
+  });
+
+  it('RN-TOR-K6: `comparar` parte la clave; `top` solo en el cruce en pantalla (simple y Excel, misma clave)', async () => {
+    const claves: string[] = [];
+    redis.cliente = { get: async () => null, set: async (k: string) => { claves.push(k); return 'OK'; } } as never;
+    const x = await s.cia('X');
+    const f = { rango: MARZO, companiaIds: [x] };
+    const simple: ConsultaMetrica = { metrica: 'tramites', agrupacion: 'compania', filtro: f };
+    const cruce: ConsultaMetrica = { ...simple, agrupacionColumnas: 'mes' };
+    await consultarMetrica(simple, TODO, OP); // 0
+    await consultarMetrica({ ...simple, comparar: true }, TODO, OP); // 1
+    await consultarMetrica({ ...simple, top: 5 }, TODO, OP); // 2 ≡ 0
+    await consultarMetrica(cruce, TODO, OP); // 3
+    await consultarMetrica({ ...cruce, top: 5 }, TODO, OP); // 4 ≠ 3
+    await libroMetrica(simple, TODO, OP); // 5
+    await libroMetrica({ ...simple, top: 5, comparar: true }, TODO, OP); // 6 ≡ 5 (el Excel ignora top y comparar)
+    expect(claves).toHaveLength(7);
+    expect(claves[1]).not.toBe(claves[0]);
+    expect(claves[2]).toBe(claves[0]);
+    expect(claves[4]).not.toBe(claves[3]);
+    expect(claves[6]).toBe(claves[5]);
+  });
+
+  it('RN-TOR-K1..K3: `anterior` con el total, los grupos visibles emparejados por clave y la variación; temporal → filas []', async () => {
+    const x = await s.cia('X'); const y = await s.cia('Y'); const z = await s.cia('Z');
+    // MARZO (31 días) → anterior 29-ene … 28-feb.
+    for (const creadoFlit of ['2035-03-02T15:00:00Z', '2035-03-10T15:00:00Z', '2035-03-31T15:00:00Z']) await s.tramite({ cia: x, creadoFlit });
+    await s.tramite({ cia: y, creadoFlit: '2035-03-05T15:00:00Z' });
+    await s.tramite({ cia: x, creadoFlit: '2035-01-29T15:00:00Z' }); // borde inferior del anterior → dentro
+    await s.tramite({ cia: x, creadoFlit: '2035-02-28T15:00:00Z' });
+    await s.tramite({ cia: z, creadoFlit: '2035-02-10T15:00:00Z' }); // solo en el anterior: no aparece en filas
+    await s.tramite({ cia: x, creadoFlit: '2035-01-28T15:00:00Z' }); // antes del anterior → fuera
+    const filtro = { rango: MARZO, companiaIds: [x, y, z] };
+
+    const sin = await consultarMetrica({ metrica: 'tramites', agrupacion: 'compania', filtro }, TODO, OP);
+    expect(sin).not.toHaveProperty('anterior');
+
+    const r = await consultarMetrica({ metrica: 'tramites', agrupacion: 'compania', comparar: true, filtro }, TODO, OP);
+    expect(r.total.valor).toBe(4);
+    expect(r.filas.map((f) => f.clave)).toEqual([String(x), String(y)]);
+    expect(r.anterior).toEqual({
+      rango: { desde: '2035-01-29', hasta: '2035-02-28' },
+      total: { valor: 3, n: 3 }, variacion: 33.3, en: 'relativa',
+      filas: [{ clave: String(x), valor: 2, variacion: 50 }, { clave: String(y), valor: null, variacion: null }],
+    });
+    // Lo de hoy no cambia con `comparar`.
+    expect({ ...r, anterior: undefined, generadoEn: '' }).toEqual({ ...sin, anterior: undefined, generadoEn: '' });
+
+    // Agrupación temporal: solo el total.
+    const mes = await consultarMetrica({ metrica: 'tramites', agrupacion: 'mes', comparar: true, filtro }, TODO, OP);
+    expect(mes.anterior).toMatchObject({ total: { valor: 3, n: 3 }, variacion: 33.3, filas: [] });
+
+    // Base 0: variación null.
+    const vacio = await consultarMetrica({ metrica: 'tramites', comparar: true, filtro: { rango: { desde: '2035-01-01', hasta: '2035-01-10' }, companiaIds: [x] } }, TODO, OP);
+    expect(vacio.anterior).toMatchObject({ total: { valor: 0, n: 0 }, variacion: null });
+  });
+
+  it('RN-TOR-K3: en la tasa la variación va en PUNTOS; una tasa anterior de 0 % con registros es base', async () => {
+    const x = await s.cia('X'); const y = await s.cia('Y');
+    const marzo = '2035-03-10T15:00:00Z'; const feb = '2035-02-10T15:00:00Z'; const ok = '2035-03-20T15:00:00Z';
+    // X: marzo 3/4 = 75 %; febrero 1/2 = 50 % → +25 pts. Y: marzo 0/1 y febrero 0/1 → 0 pts (no null).
+    for (const aprobado of [ok, ok, ok, null]) await s.tramite({ cia: x, creadoFlit: marzo, aprobado });
+    for (const aprobado of [ok, null]) await s.tramite({ cia: x, creadoFlit: feb, aprobado });
+    await s.tramite({ cia: y, creadoFlit: marzo }); await s.tramite({ cia: y, creadoFlit: feb });
+    const r = await consultarMetrica({ metrica: 'tasa_aprobacion', agrupacion: 'compania', comparar: true, filtro: { rango: MARZO, companiaIds: [x, y] } }, TODO, OP);
+    expect(r.unidad).toBe('pct');
+    expect(r.anterior!.en).toBe('puntos');
+    expect(r.anterior!.total).toEqual({ valor: 33.33, n: 3 });
+    expect(r.anterior!.variacion).toBe(26.7); // 60 − 33,33
+    expect(r.anterior!.filas).toEqual([{ clave: String(x), valor: 50, variacion: 25 }, { clave: String(y), valor: 0, variacion: 0 }]);
   });
 });
 

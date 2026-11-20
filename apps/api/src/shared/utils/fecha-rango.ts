@@ -41,10 +41,20 @@ export function tieneFiltroFecha(rango: FechaRango): boolean {
   return Boolean(rango.desde || rango.hasta);
 }
 
+/**
+ * `[desde 00:00, hasta+1 00:00)` en días calendario de Colombia. **Precondición: `column` es `timestamptz`** (con una
+ * columna `date` la conversión desplazaría un día).
+ *
+ * Cada límite es un `timestamp` (sin zona) `AT TIME ZONE` Bogotá → `timestamptz` de medianoche en Bogotá, sin depender
+ * de la zona de la sesión de PostgreSQL. `date AT TIME ZONE` NO sirve: pasa la fecha por la zona de la sesión y
+ * devuelve un `timestamp` que se reinterpreta en ella (con la sesión en UTC el rango arrancaba el día anterior a las
+ * 14:00 de Bogotá). Mismo criterio que `condicionRango` de la Torre (#805). El límite superior ya era `timestamp`
+ * (`date + interval` da `timestamp`).
+ */
 export function createdInRangeCondition(column: Column, rango: FechaRango): SQL | null {
   if (!tieneFiltroFecha(rango)) return null;
   const parts: SQL[] = [];
-  if (rango.desde) parts.push(sql`${column} >= (${rango.desde}::date AT TIME ZONE ${TZ_COLOMBIA})`);
+  if (rango.desde) parts.push(sql`${column} >= (${rango.desde}::date::timestamp AT TIME ZONE ${TZ_COLOMBIA})`);
   if (rango.hasta) parts.push(sql`${column} < ((${rango.hasta}::date + interval '1 day') AT TIME ZONE ${TZ_COLOMBIA})`);
   if (parts.length === 1) return parts[0]!;
   return and(...parts)!;

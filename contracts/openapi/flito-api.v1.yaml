@@ -239,6 +239,9 @@ paths:
                             - torre_financiera
                             - torre_explorador
                             - torre_umbrales
+                            - torre_detalle
+                            - torre_productos
+                            - torre_logistica
                             - flito_ayuda
                       funciones:
                         type: array
@@ -472,6 +475,9 @@ paths:
                         - torre_financiera
                         - torre_explorador
                         - torre_umbrales
+                        - torre_detalle
+                        - torre_productos
+                        - torre_logistica
                         - flito_ayuda
                   funciones:
                     type: array
@@ -51838,6 +51844,1391 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
+  /api/flito/torre/detalle/consultar:
+    post:
+      operationId: post-api-flito-torre-detalle-consultar
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/detalle/consultar
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.detalle.routes.ts. Exige la función: torre.detalle.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.detalle.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pagina:
+                  type: integer
+                  minimum: 1
+                tamano:
+                  anyOf:
+                    - type: number
+                      enum:
+                        - 25
+                    - type: number
+                      enum:
+                        - 50
+                    - type: number
+                      enum:
+                        - 100
+                origen:
+                  anyOf:
+                    - type: object
+                      properties:
+                        tipo:
+                          type: string
+                          enum:
+                            - conjunto
+                        conjunto:
+                          type: string
+                          enum:
+                            - en_curso
+                            - soat_sin_gestion
+                            - impuesto_sin_gestion
+                            - borrador_abandonado
+                            - estancado_ot
+                            - inventario_estado
+                            - tramites_creados
+                            - radicados_cohorte
+                            - aprobados_cohorte
+                            - facturados_cohorte
+                            - rechazados_cohorte
+                            - entregas_logistica
+                            - sin_facturar
+                            - soportes_aprobados
+                            - soportes_faltantes
+                            - margen_aprobados
+                            - soat_por_estado
+                            - soat_por_vencer
+                            - soat_vigencia_no_verificada
+                            - soat_pagados_periodo
+                            - soat_incompletas_abiertas
+                            - impuestos_por_estado
+                            - impuestos_rechazados_periodo
+                            - impuestos_con_diferencia
+                            - impuestos_direccion_pendiente
+                            - impuestos_pagados_periodo
+                            - derechos_pagados_periodo
+                            - derechos_sin_soporte
+                            - derechos_pendientes_sin_resolver
+                            - traslados_por_estado
+                            - traslados_abiertos_mas_de_n
+                            - actas_pendientes_entrega
+                            - actas_devueltas_periodo
+                            - viajes_adicionales_periodo
+                            - facturas_con_error
+                            - facturas_rechazadas_dian
+                            - cola_facturacion_atascada
+                            - facturado_periodo
+                            - bolsas_cobertura
+                            - bolsas_agotadas
+                            - movimientos_bolsa_periodo
+                            - boletas_sin_conciliar
+                            - boletas_con_diferencia
+                            - gestiones_funcionario_periodo
+                            - carga_funcionario
+                            - fuera_ans_funcionario
+                      required:
+                        - tipo
+                        - conjunto
+                    - type: object
+                      properties:
+                        tipo:
+                          type: string
+                          enum:
+                            - metrica
+                        metrica:
+                          type: string
+                          enum:
+                            - tramites
+                            - tramites_creados
+                            - sin_facturar
+                            - tramites_aprobados
+                            - tiempo_creacion_aprobacion
+                            - costo_logistica
+                            - impuestos_pagados
+                            - derechos_pagados
+                            - ingreso_liquidado
+                            - wip_activo
+                            - dias_en_estado
+                            - tasa_aprobacion
+                            - soat_gestionados
+                            - soat_pagados_valor
+                            - impuestos_gestionados
+                            - derechos_registrados
+                        fechaBase:
+                          type: string
+                          enum:
+                            - pago
+                            - creacion
+                            - aprobacion
+                            - facturacion
+                      required:
+                        - tipo
+                        - metrica
+                segmentos:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      dimension:
+                        type: string
+                        enum:
+                          - nivel
+                          - motivo
+                          - estado
+                          - flit_estado
+                          - tipo_tramite
+                          - departamento
+                          - organismo
+                          - severidad
+                          - mes
+                          - trimestre
+                          - dia
+                          - compania
+                          - semana
+                          - tramo_antiguedad
+                          - faltante
+                          - bolsa
+                          - funcionario
+                      valores:
+                        type: array
+                        items:
+                          type:
+                            - string
+                            - "null"
+                    required:
+                      - dimension
+                      - valores
+                filtro:
+                  "$ref": "#/components/schemas/Forma-b5a9d8d50c"
+                filtrosDetalle:
+                  type: object
+                  properties:
+                    placa:
+                      type: string
+                    companiaIds:
+                      type: array
+                      items:
+                        type: number
+                    estados:
+                      type: array
+                      items:
+                        type: string
+                orden:
+                  type: object
+                  properties:
+                    columna:
+                      type: string
+                      enum:
+                        - motivo
+                        - origen
+                        - estado
+                        - pagado_en
+                        - placa
+                        - estado_vigencia
+                        - vence_el
+                        - aprobado
+                        - tipo_tramite
+                        - valor_liquidado
+                        - valor
+                        - fecha_pago
+                        - organismo
+                        - intentos
+                        - enviada_en
+                        - referencia
+                        - total_declarado
+                        - total_cruzado
+                        - solicitado_en
+                        - creado_en
+                        - destino
+                        - registrado_en
+                        - severidad
+                        - facturado_en
+                        - saldo
+                        - entregado_en
+                        - compania
+                        - dias_en_estado
+                        - funcionario
+                        - codigo_flit
+                        - aprobado_en
+                        - dias_antiguedad
+                        - faltan_soportes
+                        - horas_ciclo
+                        - horas_sin_gestion
+                        - viajes_adicionales
+                        - dias_para_vencer
+                        - poliza_ultimos
+                        - codigo_traslado
+                        - dias_abierto
+                        - n_tramites
+                        - placas
+                        - proveedor_logistica
+                        - numero_viaje
+                        - numero_factura
+                        - error_factura
+                        - situacion_cola
+                        - proximo_intento
+                        - consumo_diario
+                        - dias_cobertura
+                        - tipo_movimiento
+                        - fecha_movimiento
+                        - diferencia
+                        - que_se_gestiono
+                        - gestionado_en
+                        - ultimo_movimiento
+                        - horas_desde_movimiento
+                    dir:
+                      type: string
+                      enum:
+                        - asc
+                        - desc
+                  required:
+                    - columna
+                    - dir
+              required:
+                - origen
+                - filtro
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  origen:
+                    anyOf:
+                      - type: object
+                        properties:
+                          tipo:
+                            type: string
+                            enum:
+                              - conjunto
+                          conjunto:
+                            type: string
+                            enum:
+                              - en_curso
+                              - soat_sin_gestion
+                              - impuesto_sin_gestion
+                              - borrador_abandonado
+                              - estancado_ot
+                              - inventario_estado
+                              - tramites_creados
+                              - radicados_cohorte
+                              - aprobados_cohorte
+                              - facturados_cohorte
+                              - rechazados_cohorte
+                              - entregas_logistica
+                              - sin_facturar
+                              - soportes_aprobados
+                              - soportes_faltantes
+                              - margen_aprobados
+                              - soat_por_estado
+                              - soat_por_vencer
+                              - soat_vigencia_no_verificada
+                              - soat_pagados_periodo
+                              - soat_incompletas_abiertas
+                              - impuestos_por_estado
+                              - impuestos_rechazados_periodo
+                              - impuestos_con_diferencia
+                              - impuestos_direccion_pendiente
+                              - impuestos_pagados_periodo
+                              - derechos_pagados_periodo
+                              - derechos_sin_soporte
+                              - derechos_pendientes_sin_resolver
+                              - traslados_por_estado
+                              - traslados_abiertos_mas_de_n
+                              - actas_pendientes_entrega
+                              - actas_devueltas_periodo
+                              - viajes_adicionales_periodo
+                              - facturas_con_error
+                              - facturas_rechazadas_dian
+                              - cola_facturacion_atascada
+                              - facturado_periodo
+                              - bolsas_cobertura
+                              - bolsas_agotadas
+                              - movimientos_bolsa_periodo
+                              - boletas_sin_conciliar
+                              - boletas_con_diferencia
+                              - gestiones_funcionario_periodo
+                              - carga_funcionario
+                              - fuera_ans_funcionario
+                        required:
+                          - tipo
+                          - conjunto
+                      - type: object
+                        properties:
+                          tipo:
+                            type: string
+                            enum:
+                              - metrica
+                          metrica:
+                            type: string
+                            enum:
+                              - tramites
+                              - tramites_creados
+                              - sin_facturar
+                              - tramites_aprobados
+                              - tiempo_creacion_aprobacion
+                              - costo_logistica
+                              - impuestos_pagados
+                              - derechos_pagados
+                              - ingreso_liquidado
+                              - wip_activo
+                              - dias_en_estado
+                              - tasa_aprobacion
+                              - soat_gestionados
+                              - soat_pagados_valor
+                              - impuestos_gestionados
+                              - derechos_registrados
+                          fechaBase:
+                            type: string
+                            enum:
+                              - pago
+                              - creacion
+                              - aprobacion
+                              - facturacion
+                        required:
+                          - tipo
+                          - metrica
+                  segmentos:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        dimension:
+                          type: string
+                          enum:
+                            - nivel
+                            - motivo
+                            - estado
+                            - flit_estado
+                            - tipo_tramite
+                            - departamento
+                            - organismo
+                            - severidad
+                            - mes
+                            - trimestre
+                            - dia
+                            - compania
+                            - semana
+                            - tramo_antiguedad
+                            - faltante
+                            - bolsa
+                            - funcionario
+                        valores:
+                          type: array
+                          items:
+                            type:
+                              - string
+                              - "null"
+                      required:
+                        - dimension
+                        - valores
+                  definicion:
+                    type: object
+                    properties:
+                      etiqueta:
+                        type: string
+                      definicion:
+                        type: string
+                      fechaBase:
+                        type:
+                          - string
+                          - "null"
+                        enum:
+                          - pago
+                          - creacion
+                          - aprobacion
+                          - facturacion
+                          - null
+                      campoFecha:
+                        type: string
+                    required:
+                      - etiqueta
+                      - definicion
+                      - fechaBase
+                      - campoFecha
+                  total:
+                    type: number
+                  valorTotal:
+                    type:
+                      - number
+                      - "null"
+                  columnas:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          enum:
+                            - motivo
+                            - origen
+                            - estado
+                            - pagado_en
+                            - placa
+                            - estado_vigencia
+                            - vence_el
+                            - aprobado
+                            - tipo_tramite
+                            - valor_liquidado
+                            - valor
+                            - fecha_pago
+                            - organismo
+                            - intentos
+                            - enviada_en
+                            - referencia
+                            - total_declarado
+                            - total_cruzado
+                            - solicitado_en
+                            - creado_en
+                            - destino
+                            - registrado_en
+                            - severidad
+                            - facturado_en
+                            - saldo
+                            - entregado_en
+                            - compania
+                            - dias_en_estado
+                            - funcionario
+                            - codigo_flit
+                            - aprobado_en
+                            - dias_antiguedad
+                            - faltan_soportes
+                            - horas_ciclo
+                            - horas_sin_gestion
+                            - viajes_adicionales
+                            - dias_para_vencer
+                            - poliza_ultimos
+                            - codigo_traslado
+                            - dias_abierto
+                            - n_tramites
+                            - placas
+                            - proveedor_logistica
+                            - numero_viaje
+                            - numero_factura
+                            - error_factura
+                            - situacion_cola
+                            - proximo_intento
+                            - consumo_diario
+                            - dias_cobertura
+                            - tipo_movimiento
+                            - fecha_movimiento
+                            - diferencia
+                            - que_se_gestiono
+                            - gestionado_en
+                            - ultimo_movimiento
+                            - horas_desde_movimiento
+                        etiqueta:
+                          type: string
+                        tipo:
+                          type: string
+                          enum:
+                            - horas
+                            - numero
+                            - fecha
+                            - texto
+                            - booleano
+                            - cop
+                            - dias
+                            - lista
+                        dinero:
+                          type: boolean
+                        ordenable:
+                          type: boolean
+                      required:
+                        - id
+                        - etiqueta
+                        - tipo
+                        - dinero
+                        - ordenable
+                  filas:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        tramiteId:
+                          type:
+                            - string
+                            - "null"
+                        celdas:
+                          type: object
+                          properties:
+                            motivo:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            origen:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            estado:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            pagado_en:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            placa:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            estado_vigencia:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            vence_el:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            aprobado:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            tipo_tramite:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            valor_liquidado:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            valor:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            fecha_pago:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            organismo:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            intentos:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            enviada_en:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            referencia:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            total_declarado:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            total_cruzado:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            solicitado_en:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            creado_en:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            destino:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            registrado_en:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            severidad:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            facturado_en:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            saldo:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            entregado_en:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            compania:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            dias_en_estado:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            funcionario:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            codigo_flit:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - type: array
+                                  items:
+                                    type: string
+                                - type: "null"
+                            aprobado_en:
+                              anyOf:
+                                - type: string
+                                - type: number
+                                - type: boolean
+                                - description: "[por verificar] respuesta recortada por tamaño."
+                                - type: "null"
+                            dias_antiguedad:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            faltan_soportes:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            horas_ciclo:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            horas_sin_gestion:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            viajes_adicionales:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            dias_para_vencer:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            poliza_ultimos:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            codigo_traslado:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            dias_abierto:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            n_tramites:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            placas:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            proveedor_logistica:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            numero_viaje:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            numero_factura:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            error_factura:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            situacion_cola:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            proximo_intento:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            consumo_diario:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            dias_cobertura:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            tipo_movimiento:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            fecha_movimiento:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            diferencia:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            que_se_gestiono:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            gestionado_en:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            ultimo_movimiento:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                            horas_desde_movimiento:
+                              description: "[por verificar] respuesta recortada por tamaño."
+                      required:
+                        - id
+                        - tramiteId
+                        - celdas
+                  pagina:
+                    description: "[por verificar] respuesta recortada por tamaño."
+                  tamano:
+                    description: "[por verificar] respuesta recortada por tamaño."
+                  truncado:
+                    description: "[por verificar] respuesta recortada por tamaño."
+                  frase:
+                    description: "[por verificar] respuesta recortada por tamaño."
+                  fraseVacio:
+                    description: "[por verificar] respuesta recortada por tamaño."
+                  filtrosIgnorados:
+                    description: "[por verificar] respuesta recortada por tamaño."
+                  rango:
+                    description: "[por verificar] respuesta recortada por tamaño."
+                  dineroVisible:
+                    description: "[por verificar] respuesta recortada por tamaño."
+                  generadoEn:
+                    description: "[por verificar] respuesta recortada por tamaño."
+                required:
+                  - origen
+                  - segmentos
+                  - definicion
+                  - total
+                  - valorTotal
+                  - columnas
+                  - filas
+                  - pagina
+                  - tamano
+                  - truncado
+                  - frase
+                  - fraseVacio
+                  - filtrosIgnorados
+                  - rango
+                  - dineroVisible
+                  - generadoEn
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "422":
+          description: No se puede procesar.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/detalle/exportar:
+    post:
+      operationId: post-api-flito-torre-detalle-exportar
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/detalle/exportar
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.detalle.routes.ts. Exige la función: torre.detalle.exportar, torre.detalle.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.detalle.exportar
+        - torre.detalle.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                origen:
+                  anyOf:
+                    - type: object
+                      properties:
+                        tipo:
+                          type: string
+                          enum:
+                            - conjunto
+                        conjunto:
+                          type: string
+                          enum:
+                            - en_curso
+                            - soat_sin_gestion
+                            - impuesto_sin_gestion
+                            - borrador_abandonado
+                            - estancado_ot
+                            - inventario_estado
+                            - tramites_creados
+                            - radicados_cohorte
+                            - aprobados_cohorte
+                            - facturados_cohorte
+                            - rechazados_cohorte
+                            - entregas_logistica
+                            - sin_facturar
+                            - soportes_aprobados
+                            - soportes_faltantes
+                            - margen_aprobados
+                            - soat_por_estado
+                            - soat_por_vencer
+                            - soat_vigencia_no_verificada
+                            - soat_pagados_periodo
+                            - soat_incompletas_abiertas
+                            - impuestos_por_estado
+                            - impuestos_rechazados_periodo
+                            - impuestos_con_diferencia
+                            - impuestos_direccion_pendiente
+                            - impuestos_pagados_periodo
+                            - derechos_pagados_periodo
+                            - derechos_sin_soporte
+                            - derechos_pendientes_sin_resolver
+                            - traslados_por_estado
+                            - traslados_abiertos_mas_de_n
+                            - actas_pendientes_entrega
+                            - actas_devueltas_periodo
+                            - viajes_adicionales_periodo
+                            - facturas_con_error
+                            - facturas_rechazadas_dian
+                            - cola_facturacion_atascada
+                            - facturado_periodo
+                            - bolsas_cobertura
+                            - bolsas_agotadas
+                            - movimientos_bolsa_periodo
+                            - boletas_sin_conciliar
+                            - boletas_con_diferencia
+                            - gestiones_funcionario_periodo
+                            - carga_funcionario
+                            - fuera_ans_funcionario
+                      required:
+                        - tipo
+                        - conjunto
+                    - type: object
+                      properties:
+                        tipo:
+                          type: string
+                          enum:
+                            - metrica
+                        metrica:
+                          type: string
+                          enum:
+                            - tramites
+                            - tramites_creados
+                            - sin_facturar
+                            - tramites_aprobados
+                            - tiempo_creacion_aprobacion
+                            - costo_logistica
+                            - impuestos_pagados
+                            - derechos_pagados
+                            - ingreso_liquidado
+                            - wip_activo
+                            - dias_en_estado
+                            - tasa_aprobacion
+                            - soat_gestionados
+                            - soat_pagados_valor
+                            - impuestos_gestionados
+                            - derechos_registrados
+                        fechaBase:
+                          type: string
+                          enum:
+                            - pago
+                            - creacion
+                            - aprobacion
+                            - facturacion
+                      required:
+                        - tipo
+                        - metrica
+                segmentos:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      dimension:
+                        type: string
+                        enum:
+                          - nivel
+                          - motivo
+                          - estado
+                          - flit_estado
+                          - tipo_tramite
+                          - departamento
+                          - organismo
+                          - severidad
+                          - mes
+                          - trimestre
+                          - dia
+                          - compania
+                          - semana
+                          - tramo_antiguedad
+                          - faltante
+                          - bolsa
+                          - funcionario
+                      valores:
+                        type: array
+                        items:
+                          type:
+                            - string
+                            - "null"
+                    required:
+                      - dimension
+                      - valores
+                filtro:
+                  "$ref": "#/components/schemas/Forma-b5a9d8d50c"
+                filtrosDetalle:
+                  type: object
+                  properties:
+                    placa:
+                      type: string
+                    companiaIds:
+                      type: array
+                      items:
+                        type: number
+                    estados:
+                      type: array
+                      items:
+                        type: string
+                orden:
+                  type: object
+                  properties:
+                    columna:
+                      type: string
+                      enum:
+                        - motivo
+                        - origen
+                        - estado
+                        - pagado_en
+                        - placa
+                        - estado_vigencia
+                        - vence_el
+                        - aprobado
+                        - tipo_tramite
+                        - valor_liquidado
+                        - valor
+                        - fecha_pago
+                        - organismo
+                        - intentos
+                        - enviada_en
+                        - referencia
+                        - total_declarado
+                        - total_cruzado
+                        - solicitado_en
+                        - creado_en
+                        - destino
+                        - registrado_en
+                        - severidad
+                        - facturado_en
+                        - saldo
+                        - entregado_en
+                        - compania
+                        - dias_en_estado
+                        - funcionario
+                        - codigo_flit
+                        - aprobado_en
+                        - dias_antiguedad
+                        - faltan_soportes
+                        - horas_ciclo
+                        - horas_sin_gestion
+                        - viajes_adicionales
+                        - dias_para_vencer
+                        - poliza_ultimos
+                        - codigo_traslado
+                        - dias_abierto
+                        - n_tramites
+                        - placas
+                        - proveedor_logistica
+                        - numero_viaje
+                        - numero_factura
+                        - error_factura
+                        - situacion_cola
+                        - proximo_intento
+                        - consumo_diario
+                        - dias_cobertura
+                        - tipo_movimiento
+                        - fecha_movimiento
+                        - diferencia
+                        - que_se_gestiono
+                        - gestionado_en
+                        - ultimo_movimiento
+                        - horas_desde_movimiento
+                    dir:
+                      type: string
+                      enum:
+                        - asc
+                        - desc
+                  required:
+                    - columna
+                    - dir
+              required:
+                - origen
+                - filtro
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "422":
+          description: No se puede procesar.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
   /api/flito/torre/metricas/consultar:
     post:
       operationId: post-api-flito-torre-metricas-consultar
@@ -51853,7 +53244,7 @@ paths:
         content:
           application/json:
             schema:
-              "$ref": "#/components/schemas/Forma-f1778330d2"
+              "$ref": "#/components/schemas/Forma-1bb6b21fd9"
         description: Cuerpo que valida la ruta con su esquema de Zod.
       responses:
         "200":
@@ -51868,6 +53259,7 @@ paths:
                     enum:
                       - tramites
                       - tramites_creados
+                      - sin_facturar
                       - tramites_aprobados
                       - tiempo_creacion_aprobacion
                       - costo_logistica
@@ -51875,14 +53267,18 @@ paths:
                       - derechos_pagados
                       - ingreso_liquidado
                       - wip_activo
+                      - dias_en_estado
                       - tasa_aprobacion
-                      - sin_facturar
+                      - soat_gestionados
+                      - soat_pagados_valor
+                      - impuestos_gestionados
+                      - derechos_registrados
                   unidad:
                     type: string
                     enum:
                       - horas
-                      - conteo
                       - cop
+                      - conteo
                       - pct
                   total:
                     type: object
@@ -51986,6 +53382,7 @@ paths:
                           - dia
                           - compania
                           - semana
+                          - tramo_antiguedad
                       columnas:
                         type: array
                         items:
@@ -52050,6 +53447,63 @@ paths:
                     required:
                       - desde
                       - hasta
+                  anterior:
+                    type: object
+                    properties:
+                      rango:
+                        type: object
+                        properties:
+                          desde:
+                            type: string
+                          hasta:
+                            type: string
+                        required:
+                          - desde
+                          - hasta
+                      total:
+                        type: object
+                        properties:
+                          valor:
+                            type: number
+                          "n":
+                            type: number
+                        required:
+                          - valor
+                          - "n"
+                      variacion:
+                        type:
+                          - number
+                          - "null"
+                      en:
+                        type: string
+                        enum:
+                          - relativa
+                          - puntos
+                      filas:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            clave:
+                              type: string
+                            valor:
+                              type:
+                                - number
+                                - "null"
+                            variacion:
+                              type:
+                                - number
+                                - "null"
+                          required:
+                            - clave
+                            - valor
+                            - variacion
+                    required:
+                      - rango
+                      - total
+                      - variacion
+                      - en
+                      - filas
                   generadoEn:
                     type: string
                 required:
@@ -52207,7 +53661,7 @@ paths:
               type: object
               properties:
                 consulta:
-                  "$ref": "#/components/schemas/Forma-f1778330d2"
+                  "$ref": "#/components/schemas/Forma-1bb6b21fd9"
                 formato:
                   type: string
                   enum:
@@ -53078,13 +54532,8 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                filtro:
-                  "$ref": "#/components/schemas/Forma-b5a9d8d50c"
-              required:
-                - filtro
-        description: Cuerpo que valida la ruta con su esquema de Zod.
+              description: "[por verificar] tipo de Zod no reconocido (ZodObject<{ filtro: ZodObject<{ rango: ZodUnion<readonly [Zo)."
+        description: "[por verificar] Parte del esquema no se pudo derivar del código."
       responses:
         "200":
           description: Respuesta exitosa.
@@ -53363,13 +54812,8 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                filtro:
-                  "$ref": "#/components/schemas/Forma-b5a9d8d50c"
-              required:
-                - filtro
-        description: Cuerpo que valida la ruta con su esquema de Zod.
+              description: "[por verificar] tipo de Zod no reconocido (ZodObject<{ filtro: ZodObject<{ rango: ZodUnion<readonly [Zo)."
+        description: "[por verificar] Parte del esquema no se pudo derivar del código."
       responses:
         "200":
           description: Respuesta exitosa.
@@ -53648,6 +55092,285 @@ paths:
         content:
           application/json:
             schema:
+              description: "[por verificar] tipo de Zod no reconocido (ZodObject<{ filtro: ZodObject<{ rango: ZodUnion<readonly [Zo)."
+        description: "[por verificar] Parte del esquema no se pudo derivar del código."
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                description: "[por verificar] el código la tipa como `unknown`."
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/tableros/financiera/bolsas:
+    post:
+      operationId: post-api-flito-torre-tableros-financiera-bolsas
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/financiera/bolsas
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.tablero_financiero.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.tablero_financiero.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              description: "[por verificar] tipo de Zod no reconocido (ZodObject<{ filtro: ZodObject<{ rango: ZodUnion<readonly [Zo)."
+        description: "[por verificar] Parte del esquema no se pudo derivar del código."
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                description: "[por verificar] el código la tipa como `unknown`."
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/tableros/financiera/bolsas/exportar:
+    post:
+      operationId: post-api-flito-torre-tableros-financiera-bolsas-exportar
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/financiera/bolsas/exportar
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.metricas.exportar, torre.tablero_financiero.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.metricas.exportar
+        - torre.tablero_financiero.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
               type: object
               properties:
                 filtro:
@@ -53658,10 +55381,6 @@ paths:
       responses:
         "200":
           description: Respuesta exitosa.
-          content:
-            application/json:
-              schema:
-                description: "[por verificar] el código la tipa como `unknown`."
         "400":
           description: Petición inválida.
           content:
@@ -53918,6 +55637,566 @@ paths:
                 required:
                   - error
                   - code
+  /api/flito/torre/tableros/financiera/facturacion:
+    post:
+      operationId: post-api-flito-torre-tableros-financiera-facturacion
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/financiera/facturacion
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.tablero_financiero.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.tablero_financiero.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              description: "[por verificar] tipo de Zod no reconocido (ZodObject<{ filtro: ZodObject<{ rango: ZodUnion<readonly [Zo)."
+        description: "[por verificar] Parte del esquema no se pudo derivar del código."
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                description: "[por verificar] el código la tipa como `unknown`."
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/tableros/financiera/facturacion/exportar:
+    post:
+      operationId: post-api-flito-torre-tableros-financiera-facturacion-exportar
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/financiera/facturacion/exportar
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.metricas.exportar, torre.tablero_financiero.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.metricas.exportar
+        - torre.tablero_financiero.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filtro:
+                  "$ref": "#/components/schemas/Forma-b5a9d8d50c"
+              required:
+                - filtro
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/tableros/logistica:
+    post:
+      operationId: post-api-flito-torre-tableros-logistica
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/logistica
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.tablero_logistica.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.tablero_logistica.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              description: "[por verificar] tipo de Zod no reconocido (ZodObject<{ filtro: ZodObject<{ rango: ZodUnion<readonly [Zo)."
+        description: "[por verificar] Parte del esquema no se pudo derivar del código."
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                description: "[por verificar] el código la tipa como `unknown`."
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/tableros/logistica/exportar:
+    post:
+      operationId: post-api-flito-torre-tableros-logistica-exportar
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/logistica/exportar
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.metricas.exportar, torre.tablero_logistica.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.metricas.exportar
+        - torre.tablero_logistica.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filtro:
+                  "$ref": "#/components/schemas/Forma-b5a9d8d50c"
+              required:
+                - filtro
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
   /api/flito/torre/tableros/operativa:
     post:
       operationId: post-api-flito-torre-tableros-operativa
@@ -53933,13 +56212,147 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                filtro:
-                  "$ref": "#/components/schemas/Forma-b5a9d8d50c"
-              required:
-                - filtro
-        description: Cuerpo que valida la ruta con su esquema de Zod.
+              description: "[por verificar] tipo de Zod no reconocido (ZodObject<{ filtro: ZodObject<{ rango: ZodUnion<readonly [Zo)."
+        description: "[por verificar] Parte del esquema no se pudo derivar del código."
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                description: "[por verificar] el código la tipa como `unknown`."
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/tableros/operativa/equipo:
+    post:
+      operationId: post-api-flito-torre-tableros-operativa-equipo
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/operativa/equipo
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.equipo.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.equipo.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              description: "[por verificar] tipo de Zod no reconocido (ZodObject<{ filtro: ZodObject<{ rango: ZodUnion<readonly [Zo)."
+        description: "[por verificar] Parte del esquema no se pudo derivar del código."
       responses:
         "200":
           description: Respuesta exitosa.
@@ -54203,6 +56616,564 @@ paths:
                 required:
                   - error
                   - code
+  /api/flito/torre/tableros/operativa/inventario:
+    post:
+      operationId: post-api-flito-torre-tableros-operativa-inventario
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/operativa/inventario
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.tablero_operativo.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.tablero_operativo.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              description: "[por verificar] tipo de Zod no reconocido (ZodObject<{ filtro: ZodObject<{ rango: ZodUnion<readonly [Zo)."
+        description: "[por verificar] Parte del esquema no se pudo derivar del código."
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                description: "[por verificar] el código la tipa como `unknown`."
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/tableros/operativa/soportes:
+    post:
+      operationId: post-api-flito-torre-tableros-operativa-soportes
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/operativa/soportes
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.tablero_operativo.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.tablero_operativo.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              description: "[por verificar] tipo de Zod no reconocido (ZodObject<{ filtro: ZodObject<{ rango: ZodUnion<readonly [Zo)."
+        description: "[por verificar] Parte del esquema no se pudo derivar del código."
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                description: "[por verificar] el código la tipa como `unknown`."
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/tableros/productos:
+    post:
+      operationId: post-api-flito-torre-tableros-productos
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/productos
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.tablero_productos.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.tablero_productos.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              description: "[por verificar] tipo de Zod no reconocido (ZodObject<{ filtro: ZodObject<{ rango: ZodUnion<readonly [Zo)."
+        description: "[por verificar] Parte del esquema no se pudo derivar del código."
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                description: "[por verificar] el código la tipa como `unknown`."
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+  /api/flito/torre/tableros/productos/exportar:
+    post:
+      operationId: post-api-flito-torre-tableros-productos-exportar
+      tags:
+        - flito-torre
+      summary: POST /api/flito/torre/tableros/productos/exportar
+      description: "Fuente: apps/api/src/modules/flito-torre/flito-torre.tableros.routes.ts. Exige la función: torre.metricas.exportar, torre.tablero_productos.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - torre.metricas.exportar
+        - torre.tablero_productos.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filtro:
+                  "$ref": "#/components/schemas/Forma-b5a9d8d50c"
+              required:
+                - filtro
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      campo:
+                        type: string
+                    required:
+                      - error
+                      - code
+                      - campo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      funcion:
+                        type: string
+                      motivo:
+                        type: string
+                        enum:
+                          - sin_funcion
+                          - sin_modulo
+                          - no_reconocida
+                          - no_resuelto
+                    required:
+                      - error
+                      - funcion
+                      - motivo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      code:
+                        type: string
+                    required:
+                      - error
+                      - code
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "501":
+          description: Respuesta con estado 501.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  code:
+                    type: string
+                required:
+                  - error
+                  - code
   /api/flito/torre/umbrales:
     get:
       operationId: get-api-flito-torre-umbrales
@@ -54222,7 +57193,7 @@ paths:
               schema:
                 type: array
                 items:
-                  "$ref": "#/components/schemas/Forma-5cc16499b9"
+                  "$ref": "#/components/schemas/Forma-25b068e82f"
         "400":
           description: Petición inválida.
           content:
@@ -54378,7 +57349,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-5cc16499b9"
+                "$ref": "#/components/schemas/Forma-25b068e82f"
         "400":
           description: Petición inválida.
           content:
@@ -76419,6 +79390,9 @@ paths:
                             - torre_financiera
                             - torre_explorador
                             - torre_umbrales
+                            - torre_detalle
+                            - torre_productos
+                            - torre_logistica
                             - flito_ayuda
                         legado:
                           type: boolean
@@ -77459,6 +80433,9 @@ paths:
                             - torre_financiera
                             - torre_explorador
                             - torre_umbrales
+                            - torre_detalle
+                            - torre_productos
+                            - torre_logistica
                             - flito_ayuda
                         legado:
                           type: boolean
@@ -117540,6 +120517,9 @@ paths:
                             - torre_financiera
                             - torre_explorador
                             - torre_umbrales
+                            - torre_detalle
+                            - torre_productos
+                            - torre_logistica
                             - flito_ayuda
                         derivado:
                           type: boolean
@@ -123107,6 +126087,79 @@ components:
         - revocadoMotivo
         - revocadoPor
         - createdAt
+    Forma-1bb6b21fd9:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        metrica:
+          type: string
+          enum:
+            - tramites
+            - tramites_creados
+            - sin_facturar
+            - tramites_aprobados
+            - tiempo_creacion_aprobacion
+            - costo_logistica
+            - impuestos_pagados
+            - derechos_pagados
+            - ingreso_liquidado
+            - wip_activo
+            - dias_en_estado
+            - tasa_aprobacion
+            - soat_gestionados
+            - soat_pagados_valor
+            - impuestos_gestionados
+            - derechos_registrados
+        agrupacion:
+          type: string
+          enum:
+            - flit_estado
+            - tipo_tramite
+            - departamento
+            - organismo
+            - mes
+            - trimestre
+            - dia
+            - compania
+            - semana
+            - tramo_antiguedad
+        agrupacionColumnas:
+          type: string
+          enum:
+            - flit_estado
+            - tipo_tramite
+            - departamento
+            - organismo
+            - mes
+            - trimestre
+            - dia
+            - compania
+            - semana
+            - tramo_antiguedad
+        fechaBase:
+          type: string
+          enum:
+            - pago
+            - creacion
+            - aprobacion
+            - facturacion
+        filtro:
+          "$ref": "#/components/schemas/Forma-b5a9d8d50c"
+        limite:
+          type: integer
+          exclusiveMinimum: 0
+        top:
+          type: number
+          enum:
+            - 20
+            - 5
+            - 10
+            - 50
+        comparar:
+          type: boolean
+      required:
+        - metrica
+        - filtro
     Forma-1bb7523cd2:
       description: Forma que comparten varias operaciones.
       type: object
@@ -123597,6 +126650,49 @@ components:
         - createdBy
         - createdAt
         - updatedAt
+    Forma-25b068e82f:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        clave:
+          type: string
+        valor:
+          type: number
+        unidad:
+          type: string
+          enum:
+            - horas
+            - cop
+            - dias
+            - conteo
+            - porcentaje
+        descripcion:
+          type: string
+        actualizadoPor:
+          type:
+            - object
+            - "null"
+          properties:
+            id:
+              type: number
+            nombre:
+              type:
+                - string
+                - "null"
+          required:
+            - id
+            - nombre
+        actualizadoEn:
+          type:
+            - string
+            - "null"
+      required:
+        - clave
+        - valor
+        - unidad
+        - descripcion
+        - actualizadoPor
+        - actualizadoEn
     Forma-25d64648c9:
       description: Forma que comparten varias operaciones.
       type: object
@@ -125648,49 +128744,6 @@ components:
         - aprobadoPor
         - createdAt
         - updatedAt
-    Forma-5cc16499b9:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        clave:
-          type: string
-        valor:
-          type: number
-        unidad:
-          type: string
-          enum:
-            - horas
-            - conteo
-            - cop
-            - dias
-            - porcentaje
-        descripcion:
-          type: string
-        actualizadoPor:
-          type:
-            - object
-            - "null"
-          properties:
-            id:
-              type: number
-            nombre:
-              type:
-                - string
-                - "null"
-          required:
-            - id
-            - nombre
-        actualizadoEn:
-          type:
-            - string
-            - "null"
-      required:
-        - clave
-        - valor
-        - unidad
-        - descripcion
-        - actualizadoPor
-        - actualizadoEn
     Forma-5cfefb5e56:
       description: Forma que comparten varias operaciones.
       type: object
@@ -133297,63 +136350,6 @@ components:
         - cityCode
         - cityName
         - puntaje
-    Forma-f1778330d2:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        metrica:
-          type: string
-          enum:
-            - tramites
-            - tramites_creados
-            - tramites_aprobados
-            - tiempo_creacion_aprobacion
-            - costo_logistica
-            - impuestos_pagados
-            - derechos_pagados
-            - ingreso_liquidado
-            - wip_activo
-            - tasa_aprobacion
-            - sin_facturar
-        agrupacion:
-          type: string
-          enum:
-            - flit_estado
-            - tipo_tramite
-            - departamento
-            - organismo
-            - mes
-            - trimestre
-            - dia
-            - compania
-            - semana
-        agrupacionColumnas:
-          type: string
-          enum:
-            - flit_estado
-            - tipo_tramite
-            - departamento
-            - organismo
-            - mes
-            - trimestre
-            - dia
-            - compania
-            - semana
-        fechaBase:
-          type: string
-          enum:
-            - pago
-            - creacion
-            - aprobacion
-            - facturacion
-        filtro:
-          "$ref": "#/components/schemas/Forma-b5a9d8d50c"
-        limite:
-          type: integer
-          exclusiveMinimum: 0
-      required:
-        - metrica
-        - filtro
     Forma-f75c92ddf1:
       description: Forma que comparten varias operaciones.
       type: object
