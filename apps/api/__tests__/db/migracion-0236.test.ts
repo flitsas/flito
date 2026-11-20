@@ -11,7 +11,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
-import { sqlSiembraArbol } from '../../src/modules/permisos/arbol/sql-arbol.js';
+import { accionesSembradasDe, sqlSiembraArbol } from '../../src/modules/permisos/arbol/sql-arbol.js';
 import { ACCIONES_POR_AREA } from '../../src/modules/permisos/arbol/expansion.js';
 import { bloqueGenerado, leerFuncionesSembradas, literalesDeRol } from '../helpers/permisos-seed-sql.js';
 
@@ -37,12 +37,22 @@ describe('0236 — análisis estático', () => {
   });
 
   it('el bloque entre marcas es EXACTAMENTE la salida del generador (`--arbol administracion`)', () => {
-    expect(bloqueGenerado(SQL)).toBe(sqlSiembraArbol('administracion'));
+    // HU #13967: la 0262 renombró `accion.clientes.soat_sin_tramite` (mismo código y operaciones); la 0236
+    // aplicada no cambia y conserva el texto con que sembró. La paridad del renombre la mide `migracion-0262`.
+    const comoSeSembro = sqlSiembraArbol('administracion').replace(
+      "'Elegir proveedor de SOAT sin trámite', 'Elegir el proveedor al que van los SOAT sin trámite de un cliente.'",
+      "'Configurar «SOAT sin trámite»', 'Permitir a un cliente solicitar SOAT sin trámite y elegir su proveedor.'",
+    );
+    expect(bloqueGenerado(SQL)).toBe(comoSeSembro);
   });
 
   it('siembra las 24 acciones del área (ni una de otra área), con upsert idempotente, y marca nivel 2 a sus 6 páginas', () => {
     const sembradas = leerFuncionesSembradas([ARCHIVO]);
-    expect([...sembradas.keys()].sort()).toEqual([...ACCIONES_POR_AREA.administracion]);
+    // HU #13945: `accion.clientes.activar_desactivar` nace después (0255); la 0236 aplicada no cambia.
+    // HU #13954: `accion.clientes.eliminar` también (0258). HU #13958: la de proveedores (0261).
+    // HU #13960: «Eliminar proveedores» (0263).
+    expect([...sembradas.keys()].sort()).toEqual(accionesSembradasDe('administracion'));
+    expect(ACCIONES_POR_AREA.administracion.length - accionesSembradasDe('administracion').length).toBe(4);
     expect(sembradas.size).toBe(24);
     for (const f of sembradas.values()) expect(f.tipo, f.codigo).toBe('accion');
     expect(SIN_COMENTARIOS).toMatch(/ON CONFLICT \(codigo\) DO UPDATE SET/);

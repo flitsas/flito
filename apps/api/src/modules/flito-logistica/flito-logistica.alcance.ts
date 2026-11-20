@@ -2,7 +2,7 @@
 // `compania` (`FRONTERA_POR_ENLACE.logistica`): una compañía ve SOLO sus trámites, documentos y
 // actas, y opera las suyas si su rol tiene la función (decisión P-2 del PO); lo ajeno → 403 en
 // escritura (sin comprobar si existe: sin oráculo) y 404 en lectura. Sin enlace no se acota nada.
-import { and, eq, type SQL } from 'drizzle-orm';
+import { and, eq, ne, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { flitoLogisticaActas, flitoLogisticaDocumentos, flitoTramites } from '../../db/schema.js';
 import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
@@ -14,9 +14,16 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const condicionTramitesLogistica = (a: AlcanceResuelto): SQL | undefined =>
   condicionPorCompania(flitoTramites.companiaId, a);
 
-/** Condición de alcance sobre las actas. `undefined` = sin acotar. */
-export const condicionActasLogistica = (a: AlcanceResuelto): SQL | undefined =>
-  condicionPorCompania(flitoLogisticaActas.companiaId, a);
+/**
+ * Condición de alcance sobre las actas. `undefined` = sin acotar (sin enlace).
+ * HU #14109 (ADR-0030 §9): el acta de organismo es multi-compañía y su `compania_id` puede ser NULL. Para
+ * cualquier usuario de enlace es INVISIBLE: se excluye por `punto` Y por compañía (default seguro: lo que no
+ * encaja en el alcance no se muestra, aunque un acta de organismo trajera compañía).
+ */
+export const condicionActasLogistica = (a: AlcanceResuelto): SQL | undefined => {
+  const porCompania = condicionPorCompania(flitoLogisticaActas.companiaId, a);
+  return porCompania && and(porCompania, ne(flitoLogisticaActas.punto, 'organismo'));
+};
 
 /** Condición de alcance sobre los documentos (compañías cerrables). `undefined` = sin acotar. */
 export const condicionDocumentosLogistica = (a: AlcanceResuelto): SQL | undefined =>

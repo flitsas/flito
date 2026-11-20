@@ -12,6 +12,8 @@ export interface NodoDef {
   legado?: boolean;
   derivado?: boolean;
   opcional?: boolean;
+  /** HU #13951: función exclusiva del Administrador (contrato de la #13944). */
+  exclusivaAdmin?: boolean;
   hijos?: NodoDef[];
 }
 
@@ -42,6 +44,7 @@ export function arbolRol(defs: readonly NodoDef[], marcas: ReadonlySet<string>, 
       // Como el API (`itemsANodos`): el ítem lleva la página que representa (HU #13452 lo lee).
       ...(d.tipo === 'item' ? { slug: d.codigo.slice('pagina.'.length) as NodoArbolRol['slug'] } : {}),
       ...(d.legado ? { legado: true } : {}), ...(d.derivado ? { derivado: true } : {}), ...(d.opcional ? { opcional: true } : {}),
+      ...(d.exclusivaAdmin ? { exclusivaAdmin: true } : {}),
       marcado,
       efectivo: marcado && cadena,
       sinAcciones: d.tipo === 'item' && !d.legado && marcado && acciones.length > 0 && !acciones.some((a) => marcas.has(a.codigo)),

@@ -30,7 +30,7 @@ const { filtrarPorFuncion } = await import('../../src/shared/permisos-efectivos.
 const APROBADO: Record<string, string[]> = {
   'pagina.flito_tramites': ['ver_listado', 'solicitar_soat', 'solicitar_impuestos', 'descargar_soportes', 'sincronizar', 'configurar_sincronizacion', 'crear_demo', 'entregar'],
   'pagina.flito_soat': ['ver_listado', 'ver_soportes', 'cargar_comprobantes', 'exportar', 'exportar_pago', 'cambiar_proveedor', 'solicitar_sin_tramite', 'gestionar_solicitudes', 'ver_por_validar', 'descargar_zip', 'ver_documentos_adicionales', 'cargar_documentos_adicionales', 'eliminar_documentos_adicionales'],
-  'pagina.flito_impuestos': ['ver_listado', 'ver_soportes', 'cargar_comprobantes', 'exportar', 'exportar_pago', 'descargar_zip', 'gestionar_solicitudes', 'certificar_runt', 'cargar_recibo_caja', 'reemplazar_comprobante', 'corregir_direccion', 'descargar_certificado'],
+  'pagina.flito_impuestos': ['ver_listado', 'ver_soportes', 'cargar_comprobantes', 'exportar', 'exportar_pago', 'descargar_zip', 'gestionar_solicitudes', 'certificar_runt', 'cargar_recibo_caja', 'reemplazar_comprobante', 'corregir_direccion', 'descargar_certificado', 'certificar_sin_tramite'],
   'pagina.flito_derechos': ['ver_listado', 'cargar', 'procesar_drive', 'ver_soportes'],
   'pagina.flito_revisiones': ['ver', 'revisar_lecturas'],
   'pagina.flito_logistica': ['ver_consola', 'registrar_viajes', 'generar_actas', 'ver_actas', 'despachar_entregar_devolver', 'cerrar_lote', 'reversar_paso'],
@@ -45,7 +45,7 @@ const CLAVE_ITEM: Record<string, string> = {
   'pagina.flito_derechos': 'derechos', 'pagina.flito_revisiones': 'revisiones', 'pagina.flito_logistica': 'logistica',
   'pagina.flito_logistica_ruta': 'mi_ruta', 'pagina.flito_comparendos': 'comparendos', 'pagina.transito_organismos': 'organismos_stt',
 };
-/** Los 55 códigos `accion.*` que salen del catálogo aprobado: el oráculo de AC1, independiente del código. */
+/** Los 56 códigos `accion.*` que salen del catálogo aprobado: el oráculo de AC1, independiente del código. */
 const ACCIONES_APROBADAS = Object.entries(APROBADO).flatMap(([item, claves]) => claves.map((c) => `accion.${CLAVE_ITEM[item]}.${c}`)).sort();
 
 const nodo = new Map(ARBOL_GESTION.map((n) => [n.codigo, n]));
@@ -115,10 +115,10 @@ describe('AC1 — el catálogo de Gestión y Tránsito es la lista aprobada', ()
     for (const e of elementos) expect(e.codigo.startsWith(PREFIJO_ELEMENTO)).toBe(true);
   });
 
-  it('el catálogo del código emite las 55 acciones (nivel 3, padre en la base) y marca nivel 2 a los 9 ítems', () => {
+  it('el catálogo del código emite las 56 acciones (nivel 3, padre en la base) y marca nivel 2 a los 9 ítems', () => {
     const cat = catalogoCompleto();
     const acciones = cat.filter((f) => f.tipo === 'accion' && DE_GESTION.has(f.codigo));
-    expect(ACCIONES_APROBADAS).toHaveLength(55);
+    expect(ACCIONES_APROBADAS).toHaveLength(56);
     expect(acciones.map((f) => f.codigo).sort()).toEqual(ACCIONES_APROBADAS);
     expect(Object.keys(ACCIONES_GESTION).sort()).toEqual(ACCIONES_APROBADAS);
     for (const a of acciones) {
@@ -375,6 +375,13 @@ describe('Opcionales (PO, 2026-10-13): ni grupo, ni expansión, ni retiro', () =
       AJENAS, DESPACHAR, RUNT,
       'comparendos.registros.exportar', 'logistica.actas.descargar', 'revisiones.soporte.descargar',
       'impuestos.factura.ver',
+      'logistica.actas.ver_documento_firmante', // HU #14110: cédula del firmante del acta de organismo (PII, se concede aparte)
+      'logistica.recogida.confirmar', // HU #14110: opcional de accion.mi_ruta.escanear (firma del organismo)
+      'logistica.documento.resolver_tramite', // HU #14143: opcional de accion.logistica.reversar_paso (resolver el trámite de una LT pendiente)
+      'logistica.traslado.registrar', // HU #14114: opcional de accion.mi_ruta.escanear (registrar viaje a cliente)
+      'logistica.traslado.anular', // HU #14115: opcional de accion.logistica.reversar_paso (anular viaje registrado)
+      'logistica.motivos.gestionar', // HU #14119: opcional de accion.logistica.ver_consola (catálogo de motivos de llegada)
+      'logistica.actas.firmar_flit', // HU #14122: opcional de accion.logistica.despachar_entregar_devolver (firma de llegada a FLIT)
     ].sort());
   });
 

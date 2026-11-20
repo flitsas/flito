@@ -7,6 +7,7 @@
 
 import { and, asc, eq, isNull, or } from 'drizzle-orm';
 import { db } from '../../db/client.js';
+import { clienteVigente } from '../clients/cliente-operable.js';
 import {
   clients,
   flitoOrganismoVigencias,
@@ -21,6 +22,25 @@ import {
 } from '@operaciones/shared-types';
 
 export type ProveedorSoatRow = typeof flitoProveedoresSoat.$inferSelect;
+
+/**
+ * HU #13957 (0259) — el nombre de un proveedor SOAT es único solo entre VIGENTES (`deleted_at IS NULL`), con
+ * comparación exacta. La validación previa de las rutas responde 409; si dos altas se cruzan, el índice parcial
+ * lanza 23505 y `esDuplicadoNombreProveedorSoat` lo reconoce para responder el MISMO 409, nunca 500.
+ */
+export const INDICE_PROVEEDOR_SOAT_NOMBRE_VIVO = 'uq_flito_proveedores_soat_nombre_vivo';
+
+export const mensajeNombreProveedorDuplicado = (nombre: string): string =>
+  `Ya existe un proveedor SOAT con el nombre ${nombre}.`;
+
+export function esDuplicadoNombreProveedorSoat(e: unknown): boolean {
+  // Drizzle puede envolver el error de postgres-js en `cause`.
+  for (let x: unknown = e, i = 0; x && typeof x === 'object' && i < 3; x = (x as { cause?: unknown }).cause, i++) {
+    const pg = x as { code?: unknown; constraint_name?: unknown; constraint?: unknown };
+    if (pg.code === '23505' && (pg.constraint_name ?? pg.constraint) === INDICE_PROVEEDOR_SOAT_NOMBRE_VIVO) return true;
+  }
+  return false;
+}
 export type CompaniaRow = typeof clients.$inferSelect;
 export type OrganismoRow = typeof organismosTransitoConfig.$inferSelect;
 
@@ -126,7 +146,11 @@ export function carpetaDe(
 
 /** Compañía por NIT (documento). La usa la sincronización para enlazar trámites. */
 export async function companiaPorNit(nit: string): Promise<CompaniaRow | null> {
-  const [compania] = await db.select().from(clients).where(eq(clients.document, nit)).limit(1);
+  // RN-CLI-9 (HU #13953, AC6/AC7): solo cruza con clientes VIGENTES. Si el único match está eliminado, el trámite
+  // queda sin compañía (y con `compania_nit` guardado); con un eliminado y un vigente, gana el vigente. El criterio
+  // de igualdad (NIT exacto, sin sucursal) no cambia.
+  const [compania] = await db.select().from(clients)
+    .where(and(eq(clients.document, nit), clienteVigente())).limit(1);
   return compania ?? null;
 }
 

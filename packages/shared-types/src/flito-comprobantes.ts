@@ -7,6 +7,7 @@
 
 import { MotivoRevision, MOTIVO_REVISION_LABEL, type CampoExtraido } from './flito-ocr.js';
 import type { ConceptoCosto } from './flito-conceptos.js';
+import type { DescuentoBolsaDto } from './flito-bolsas.js';
 
 /**
  * Qué documento es. Catálogo CERRADO: el normalizador del OCR devuelve `null` ante cualquier literal
@@ -177,6 +178,19 @@ export const CodigoErrorComprobante = {
   SIN_RELECTURA: 'sin_relectura',
   /** 503: el OCR sigue caído al releer; la fila no cambia. */
   OCR_NO_DISPONIBLE: 'ocr_no_disponible',
+  /** 409 (HU #13903): desaplicar o reemplazar un comprobante que no está `aplicado`. */
+  NO_APLICADO: 'no_aplicado',
+  /** 409 (HU #13903): el dueño del pago no se deshace desde Comprobantes (derecho) o rechazó la reversa. */
+  DUENO_NO_REVERSIBLE: 'dueno_no_reversible',
+  /** 409 (HU #13903): el descuento de la bolsa cae en un periodo cerrado; lleva `bolsaId` y `periodo`. */
+  PERIODO_CERRADO: 'periodo_cerrado',
+  /** 409 (HU #13903, AC11): pago de servicios adicionales aplicado antes de guardar el valor previo de la puente. */
+  SERVICIO_NO_REVERSIBLE: 'servicio_no_reversible',
+  /**
+   * 409 (HU #13969, AC6): desaplicar/reemplazar chocó con la llave de un movimiento de la bolsa
+   * (`uq_flito_bolsas_unicas_mov_llave`); rollback total, nada cambió. Reintentable.
+   */
+  DESCUENTO_EN_CONFLICTO: 'descuento_en_conflicto',
 } as const;
 
 export type CodigoErrorComprobante = (typeof CodigoErrorComprobante)[keyof typeof CodigoErrorComprobante];
@@ -191,6 +205,12 @@ export interface ErrorComprobanteDto {
   puedeAdjuntar?: boolean;
   /** `valor_ya_documentado`: el comprobante aplicado que ocupa (trámite, concepto). */
   comprobanteAnteriorId?: string;
+  /** `periodo_cerrado` (HU #13903): la bolsa cuyo periodo está cerrado. */
+  bolsaId?: string;
+  /** `periodo_cerrado` (HU #13904): el nombre visible de esa bolsa (el suyo, o el del cliente en una de compañía). */
+  bolsaNombre?: string;
+  /** `periodo_cerrado` (HU #13903): el periodo cerrado (AAAA-MM). */
+  periodo?: string;
 }
 
 /** Un archivo (o sub-documento) del resultado de una carga. */
@@ -304,6 +324,11 @@ export interface ComprobanteDetalleDto extends ComprobanteListaDto {
   diferenciaAceptadaMotivo: string | null;
   /** F3 (HU #12654): `username` del usuario interno que aceptó (LEFT JOIN a `users`); null si no se ha aceptado. */
   diferenciaAceptadaPorNombre: string | null;
+  /**
+   * HU #13902 (D11): solo en la respuesta de aplicar con el corte vigente; trae la alerta si la bolsa quedó en negativo.
+   * HU #13904: también en `comprobante` de la respuesta de reemplazar (el reemplazo descuenta por el mismo camino).
+   */
+  bolsa?: DescuentoBolsaDto;
 }
 
 /** Cuerpo de `POST /:id/diferencia/aceptar` (F3, HU #12654): el motivo es obligatorio (5..500). */
@@ -336,6 +361,39 @@ export interface AplicarComprobanteBody {
    * en cualquier otro caso el API responde 400.
    */
   servicioTipoId?: string;
+}
+
+/** HU #13903: a dónde va un comprobante aplicado al desaplicarlo. */
+export const DESTINOS_DESAPLICACION = ['pendiente', 'descartado'] as const;
+export type DestinoDesaplicacion = (typeof DESTINOS_DESAPLICACION)[number];
+
+/** Cuerpo de `POST /:id/desaplicar` (HU #13903). `motivo` de 5 a 500 caracteres. */
+export interface DesaplicarComprobanteDto {
+  destino: DestinoDesaplicacion;
+  motivo: string;
+}
+
+/**
+ * Cuerpo de `POST /:id/reemplazar` (HU #13903): el original queda descartado y `reemplazoId` (pendiente)
+ * se aplica al MISMO trámite y concepto por el camino normal de aplicar. `campos` como en aplicar.
+ */
+export interface ReemplazarComprobanteDto {
+  reemplazoId: string;
+  motivo: string;
+  campos?: Record<string, string>;
+}
+
+/** Respuesta de `POST /:id/desaplicar`. */
+export interface ResultadoDesaplicarComprobanteDto {
+  resultado: 'desaplicado';
+  comprobante: ComprobanteDetalleDto;
+}
+
+/** Respuesta de `POST /:id/reemplazar`: el original (descartado) y el reemplazo (aplicado). */
+export interface ResultadoReemplazarComprobanteDto {
+  resultado: 'reemplazado';
+  original: ComprobanteDetalleDto;
+  comprobante: ComprobanteDetalleDto;
 }
 
 /** Respuesta de `POST /:id/aplicar`. */

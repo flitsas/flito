@@ -19,10 +19,10 @@
 //         `tarifaDe()` (compuerta de liquidación) como el reporte de costos: lo que se muestra
 //         estimado es lo que se sella (AC7). Lo ya sellado no se recalcula nunca (AC8).
 
-import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { alias, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import {
-  CONCEPTOS_TARIFA, LLAVES_TARIFA, VIGENCIA_DESDE_SIEMPRE, tipoTramiteTarifaDe, valorTarifaValido,
+  CONCEPTOS_TARIFA, LLAVES_TARIFA, conceptoAlmacenado, esConceptoLogistica, VIGENCIA_DESDE_SIEMPRE, tipoTramiteTarifaDe, valorTarifaValido,
   type ConceptoTarifa, type TipoTramiteTarifa,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
@@ -35,6 +35,10 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export class TarifaError extends Error {}
 /** La vigencia o la compañía pedida no existe (404). */
 export class TarifaNoEncontradaError extends TarifaError {}
+/** RN-CLI-9 (HU #13953, AC4): la compañía pedida está eliminada (404, mismo texto que el módulo de clientes). */
+export class TarifaClienteEliminadoError extends TarifaNoEncontradaError {
+  constructor() { super('Cliente no encontrado'); }
+}
 /** Alguien se adelantó: la llave ya tiene vigencia abierta o la pedida ya está cerrada (409). */
 export class TarifaConflictoError extends TarifaError {
   constructor(message: string, public readonly vigenciaId: string | null = null) { super(message); }
@@ -72,9 +76,14 @@ export interface ValorTarifa {
   valor: number | null;
   /** De dónde salió: `especifica` (trámite digital por tipo), `generica` (logística), o ninguna. */
   origen: 'especifica' | 'generica' | 'no_configurada';
+  /** Id de la vigencia aplicada (HU #14106, AC4); null si no hay (el viaje congela esta vigencia). */
+  vigenciaId: string | null;
 }
 
-export const NO_CONFIGURADA: ValorTarifa = { valor: null, origen: 'no_configurada' };
+export const NO_CONFIGURADA: ValorTarifa = { valor: null, origen: 'no_configurada', vigenciaId: null };
+
+/** Como se ve un concepto hacia fuera: `logistica_cliente` sigue viéndose `logistica` (la UI actual; B2 #14107 la cambia). */
+const conceptoExterno = (c: string): ConceptoTarifa => (c === 'logistica_cliente' ? 'logistica' : c as ConceptoTarifa);
 
 /** Las dos columnas del rango; `AnyPgColumn` porque las de un `alias()` llevan otro nombre de tabla en el tipo. */
 export interface ColumnasVigencia { vigenteDesde: AnyPgColumn; vigenteHasta: AnyPgColumn }
@@ -118,15 +127,24 @@ export async function tarifaDe(
   enFecha: Date | null = null,
 ): Promise<ValorTarifa> {
   if (companiaId === null) return NO_CONFIGURADA;
-  const tipo = concepto === 'logistica' ? null : tipoTramiteTarifaDe(tipoTramite);
-  if (concepto === 'tramite_digital' && tipo === null) return NO_CONFIGURADA;
+  const logistica = esConceptoLogistica(concepto);
+  const tipo = logistica ? null : tipoTramiteTarifaDe(tipoTramite);
+  if (!logistica && tipo === null) return NO_CONFIGURADA;
 
-  const [vigente] = await db.select({ valor: v.valor })
+  // `logistica` es alias de `logistica_cliente` (HU #14106, AC3). Durante un rollout puede quedar una fila
+  // `logistica` escrita por un pod viejo: se lee también, pero `logistica_cliente` manda.
+  const conceptos = concepto === 'logistica' || concepto === 'logistica_cliente'
+    ? ['logistica_cliente', 'logistica'] : [concepto];
+  const [vigente] = await db.select({ id: v.id, valor: v.valor })
     .from(v)
-    .where(and(eq(v.companiaId, companiaId), llave(concepto, tipo), vigenteEn(v, enFecha)))
+    .where(and(
+      eq(v.companiaId, companiaId), inArray(v.concepto, conceptos),
+      tipo === null ? isNull(v.tipoTramite) : eq(v.tipoTramite, tipo), vigenteEn(v, enFecha),
+    ))
+    .orderBy(sql`(${v.concepto} = 'logistica') ASC`)
     .limit(1);
   if (!vigente) return NO_CONFIGURADA;
-  return { valor: Number(vigente.valor), origen: concepto === 'logistica' ? 'generica' : 'especifica' };
+  return { valor: Number(vigente.valor), origen: logistica ? 'generica' : 'especifica', vigenciaId: vigente.id };
 }
 
 const COLUMNAS_TARIFA = {
@@ -143,7 +161,7 @@ type FilaTarifa = {
 function aTarifa(f: FilaTarifa): Tarifa {
   return {
     id: f.id, companiaId: f.companiaId, companiaNombre: f.companiaNombre,
-    concepto: f.concepto as ConceptoTarifa, tipoTramite: f.tipoTramite,
+    concepto: conceptoExterno(f.concepto), tipoTramite: f.tipoTramite,
     valor: Number(f.valor), activo: f.vigenteHasta === null,
     actualizadoEn: f.fijadoEn.toISOString(), vigenteDesde: f.vigenteDesde.toISOString(),
   };
@@ -189,9 +207,13 @@ export interface VistaTarifasCompania {
 }
 
 async function companiaDe(companiaId: number) {
-  const [c] = await db.select({ id: clients.id, name: clients.name, logisticaAutogestionable: clients.logisticaAutogestionable })
-    .from(clients).where(eq(clients.id, companiaId)).limit(1);
+  const [c] = await db.select({
+    id: clients.id, name: clients.name, logisticaAutogestionable: clients.logisticaAutogestionable,
+    deletedAt: clients.deletedAt,
+  }).from(clients).where(eq(clients.id, companiaId)).limit(1);
   if (!c) throw new TarifaNoEncontradaError('La compañía no existe');
+  // `!= null`: dobles de prueba sin la clave no se leen como eliminados.
+  if (c.deletedAt != null) throw new TarifaClienteEliminadoError();
   return c;
 }
 
@@ -206,7 +228,7 @@ export async function vistaPorCompania(companiaId: number): Promise<VistaTarifas
     .where(and(eq(v.companiaId, companiaId), isNull(v.vigenteHasta)));
 
   const tarifas = LLAVES_TARIFA.map((k): FilaVistaTarifa => {
-    const a = abiertas.find((f) => f.concepto === k.concepto && (f.tipoTramite ?? null) === k.tipoTramite);
+    const a = abiertas.find((f) => conceptoExterno(f.concepto) === k.concepto && (f.tipoTramite ?? null) === k.tipoTramite);
     const fila: FilaVistaTarifa = {
       concepto: k.concepto, tipoTramite: k.tipoTramite,
       vigenciaId: a?.id ?? null, valor: a ? Number(a.valor) : null,
@@ -215,6 +237,15 @@ export async function vistaPorCompania(companiaId: number): Promise<VistaTarifas
     };
     if (k.concepto === 'logistica') fila.flitoGestionaLogistica = !c.logisticaAutogestionable;
     return fila;
+  });
+  // `logistica` de arriba es el alias de `logistica_cliente`. El precio FLIT es otra vigencia:
+  // si no viaja, la pantalla completa la fila vacía y un precio ya guardado parece sin configurar.
+  const flit = abiertas.find((f) => f.concepto === 'logistica_flit' && (f.tipoTramite ?? null) === null);
+  tarifas.push({
+    concepto: 'logistica_flit', tipoTramite: null,
+    vigenciaId: flit?.id ?? null, valor: flit ? Number(flit.valor) : null,
+    vigenteDesde: flit ? flit.vigenteDesde.toISOString() : null,
+    fijadoPor: flit?.fijadoPorId != null ? { id: flit.fijadoPorId, nombre: flit.fijadoPorNombre ?? null } : null,
   });
   return { companiaId: c.id, companiaNombre: c.name, tarifas };
 }
@@ -250,8 +281,9 @@ export async function historial(companiaId: number, f: FiltrosHistorial = {}): P
   await companiaDe(companiaId);
   const condiciones: (SQL | undefined)[] = [eq(v.companiaId, companiaId)];
   if (f.concepto) {
-    condiciones.push(f.concepto === 'logistica' || f.tipoTramite === undefined
-      ? eq(v.concepto, f.concepto) : llave(f.concepto, f.tipoTramite));
+    condiciones.push(esConceptoLogistica(f.concepto) || f.tipoTramite === undefined
+      ? eq(v.concepto, conceptoAlmacenado(f.concepto))
+      : llave(f.concepto, f.tipoTramite));
   }
   if (f.rango) condiciones.push(createdInRangeCondition(v.vigenteDesde, f.rango) ?? undefined);
 
@@ -267,7 +299,7 @@ export async function historial(companiaId: number, f: FiltrosHistorial = {}): P
     .orderBy(asc(v.concepto), asc(v.tipoTramite), desc(v.vigenteDesde));
 
   return filas.map((r) => ({
-    id: r.id, concepto: r.concepto as ConceptoTarifa, tipoTramite: (r.tipoTramite ?? null) as TipoTramiteTarifa | null,
+    id: r.id, concepto: conceptoExterno(r.concepto), tipoTramite: (r.tipoTramite ?? null) as TipoTramiteTarifa | null,
     valor: Number(r.valor), vigenteDesde: r.vigenteDesde.toISOString(),
     vigenteHasta: r.vigenteHasta ? r.vigenteHasta.toISOString() : null,
     fijadoPor: r.fijadoPorId != null ? { id: r.fijadoPorId, nombre: r.fijadoPorNombre ?? null } : null,
@@ -297,7 +329,7 @@ function validarValor(valor: unknown): asserts valor is number {
 export function tipoDeLlave(concepto: ConceptoTarifa, tipoTramite: string | null | undefined): TipoTramiteTarifa | null {
   if (!CONCEPTOS_TARIFA.includes(concepto)) throw new TarifaError('Concepto de tarifa desconocido');
   const vacio = (tipoTramite ?? '').trim() === '';
-  if (concepto === 'logistica') {
+  if (esConceptoLogistica(concepto)) {
     if (!vacio) throw new TarifaError('La logística tiene un solo valor por compañía; no lleva tipo');
     return null;
   }
@@ -306,9 +338,17 @@ export function tipoDeLlave(concepto: ConceptoTarifa, tipoTramite: string | null
   return tipo;
 }
 
+/**
+ * ¿Es un choque de la llave (índice parcial 23505 o exclusion constraint 23P01)? Drizzle envuelve el
+ * error de postgres: el `code` viaja en `e.cause`, no en `e` (por eso se mira en toda la cadena).
+ */
 const esChoqueDeLlave = (e: unknown): boolean => {
-  const code = (e as { code?: string }).code;
-  return code === '23505' || code === '23P01';
+  for (let err: unknown = e, i = 0; err && typeof err === 'object' && i < 5; i++) {
+    const { code, cause } = err as { code?: string; cause?: unknown };
+    if (code === '23505' || code === '23P01') return true;
+    err = cause;
+  }
+  return false;
 };
 
 /**
@@ -316,25 +356,35 @@ const esChoqueDeLlave = (e: unknown): boolean => {
  * el id de la abierta: se cambia con `cambiarOCerrar`, no se crea otra (lo impide el índice parcial).
  * `vigenteDesde` = {@link VIGENCIA_DESDE_SIEMPRE} (rige para trámites ya aprobados); `fijadoEn` = ahora
  * (Bug #12682). Los cambios posteriores siguen abriendo en `now()` vía `cambiarOCerrar`.
+ * Si la llave ya tuvo vigencias (cerradas con «Dejar de cobrar»), la nueva abre en `max(cierre, ahora)`:
+ * abrir en 2000-01-01 se solaparía con la cerrada (23P01) y reescribiría lo ya liquidado en el hueco.
  */
 export async function fijarTarifa(d: DatosFijar, usuarioId: number | null): Promise<Tarifa> {
   validarValor(d.valor);
   const tipo = tipoDeLlave(d.concepto, d.tipoTramite);
+  const concepto = conceptoAlmacenado(d.concepto);
   if (d.valor === 0 && !d.confirmarCero) throw new TarifaCeroSinConfirmarError();
-  await companiaDe(d.companiaId).catch(() => { throw new TarifaError('La compañía no existe'); });
+  await companiaDe(d.companiaId).catch((e: unknown) => {
+    if (e instanceof TarifaClienteEliminadoError) throw e;
+    throw new TarifaError('La compañía no existe');
+  });
 
   const ahora = new Date();
-  const vigenteDesde = new Date(VIGENCIA_DESDE_SIEMPRE);
   try {
+    const [previa] = await db.select({ ultimoCierre: sql<Date | string | null>`max(${v.vigenteHasta})` }).from(v)
+      .where(and(eq(v.companiaId, d.companiaId), llave(concepto, tipo)));
+    const ultimoCierre = previa?.ultimoCierre ? new Date(previa.ultimoCierre) : null;
+    const vigenteDesde = ultimoCierre === null ? new Date(VIGENCIA_DESDE_SIEMPRE)
+      : new Date(Math.max(ultimoCierre.getTime(), ahora.getTime()));
     const [fila] = await db.insert(v).values({
-      companiaId: d.companiaId, concepto: d.concepto, tipoTramite: tipo, valor: String(d.valor),
+      companiaId: d.companiaId, concepto, tipoTramite: tipo, valor: String(d.valor),
       vigenteDesde, fijadoPorId: usuarioId, fijadoEn: ahora,
     }).returning({ id: v.id });
     return await leerTarifa(fila.id);
   } catch (e) {
     if (!esChoqueDeLlave(e)) throw e;
     const [abierta] = await db.select({ id: v.id }).from(v)
-      .where(and(eq(v.companiaId, d.companiaId), llave(d.concepto, tipo), isNull(v.vigenteHasta))).limit(1);
+      .where(and(eq(v.companiaId, d.companiaId), llave(concepto, tipo), isNull(v.vigenteHasta))).limit(1);
     throw new TarifaConflictoError('Ya hay un valor vigente para esa tarifa. Cámbielo con Editar.', abierta?.id ?? null);
   }
 }

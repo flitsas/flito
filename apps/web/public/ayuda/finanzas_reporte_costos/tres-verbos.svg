@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500" role="img" aria-labelledby="t">
+  <title id="t">Liquidar, Facturar y Enviar a facturación: los tres verbos del reporte de costos (diagrama demo, sin datos reales)</title>
+  <rect width="800" height="500" fill="#ffffff"/>
+  <defs>
+    <marker id="f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0L10 5L0 10z" fill="#4a5568"/>
+    </marker>
+  </defs>
+  <g font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#1a202c">
+    <rect x="30" y="40" width="200" height="80" rx="12" fill="#edf2f7" stroke="#4a5568" stroke-width="2"/>
+    <text x="130" y="74" font-size="18">Estimado</text>
+    <text x="130" y="98" font-size="15">tarifas vigentes</text>
+    <rect x="300" y="40" width="200" height="80" rx="12" fill="#e0ecff" stroke="#2b6cb0" stroke-width="2"/>
+    <text x="400" y="74" font-size="18">Liquidado</text>
+    <text x="400" y="98" font-size="15">valores sellados</text>
+    <rect x="570" y="40" width="200" height="80" rx="12" fill="#e6f6ec" stroke="#2f855a" stroke-width="2"/>
+    <text x="670" y="74" font-size="18">Facturado</text>
+    <text x="670" y="98" font-size="15">liquidación congelada</text>
+    <rect x="570" y="230" width="200" height="90" rx="12" fill="#fef3c7" stroke="#b7791f" stroke-width="2"/>
+    <text x="670" y="269" font-size="18">Emisión electrónica</text>
+    <text x="670" y="293" font-size="15">hacia Siigo y la DIAN</text>
+    <rect x="300" y="230" width="200" height="90" rx="12" fill="#fde2e2" stroke="#c53030" stroke-width="2"/>
+    <text x="400" y="269" font-size="18">Reversar</text>
+    <text x="400" y="293" font-size="15">solo un liquidado</text>
+    <text x="262" y="65" font-size="15" fill="#4a5568">Liquidar</text>
+    <text x="532" y="65" font-size="15" fill="#4a5568">Facturar</text>
+    <text x="580" y="180" font-size="15" fill="#4a5568">Enviar a facturación</text>
+  </g>
+  <g stroke="#4a5568" stroke-width="2.5" fill="none" marker-end="url(#f)">
+    <path d="M230 80L295 80"/>
+    <path d="M500 80L565 80"/>
+    <path d="M670 120L670 225"/>
+    <path d="M380 120L380 225"/>
+    <path d="M300 275C150 275 120 200 130 125"/>
+  </g>
+</svg>

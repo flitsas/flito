@@ -18,6 +18,7 @@
 //     la línea de faltantes y el `aria-describedby` que la referencia.
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
+import { elegirTipoInicial } from '../helpers/soat-tipo';
 import { loginAs, CLIENTE_CON_CANAL, OPERACIONES_USER } from '../helpers/auth';
 import { correrAxe, esperarSinViolacionesGraves } from '../helpers/axe';
 
@@ -33,8 +34,10 @@ async function montarFicha(page: Page) {
     id: 1, name: 'Concesionario Norte', document: '900111', documentType: 'NIT',
     phone: null, email: null, address: null, city: 'Medellín',
     soatAutogestionable: false, impuestosAutogestionable: false, logisticaAutogestionable: false,
-    logisticaPermiteParcial: false, soatSinTramite: true,
+    logisticaPermiteParcial: false,
     gestorSoatSinTramite: { id: SURA, nombre: 'SURA', activo: true },
+    // HU #13968: el aviso del cuadro, para medirlo con axe y comprobar que el selector lo referencia.
+    permisoSinTramiteSinEfecto: true,
   }]));
   await page.route(/\/api\/siigo\/clientes\/validacion\/detalle/, (route) => json(route, 200, { data: [] }));
   await page.route(/\/api\/flito\/parametrizacion\/proveedores-soat$/, (route) =>
@@ -47,8 +50,8 @@ test.describe('HU #12079 · AC5 — accesibilidad', () => {
     await loginAs(page, OPERACIONES_USER);
     await montarFicha(page);
 
-    await page.getByRole('button', { name: 'SOAT sin trámite de Concesionario Norte: Abierto · SURA' }).click();
-    const modal = page.getByRole('dialog', { name: 'SOAT sin trámite · Concesionario Norte' });
+    await page.getByRole('button', { name: 'Editar Concesionario Norte', exact: true }).click();
+    const modal = page.getByRole('dialog', { name: 'Editar · Concesionario Norte' });
     await expect(modal).toBeVisible();
 
     // ── 1 · Cada control por su label ASOCIADO ────────────────────────────────────────────────
@@ -56,12 +59,17 @@ test.describe('HU #12079 · AC5 — accesibilidad', () => {
     // contar `<label>` en el DOM: uno suelto al lado del control, sin `for` ni envoltura, cuenta
     // igual y no le sirve de nada a un lector de pantalla. `toHaveCount(1)` impide además el empate
     // de dos controles con el mismo nombre.
-    await expect(modal.getByLabel('Canal abierto')).toHaveCount(1);
-    await expect(modal.getByLabel('Gestor por defecto')).toHaveCount(1);
+    // HU #13968: un solo control; el interruptor «Canal abierto» ya no existe.
+    await expect(modal.getByLabel('Canal abierto')).toHaveCount(0);
+    await expect(modal.getByLabel('Proveedor de SOAT sin trámite')).toHaveCount(1);
+    // El aviso del permiso sin efecto se lee al llegar al control (AC4).
+    await expect(modal.getByLabel('Proveedor de SOAT sin trámite')).toHaveAccessibleDescription(
+      /Tiene usuarios con permiso de SOAT sin trámite, pero no tiene proveedor elegido/,
+    );
 
     // ── 2 · Ningún botón mudo ─────────────────────────────────────────────────────────────────
     const mudos = await page.locator('[role="dialog"] button').evaluateAll(
-      (els) => els.filter((el) => ((el.getAttribute('aria-label') ?? el.textContent ?? '').trim() === '')).length,
+      (els) => els.filter((el) => !el.getAttribute('aria-labelledby') && ((el.getAttribute('aria-label') ?? el.textContent ?? '').trim() === '')).length,
     );
     expect(mudos, 'hay botones sin texto ni aria-label en el modal').toBe(0);
 
@@ -69,37 +77,37 @@ test.describe('HU #12079 · AC5 — accesibilidad', () => {
     // El `:focus-visible` de un clic de ratón no se pinta en muchos navegadores, así que enfocar con
     // `el.focus()` diría poco. Lo que se exige es que el foco produzca una diferencia visible, no
     // que use un token concreto.
-    const selector = modal.getByLabel('Gestor por defecto');
+    const selector = modal.getByLabel('Proveedor de SOAT sin trámite');
     const estiloDe = () => selector.evaluate((el) => {
       const s = getComputedStyle(el);
       return `${s.outlineStyle}|${s.outlineWidth}|${s.outlineColor}|${s.boxShadow}|${s.borderColor}`;
     });
-    await modal.getByLabel('Canal abierto').focus();
+    await modal.getByRole('button', { name: 'Cerrar', exact: true }).focus();
     const sinFoco = await estiloDe();
-    await page.keyboard.press('Tab');
+    // HU #14105: entre el cierre y el selector hay ahora las pestañas del modal y los datos.
+    for (let i = 0; i < 8 && !(await selector.evaluate((el) => el === document.activeElement)); i += 1) {
+      await page.keyboard.press('Tab');
+    }
     await expect(selector).toBeFocused();
-    expect(await estiloDe(), 'el foco del selector de gestor no produce ninguna diferencia visible')
+    expect(await estiloDe(), 'el foco del selector de proveedor no produce ninguna diferencia visible')
       .not.toEqual(sinFoco);
 
     // ── 4 · axe, con el modal ABIERTO ─────────────────────────────────────────────────────────
     esperarSinViolacionesGraves(await correrAxe(page), 'ficha de la compañía · modal «SOAT sin trámite»');
   });
 
-  test('el modal en rechazo: axe con el `role="alert"` pintado y el control inválido enfocado', async ({ page }) => {
+  test('el modal en rechazo: axe con el `role="alert"` pintado y el cuadro abierto', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
-    await page.route(/\/api\/flito\/parametrizacion\/companias\/1$/, (route) => json(route, 200, { id: 1 }));
+    await page.route(/\/api\/flito\/parametrizacion\/companias\/1$/, (route) => json(route, 403, { error: 'Sin permiso' }));
     await montarFicha(page);
 
-    await page.getByRole('button', { name: /SOAT sin trámite de Concesionario Norte/ }).click();
-    const modal = page.getByRole('dialog', { name: 'SOAT sin trámite · Concesionario Norte' });
-    // Se vacía el gestor con el canal encendido: el estado donde el modal pinta su `role="alert"` y
-    // pone `aria-invalid` en el `<select>`. Un axe corrido solo sobre el modal limpio no vería nada
-    // de eso.
-    await modal.getByLabel('Gestor por defecto').selectOption('');
-    await modal.getByRole('button', { name: 'Guardar' }).click();
+    await page.getByRole('button', { name: 'Editar Concesionario Norte', exact: true }).click();
+    const modal = page.getByRole('dialog', { name: 'Editar · Concesionario Norte' });
+    // HU #13968: «Sin proveedor» es válido; el `role="alert"` lo pinta el guardado rechazado.
+    await modal.getByLabel('Proveedor de SOAT sin trámite').selectOption('');
+    await modal.getByRole('button', { name: 'Guardar cambios' }).click();
 
-    await expect(modal.getByRole('alert')).toHaveText('Elija el gestor por defecto antes de abrir el canal.');
-    await expect(modal.getByLabel('Gestor por defecto')).toHaveAttribute('aria-invalid', 'true');
+    await expect(modal.getByRole('alert')).toHaveText('No tiene permiso para elegir el proveedor de esta compañía.');
     esperarSinViolacionesGraves(await correrAxe(page), 'modal «SOAT sin trámite» · rechazo del cliente');
   });
 
@@ -110,8 +118,9 @@ test.describe('HU #12079 · AC5 — accesibilidad', () => {
     await page.route(/\/api\/flito\/soat\/facetas/, (route) =>
       json(route, 200, { companias: [], organismos: [], proveedores: [] }));
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
-    const enviar = page.getByRole('button', { name: 'Enviar al gestor' });
+    const enviar = page.getByRole('button', { name: 'Enviar solicitud' });
     await expect(enviar).toHaveAttribute('aria-disabled', 'true');
     // El lector tiene que poder llegar a la explicación DESDE el botón, que es cuando importa. Los
     // dos asertos: la referencia existe y apunta a algo que de verdad está en el árbol.

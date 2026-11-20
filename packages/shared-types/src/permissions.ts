@@ -269,6 +269,11 @@ export const PAGES = {
   // siembra la 0240 (a quien hoy tiene `rum.resumen.ver`, más `admin` como toda página); la pantalla la gatea
   // la HU FRONTEND #13589. Sin fila en `ROLE_DEFAULT_PAGES`.
   admin_rendimiento: 'Rendimiento',
+  // HU #13941 (decisión de David, 2026-10-24): Dr. Flit, el panel de ayuda y soporte. Ítem de General con
+  // cuatro acciones (ver manuales, IA, consulta de gestión, radicar soporte) que el API exige por ruta. Lo
+  // siembra la 0254: todos los roles con el ítem + «ver manuales», `admin` con las cuatro. No es una ruta
+  // de la web (el panel flota sobre todas): sin fila en `ROLE_DEFAULT_PAGES`.
+  flito_dr_flit: 'Dr. Flit',
   // Ayuda FLITO (HU #11893): contenedor del índice in-app. El slug existe SOLO para el label de
   // NoAccess y el ítem de nav. NO entra en `PAGE_GROUPS` (Users no debe ofrecer concederlo a mano)
   // ni en ninguna fila de `ROLE_DEFAULT_PAGES`: la visibilidad es derivada (`hasPage` de ≥1 slug
@@ -302,7 +307,7 @@ export const PAGINAS_MANTENIMIENTO_POR_ITEM = [
 ] as const satisfies readonly PageSlug[];
 
 export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
-  { label: 'General', pages: ['dashboard', 'perfil'] },
+  { label: 'General', pages: ['dashboard', 'perfil', 'flito_dr_flit'] },
   { label: 'Operaciones', pages: ['vehicles', 'soat', 'tramite', 'tax_reader', 'transito', 'drive'] },
   { label: 'Flota', pages: ['fleet'] },
   { label: 'Mantenimiento', pages: ['maintenance', ...PAGINAS_MANTENIMIENTO_POR_ITEM] },

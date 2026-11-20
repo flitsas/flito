@@ -1,10 +1,12 @@
 // Tipos y constantes de la cola SOAT (HU #12819, fase 0): movidos TAL CUAL desde `pages/FlitoSoat.tsx`
 // para bajar la página del techo de 800 líneas. Sus comentarios son el porqué y viajan con ellos.
 
-import { EstadoSoat } from '@operaciones/shared-types';
+import { EstadoSoat, type TipoSoat } from '@operaciones/shared-types';
 import type { VigenciaSoatCola } from '../../../lib/vigenciaSoatCola';
 
 export interface SoatItem {
+  /** Inicial/Renovación de la solicitud del canal (HU #14017/#14019); `null` o ausente = fila de trámite. */
+  tipoSoat?: TipoSoat | null;
   id: string; vin: string; placa: string | null; marca: string | null; linea: string | null;
   /** Datos técnicos que FLIT trae del vehículo (HU #11906). `string` a propósito y NO number: la
       fuente es texto siempre, `"0"` significa eléctrico (`vehicles/ocr.routes.ts:76`) y un futuro

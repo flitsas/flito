@@ -75,7 +75,7 @@ function montarTx(filasBloqueadas: { id: string }[] = [{ id: SOAT_ID }], filaAct
   transactionMock.mockImplementation(async (cb: (tx: unknown) => unknown) =>
     cb({ select: txSelect, update: txUpdate, insert: txInsert }));
 
-  return { sets, inserts, txUpdate };
+  return { sets, inserts, txUpdate, txSelect };
 }
 
 /** Las filas de historial son el único insert del envío; se aplana porque va en lote. */
@@ -115,7 +115,9 @@ describe('flito-soat — envío a gestión de Operaciones (HU #11152)', () => {
   });
 
   it('AC2 — el envío con proveedor no queda marcado como contingencia', async () => {
-    const { sets, inserts } = montarTx();
+    const { sets, inserts, txSelect } = montarTx();
+    // HU #13959 (RN-PROV-5): la primera lectura del tx es el proveedor `FOR SHARE`; activo y vigente.
+    txSelect.mockReturnValueOnce(chain([{ nombre: 'Gestora Andina', activo: true, deletedAt: null }]));
 
     const r = await request(await buildApp()).post('/api/flito/soat/enviar')
       .set('Authorization', await auth('admin'))

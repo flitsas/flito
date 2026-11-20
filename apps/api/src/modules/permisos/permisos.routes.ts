@@ -20,6 +20,7 @@ import {
 import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.js';
 import { catalogoAgrupado } from './permisos.service.js';
 import { arbolDef, arbolDeRol } from './permisos-arbol.service.js';
+import { FuncionExclusivaAdminError } from './permisos-exclusivas.js';
 import {
   CodigoReservadoError, FuncionesInexistentesError, RolConflictoError, RolNoEncontradoError,
   borrarRol, crearRol, cuadroDe, editarRol, guardarCuadro, listarRoles,
@@ -103,6 +104,7 @@ function responderErrorDeDominio(res: Response, e: unknown): boolean {
     return true;
   }
   if (e instanceof FuncionesInexistentesError) { res.status(400).json({ error: e.message, funciones: e.funciones }); return true; }
+  if (e instanceof FuncionExclusivaAdminError) { res.status(409).json({ error: e.message, funcion: e.funcion }); return true; }
   if (e instanceof CodigoReservadoError) { res.status(400).json({ error: e.message }); return true; }
   return false;
 }

@@ -16,7 +16,7 @@ import { clients } from '../../db/schema.js';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
-import { alcanceDe, soloSinEnlace } from '../../shared/middleware/frontera-enlace.js';
+import { alcanceDe } from '../../shared/middleware/frontera-enlace.js';
 import { companiaDeAlcance, esProyeccionCliente } from '../../shared/alcance-filas.js';
 import { carpetaDe } from '../flito-parametrizacion/flito-parametrizacion.service.js';
 import { checkMagicNumber } from '../pesv/magic-number.js';
@@ -28,10 +28,10 @@ import {
   cerrarPeriodo, cierresDe, corregirMovimiento, extractoDe, movimientosDe,
   registrarMovimientoManual, registrarRecarga, saldoConsolidado, storageKeySoporteDeBolsa,
 } from './flito-bolsas.service.js';
-import {
-  actualizarBolsaTransito, bolsasTransito, bolsaTransitoDe, crearBolsaTransito,
-  movimientosTransitoDe, registrarCargaTransito,
-} from './flito-bolsas-transito.service.js';
+import { registrarCargaTransito } from './flito-bolsas-transito.service.js';
+import { routerCatalogo } from './flito-bolsas.catalogo.routes.js';
+import { routerCatalogoTransito } from './flito-bolsas.catalogo-transito.routes.js';
+import { MSG_CLIENTE_ELIMINADO_BOLSA } from './flito-bolsas.libro.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -73,7 +73,8 @@ function recibirSoporte(req: Request, res: Response, next: (e?: unknown) => void
 /** BolsaError es de negocio; lo demás sube al error handler. */
 function fallo(res: Response, e: unknown): void {
   if (e instanceof BolsaError) {
-    res.status(e.estado).json({ error: e.message });
+    // HU #13899: `codigo` (bolsa_inexistente, bolsa_inactiva…) solo cuando el error lo trae.
+    res.status(e.estado).json(e.codigo ? { error: e.message, codigo: e.codigo } : { error: e.message });
     return;
   }
   throw e;
@@ -109,8 +110,7 @@ router.get('/consolidado', exigirFuncion('bolsas.consolidado.ver'), async (req: 
 
 // Las rutas de UN SOLO segmento fijo van todas ANTES de `/:companiaId`. Si no, Express casa el
 // segmento con el parámetro y la ruta se vuelve inalcanzable: devuelve «Compañía inválida» en vez de
-// su respuesta, sin que nada falle de forma visible. `/transito/:bolsaId` se libra por llevar dos
-// segmentos, pero estas no.
+// su respuesta, sin que nada falle de forma visible.
 
 // GET /riesgo — todas las bolsas con su nivel, las de peor riesgo primero. Alimenta el tablero.
 router.get('/riesgo', exigirFuncion('bolsas.riesgo.ver'), async (req: Request, res: Response) => {
@@ -126,48 +126,23 @@ router.get('/alertas', exigirFuncion('bolsas.alertas.ver'), async (req: Request,
   res.json({ saldo, conciliacion });
 });
 
-// HU #13426: las bolsas de TRÁNSITO (por secretaría) son de FLIT, no de una compañía → todas sus
-// rutas van con `soloSinEnlace()`.
-// GET /transito — todas las bolsas de tránsito con su nivel (HU #11210, AC9).
-//
-// VA ANTES de `GET /:companiaId` a propósito, y no es cosmético: Express resuelve por orden de
-// registro, así que declarada después, «transito» entraría como id de compañía y esta ruta no se
-// alcanzaría nunca.
-router.get('/transito', soloSinEnlace(), exigirFuncion('bolsas.transito.listar'), async (_req: Request, res: Response) => {
-  res.json(await bolsasTransito());
+// HU #13911 (Feature #13887, ADR-0029): las rutas antiguas `/transito/…` se retiraron con los libros viejos
+// (migración 0266). Su sustituto es el catálogo único (`/buscar`, `POST /`, `/bolsa/:bolsaId*` con
+// `alcance: 'transito'`). Este 404 explícito VA ANTES de `/:companiaId`: sin él, `GET /transito` caería en
+// el parámetro y respondería «Compañía inválida» (400) en vez de «no existe». `router.use` (no `get/post`)
+// para que el inventario de guardas no la lea como ruta guardada: no tiene función que exigir.
+router.use('/transito', (_req: Request, res: Response) => {
+  res.status(404).json({ error: 'Ruta retirada: usa el catálogo de bolsas' });
 });
 
-/**
- * Alta y redefinición de una bolsa. El producto de `organismos` × `conceptos` es su cobertura.
- *
- * Los conceptos NO se validan aquí contra la lista cerrada: lo hace el servicio, que es quien tiene
- * que rechazarlos venga la petición de donde venga. Aquí solo se comprueba la forma.
- */
-const bolsaTransitoSchema = z.object({
-  nombre: z.string().trim().min(3, 'El nombre de la bolsa debe tener al menos 3 caracteres').max(120),
-  organismos: z.array(z.string().trim().min(1).max(5)).min(1, 'Selecciona al menos una secretaría'),
-  conceptos: z.array(z.string().trim()).min(1, 'Selecciona al menos un concepto'),
-});
-
-// POST /transito — crea una bolsa con su cobertura (HU #11161, ajuste 0124).
-router.post('/transito', soloSinEnlace(), exigirFuncion('bolsas.transito.crear'), async (req: Request, res: Response) => {
-  const parsed = bolsaTransitoSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
-    return;
-  }
-  try {
-    const bolsa = await crearBolsaTransito(
-      { ...parsed.data, conceptos: parsed.data.conceptos as never },
-      { userId: req.user?.sub ?? null, nombre: req.user?.username ?? 'sistema' },
-    );
-    await audit(req, {
-      action: 'create', resource: 'flito_bolsa_transito', resourceId: bolsa.id,
-      detail: `Bolsa de tránsito «${bolsa.nombre}»: ${parsed.data.organismos.join(', ')} × ${parsed.data.conceptos.join(', ')}`,
-    });
-    res.status(201).json(bolsa);
-  } catch (e) { fallo(res, e); }
-});
+// HU #13900 — catálogo del modelo único (`/buscar`, `POST /`, `/bolsa/:bolsaId*`, `/compania/:companiaId/estado`).
+// ANTES de `/:companiaId` por la misma razón que `/transito`. Las rutas por bolsa reutilizan estos handlers
+// (function declarations: existen ya al montar).
+// HU #13907: la rama TRÁNSITO de las mismas rutas va ANTES; lo que no es de tránsito lo cede con `next('route')`.
+router.use(routerCatalogoTransito({ recibirSoporte, registrarCarga: registrarCargaTransitoHttp }));
+router.use(routerCatalogo({
+  companiaPropia, recibirSoporte, verMovimientos, registrarRecarga: registrarRecargaHttp, verCierres, crearCierre,
+}));
 
 // GET /:companiaId — bolsa y saldo del cliente.
 router.get('/:companiaId', exigirFuncion('bolsas.bolsa.ver'), companiaPropia('leer'), async (req: Request, res: Response) => {
@@ -184,7 +159,8 @@ const filtroSchema = z.object({
   periodo: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional(),
   limite: z.coerce.number().int().positive().max(500).optional(),
 });
-router.get('/:companiaId/movimientos', exigirFuncion('bolsas.movimientos.ver'), companiaPropia('leer'), async (req: Request, res: Response) => {
+router.get('/:companiaId/movimientos', exigirFuncion('bolsas.movimientos.ver'), companiaPropia('leer'), verMovimientos);
+async function verMovimientos(req: Request, res: Response): Promise<void> {
   const parsed = filtroSchema.safeParse(req.query);
   if (!parsed.success) { res.status(400).json({ error: 'Filtros inválidos' }); return; }
   try {
@@ -193,7 +169,7 @@ router.get('/:companiaId/movimientos', exigirFuncion('bolsas.movimientos.ver'), 
     // (`''`: el contrato lo declara `string`, y su vacío no cambia la forma).
     res.json(esProyeccionCliente(await alcanceDe(req)) ? movs.map((m) => ({ ...m, registradoPorNombre: '' })) : movs);
   } catch (e) { fallo(res, e); }
-});
+}
 
 // POST /:companiaId/recargas — registra una recarga con su soporte (multipart).
 //
@@ -216,7 +192,8 @@ const recargaSchema = z.object({
   observacion: z.string().trim().max(1000).optional(),
 });
 
-router.post('/:companiaId/recargas', exigirFuncion('bolsas.recarga.registrar'), companiaPropia('escribir'), recibirSoporte, async (req: Request, res: Response) => {
+router.post('/:companiaId/recargas', exigirFuncion('bolsas.recarga.registrar'), companiaPropia('escribir'), recibirSoporte, registrarRecargaHttp);
+async function registrarRecargaHttp(req: Request, res: Response): Promise<void> {
   const parsed = recargaSchema.safeParse(req.body);
   if (!parsed.success) {
     const msg = parsed.error.issues[0]?.message ?? 'Datos inválidos';
@@ -276,7 +253,7 @@ router.post('/:companiaId/recargas', exigirFuncion('bolsas.recarga.registrar'), 
     if (storageKey) await deleteEntityDocument(storageKey).catch(() => undefined);
     fallo(res, e);
   }
-});
+}
 
 /**
  * Clave del encabezado `Idempotency-Key`, o `null` si falta o viene vacía. Se acota a 120 caracteres
@@ -313,40 +290,8 @@ router.get('/soportes/:soporteId', exigirFuncion('bolsas.soporte.descargar'), as
   });
 });
 
-// GET /transito/:bolsaId — saldo de la bolsa con su nivel y su cobertura (HU #11161).
-router.get('/transito/:bolsaId', soloSinEnlace(), exigirFuncion('bolsas.transito.ver'), async (req: Request, res: Response) => {
-  const bolsa = await bolsaTransitoDe(req.params.bolsaId);
-  if (!bolsa) { res.status(404).json({ error: 'La bolsa no existe' }); return; }
-  res.json(bolsa);
-});
-
-// PATCH /transito/:bolsaId — redefine nombre y cobertura. El saldo no se toca: es dinero real.
-router.patch('/transito/:bolsaId', soloSinEnlace(), exigirFuncion('bolsas.transito.editar'), async (req: Request, res: Response) => {
-  const parsed = bolsaTransitoSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
-    return;
-  }
-  try {
-    const bolsa = await actualizarBolsaTransito(
-      req.params.bolsaId,
-      { ...parsed.data, conceptos: parsed.data.conceptos as never },
-      { userId: req.user?.sub ?? null, nombre: req.user?.username ?? 'sistema' },
-    );
-    await audit(req, {
-      action: 'update', resource: 'flito_bolsa_transito', resourceId: bolsa.id,
-      detail: `Bolsa de tránsito «${bolsa.nombre}»: ${parsed.data.organismos.join(', ')} × ${parsed.data.conceptos.join(', ')}`,
-    });
-    res.json(bolsa);
-  } catch (e) { fallo(res, e); }
-});
-
-// GET /transito/:bolsaId/movimientos — libro de la bolsa.
-router.get('/transito/:bolsaId/movimientos', soloSinEnlace(), exigirFuncion('bolsas.transito.ver_movimientos'), async (req: Request, res: Response) => {
-  res.json(await movimientosTransitoDe(req.params.bolsaId));
-});
-
-// POST /transito/:bolsaId/cargas — FLIT precarga saldo en la bolsa (HU #11161, AC2).
+// Carga de saldo a una bolsa de TRÁNSITO (HU #11161, AC2). Desde la HU #13907 la ruta es
+// `POST /bolsa/:bolsaId/recargas` (rama tránsito del catálogo); `/transito/:bolsaId/cargas` se retiró (HU #13911).
 //
 // El soporte es OPCIONAL, a diferencia de las recargas del cliente: una carga se registra el mismo
 // día en que se ordena la transferencia, antes de que llegue el comprobante del banco.
@@ -358,7 +303,8 @@ const cargaTransitoSchema = z.object({
   observacion: z.string().trim().max(1000).optional(),
 });
 
-router.post('/transito/:bolsaId/cargas', soloSinEnlace(), exigirFuncion('bolsas.transito.cargar'), recibirSoporte, async (req: Request, res: Response) => {
+// HU #13907: function declaration con nombre para que `POST /bolsa/:bolsaId/recargas` (rama tránsito) la reutilice.
+async function registrarCargaTransitoHttp(req: Request, res: Response): Promise<void> {
   const parsed = cargaTransitoSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
@@ -402,7 +348,7 @@ router.post('/transito/:bolsaId/cargas', soloSinEnlace(), exigirFuncion('bolsas.
     if (storageKey) await deleteEntityDocument(storageKey).catch(() => undefined);
     fallo(res, e);
   }
-});
+}
 
 // GET /:companiaId/extracto — saldo con el consumo desglosado por organismo y por concepto.
 router.get('/:companiaId/extracto', exigirFuncion('bolsas.extracto.descargar'), companiaPropia('leer'), async (req: Request, res: Response) => {
@@ -510,12 +456,13 @@ router.post('/:companiaId/movimientos/:movimientoId/correccion', exigirFuncion('
 });
 
 // GET /:companiaId/cierres — reportes de cierre del cliente, del más reciente al más antiguo.
-router.get('/:companiaId/cierres', exigirFuncion('bolsas.cierres.ver'), companiaPropia('leer'), async (req: Request, res: Response) => {
+router.get('/:companiaId/cierres', exigirFuncion('bolsas.cierres.ver'), companiaPropia('leer'), verCierres);
+async function verCierres(req: Request, res: Response): Promise<void> {
   try {
     const cierres = await cierresDe(companiaIdDe(req));
     res.json(esProyeccionCliente(await alcanceDe(req)) ? cierres.map((c) => ({ ...c, cerradoPorNombre: '' })) : cierres); // ídem
   } catch (e) { fallo(res, e); }
-});
+}
 
 // POST /:companiaId/cierres — cierra un periodo. Congela sus movimientos y sella el reporte.
 //
@@ -526,7 +473,8 @@ const cierreSchema = z.object({
   periodo: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, { message: 'El periodo debe tener la forma AAAA-MM' }),
   observaciones: z.string().trim().max(2000).optional(),
 });
-router.post('/:companiaId/cierres', exigirFuncion('bolsas.cierre.crear'), companiaPropia('escribir'), async (req: Request, res: Response) => {
+router.post('/:companiaId/cierres', exigirFuncion('bolsas.cierre.crear'), companiaPropia('escribir'), crearCierre);
+async function crearCierre(req: Request, res: Response): Promise<void> {
   const parsed = cierreSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Datos inválidos' });
@@ -542,16 +490,18 @@ router.post('/:companiaId/cierres', exigirFuncion('bolsas.cierre.crear'), compan
     });
     res.status(201).json(cierre);
   } catch (e) { fallo(res, e); }
-});
+}
 
 /** Sube el comprobante al almacenamiento. El registro en `flito_soportes` lo hace el servicio. */
 async function subirComprobante(companiaId: number, archivo: Express.Multer.File): Promise<string> {
   const [compania] = await db
-    .select({ id: clients.id, flitoCarpetaStorage: clients.flitoCarpetaStorage })
+    .select({ id: clients.id, flitoCarpetaStorage: clients.flitoCarpetaStorage, deletedAt: clients.deletedAt })
     .from(clients)
     .where(eq(clients.id, companiaId))
     .limit(1);
   if (!compania) throw new BolsaError('La compañía no existe', 404);
+  // RN-CLI-9 (HU #13953, AC5): antes de subir, para no dejar un comprobante huérfano en storage.
+  if (compania.deletedAt != null) throw new BolsaError(MSG_CLIENTE_ELIMINADO_BOLSA, 409);
 
   return uploadEntityDocument(
     carpetaDe(compania, 'bolsas-recargas'),

@@ -32,7 +32,9 @@ import { modalidadVigente } from '../flito-parametrizacion/flito-parametrizacion
 import {
   anioGravableEnCurso, impuestoBloqueantePorVehiculo,
 } from '../flito-impuestos/impuesto-por-vehiculo.js';
+import { exigirClienteOperable } from '../clients/cliente-operable.js';
 import { loggerFor } from '../../shared/logger.js';
+import { soatActualDelVin } from '../flito-soat/flito-soat-actual.js';
 
 const log = loggerFor('flito-excepciones');
 
@@ -162,12 +164,13 @@ export async function desbloquear(
 
 /**
  * Crea el SOAT que la autogestión impidió. Si el VIN ya tiene uno —otro trámite del mismo vehículo
- * ya se desbloqueó—, se marca el existente en vez de duplicar: el SOAT es por VIN (RN-01).
+ * ya se desbloqueó—, se marca el existente en vez de duplicar: el SOAT actual del VIN (RN-01, ADR-0031).
  */
 async function crearSoatExcepcional(tx: Tx, f: FilaTramite, ctx: ExcepcionCtx): Promise<string> {
   // Sin VIN no hay llave con la que buscar ni con la que crear: el SOAT se ancla al vehículo.
   if (f.vin === null) throw new ExcepcionError(400, 'El trámite no tiene VIN: el SOAT se ancla al vehículo');
-  const [existente] = await tx.select().from(flitoSoat).where(eq(flitoSoat.vin, f.vin)).limit(1);
+  // ADR-0031: el SOAT ACTUAL del VIN (abierto primero; si no, el último terminal).
+  const existente = await soatActualDelVin(tx, f.vin);
 
   if (existente) {
     await tx.update(flitoSoat).set({ excepcionAutogestion: true, updatedAt: new Date() })
@@ -183,6 +186,8 @@ async function crearSoatExcepcional(tx: Tx, f: FilaTramite, ctx: ExcepcionCtx): 
   if (f.vin === null || f.vehiculoId === null || f.organismoCodigo === null) {
     throw new ExcepcionError(400, 'El trámite no tiene VIN, vehículo u organismo resueltos: no se puede crear el SOAT');
   }
+  // HU #13947: un cliente inactivo no admite SOAT nuevos (marcar el existente, arriba, no crea nada).
+  await exigirClienteOperable(tx, f.companiaId, 'SOAT');
 
   const [soat] = await tx.insert(flitoSoat).values({
     vin: f.vin, vehiculoId: f.vehiculoId, estado: EstadoSoat.PENDIENTE,
@@ -223,6 +228,8 @@ async function crearImpuestoExcepcional(tx: Tx, f: FilaTramite, ctx: ExcepcionCt
     }
   }
 
+  // HU #13947: un cliente inactivo no admite impuestos nuevos.
+  await exigirClienteOperable(tx, f.companiaId, 'impuestos');
   const modalidad = await modalidadVigente(f.organismoCodigo);
   const [impuesto] = await tx.insert(flitoImpuestos).values({
     tramiteId: f.tramiteId, estado: EstadoImpuesto.PENDIENTE, organismoCodigo: f.organismoCodigo,

@@ -101,6 +101,9 @@ cambio de una línea por módulo en lugar de cientos de patrones.
   enlace `compania` en roles internos quedan acotados a SOAT de su compañía hasta #13426 (AC7).
   **El Feature #12871 no se promueve a `staging` sin #13426.**
 - El 403 de la frontera conserva el cuerpo `{ error: 'Sin permisos' }`: indistinguible del de otras capas.
+- HU #13941 (2026-10-24, decisión de David Chica): Dr. Flit (rutas en `RUTAS_TRANSVERSALES`) deja de cerrar el
+  enlace `compania` en su router (se retira `rechazarEnlaceCompania`); lo decide el permiso `pagina.flito_dr_flit`
+  con sus 4 acciones. La frontera de los datos de negocio no cambia: los POST /buscar que consulta siguen bajo `conAlcance`.
 
 ## Pendiente (decide el Líder Técnico)
 

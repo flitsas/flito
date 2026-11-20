@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FLITO · Renovaciones en masa (mockup HU #14134)</title>
+<style>
+/* Tokens espejo de apps/web/src/styles/flit-tokens.css (valores representativos; el código manda). */
+:root{
+  --flit-bg-app:#EAF2FF; --flit-bg-card:#fff; --flit-bg-hover:rgba(22,39,68,.06);
+  --flit-text-primary:#162744; --flit-text-secondary:#59677D; --flit-text-muted:#6B788C;
+  --flit-border-soft:#DDE5F0; --flit-border-input:#B9C6DA; --flit-border-focus:#2F6FE4;
+  --flit-blue-text:#1D4FB8; --flit-danger-ink:#C02F24; --flit-warning-ink:#B94120; --flit-success-ink:#2E7A12;
+  --flit-chip-success-bg:#E4F5D9; --flit-chip-warning-bg:#FDE9DF; --flit-chip-danger-bg:#FCE3E0; --flit-chip-active-bg:#E1ECFF; --flit-chip-draft-bg:#EEF1F6;
+  --flit-chip-draft-ink:#4A5568; --flit-chip-active-ink:#1D4FB8;
+  --flit-gradient-primary:linear-gradient(135deg,#2F6FE4,#1D4FB8); --flit-radius-card:16px;
+  --flit-shadow-card:0 1px 2px rgba(22,39,68,.08);
+  --page:#F5F8FD;
+}
+[data-tema="oscuro"]{
+  --flit-bg-app:#0F1B2E; --flit-bg-card:#16253E; --flit-bg-hover:rgba(255,255,255,.08);
+  --flit-text-primary:#F2F6FC; --flit-text-secondary:#BCC8DA; --flit-text-muted:#A5B3C9;
+  --flit-border-soft:#3A4E78; --flit-border-input:#4E6490; --flit-border-focus:#8AB4FF;
+  --flit-blue-text:#8AB4FF; --flit-danger-ink:#FF9C93; --flit-warning-ink:#FFB48F; --flit-success-ink:#9BE070;
+  --flit-chip-success-bg:#1F3A1A; --flit-chip-warning-bg:#472A1C; --flit-chip-danger-bg:#4A2220; --flit-chip-active-bg:#1B3563; --flit-chip-draft-bg:#2A3956;
+  --flit-chip-draft-ink:#D3DCEB; --flit-chip-active-ink:#BFD5FF; --page:#0A1424;
+}
+*{box-sizing:border-box} body{margin:0;font:14px/1.45 system-ui,sans-serif;background:var(--page);color:var(--flit-text-primary)}
+.rev{display:flex;flex-wrap:wrap;gap:8px;padding:10px 16px;background:#111;color:#fff;font-size:12px;align-items:center}
+.rev select,.rev button{font:inherit;padding:4px 8px}
+.wrap{margin:16px auto;padding:0 16px;max-width:1040px;transition:max-width 0s}
+.wrap.movil{max-width:390px}
+.card{background:var(--flit-bg-card);border:1px solid var(--flit-border-soft);border-radius:var(--flit-radius-card);box-shadow:var(--flit-shadow-card);padding:16px;margin-bottom:16px}
+h1{font-size:20px;margin:0}.sub{margin:4px 0 0;color:var(--flit-text-secondary)}
+h2{font-size:15px;margin:0 0 10px}
+.grid{display:grid;gap:12px;grid-template-columns:1fr}
+@media(min-width:640px){.wrap:not(.movil) .grid{grid-template-columns:1fr 1fr}}
+.opt{position:relative;display:flex;gap:12px;min-height:44px;padding:16px;border:1px solid var(--flit-border-soft);border-radius:10px;transition:background-color .15s}
+.opt:hover{background:var(--flit-bg-hover)} .opt.on{border:2px solid var(--flit-blue-text);background:var(--flit-bg-app);padding:15px}
+.opt:has(:focus-visible){box-shadow:0 0 0 3px var(--flit-border-focus)}
+.opt label{font-weight:600;cursor:pointer}.opt label::after{content:"";position:absolute;inset:0}
+.opt p{margin:2px 0 0;font-size:12px;color:var(--flit-text-secondary)} .opt input{position:relative;z-index:1;accent-color:var(--flit-blue-text);margin-top:4px}
+.btn{font:inherit;height:40px;border-radius:999px;padding:0 20px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:8px;text-decoration:none;transition:box-shadow .15s,background-color .15s}
+.btn:focus-visible,.up:focus-within,a.lnk:focus-visible{outline:none;box-shadow:0 0 0 3px var(--flit-border-focus)}
+.pri{border:0;color:#fff;background:var(--flit-gradient-primary)} .pri:hover:not([aria-disabled=true]){box-shadow:inset 0 0 0 999px rgba(0,0,0,.12)}
+.pri[aria-disabled=true]{opacity:.55;cursor:not-allowed}
+.sec{background:var(--flit-bg-card);color:var(--flit-text-primary);border:1px solid var(--flit-border-input)} .sec:hover{background:var(--flit-bg-hover)}
+.acc{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:12px}
+.wrap.movil .acc{flex-direction:column}.wrap.movil .acc .btn{justify-content:center;width:100%}
+.paso{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-bottom:12px}
+.up{display:block;text-align:center;padding:16px;border:2px dashed var(--flit-blue-text);border-radius:12px;cursor:pointer;transition:background-color .15s}
+.up:hover{background:var(--flit-bg-hover)} .up b{display:block;font-size:12px}.up small{color:var(--flit-text-secondary);font-size:11px}
+.up.ok{border-color:var(--flit-success-ink)} .up input{position:absolute;opacity:0;width:1px;height:1px}
+.msg{margin:8px 0 0;padding:10px 12px;border-radius:10px;font-size:13px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.msg.err{background:var(--flit-chip-danger-bg);color:var(--flit-danger-ink);font-weight:600}
+.msg.st{background:var(--flit-bg-app);color:var(--flit-text-primary)}
+.razon{font-size:12px;color:var(--flit-text-secondary);margin:8px 0 0}
+.tw{overflow-x:auto;border:1px solid var(--flit-border-soft);border-radius:var(--flit-radius-card);margin-top:12px}
+table{width:100%;border-collapse:collapse;min-width:560px} th{text-align:left;font-size:12px;color:var(--flit-text-secondary);padding:10px 12px;background:var(--flit-bg-app)}
+td{padding:10px 12px;border-top:1px solid var(--flit-border-soft)} tbody tr:hover{background:var(--flit-bg-hover)}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600}
+.chip i{width:6px;height:6px;border-radius:50%;background:currentColor}
+.c-draft{background:var(--flit-chip-draft-bg);color:var(--flit-chip-draft-ink)}.c-active{background:var(--flit-chip-active-bg);color:var(--flit-chip-active-ink)}
+.c-ok{background:var(--flit-chip-success-bg);color:var(--flit-success-ink)}.c-warn{background:var(--flit-chip-warning-bg);color:var(--flit-warning-ink)}.c-bad{background:var(--flit-chip-danger-bg);color:var(--flit-danger-ink)}
+.sk td div{height:12px;border-radius:6px;background:var(--flit-border-soft)}
+.cifras{display:flex;flex-wrap:wrap;gap:12px 24px;margin-bottom:8px}.wrap.movil .cifras{flex-direction:column;gap:6px}
+a.lnk{color:var(--flit-blue-text);font-weight:600;text-decoration:none}a.lnk:hover{text-decoration:underline}
+ul.rech{margin:8px 0;padding-left:18px}.hid{display:none}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center;padding:16px}.modal .card{max-width:420px;margin:0}
+.nota{font-size:12px;color:var(--flit-text-secondary);margin:0 0 12px}
+</style>
+</head>
+<body data-tema="claro">
+<div class="rev" role="toolbar" aria-label="Controles de revisión del mockup (no forman parte de la interfaz)">
+  <label>Estado
+    <select id="estado">
+      <option value="vacio">Vacío (sin archivo)</option>
+      <option value="elegido">Archivo elegido</option>
+      <option value="subiendo">Cargando: subiendo</option>
+      <option value="errSubida">Error: red al subir</option>
+      <option value="errXlsx">Error: no es .xlsx</option>
+      <option value="errVacio">Error: archivo vacío</option>
+      <option value="errMax">Error: más de 200 filas</option>
+      <option value="cargandoAvance">Cargando: primer avance</option>
+      <option value="curso" selected>Lleno: en curso</option>
+      <option value="errAvance">Error: al leer avance</option>
+      <option value="fin">Lleno: terminado con rechazadas</option>
+      <option value="finOk">Lleno: terminado sin rechazadas</option>
+      <option value="modal">Modal: salir con lote en curso</option>
+    </select>
+  </label>
+  <button id="tema" type="button">Tema: claro</button>
+  <button id="ancho" type="button">Ancho: escritorio</button>
+  <span>Datos ficticios. Tokens espejo de flit-tokens.css.</span>
+</div>
+<div class="wrap" id="wrap">
+  <div class="card"><h1>Solicitud de SOAT</h1><p class="sub">Renueve el SOAT de sus vehículos.</p></div>
+
+  <div class="card" id="cia"><h2>Compañía (solo Operaciones)</h2>
+    <label for="c1" class="sr">Compañía</label>
+    <select id="c1" style="font:inherit;padding:8px;width:100%;max-width:360px"><option>Transportes Andina S.A.S.</option></select>
+  </div>
+
+  <div class="card"><h2>Tipo de SOAT</h2>
+    <div class="grid" role="radiogroup" aria-label="Tipo de SOAT">
+      <div class="opt"><input type="radio" name="t" id="t1"><div><label for="t1">SOAT inicial</label><p>Vehículo nuevo o que nunca ha tenido SOAT. Se consulta por el VIN.</p></div></div>
+      <div class="opt on"><input type="radio" name="t" id="t2" checked><div><label for="t2">Renovación</label><p>El vehículo ya tuvo SOAT. Se consulta por placa y documento del propietario.</p></div></div>
+    </div>
+  </div>
+
+  <div class="card"><h2>Forma de cargar</h2>
+    <div class="grid" role="radiogroup" aria-label="Forma de cargar">
+      <div class="opt"><input type="radio" name="m" id="m1"><div><label for="m1">Individual</label><p>Un vehículo a la vez.</p></div></div>
+      <div class="opt on"><input type="radio" name="m" id="m2" checked><div><label for="m2">Masiva</label><p>Hasta 200 renovaciones desde un Excel.</p></div></div>
+    </div>
+  </div>
+
+  <div id="panel"></div>
+</div>
+<div id="modalSlot"></div>
+<script>
+const FILAS=[
+ ['ABC123','RENAULT LOGAN · 2019','creada',''],
+ ['DEF456','CHEVROLET SPARK · 2018','porvalidar','El RUNT no respondió; se consultará de nuevo.'],
+ ['MNO345','KIA PICANTO · 2020','rechazada','El vehículo ya tiene SOAT vigente'],
+ ['GHI789','—','consultando',''],
+ ['JKL012','—','encola',''],
+ ['PQR678','—','rechazada','La placa no existe en el RUNT']];
+const CHIP={encola:['c-draft','En cola'],consultando:['c-active','Consultando'],creada:['c-ok','Creada'],porvalidar:['c-warn','Por validar'],rechazada:['c-bad','Rechazada']};
+const chip=k=>`<span class="chip ${CHIP[k][0]}"><i aria-hidden="true"></i>${CHIP[k][1]}</span>`;
+function tabla(filas){
+  return `<div class="tw" role="region" aria-label="Filas de la carga en masa" tabindex="0"><table><thead><tr><th scope="col">Placa</th><th scope="col">Vehículo (RUNT)</th><th scope="col">Estado</th><th scope="col">Detalle</th></tr></thead><tbody>`+
+  filas.map(f=>`<tr><td><b>${f[0]}</b></td><td>${f[1]}</td><td>${chip(f[2])}</td><td>${f[3]||'—'}</td></tr>`).join('')+`</tbody></table></div>`;
+}
+const esq=()=>`<div class="tw"><table><thead><tr><th>Placa</th><th>Vehículo (RUNT)</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>`+
+  Array(5).fill('<tr class="sk"><td><div style="width:60px"></div></td><td><div style="width:140px"></div></td><td><div style="width:80px"></div></td><td><div style="width:120px"></div></td></tr>').join('')+`</tbody></table></div>`;
+const paso1=(extra='',caja='',btn='',msg='')=>`<div class="card"><h2>Renovaciones en masa</h2>
+ <div class="paso"><span>1. Descargue la plantilla y llene una fila por vehículo.</span><button class="btn sec" type="button">⭳ Descargar plantilla</button></div>
+ <p style="margin:0 0 8px">2. Suba el archivo con las renovaciones.</p>${caja}${msg}
+ <div class="acc">${btn}</div>${extra}</div>`;
+const caja=(ok,nombre)=>`<label class="up ${ok?'ok':''}" for="f"><b>${ok?nombre:'Elegir archivo de renovaciones'}</b><small>${ok?'Pulse para cambiar el archivo':'Excel .xlsx · hasta 200 filas'}</small><input id="f" type="file" accept=".xlsx" aria-describedby="hint"></label><span id="hint" class="sr" hidden></span>`;
+const prim=(t,dis,razon)=>`<button class="btn pri" type="button" ${dis?'aria-disabled="true"':''}>${t}</button>`;
+const err=(t,btn)=>`<div class="msg err" role="alert"><span>${t}</span>${btn||''}</div>`;
+const reint='<button class="btn sec" type="button" style="height:32px;padding:0 14px">Reintentar</button>';
+const resumen=(rech)=>`<div class="card" tabindex="-1"><h2>Resultado de la carga</h2>
+ <div class="cifras"><span class="chip c-ok"><i></i>36 creadas</span><span class="chip c-warn"><i></i>2 enviadas a Por validar</span>${rech?'<span class="chip c-bad"><i></i>2 rechazadas</span>':''}</div>
+ <p style="margin:0 0 4px;color:var(--flit-text-secondary)">Las 2 por validar se consultarán de nuevo. <a class="lnk" href="#" onclick="return false">Ver en Por validar →</a></p>
+ ${rech?`<b>Rechazadas</b><ul class="rech"><li>MNO345 · El vehículo ya tiene SOAT vigente</li><li>PQR678 · La placa no existe en el RUNT</li></ul>`:''}
+ <div class="acc">${rech?'<button class="btn sec" type="button">Cargar otro archivo</button><button class="btn pri" type="button">⭳ Descargar rechazadas</button>':'<button class="btn pri" type="button">Cargar otro archivo</button>'}</div></div>`;
+const avance=t=>`<div class="msg st" role="status">${t}</div>`;
+const ES={
+ vacio:()=>paso1('',caja(false),prim('Cargar renovaciones',true),'')+'',
+ elegido:()=>paso1('',caja(true,'renovaciones-octubre.xlsx'),prim('Cargar renovaciones')),
+ subiendo:()=>paso1('',caja(true,'renovaciones-octubre.xlsx'),'<button class="btn pri" type="button" aria-disabled="true">Cargando…</button>',avance('Recibiendo el archivo…')),
+ errSubida:()=>paso1('',caja(true,'renovaciones-octubre.xlsx'),prim('Cargar renovaciones'),err('No pudimos cargar el archivo. Revise su conexión e intente de nuevo.',reint)),
+ errXlsx:()=>paso1('',caja(false),prim('Cargar renovaciones',true),err('El archivo debe ser un Excel .xlsx. Descargue la plantilla y úsela.')),
+ errVacio:()=>paso1('',caja(false),prim('Cargar renovaciones',true),err('El archivo no tiene renovaciones. Llene al menos una fila de la plantilla.')),
+ errMax:()=>paso1('',caja(false),prim('Cargar renovaciones',true),err('El archivo tiene más de 200 filas. Divídalo en archivos de hasta 200 y cárguelos uno a uno.')),
+ cargandoAvance:()=>`<div class="card"><h2>Renovaciones en masa</h2>${avance('Preparando el avance…')}${esq()}</div>`,
+ curso:()=>`<div class="card"><h2>Renovaciones en masa</h2>${avance('Procesando: 12 de 40 filas. Puede salir de esta página; el proceso continúa.')}${tabla(FILAS)}</div>`,
+ errAvance:()=>`<div class="card"><h2>Renovaciones en masa</h2>${err('No pudimos actualizar el avance. El proceso continúa en FLITO.',reint)}${tabla(FILAS)}</div>`,
+ fin:()=>resumen(true)+`<div class="card"><h2>Detalle por placa</h2>${tabla(FILAS.filter(f=>f[2]!=='consultando'&&f[2]!=='encola'))}</div>`,
+ finOk:()=>resumen(false)+`<div class="card"><h2>Detalle por placa</h2>${tabla(FILAS.filter(f=>f[2]==='creada'||f[2]==='porvalidar'))}</div>`
+};
+const sel=document.getElementById('estado'),panel=document.getElementById('panel');
+function pintar(){
+  const e=sel.value;
+  panel.innerHTML=(ES[e]||ES.curso)();
+  document.getElementById('modalSlot').innerHTML=e==='modal'?`<div class="modal" role="dialog" aria-modal="true" aria-labelledby="mt"><div class="card"><h2 id="mt">¿Salir de la carga en masa?</h2><p>El procesamiento continúa en FLITO, pero no podrá volver a ver este avance.</p><div class="acc"><button class="btn sec" type="button">Quedarme</button><button class="btn pri" type="button">Salir</button></div></div></div>`:'';
+  if(e==='modal')panel.innerHTML=ES.curso();
+}
+sel.onchange=pintar;
+document.getElementById('tema').onclick=function(){const o=document.body.dataset.tema==='claro';document.body.dataset.tema=o?'oscuro':'claro';this.textContent='Tema: '+(o?'oscuro':'claro')};
+document.getElementById('ancho').onclick=function(){const w=document.getElementById('wrap');w.classList.toggle('movil');this.textContent='Ancho: '+(w.classList.contains('movil')?'móvil 375':'escritorio')};
+pintar();
+</script>
+</body>
+</html>

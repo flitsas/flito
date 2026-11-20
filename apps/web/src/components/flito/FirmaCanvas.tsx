@@ -4,7 +4,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-export default function FirmaCanvas({ onChange }: { onChange: (dataUrl: string | null) => void }) {
+export default function FirmaCanvas({ onChange, label = 'Firma del receptor' }: { onChange: (dataUrl: string | null) => void; label?: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const dibujando = useRef(false);
   const tieneTrazo = useRef(false); // ref, no estado: `end` lo lee sin cierre obsoleto
@@ -61,8 +61,9 @@ export default function FirmaCanvas({ onChange }: { onChange: (dataUrl: string |
     <div>
       <canvas
         ref={ref}
-        aria-label="Firma del receptor"
-        className="h-36 w-full touch-none rounded-lg border bg-white"
+        role="img"
+        aria-label={label}
+        className="h-48 w-full touch-none rounded-lg border bg-white"
         style={{ borderColor: 'var(--flit-border-input)' }}
         onPointerDown={start}
         onPointerMove={move}
@@ -71,7 +72,7 @@ export default function FirmaCanvas({ onChange }: { onChange: (dataUrl: string |
       />
       <div className="mt-1 flex items-center justify-between">
         <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{vacia ? 'Firme aquí' : 'Firmado'}</span>
-        <button type="button" className="text-xs font-semibold" style={{ color: 'var(--flit-blue-text)' }} onClick={limpiar}>Limpiar</button>
+        <button type="button" className="flit-focus rounded px-1 py-1 text-xs font-semibold transition-colors hover:underline" style={{ color: 'var(--flit-blue-text)' }} onClick={limpiar}>Limpiar</button>
       </div>
     </div>
   );

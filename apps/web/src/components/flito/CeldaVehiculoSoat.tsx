@@ -1,3 +1,6 @@
+import type { TipoSoat } from '@operaciones/shared-types';
+import EtiquetaTipoSoat from './soat/EtiquetaTipoSoat';
+
 /**
  * El vehículo, en la versión de la cola SOAT: lo mismo que pinta `CeldaVehiculo` de
  * `components/flit/columnasComunes` MÁS «Múltiple propietario».
@@ -20,8 +23,10 @@
 const dato = (v: string | null) => (v && v.trim() ? v : '—');
 
 export default function CeldaVehiculoSoat({
-  placa, vin, marca, linea, cilindraje, carroceria, tipoServicio, multiplePropietario,
+  placa, vin, marca, linea, cilindraje, carroceria, tipoServicio, multiplePropietario, tipoSoat,
 }: {
+  /** HU #14019 (AC9): pastilla neutra junto al identificador; `null`/ausente (trámite) no lleva. */
+  tipoSoat?: TipoSoat | null;
   placa: string | null; vin: string | null; marca: string | null; linea: string | null;
   cilindraje: string | null; carroceria: string | null; tipoServicio: string | null;
   multiplePropietario: boolean;
@@ -29,7 +34,10 @@ export default function CeldaVehiculoSoat({
   const vehiculo = [marca, linea].filter(Boolean).join(' ');
   return (
     <td className="px-4 py-2 align-top">
-      <div className="text-sm font-semibold">{placa ?? '—'}</div>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="text-sm font-semibold">{placa ?? '—'}</span>
+        <EtiquetaTipoSoat tipo={tipoSoat} />
+      </div>
       {/* El VIN en monoespaciado: son diecisiete caracteres que se comparan de un vistazo. */}
       <div className="font-mono text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>{vin ?? '—'}</div>
       {vehiculo && <div className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{vehiculo}</div>}

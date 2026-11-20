@@ -1,3 +1,15 @@
+---
+resumen: Credenciales de la integración. Solo administración.
+palabras_clave:
+  - Siigo
+  - credenciales
+  - integración
+consultas:
+  - cómo configuro las credenciales de Siigo
+  - por qué falla la conexión con Siigo
+version: 1.1
+fecha: 2026-10-22
+---
 ## Qué es
 
 Pantalla **Integración con Siigo**: con qué usuario se conecta FLITO a Siigo en cada ambiente (pruebas y producción) para la **emisión electrónica**. Es la pantalla del entorno, no la del día a día: se abre al conectar pruebas, al conectar producción y cuando Siigo rota una llave. La access key se cifra al guardar y no se puede volver a consultar desde aquí.
@@ -12,12 +24,14 @@ En el menú lateral, sección **Administración**, ítem **Integración con Siig
 
 ## Pasos
 
-1. Entre a **Integración con Siigo**. Usted verá una tarjeta por ambiente con su estado: **Activa** o **Sin configurar**. La tarjeta con credencial activa muestra **Usuario**, **Access key** (oculta), **Versión de llave**, **Registrada** y **Notas**.
-2. Para conectar un ambiente, pulse **Registrar nueva credencial** (o **Registrar otra credencial** si ya hay una activa). Escriba el usuario y la access key (**Mostrar** / **Ocultar** la deja ver mientras escribe) y, si quiere, una nota para recordar de qué cuenta es; no escriba ahí la clave. Pulse **Guardar y cifrar** (el botón pasa a **Guardando…**). En producción, el formulario le recuerda que desde que guarde es la credencial con la que FLITO emitirá facturas ante la DIAN.
-3. Para comprobar que la credencial activa funciona, pulse **Probar conexión** (mientras tanto dice **Probando…**); la tarjeta le muestra el resultado. Si hizo demasiadas pruebas seguidas, espere un minuto antes de repetir.
+1. Entre a **Integración con Siigo**. Usted verá una tarjeta por ambiente con su estado: **Activa** o **Sin configurar**. La tarjeta con credencial activa muestra **Usuario**, **Access key** (oculta), **Versión de llave**, **Registrada** y **Notas**. ![Tarjetas de pruebas con credencial demo Activa y de producción Sin configurar](./siigo_credenciales/01-ambientes.png)
+2. Para conectar un ambiente, pulse **Registrar nueva credencial** (o **Registrar otra credencial** si ya hay una activa). Escriba el usuario y la access key (**Mostrar** / **Ocultar** la deja ver mientras escribe) y, si quiere, una nota para recordar de qué cuenta es; no escriba ahí la clave. Pulse **Guardar y cifrar** (el botón pasa a **Guardando…**). En producción, el formulario le recuerda que desde que guarde es la credencial con la que FLITO emitirá facturas ante la DIAN. ![Formulario para registrar la credencial de producción, vacío y con el recordatorio de la DIAN](./siigo_credenciales/02-registrar.png)
+3. Para comprobar que la credencial activa funciona, pulse **Probar conexión** (mientras tanto dice **Probando…**); la tarjeta le muestra el **Resultado de la prueba**. Si hizo demasiadas pruebas seguidas, espere un minuto antes de repetir. ![Resultado de la prueba con conexión correcta para el usuario demo de pruebas](./siigo_credenciales/03-probar-conexion.png)
 4. Para retirar una credencial, pulse **Desactivar** y confírmelo en el diálogo (**Desactivando…** mientras se aplica). El registro no se borra: queda en el historial de ese ambiente con la fecha del día. Mientras no registre otra, FLITO no podrá conectarse a Siigo en ese ambiente.
-5. Al terminar una acción, un aviso en la parte superior le confirma lo que pasó. Las credenciales anteriores están en **Historial de este ambiente (N)**, que se abre y se cierra, con **Usuario**, **Estado**, **Llave**, **Registrada** y **Desactivada**.
+5. Al terminar una acción, un aviso en la parte superior le confirma lo que pasó. Las credenciales anteriores están en **Historial de este ambiente (N)**, que se abre y se cierra, con **Usuario**, **Estado**, **Llave**, **Registrada** y **Desactivada**. ![Historial del ambiente de pruebas abierto con una credencial demo anterior inactiva](./siigo_credenciales/04-historial.png)
 6. Si lo que usted necesita son las credenciales del RNDC, vaya al menú **RNDC**, ítem **Credenciales RNDC**. No es esta pantalla.
+
+![Diagrama del ciclo de una credencial por ambiente: sin configurar, registrar y cifrar, activa, probar la conexión, registrar otra al rotar la llave o desactivarla dejándola en el historial](./siigo_credenciales/ciclo-credencial.svg)
 
 ## Estados
 

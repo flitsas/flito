@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import AppShell from './flit/AppShell';
 import CommandPalette from './shell/CommandPalette';
+import DrFlitMontaje from './shell/DrFlitMontaje';
 import ErrorBoundary from './ErrorBoundary';
 import { prefetchCoreRoutes } from '../lib/prefetchCoreRoutes';
 import { useRefrescoPermisos } from '../lib/useRefrescoPermisos';
@@ -59,6 +60,7 @@ export default function Layout() {
       </AppShell>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      <DrFlitMontaje />
     </>
   );
 }

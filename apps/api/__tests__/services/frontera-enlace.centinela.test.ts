@@ -147,6 +147,7 @@ describe('AC3 — snapshot de lo declarado: montajes con `conAlcance` y rutas de
       { prefijo: '/api/flito/logistica', modulo: 'logistica' },
       { prefijo: '/api/flito/logistica', modulo: 'logistica' },
       { prefijo: '/api/flito/bolsas', modulo: 'bolsas' },
+      { prefijo: '/api/flito/bolsas-documentos', modulo: 'bolsas' }, // HU #13889 (ADR-0028)
       { prefijo: '/api/flito/comprobantes', modulo: 'comprobantes' },
       { prefijo: '/api/transito', modulo: 'transito' },
     ]);
@@ -264,12 +265,21 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['POST /api/flito/impuestos/:id/reanalizar',                                 'filtra'],
   ['PATCH /api/flito/impuestos/:id/direccion',                                 'filtra'],
   ['POST /api/flito/impuestos/certificados/zip',                               'filtra'],
+  ['GET /api/flito/impuestos/certificacion-directa/catalogo',                   'filtra'],
+  ['POST /api/flito/impuestos/certificacion-directa/extraer',                   'filtra'],
+  ['GET /api/flito/impuestos/certificacion-directa',                            'filtra'],
+  ['POST /api/flito/impuestos/certificacion-directa',                           'filtra'],
+  ['GET /api/flito/impuestos/certificacion-directa/:id/factura',                'filtra'],
+  ['GET /api/flito/impuestos/certificacion-directa/:id/certificado',            'filtra'],
+  ['POST /api/flito/impuestos/certificacion-directa/:id/consultar',             'filtra'],
+  ['GET /api/flito/impuestos/certificacion-directa/:id',                        'filtra'],
+  ['PATCH /api/flito/impuestos/certificacion-directa/:id',                      'filtra'],
   ['POST /api/flito/impuestos/:id/recibos',                                    'filtra'],
   ['POST /api/flito/impuestos/:id/recibos/reemplazar-pago',                    'filtra'],
-  ['POST /api/flito/impuestos/:id/soportes/pdf',                               'filtra'], // Bug #14532: misma frontera que el ZIP
   ['GET /api/flito/impuestos/:id/factura-venta',                               'filtra'],
   ['POST /api/flito/impuestos/soportes/zip',                                   'filtra'],
   ['GET /api/flito/impuestos',                                                 'filtra'],
+  ['POST /api/flito/impuestos/buscar',                                         'filtra'], // HU #13838: Dr. Flit gestión, alcance de la cola
   ['POST /api/flito/impuestos/export',                                         'filtra'],
   ['GET /api/flito/impuestos/facetas',                                         'filtra'],
   ['GET /api/flito/impuestos/:id',                                             'filtra'],
@@ -288,6 +298,7 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['POST /api/flito/impuestos/:id/recibo-caja',                                'filtra'],
   ['POST /api/flito/derechos/cargar',                                          'filtra'],
   ['GET /api/flito/derechos',                                                  'filtra'],
+  ['POST /api/flito/derechos/buscar',                                          'filtra'], // HU #13838: Dr. Flit gestión, alcance por organismos
   ['GET /api/flito/derechos/facetas',                                          'filtra'],
   ['GET /api/flito/derechos/drive/archivos',                                   'soloSinEnlace'],
   ['GET /api/flito/derechos/drive/registro',                                   'soloSinEnlace'],
@@ -296,6 +307,7 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['GET /api/flito/derechos/soporte/:id',                                      'filtra'],
   ['GET /api/flito/tramites',                                                  'filtra'],
   ['POST /api/flito/tramites/novedades/buscar',                                'filtra'],
+  ['POST /api/flito/tramites/buscar',                                          'filtra'], // HU #13836: Dr. Flit gestión, alcance del listado
   ['GET /api/flito/tramites/facetas',                                          'filtra'],
   ['GET /api/flito/tramites/:id/historial',                                    'filtra'],
   ['GET /api/flito/tramites/:id/soportes',                                     'filtra'],
@@ -315,36 +327,85 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['GET /api/flito/logistica/actas',                                           'filtra'],
   ['GET /api/flito/logistica/actas/:id',                                       'filtra'],
   ['GET /api/flito/logistica/actas/:id/pdf',                                   'filtra'],
+  ['GET /api/flito/logistica/pendientes-tramite',                                 'soloSinEnlace'], // HU #14143
+  ['GET /api/flito/logistica/documentos/:id/candidatos-tramite',                  'soloSinEnlace'], // HU #14143
+  ['POST /api/flito/logistica/documentos/:id/resolver-tramite',                   'soloSinEnlace'], // HU #14143
+  ['GET /api/flito/logistica/documentos/:id/linea-tiempo',                     'soloSinEnlace'], // HU #14124
+  ['GET /api/flito/logistica/tramites/:tramiteId/linea-tiempo',                'soloSinEnlace'], // HU #14124
   ['GET /api/flito/logistica/:id',                                             'filtra'],
   ['POST /api/flito/logistica/validar-lt',                                     'soloSinEnlace'],
+  ['POST /api/flito/logistica/consultar-vehiculo',                             'soloSinEnlace'],
   ['POST /api/flito/logistica/escanear',                                       'soloSinEnlace'],
   ['POST /api/flito/logistica/documentos/:id/novedad',                         'filtra'],
+  ['POST /api/flito/logistica/traslados',                                      'soloSinEnlace'], // HU #14114
+  ['POST /api/flito/logistica/traslados/buscar',                               'soloSinEnlace'], // HU #14125
+  ['POST /api/flito/logistica/traslados/:id/despachar',                        'soloSinEnlace'], // HU #14115
+  ['POST /api/flito/logistica/traslados/:id/entregar',                         'soloSinEnlace'], // HU #14115
+  ['POST /api/flito/logistica/traslados/:id/devolucion',                       'soloSinEnlace'], // HU #14115
+  ['POST /api/flito/logistica/traslados/:id/anular',                           'soloSinEnlace'], // HU #14115
   ['POST /api/flito/logistica/cerrar-lote',                                    'filtra'],
   ['POST /api/flito/logistica/actas/:id/despachar',                            'filtra'],
   ['POST /api/flito/logistica/actas/:id/entregar',                             'filtra'],
   ['POST /api/flito/logistica/actas/:id/devolucion',                           'filtra'],
   ['POST /api/flito/logistica/documentos/:id/reversar',                        'filtra'],
+  ['POST /api/flito/logistica/recogidas/confirmar',                            'soloSinEnlace'], // HU #14110
+  ['GET /api/flito/logistica/recogidas/mias',                                  'soloSinEnlace'], // HU #14110
+  ['GET /api/flito/logistica/recogidas/pendientes-firma',                       'soloSinEnlace'], // HU #14147
+  ['GET /api/flito/logistica/recogidas/:firmanteId',                           'soloSinEnlace'], // HU #14110
+  ['POST /api/flito/logistica/recogidas/:firmanteId/documento',                'soloSinEnlace'], // HU #14110
   ['GET /api/flito/logistica/tramites/:tramiteId/viajes',                      'filtra'],
   ['POST /api/flito/logistica/tramites/:tramiteId/viajes',                     'filtra'],
+  ['POST /api/flito/logistica/viajes/masivo',                                  'filtra'],
   ['DELETE /api/flito/logistica/tramites/:tramiteId/viajes/:viajeId',          'filtra'],
   ['GET /api/flito/bolsas/consolidado',                                        'filtra'],
   ['GET /api/flito/bolsas/riesgo',                                             'filtra'],
   ['GET /api/flito/bolsas/alertas',                                            'filtra'],
-  ['GET /api/flito/bolsas/transito',                                           'soloSinEnlace'],
-  ['POST /api/flito/bolsas/transito',                                          'soloSinEnlace'],
+  // HU #13911: las rutas antiguas `/api/flito/bolsas/transito…` se retiraron (404 por `router.use`, sin ruta).
+  // HU #13907 (ADR-0029): rama TRÁNSITO del catálogo, sub-router montado ANTES del de compañía y con sus mismas rutas;
+  // gestión de FLIT, cerrada a todo enlace (lo que no es de tránsito lo cede con `next('route')`).
+  ['POST /api/flito/bolsas/buscar',                                            'soloSinEnlace'],
+  ['POST /api/flito/bolsas',                                                   'soloSinEnlace'],
+  ['GET /api/flito/bolsas/bolsa/:bolsaId',                                     'soloSinEnlace'],
+  ['PATCH /api/flito/bolsas/bolsa/:bolsaId',                                   'soloSinEnlace'],
+  ['POST /api/flito/bolsas/bolsa/:bolsaId/inactivar',                          'soloSinEnlace'],
+  ['POST /api/flito/bolsas/bolsa/:bolsaId/reactivar',                          'soloSinEnlace'],
+  ['GET /api/flito/bolsas/bolsa/:bolsaId/movimientos',                         'soloSinEnlace'],
+  ['POST /api/flito/bolsas/bolsa/:bolsaId/recargas',                           'soloSinEnlace'],
+  ['GET /api/flito/bolsas/bolsa/:bolsaId/cierres',                             'soloSinEnlace'],
+  ['POST /api/flito/bolsas/bolsa/:bolsaId/cierres',                            'soloSinEnlace'],
+  // HU #13900 (ADR-0029): catálogo del modelo único (sub-router montado ANTES de `/:companiaId`). `/buscar` acota por `companiaDeAlcance`; las rutas por bolsa,
+  // por `bolsaPropia` (bolsa → compañía); el estado, por `companiaPropia`; el alta, por la compañía del body.
+  ['POST /api/flito/bolsas/buscar',                                            'filtra'],
+  ['POST /api/flito/bolsas',                                                   'filtra'],
+  ['GET /api/flito/bolsas/compania/:companiaId/estado',                        'filtra'],
+  ['GET /api/flito/bolsas/bolsa/:bolsaId',                                     'filtra'],
+  ['PATCH /api/flito/bolsas/bolsa/:bolsaId',                                   'filtra'],
+  ['POST /api/flito/bolsas/bolsa/:bolsaId/inactivar',                          'filtra'],
+  ['POST /api/flito/bolsas/bolsa/:bolsaId/reactivar',                          'filtra'],
+  ['GET /api/flito/bolsas/bolsa/:bolsaId/movimientos',                         'filtra'],
+  ['POST /api/flito/bolsas/bolsa/:bolsaId/recargas',                           'filtra'],
+  ['GET /api/flito/bolsas/bolsa/:bolsaId/cierres',                             'filtra'],
+  ['POST /api/flito/bolsas/bolsa/:bolsaId/cierres',                            'filtra'],
   ['GET /api/flito/bolsas/:companiaId',                                        'filtra'],
   ['GET /api/flito/bolsas/:companiaId/movimientos',                            'filtra'],
   ['POST /api/flito/bolsas/:companiaId/recargas',                              'filtra'],
   ['GET /api/flito/bolsas/soportes/:soporteId',                                'filtra'],
-  ['GET /api/flito/bolsas/transito/:bolsaId',                                  'soloSinEnlace'],
-  ['PATCH /api/flito/bolsas/transito/:bolsaId',                                'soloSinEnlace'],
-  ['GET /api/flito/bolsas/transito/:bolsaId/movimientos',                      'soloSinEnlace'],
-  ['POST /api/flito/bolsas/transito/:bolsaId/cargas',                          'soloSinEnlace'],
   ['GET /api/flito/bolsas/:companiaId/extracto',                               'filtra'],
   ['POST /api/flito/bolsas/:companiaId/movimientos-manuales',                  'filtra'],
   ['POST /api/flito/bolsas/:companiaId/movimientos/:movimientoId/correccion',  'filtra'],
   ['GET /api/flito/bolsas/:companiaId/cierres',                                'filtra'],
   ['POST /api/flito/bolsas/:companiaId/cierres',                               'filtra'],
+  // HU #13889 (ADR-0028 D9): expediente documental de la compañía, solo personal FLIT.
+  ['GET /api/flito/bolsas-documentos/companias/:companiaId',                   'soloSinEnlace'],
+  ['GET /api/flito/bolsas-documentos/companias/:companiaId/tipos/:tipo/historial', 'soloSinEnlace'],
+  ['POST /api/flito/bolsas-documentos/companias/:companiaId/tipos/:tipo',      'soloSinEnlace'],
+  // HU #13890 (ADR-0028 §5 E4): fecha de expedición manual, también solo personal FLIT (orden del fuente).
+  ['PUT /api/flito/bolsas-documentos/documentos/:documentoId/fecha-expedicion', 'soloSinEnlace'],
+  // HU #13964 (ADR-0028 adenda E7): retirar la versión vigente, solo personal FLIT.
+  ['POST /api/flito/bolsas-documentos/documentos/:documentoId/retirar',        'soloSinEnlace'],
+  ['GET /api/flito/bolsas-documentos/documentos/:documentoId/archivo',         'soloSinEnlace'],
+  // HU #13893 (ADR-0028 §5 E6): estado del lote para el chip del listado, solo personal FLIT.
+  ['POST /api/flito/bolsas-documentos/estado-lote',                            'soloSinEnlace'],
   ['POST /api/flito/comprobantes',                                             'soloSinEnlace'],
   ['GET /api/flito/comprobantes',                                              'filtra'],
   ['POST /api/flito/comprobantes/tramites/buscar',                             'soloSinEnlace'],
@@ -354,6 +415,9 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
   ['POST /api/flito/comprobantes/:id/aplicar',                                 'soloSinEnlace'],
   ['POST /api/flito/comprobantes/:id/descartar',                               'soloSinEnlace'],
   ['POST /api/flito/comprobantes/:id/diferencia/aceptar',                      'soloSinEnlace'],
+  // HU #13903: cerradas a todo enlace (marca), pero lo ajeno responde 404 antes del 403 (AC10, ADR-0024).
+  ['POST /api/flito/comprobantes/:id/desaplicar',                              'soloSinEnlace'],
+  ['POST /api/flito/comprobantes/:id/reemplazar',                              'soloSinEnlace'],
   ['GET /api/transito/organismos',                                             'filtra'],
   ['GET /api/transito/pendientes',                                             'filtra'],
   ['GET /api/transito/mis-tramites',                                           'filtra'],
@@ -366,7 +430,7 @@ const RUTAS_13426: [string, 'filtra' | 'soloSinEnlace'][] = [
 
 /**
  * Foto de las rutas de los cuatro routers de `/api/flito/soat` (orden de montaje y de declaración).
- * Las 26 acotan por `contextoSoat` (compañía / proveedor) o por `buscarConAcceso` (404-no-403 fuera de
+ * Las 33 acotan por `contextoSoat` (compañía / proveedor) o por `buscarConAcceso` (404-no-403 fuera de
  * su alcance); por eso ninguna lleva `soloSinEnlace()` en #12875. Añadir una aquí es decidir eso.
  */
 const RUTAS_SOAT_ABIERTAS: string[] = [
@@ -376,6 +440,15 @@ const RUTAS_SOAT_ABIERTAS: string[] = [
   'GET /api/flito/soat/cliente/companias',
   'POST /api/flito/soat/cliente',
   'POST /api/flito/soat/cliente/factura/lectura',
+  // HU #14131 (añadidas a propósito): carga masiva de renovaciones, montada DENTRO del router de incompletas (sin un
+  // montaje más). Acotan por `contextoSoat` (alcance de compañía; lote ajeno = 404), no por `soloSinEnlace()`.
+  'GET /api/flito/soat/cliente/masivo/plantilla',
+  'POST /api/flito/soat/cliente/masivo',
+  'GET /api/flito/soat/cliente/masivo/:loteId',
+  'GET /api/flito/soat/cliente/masivo/:loteId/rechazadas', // HU #14133 (faltaba en la foto)
+  // HU #14136 (añadidas a propósito): adjuntar factura y confirmar una pendiente; acotan por `contextoSoat`/alcance (404-no-403).
+  'POST /api/flito/soat/cliente/incompletas/:id/factura',
+  'POST /api/flito/soat/cliente/incompletas/:id/confirmar',
   'POST /api/flito/soat/cliente/incompletas/buscar',
   'GET /api/flito/soat/cliente/incompletas/:id',
   'POST /api/flito/soat/cliente/incompletas/:id/reintentar',
@@ -383,6 +456,9 @@ const RUTAS_SOAT_ABIERTAS: string[] = [
   'POST /api/flito/soat/:id/documentos-adicionales',
   'DELETE /api/flito/soat/:id/documentos-adicionales/:soporteId',
   'GET /api/flito/soat',
+  // HU #13837 (añadida a propósito): Dr. Flit gestión. Acota por `contextoSoat` como el GET /: el enlace
+  // `compania` también entra (solo la suya), igual que en la cola.
+  'POST /api/flito/soat/buscar',
   'POST /api/flito/soat/export',
   'POST /api/flito/soat/soportes/zip',
   'GET /api/flito/soat/facetas',

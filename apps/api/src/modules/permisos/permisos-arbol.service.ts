@@ -48,7 +48,9 @@ export function arbolDef(): { arbol: NodoArbolDef[] } {
     nivel.set(n.codigo, v);
     return v;
   };
-  estructura = { arbol: nodos.map((n) => ({ ...n, nivel: nivelDe(n) })) };
+  // HU #13944: `exclusivaAdmin` sale del catálogo del código (`FUNCIONES_EXCLUSIVAS_ADMIN`), que el arranque ya
+  // comparó con la columna: el panel la pinta bloqueada; el 409 del servicio es la red de seguridad.
+  estructura = { arbol: nodos.map((n) => ({ ...n, nivel: nivelDe(n), exclusivaAdmin: nombres.get(n.codigo)?.exclusivaAdmin === true })) };
   return estructura;
 }
 

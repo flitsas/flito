@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getTableColumns, getTableName, is, SQL } from 'drizzle-orm';
+import { getTableColumns, getTableName, type SQL } from 'drizzle-orm';
 import { PgDialect, type PgTable } from 'drizzle-orm/pg-core';
 
 // ── Base en memoria ─────────────────────────────────────────────────────────────────────────────
@@ -119,15 +119,24 @@ function montarDb(): void {
         const sel = filas(t).filter(filtro(t, cond));
         if (orden.length) {
           const porNombre = Object.fromEntries(Object.entries(columnas(t)).map(([k, col]) => [col.name, k]));
+          // HU #14016: `("col" <> 'literal') desc` (abiertos primero en `soatActualDelVin`) → booleano 1/0.
+          const noIgual: Record<string, string> = {};
           const claves = orden.map((o) => {
-            const m = /"(\w+)" (asc|desc)$/i.exec(dialecto.sqlToQuery(o).sql);
+            const sqlTxt = dialecto.sqlToQuery(o).sql;
+            const ne = /\((?:"\w+"\.)?"(\w+)" <> '([^']*)'\) (asc|desc)$/i.exec(sqlTxt);
+            if (ne && porNombre[ne[1]]) {
+              noIgual[porNombre[ne[1]]] = ne[2];
+              return { k: porNombre[ne[1]], dir: ne[3].toLowerCase() === 'desc' ? -1 : 1 };
+            }
+            const m = /"(\w+)" (asc|desc)$/i.exec(sqlTxt);
             if (!m || !porNombre[m[1]]) throw new Error('orderBy no soportado por el mock');
             return { k: porNombre[m[1]], dir: m[2].toLowerCase() === 'desc' ? -1 : 1 };
           });
-          const val = (v: unknown) => (v instanceof Date ? v.getTime() : (v as number | string | null));
+          const val = (v: unknown, k?: string): number | string | null =>
+            k && k in noIgual ? (v !== noIgual[k] ? 1 : 0) : v instanceof Date ? v.getTime() : (v as number | string | null);
           sel.sort((a, b) => {
             for (const { k, dir } of claves) {
-              const x = val(a[k]); const y = val(b[k]);
+              const x = val(a[k], k); const y = val(b[k], k);
               if (x === y) continue;
               if (x == null) return dir; if (y == null) return -dir;
               return (x < y ? -1 : 1) * dir;
@@ -178,11 +187,7 @@ function montarDb(): void {
         const tocadas = todas.filter(filtro(t, cond));
         for (const f of tocadas) {
           const antes = { ...f };
-          // Bug #14491: el relleno solo-si-vacío llega como `coalesce(columna, $1)`; se emula aquí en
-          // vez de guardar el objeto SQL (que además no se puede clonar en `transaction`).
-          const plano = Object.fromEntries(Object.entries(set).map(([k, v]) =>
-            [k, is(v, SQL) ? (f[k] ?? new PgDialect().sqlToQuery(v).params[0]) : v]));
-          Object.assign(f, plano);
+          Object.assign(f, set);
           try { validar(n, f, todas); } catch (e) { Object.assign(f, antes); throw e; }
         }
         if (tocadas.length) mem.escrituras.push({ op: 'update', tabla: n });

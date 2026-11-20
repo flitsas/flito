@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500" role="img" aria-labelledby="t">
+  <title id="t">Camino de un comprobante desde la carga hasta su trámite (diagrama demo, sin datos reales)</title>
+  <rect width="800" height="500" fill="#ffffff"/>
+  <defs>
+    <marker id="f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0L10 5L0 10z" fill="#4a5568"/>
+    </marker>
+  </defs>
+  <g font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#1a202c">
+    <rect x="30" y="40" width="200" height="70" rx="12" fill="#fef3c7" stroke="#b7791f" stroke-width="2"/>
+    <text x="130" y="81" font-size="18">Cargar comprobantes</text>
+    <rect x="290" y="40" width="200" height="70" rx="12" fill="#e0ecff" stroke="#2b6cb0" stroke-width="2"/>
+    <text x="390" y="69" font-size="18">FLITO lee</text>
+    <text x="390" y="93" font-size="15">cada documento</text>
+    <polygon points="640,15.0 770.0,75 640,135.0 510.0,75" fill="#fff7e6" stroke="#b7791f" stroke-width="2"/>
+    <text x="640" y="70" font-size="16">¿Cruza con un</text>
+    <text x="640" y="92" font-size="16">único trámite?</text>
+    <rect x="560" y="210" width="200" height="70" rx="12" fill="#e6f6ec" stroke="#2f855a" stroke-width="2"/>
+    <text x="660" y="239" font-size="18">Aplicado</text>
+    <text x="660" y="263" font-size="15">automático</text>
+    <rect x="290" y="210" width="200" height="70" rx="12" fill="#edf2f7" stroke="#4a5568" stroke-width="2"/>
+    <text x="390" y="239" font-size="18">Pendiente</text>
+    <text x="390" y="263" font-size="15">(con su motivo)</text>
+    <rect x="30" y="210" width="200" height="70" rx="12" fill="#e0ecff" stroke="#2b6cb0" stroke-width="2"/>
+    <text x="130" y="239" font-size="18">Asociar</text>
+    <text x="130" y="263" font-size="15">trámite y concepto</text>
+    <rect x="30" y="380" width="220" height="80" rx="12" fill="#e6f6ec" stroke="#2f855a" stroke-width="2"/>
+    <text x="140" y="414" font-size="18">Aplicar (pago)</text>
+    <text x="140" y="438" font-size="15">o Adjuntar (documentación)</text>
+    <rect x="290" y="380" width="200" height="80" rx="12" fill="#fde2e2" stroke="#c53030" stroke-width="2"/>
+    <text x="390" y="414" font-size="18">Descartar</text>
+    <text x="390" y="438" font-size="15">con motivo</text>
+    <text x="690" y="180" font-size="15" fill="#4a5568">Sí</text>
+    <text x="500" y="160" font-size="15" fill="#4a5568">No</text>
+  </g>
+  <g stroke="#4a5568" stroke-width="2.5" fill="none" marker-end="url(#f)">
+    <path d="M230 75L285 75"/>
+    <path d="M490 75L505 75"/>
+    <path d="M660 135L660 205"/>
+    <path d="M560 120L470 205"/>
+    <path d="M290 245L235 245"/>
+    <path d="M130 280L135 375"/>
+    <path d="M390 280L390 375"/>
+  </g>
+</svg>

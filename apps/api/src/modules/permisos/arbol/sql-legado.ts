@@ -13,6 +13,8 @@ import { ARBOL_ITEMS_Y_ACCIONES, ELEMENTOS_PERMISOS } from '@operaciones/shared-
 import { catalogoCompleto, type FuncionCatalogo } from '../catalogo.js';
 import { ACCIONES_POR_AREA, PADRE, paginaDeAccion } from './expansion.js';
 import { ITEMS_LEGADO_OPS } from './acciones-legado.js';
+import { ACCIONES_NACIDAS_TRAS_LA_SIEMBRA } from './acciones-finanzas.js';
+import { ITEM_DR_FLIT } from './acciones-dr-flit.js';
 import { lit, sqlRepartoArbol } from './sql-arbol.js';
 
 export const TMP_LEGADO = 'tmp_legado_13429';
@@ -23,7 +25,27 @@ export const TMP_PRIMERA = 'tmp_primera_13429';
  * HU #13588 — Los nodos del árbol nacidos DESPUÉS de la 0239 (los siembra la 0240). La 0238 y la 0239 ya están
  * aplicadas: su texto no cambia, así que el generador que lo reproduce byte a byte (TC-24) los deja fuera.
  */
-export const NACIDOS_DESPUES_DE_0239: ReadonlySet<string> = new Set(['pagina.admin_rendimiento']);
+export const NACIDOS_DESPUES_DE_0239: ReadonlySet<string> = new Set([
+  'pagina.admin_rendimiento',
+  // HU #13889 (ADR-0028): las acciones del expediente documental, sembradas por la 0248; y desde la HU
+  // #13941 las de Dr. Flit, que siembra la 0254 junto con su ítem.
+  ...ACCIONES_NACIDAS_TRAS_LA_SIEMBRA,
+  ITEM_DR_FLIT,
+  // HU #14110: opcional de `accion.logistica.ver_actas`; su `padre_codigo` lo siembra la 0281 (la 0238 ya está aplicada).
+  'logistica.actas.ver_documento_firmante',
+  // HU #14110: opcional de `accion.mi_ruta.escanear`; su `padre_codigo` lo siembra también la 0281.
+  'logistica.recogida.confirmar',
+  // HU #14143: opcional de `accion.logistica.reversar_paso`; su `padre_codigo` lo siembra la 0282.
+  'logistica.documento.resolver_tramite',
+  // HU #14114: opcional de `accion.mi_ruta.escanear`; su `padre_codigo` lo siembra la 0283.
+  'logistica.traslado.registrar',
+  // HU #14115: opcional de `accion.logistica.reversar_paso`; su `padre_codigo` lo siembra la 0284.
+  'logistica.traslado.anular',
+  // HU #14119: opcional de `accion.logistica.ver_consola`; su `padre_codigo` lo siembra la 0285.
+  'logistica.motivos.gestionar',
+  // HU #14122: opcional de `accion.logistica.despachar_entregar_devolver`; su `padre_codigo` lo siembra la 0286.
+  'logistica.actas.firmar_flit',
+]);
 
 /** Operación de ítem antiguo → ítem, ordenado (lo que lee la 0239 y el pliegue del test). */
 export function paresLegado(): [string, string][] {
@@ -54,7 +76,7 @@ export function sqlSiembraLegado(catalogo: FuncionCatalogo[] = catalogoCompleto(
   const paginas = catalogo.filter((f) => f.tipo === 'pagina' && !NACIDOS_DESPUES_DE_0239.has(f.codigo));
   const delArea = new Set(ACCIONES_POR_AREA.legado);
   const acciones = catalogo.filter((f) => delArea.has(f.codigo));
-  const opcionales = catalogo.filter((f) => f.tipo === 'operacion' && f.padre);
+  const opcionales = catalogo.filter((f) => f.tipo === 'operacion' && f.padre && !NACIDOS_DESPUES_DE_0239.has(f.codigo));
   const fila = (vs: string[]) => `  (${vs.map(lit).join(', ')})`;
   return [
     `-- ${elementos.length} elementos (nivel 1; «Ayuda» no: es derivada). Generado: no editar a mano.`,

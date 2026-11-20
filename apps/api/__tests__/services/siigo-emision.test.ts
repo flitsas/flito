@@ -31,7 +31,7 @@ vi.mock('../../src/modules/siigo/facturacion.elegibilidad.service.js', () => ({
 
 const asegurarTerceroMock = vi.fn();
 vi.mock('../../src/modules/siigo/siigo.terceros.service.js', () => ({
-  asegurarTercero: (id: number) => asegurarTerceroMock(id),
+  asegurarTercero: (id: number, opciones?: unknown) => asegurarTerceroMock(id, opciones),
 }));
 
 const parametrosOperativosMock = vi.fn();
@@ -1809,5 +1809,16 @@ describe('preparar el armado', () => {
       emision: EMISION });
 
     expect(a.clave).toBe(b.clave);
+  });
+});
+
+// HU #13947, opción b — un lote ya encolado se emite aunque el cliente se haya desactivado después.
+describe('HU #13947 — emisión de un lote en curso con el cliente desactivado', () => {
+  it('pide el tercero con `emisionDeLoteEnCurso` y emite (la factura sale a Siigo)', async () => {
+    const r = await emitirFactura([TRAMITE], { ambiente: 'pruebas', ahora: () => AHORA, emision: EMISION });
+
+    expect(asegurarTerceroMock).toHaveBeenCalledWith(expect.any(Number), { emisionDeLoteEnCurso: true });
+    expect(r.desenlace).toBe('emitida');
+    expect(peticiones.map((p) => p.ruta)).toContain('/v1/invoices');
   });
 });

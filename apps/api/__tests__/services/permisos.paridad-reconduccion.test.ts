@@ -34,8 +34,10 @@ import { leerRepartoSembrado, MIGRACIONES_ANTES_DEL_ARBOL } from '../helpers/per
 import { montajesDeFunciones, llaveDe } from '../../src/modules/permisos/inventario-guardas.js';
 import { GUARDAS_MEDIDAS } from '../../src/modules/permisos/inventario.generado.js';
 import {
-  ACCIONES_UNIVERSALES, expandirSinCadena, operacionesDe, PARTIDAS_DE_OPERACIONES_NUEVAS as PARTIDA_DE_OPERACION_NUEVA,
+  ACCIONES_ARBOL, ACCIONES_UNIVERSALES, expandirSinCadena, operacionesDe, PARTIDAS_DE_OPERACIONES_NUEVAS as PARTIDA_DE_OPERACION_NUEVA,
 } from '../../src/modules/permisos/arbol/expansion.js';
+import { FUNCIONES_EXCLUSIVAS_ADMIN } from '../../src/modules/permisos/catalogo-operaciones.js';
+import { OPERACIONES_NACIDAS_EN_EL_ARBOL } from '../../src/modules/permisos/arbol/acciones-finanzas.js';
 
 /**
  * HU #13427: en el mundo PLANO (seed ≤ 0231) una operación nueva que parte una guarda vieja se decide con su código de
@@ -49,6 +51,17 @@ const enPlano = (codigo: string) => PARTIDA_DE_OPERACION_NUEVA[codigo] ?? codigo
  * del reparto universal: plegado hasta la 0237, cada rol tiene la acción que las concede (caso propio, abajo).
  */
 const DE_TODOS = new Set(ACCIONES_UNIVERSALES.flatMap((u) => operacionesDe(u.accion)));
+
+/**
+ * HU #13945: las operaciones absorbidas por una acción EXCLUSIVA del Administrador (`FUNCIONES_EXCLUSIVAS_ADMIN`)
+ * nacen en el árbol, sin partida en el mundo plano: la siembra de su acción es posterior (0255) y el plano no puede
+ * decidirlas (solo el grupo `operaciones`: el `apoyo` de lectura sí es del plano). Se excluyen SOLO de la matriz plana; la de la base real sí las mide (admin SÍ, el resto NO).
+ */
+const DE_EXCLUSIVAS = new Set([
+  ...FUNCIONES_EXCLUSIVAS_ADMIN.flatMap((a) => ACCIONES_ARBOL[a]?.operaciones ?? []),
+  // Épica #14163: nace en el árbol (0274), sin partida en el mundo plano; la concede `apoyo` de su acción.
+  ...OPERACIONES_NACIDAS_EN_EL_ARBOL,
+]);
 import {
   fijarFuenteDePermisos, invalidarPermisosDe, resolverPermisos, type FilasPermisos,
 } from '../../src/shared/permisos-efectivos.js';
@@ -87,15 +100,21 @@ function antesDe(r: RutaReconducida): string[] {
  * (`expandirSinCadena`). Que el mundo de HOY (0001..0239) no pierde nada con la cadena lo vigilan, rol a rol,
  * `permisos-arbol-legado.test.ts` (paridad del pliegue) y el reporte en seco de la #13429.
  */
-function matriz(nombre: string, reparto: () => Map<string, Set<string>>, codigoDe: (c: string) => string = (c) => c) {
+function matriz(
+  nombre: string, reparto: () => Map<string, Set<string>>, codigoDe: (c: string) => string = (c) => c,
+  fuera: ReadonlySet<string> = new Set(),
+) {
   describe(nombre, () => {
-    for (const fila of RUTAS_RECONDUCIDAS.filter((f) => !DE_TODOS.has(f.codigo))) {
+    for (const fila of RUTAS_RECONDUCIDAS.filter((f) => !DE_TODOS.has(f.codigo) && !fuera.has(f.codigo))) {
       it(`${etiqueta(fila)} → ${fila.codigo}: los 12 roles deciden como antes`, async () => {
         const antes = antesDe(fila);
         const desacuerdos: string[] = [];
         for (const rol of ROLES) {
           const motor = expandirSinCadena(reparto().get(rol) ?? []).has(codigoDe(fila.codigo));
-          const previo = antes.includes(rol);
+          // HU #14114 (migración 0283, decisión de David: «solo Operaciones/admin»): el mensajero ya no registra viajes.
+          // La foto estática aún le da POST /traslados; EXCEPCIÓN estrecha: solo ese rol + esa función. Para el
+          // mensajero el motor debe decir NO; cualquier otro rol o función sigue medido contra la foto.
+          const previo = antes.includes(rol) && !(rol === 'mensajero' && fila.codigo === 'logistica.traslado.registrar');
           if (motor !== previo) {
             desacuerdos.push(`${etiqueta(fila)} · rol ${rol}: antes ${previo ? 'SÍ' : 'NO'}, motor ${motor ? 'SÍ' : 'NO'}`);
           }
@@ -136,8 +155,55 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
     const desconocidos = RUTAS_RECONDUCIDAS.filter((r) => !sembrados.has(enPlano(r.codigo))).map(etiqueta);
     // Un código que NINGÚN rol tiene sembrado es una guarda que responde 403 a todo el mundo. Solo hay
     // una, a propósito: el reemplazo del comprobante de pago nace sin rol (AC7 de la HU #13269) y el
-    // administrador lo concede desde el panel. Cualquier otra es un olvido.
-    expect(desconocidos).toEqual(['flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts POST /:id/recibos/reemplazar-pago']);
+    // administrador lo concede desde el panel. HU #13889 (ADR-0028): las cuatro del expediente documental
+    // tampoco tienen reparto de partida: nacen en el árbol y las concede su acción (la 0248 solo marca a `admin`).
+    // Cualquier otra es un olvido.
+    expect(desconocidos).toEqual([
+      // HU #13941: las tres funciones de Dr. Flit nacen en el árbol (la 0254 las da con su acción a `admin`).
+      'flito-dr-flit/dr-flit.funciones.ts POST * [usar_ia]',
+      'flito-dr-flit/dr-flit.funciones.ts POST * [radicar_soporte]',
+      'flito-dr-flit/dr-flit.funciones.ts POST * [consultar_gestion]',
+      'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts GET /companias/:companiaId',
+      'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts GET /companias/:companiaId/tipos/:tipo/historial',
+      'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts POST /companias/:companiaId/tipos/:tipo',
+      'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts GET /documentos/:documentoId/archivo',
+      // HU #13890 (ADR-0028 §5 E4): la fecha manual reutiliza `bolsas.documentos.cargar`, sin reparto de partida.
+      'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts PUT /documentos/:documentoId/fecha-expedicion',
+      // HU #13964 (ADR-0028 adenda E7): retirar la vigente reutiliza `bolsas.documentos.cargar`, sin reparto de partida.
+      'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts POST /documentos/:documentoId/retirar',
+      // HU #13893 (ADR-0028 §5 E6): el estado del lote reutiliza `bolsas.documentos.ver`, sin reparto de partida.
+      'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts POST /estado-lote',
+      'flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts POST /:id/recibos/reemplazar-pago',
+      // Épica #14163: `impuestos.certificacion_directa.gestionar` nace en el árbol (0274; `accion.impuestos.certificar_sin_tramite`, solo `admin`); no se siembra.
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts GET /certificacion-directa/catalogo',
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts POST /certificacion-directa/extraer',
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts GET /certificacion-directa',
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts POST /certificacion-directa',
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts GET /certificacion-directa/:id/factura',
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts GET /certificacion-directa/:id/certificado',
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts POST /certificacion-directa/:id/consultar',
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts GET /certificacion-directa/:id',
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts PATCH /certificacion-directa/:id',
+      // HU #13945: `clients.clientes.estado` nace absorbida por la acción exclusiva del Administrador
+      // `accion.clientes.activar_desactivar`; la siembra la 0255 (solo `admin`), no el seed plano.
+      'clients/clients.routes.ts GET /:id/impacto',
+      'clients/clients.routes.ts PATCH /:id/estado',
+      // HU #13954: `clients.clientes.eliminar`, absorbida por `accion.clientes.eliminar` (0258, solo `admin`).
+      'clients/clients.routes.ts DELETE /:id',
+      // HU #13958: `parametrizacion.proveedores.estado`, absorbida por `accion.clientes.activar_desactivar_proveedores`
+      // (0261, solo `admin`).
+      'flito-parametrizacion/flito-parametrizacion.routes.ts GET /proveedores-soat/:id/impacto',
+      'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /proveedores-soat/:id/estado',
+      // HU #14103: `PATCH /:id/estado` de proveedores de logística reutiliza `parametrizacion.proveedores.estado` (misma absorción 0261).
+      'flito-parametrizacion/flito-proveedores-logistica.routes.ts PATCH /:id/estado',
+      // HU #14148: impacto de logística reutiliza `…proveedores.estado` (0261). El listado unificado reutiliza `…proveedores.listar`
+      // (no absorbida, igual que los listados por tipo).
+      'flito-parametrizacion/flito-proveedores-logistica.routes.ts GET /:id/impacto',
+      // HU #14148: la baja de proveedores de logística reutiliza `…proveedores.eliminar` (0263).
+      'flito-parametrizacion/flito-proveedores-logistica.routes.ts DELETE /:id',
+      // HU #13960: `parametrizacion.proveedores.eliminar`, absorbida por `accion.clientes.eliminar_proveedores` (0263).
+      'flito-parametrizacion/flito-parametrizacion.routes.ts DELETE /proveedores-soat/:id',
+    ]);
   });
 });
 
@@ -163,7 +229,7 @@ describe('HU #13428 (P-22) — las guardas de Perfil: antes las pasaba cualquier
   });
 });
 
-matriz('AC7 — el motor alimentado con el SQL de la 0179 + 0181 decide, ruta a ruta y rol a rol, lo mismo que el requireRole de antes', () => leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL), enPlano);
+matriz('AC7 — el motor alimentado con el SQL de la 0179 + 0181 decide, ruta a ruta y rol a rol, lo mismo que el requireRole de antes', () => leerRepartoSembrado(MIGRACIONES_ANTES_DEL_ARBOL), enPlano, DE_EXCLUSIVAS);
 
 // ── Variante contra la base real ─────────────────────────────────────────────────────────────────
 const URL_BASE = process.env.TEST_DATABASE_URL;

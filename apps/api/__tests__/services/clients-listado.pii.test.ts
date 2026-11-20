@@ -60,6 +60,9 @@ const { clients } = await import('../../src/db/schema.js');
 
 beforeEach(() => {
   selectMock.mockReset();
+  // HU #13967 (AC7): las compañías del padrón sin proveedor disparan UNA lectura más (quién tiene
+  // `soat.solicitud.crear`); por defecto no hay nadie. La proyección del listado sigue siendo la 1.ª.
+  selectMock.mockImplementation(() => chain([]));
   logPiiAccessMock.mockClear();
 });
 
@@ -180,6 +183,8 @@ describe('AC8 — la respuesta entrega columnas, no la fila entera', () => {
       'id', 'name', 'document', 'documentType', 'city', 'phone', 'email',
       'soatAutogestionable', 'soatSinTramite', 'impuestosAutogestionable',
       'logisticaAutogestionable', 'logisticaPermiteParcial',
+      // HU #13948: la pestaña muestra y filtra el estado (activa / inactiva).
+      'active',
     ];
     const fichaFiscal = [
       // `components/clientes/FichaFiscal.tsx` — pide `/clients?limit=500` y arma el formulario.
@@ -201,11 +206,11 @@ describe('AC8 — la respuesta entrega columnas, no la fila entera', () => {
   });
 
   it('deja fuera lo que ninguna pantalla lee, empezando por lo personal', () => {
-    // El recorte no es cosmético aunque sean diez columnas de treinta y seis: `notes` es texto
+    // El recorte no es cosmético aunque sean nueve columnas (`active` salió en la HU #13948): `notes` es texto
     // libre —donde acaba cualquier cosa—, `cityTextoOrigen` es la ubicación que tenía la ficha
     // antes de confirmarse y `flitoCarpetaStorage` se deriva del NIT.
     for (const fuera of [
-      'notes', 'active', 'cityTextoOrigen', 'flitoCarpetaStorage', 'flitoToleranciaValorImpuesto',
+      'notes', 'cityTextoOrigen', 'flitoCarpetaStorage', 'flitoToleranciaValorImpuesto',
       'personTypeOrigen', 'cityConfirmadaPor', 'cityConfirmadaEn', 'facturacionBloqueos', 'createdAt',
     ]) {
       expect(Object.keys(COLUMNAS_LISTADO)).not.toContain(fuera);
@@ -233,7 +238,8 @@ describe('AC8 — la respuesta entrega columnas, no la fila entera', () => {
 
     // Los códigos de catálogo NO son datos personales: clasifican a un tercero, no identifican ni
     // ubican a nadie. Es el criterio que este módulo ya fija en `CAMPOS_FISCALES_TRAZABLES`.
-    for (const codigo of ['id', 'document_type', 'person_type', 'id_type', 'branch_office']) {
+    // `active` (HU #13948) tampoco: dice si la compañía opera, no quién es.
+    for (const codigo of ['id', 'document_type', 'active', 'person_type', 'id_type', 'branch_office']) {
       expect(CAMPOS_PII_LISTADO).not.toContain(codigo);
     }
   });

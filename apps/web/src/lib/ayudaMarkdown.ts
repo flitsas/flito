@@ -1,18 +1,99 @@
-// Parser mínimo de Markdown → AST. Sin HTML embebido, sin imágenes, sin tablas.
+// Parser mínimo de Markdown → AST. Sin HTML embebido, sin tablas. Avisos `> [!TIPO]` (HU #13706).
+// Imágenes locales `![alt](./<clave>/<archivo>)` (HU #13707, diseño slim §6); cualquier otro origen → solo el alt.
 // El renderer (AyudaMarkdown) solo crea elementos React: cero dangerouslySetInnerHTML.
 
 export type MdInline =
   | { type: 'text'; value: string }
   | { type: 'strong'; children: MdInline[] }
   | { type: 'code'; value: string }
-  | { type: 'a'; href: string; children: MdInline[] };
+  | { type: 'a'; href: string; children: MdInline[] }
+  // HU #13707: `src` ya es la URL final `/ayuda/<clave>/<archivo>?v=<version>` (fuera del grafo de Vite).
+  | { type: 'img'; alt: string; src: string };
+
+/** Opciones del parser. `versionFicha` versiona la URL de las imágenes (`?v=`) para el SW (D7). */
+export interface OpcionesMd {
+  versionFicha?: string;
+}
+
+/**
+ * Única forma aceptada de imagen (diseño slim §6): carpeta = clave de la ficha, archivo en minúsculas
+ * con extensión de imagen. Nada de `http…`, `data:`, `/…` ni `..`: esos casos no producen petición.
+ */
+export const SRC_IMAGEN = /^\.\/([a-z0-9_]+)\/([a-z0-9][a-z0-9_-]*\.(png|jpe?g|webp|svg))$/;
+
+/** URL pública de una imagen de ficha, o `null` si el `src` del .md no es aceptable. */
+export function urlImagen(src: string, versionFicha?: string): string | null {
+  const m = SRC_IMAGEN.exec(src.trim());
+  if (!m) return null;
+  const v = versionFicha ? `?v=${encodeURIComponent(versionFicha)}` : '';
+  return `/ayuda/${m[1]}/${m[2]}${v}`;
+}
 
 export type MdBlock =
-  | { type: 'h1' | 'h2' | 'h3'; children: MdInline[] }
+  | { type: 'h1' | 'h2' | 'h3'; id: string; children: MdInline[] }
   | { type: 'p'; children: MdInline[] }
   | { type: 'ul'; items: MdInline[][] }
   | { type: 'ol'; items: MdInline[][] }
-  | { type: 'pre'; lang: string; code: string };
+  | { type: 'pre'; lang: string; code: string }
+  // HU #13706 (diseño slim §7 · UX HU-4): `> [!NOTA|IMPORTANTE|PRECAUCION]` en la 1.ª línea del bloque
+  // `>`. Cada párrafo del cuerpo (separado por una línea `>` vacía) es un `MdInline[]`.
+  | { type: 'callout'; tipo: TipoAviso; parrafos: MdInline[][] }
+  // `> texto` o `> [!OTRO] …`: cita simple, texto tal cual (AC2). Nunca HTML.
+  | { type: 'quote'; parrafos: MdInline[][] };
+
+export type TipoAviso = 'nota' | 'importante' | 'precaucion';
+
+const AVISO = /^\[!(NOTA|IMPORTANTE|PRECAUCION)\]\s*(.*)$/;
+
+function esCita(line: string): boolean {
+  return line.startsWith('>');
+}
+
+/** Bloque `>` ya sin el marcador → aviso (tipo conocido en la 1.ª línea) o cita simple. */
+function bloqueDeCita(lineas: string[], opts: OpcionesMd): MdBlock {
+  const m = AVISO.exec(lineas[0].trim());
+  const cuerpo = m ? [m[2], ...lineas.slice(1)] : lineas;
+  const parrafos: MdInline[][] = [];
+  let actual: string[] = [];
+  const cerrar = (): void => {
+    if (actual.length) parrafos.push(parseInline(actual.join(' '), opts));
+    actual = [];
+  };
+  for (const l of cuerpo) {
+    if (l.trim()) actual.push(l.trim());
+    else cerrar();
+  }
+  cerrar();
+  if (m) return { type: 'callout', tipo: m[1].toLowerCase() as TipoAviso, parrafos };
+  return { type: 'quote', parrafos };
+}
+
+/** Texto visible de una línea inline (sin marcas). Base de las anclas y de la tabla de contenido. */
+export function textoPlano(nodes: MdInline[]): string {
+  return nodes
+    .map((n) => {
+      if (n.type === 'text' || n.type === 'code') return n.value;
+      if (n.type === 'img') return n.alt;
+      return textoPlano(n.children);
+    })
+    .join('');
+}
+
+/**
+ * Ancla de un encabezado (Feature #13691 · HU #13705, diseño slim §4). Contrato hacia Dr. Flit:
+ * `/flito/ayuda/<clave>#<ancla>`. Solo depende del texto: NFD, sin diacríticos, minúsculas,
+ * `[^a-z0-9]+` → `-`, sin `-` en los extremos; vacío → `seccion`. Los repetidos los numera
+ * `parseMarkdown` (`x`, `x-2`, `x-3`…), en orden de aparición.
+ */
+export function anclaDeEncabezado(texto: string): string {
+  const slug = texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'seccion';
+}
 
 const HREF_OK = /^(https?:\/\/|\/)/i;
 
@@ -26,7 +107,7 @@ export function hrefPermitido(href: string): boolean {
   return true;
 }
 
-export function parseInline(raw: string): MdInline[] {
+export function parseInline(raw: string, opts: OpcionesMd = {}): MdInline[] {
   const out: MdInline[] = [];
   let i = 0;
   let buf = '';
@@ -44,8 +125,11 @@ export function parseInline(raw: string): MdInline[] {
       const paren = cierre >= 0 && raw[cierre + 1] === '(' ? raw.indexOf(')', cierre + 2) : -1;
       if (cierre >= 0 && paren > cierre) {
         flush();
-        const alt = raw.slice(i + 2, cierre);
-        if (alt) out.push({ type: 'text', value: alt });
+        const alt = raw.slice(i + 2, cierre).trim();
+        const url = urlImagen(raw.slice(cierre + 2, paren), opts.versionFicha);
+        // Sin alt no hay nodo (la prueba de artefactos lo detecta, AC2). Origen no permitido → solo el alt (AC6).
+        if (alt && url) out.push({ type: 'img', alt, src: url });
+        else if (alt) out.push({ type: 'text', value: alt });
         i = paren + 1;
         continue;
       }
@@ -65,7 +149,7 @@ export function parseInline(raw: string): MdInline[] {
       const end = raw.indexOf('**', i + 2);
       if (end > i + 1) {
         flush();
-        out.push({ type: 'strong', children: parseInline(raw.slice(i + 2, end)) });
+        out.push({ type: 'strong', children: parseInline(raw.slice(i + 2, end), opts) });
         i = end + 2;
         continue;
       }
@@ -80,9 +164,9 @@ export function parseInline(raw: string): MdInline[] {
           const href = raw.slice(cierre + 2, paren).trim();
           flush();
           if (hrefPermitido(href)) {
-            out.push({ type: 'a', href, children: parseInline(texto) });
+            out.push({ type: 'a', href, children: parseInline(texto, opts) });
           } else {
-            out.push(...parseInline(texto));
+            out.push(...parseInline(texto, opts));
           }
           i = paren + 1;
           continue;
@@ -97,6 +181,8 @@ export function parseInline(raw: string): MdInline[] {
   return out;
 }
 
+const parseInlineCon = (raw: string, opts: OpcionesMd): MdInline[] => parseInline(raw, opts);
+
 function esTabla(line: string): boolean {
   return line.trimStart().startsWith('|');
 }
@@ -109,16 +195,26 @@ function esOl(line: string): boolean {
   return /^\d+\. /.test(line);
 }
 
-export function parseMarkdown(source: string): MdBlock[] {
+export function parseMarkdown(source: string, opts: OpcionesMd = {}): MdBlock[] {
+  const parseInline = (raw: string): MdInline[] => parseInlineCon(raw, opts);
   const lines = source.replace(/\r\n/g, '\n').split('\n');
   const blocks: MdBlock[] = [];
+  const usadas = new Map<string, number>();
   let i = 0;
+
+  const encabezado = (type: 'h1' | 'h2' | 'h3', raw: string): MdBlock => {
+    const children = parseInline(raw);
+    const base = anclaDeEncabezado(textoPlano(children));
+    const n = (usadas.get(base) ?? 0) + 1;
+    usadas.set(base, n);
+    return { type, id: n === 1 ? base : `${base}-${n}`, children };
+  };
 
   const tomarParrafo = (primera: string): MdInline[] => {
     const partes = [primera];
     while (i < lines.length) {
       const n = lines[i];
-      if (!n.trim() || n.startsWith('#') || esUl(n) || esOl(n) || n.startsWith('```') || esTabla(n)) break;
+      if (!n.trim() || n.startsWith('#') || esUl(n) || esOl(n) || n.startsWith('```') || esTabla(n) || esCita(n)) break;
       partes.push(n);
       i += 1;
     }
@@ -143,6 +239,16 @@ export function parseMarkdown(source: string): MdBlock[] {
       continue;
     }
 
+    if (esCita(line)) {
+      const lineas = [line.replace(/^> ?/, '')];
+      while (i < lines.length && esCita(lines[i])) {
+        lineas.push(lines[i].replace(/^> ?/, ''));
+        i += 1;
+      }
+      blocks.push(bloqueDeCita(lineas, opts));
+      continue;
+    }
+
     if (esTabla(line)) {
       const celdas = line.split('|').map((c) => c.trim()).filter(Boolean);
       blocks.push({ type: 'p', children: parseInline(celdas.join(' · ')) });
@@ -151,15 +257,15 @@ export function parseMarkdown(source: string): MdBlock[] {
     }
 
     if (line.startsWith('### ')) {
-      blocks.push({ type: 'h3', children: parseInline(line.slice(4)) });
+      blocks.push(encabezado('h3', line.slice(4)));
       continue;
     }
     if (line.startsWith('## ')) {
-      blocks.push({ type: 'h2', children: parseInline(line.slice(3)) });
+      blocks.push(encabezado('h2', line.slice(3)));
       continue;
     }
     if (line.startsWith('# ')) {
-      blocks.push({ type: 'h1', children: parseInline(line.slice(2)) });
+      blocks.push(encabezado('h1', line.slice(2)));
       continue;
     }
 
