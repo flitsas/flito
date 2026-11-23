@@ -1,18 +1,21 @@
 // Barra de filtros de la cola de Impuestos (UI Kit 2026, molde `#tramites`, decisión D3).
-// `PanelFiltros` del kit: buscador + «Filtros» (panel) + chips de lo aplicado. El ESTADO sigue en la
-// página —alimenta la query de la cola y el cuerpo del export— y se filtra en vivo como antes: el
-// panel solo agrupa los controles. Nada de esto va a la URL (regla 14: el buscador lleva PII).
+// Épica #14560 (ronda 2): el molde es `BarraFiltrosCola`, el MISMO del SOAT —tarjeta con el embudo,
+// buscador + «Filtros» (panel), chips de lo aplicado y «Vistas rápidas» como chips (antes, un
+// selector «Vista»)—. El ESTADO sigue en la página —alimenta la query de la cola y el cuerpo del
+// export— y se filtra en vivo, como antes: el panel solo agrupa los controles. Nada de esto va a la
+// URL (regla 14: el buscador lleva PII).
 import type { ReactNode } from 'react';
-import PanelFiltros, { type FiltroAplicado } from '../../flit/PanelFiltros';
 import ThFiltroMulti from '../../flit/ThFiltroMulti';
 import RangoFechas from '../../flit/RangoFechas';
-import FiltrosInteligentes, { type Preset } from '../../flit/FiltrosInteligentes';
-import { Icono } from '../../flit/kit/Icono';
+import type { Preset } from '../../flit/FiltrosInteligentes';
+import BarraFiltrosCola, { GrupoFiltros as Grupo, type FiltroActivo } from '../BarraFiltrosCola';
 
 export type GestionImpuesto = '' | 'operaciones' | 'organismo';
 type Rango = { desde: string; hasta: string };
 
 export interface ImpuestosFiltrosProps<F> {
+  /** El embudo de fases (`EmbudoEstadoCola`), primero dentro de la tarjeta. */
+  embudo: ReactNode;
   esGestor: boolean;
   texto: string; setTexto: (t: string) => void;
   facetas: { companias: { id: number; nombre: string }[]; organismos: { codigo: string; nombre: string | null }[] } | null;
@@ -31,20 +34,11 @@ export interface ImpuestosFiltrosProps<F> {
 const CASILLA = 'flex cursor-pointer items-center gap-2 text-sm font-semibold text-[color:var(--color-text-primary)]';
 const GESTION: Record<Exclude<GestionImpuesto, ''>, string> = { operaciones: 'Operaciones', organismo: 'El organismo' };
 
-function Grupo({ titulo, children }: { titulo: string; children: ReactNode }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-3">
-      <p className="text-xs font-semibold uppercase tracking-wide text-[color:var(--color-text-tertiary)]">{titulo}</p>
-      <div className="flex flex-wrap items-center gap-3">{children}</div>
-    </div>
-  );
-}
-
 export default function ImpuestosFiltros<F>(p: ImpuestosFiltrosProps<F>) {
   const sinRango: Rango = { desde: '', hasta: '' };
   // Los chips de lo aplicado reutilizan los rótulos de cada control; quitar uno es poner su control
   // en vacío, el mismo setter que usa el panel.
-  const aplicados: Array<FiltroAplicado & { quitar: () => void }> = [
+  const aplicados: FiltroActivo[] = [
     ...(p.companiasSel.length ? [{ id: 'companias', etiqueta: `Compañía (${p.companiasSel.length})`, quitar: () => p.setCompaniasSel([]) }] : []),
     ...(p.organismosSel.length ? [{ id: 'organismos', etiqueta: `Organismo (${p.organismosSel.length})`, quitar: () => p.setOrganismosSel([]) }] : []),
     ...(p.gestionSel ? [{ id: 'gestion', etiqueta: `Gestiona: ${GESTION[p.gestionSel]}`, quitar: () => p.setGestionSel('') }] : []),
@@ -55,11 +49,9 @@ export default function ImpuestosFiltros<F>(p: ImpuestosFiltrosProps<F>) {
     ...(p.liquidadoPendiente ? [{ id: 'liquidado', etiqueta: 'Liquidado, pendiente de pago', quitar: () => p.setLiquidadoPendiente(false) }] : []),
   ];
 
-  // `campo--ancho`: la rejilla propia ocupa todo el panel. Sin él caía en UNA celda de 220 px de
-  // `.filtros__campos` y los rangos (`<summary>` sin partir) desbordaban sobre «Riesgo» y tapaban
-  // sus casillas.
+  // Los tres grupos van directo a la rejilla del panel de `BarraFiltrosCola` (1/2/3 columnas).
   const campos = (
-    <div className="campo--ancho grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+    <>
       <Grupo titulo="Quién">
         <ThFiltroMulti seleccion={p.companiasSel} onCambio={p.setCompaniasSel} placeholder="Compañía"
           vacio="Sin compañías en la cola"
@@ -103,28 +95,14 @@ export default function ImpuestosFiltros<F>(p: ImpuestosFiltrosProps<F>) {
           Liquidado, pendiente de pago
         </label>
       </Grupo>
-    </div>
+    </>
   );
 
   return (
-    <PanelFiltros
-      busqueda={p.texto}
-      onBusqueda={p.setTexto}
+    <BarraFiltrosCola embudo={p.embudo} texto={p.texto} setTexto={p.setTexto}
       placeholder="Buscar placa, VIN, trámite, comprador…"
-      campos={campos}
-      aplicados={aplicados}
-      onQuitar={(id) => aplicados.find((a) => a.id === id)?.quitar()}
-      acciones={(
-        <>
-          <FiltrosInteligentes presets={p.presets} activo={p.preset} onAplicar={p.onAplicarPreset} onQuitar={p.limpiarFiltros} />
-          {(p.hayFiltros || !!p.texto) && (
-            <button type="button" className="btn ghost" onClick={p.limpiarFiltros}>
-              <Icono nombre="cerrar" size={16} />
-              Limpiar filtros
-            </button>
-          )}
-        </>
-      )}
-    />
+      panel={campos} cuentaPanel={aplicados.length} aplicados={aplicados}
+      vistas={p.presets} vista={p.preset} onVista={p.onAplicarPreset}
+      hayFiltros={p.hayFiltros} limpiarFiltros={p.limpiarFiltros} />
   );
 }

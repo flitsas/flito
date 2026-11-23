@@ -22,7 +22,7 @@ import CeldaVehiculoSoat from '../CeldaVehiculoSoat';
 import { CeldaVigenciaSoat } from '../VigenciaSoat';
 import { CasillaSoat } from '../BarraEnvioSoat';
 import { BotonComprobanteFila, type EstadoDescargaComprobante } from '../DescargarComprobanteSoat';
-import { flitBtnSecondarySm } from '../../flit/flitPageKit';
+import { claseBoton } from '../../flit/GradientButton';
 import ChipEstadoSoat from './ChipEstadoSoat';
 import FilaIncompletaSoat from './FilaIncompletaSoat';
 import { fecha, pesos, type ColaSoat, type SoatItem } from './tipos';
@@ -131,11 +131,11 @@ export default function TablaColaSoat({
       render: (f) => (
         <div className="flex items-center gap-2 whitespace-nowrap">
           {puedeDescargar && <BotonComprobanteFila soat={f} descarga={descargaComprobante} />}
-          {/* `h-7`, el compacto del kit: dentro de la celda el botón no manda más que el dato.
+          {/* El `secondary sm` relleno del kit, el mismo «Ver ›» de Impuestos (Épica #14560, ronda 2).
               El chevrón dice que abre algo; el nombre accesible sigue siendo «Ver». */}
-          <button type="button" className={flitBtnSecondarySm} onClick={() => onVer(f.id)}>
+          <button type="button" className={claseBoton('secondary', 'sm')} data-variante="secundario" onClick={() => onVer(f.id)}>
             Ver
-            <Icono nombre="derecha" size={16} className="-mr-1 shrink-0" />
+            <Icono nombre="derecha" size={16} />
           </button>
         </div>
       ),
@@ -146,16 +146,16 @@ export default function TablaColaSoat({
     <div className="space-y-3">
       <Paginacion {...paginacion} />
       {/* `regionDesplazable`: la región «Pólizas SOAT» que ya nombraba `FlitTable` (la usan los E2E y
-          el lector de pantalla). La paginación va fuera, arriba y abajo, como antes de la migración. */}
+          el lector de pantalla). Paginación arriba, fuera de la tabla, y abajo la del `DataTable`: lo mismo
+          que la cola de Impuestos (Épica #14560, ronda 2). */}
       <DataTable ariaLabel="Pólizas SOAT" regionDesplazable="Pólizas SOAT" columnas={columnas} filas={filas} getKey={(f) => f.id}
-        filaMarcada={(f) => seleccion.has(f.id)}
+        filaMarcada={(f) => seleccion.has(f.id)} paginacion={paginacion}
         filasPrevias={incompletas.map((f) => (
           <FilaIncompletaSoat key={`inc-${f.id}`} fila={f} conCasillas={conCasillas} conCompania={conCompania}
             esCliente={esCliente} puedeVer={puedeVerIncompleta} onVer={onVerIncompleta}
             puedeReintentar={puedeReintentarIncompleta} puedeCompletar={puedeCompletarIncompleta} consultando={f.id in incompletasEnVuelo}
             onReintentar={onReintentarIncompleta} />
         ))} />
-      <Paginacion {...paginacion} />
     </div>
   );
 }

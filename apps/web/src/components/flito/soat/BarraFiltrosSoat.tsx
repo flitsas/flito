@@ -2,11 +2,13 @@
 //
 // Hasta esta HU era un muro: tres multiselect, dos `select`, las vistas rápidas, tres rangos, una
 // casilla y «Limpiar» en un solo `flex-wrap` (11 renglones a 375 px antes de la primera fila). Ahora:
-//   · renglón 1 — pastillas de estado, búsqueda, «Más filtros (n)» y «Limpiar filtros»;
+//   · renglón 1 — pastillas de estado, búsqueda, «Filtros (n)» y «Limpiar filtros»;
 //   · renglón 2 — las vistas rápidas, el atajo de más valor, a un clic y a la vista (NO al Cliente:
 //     su copy habla de ANS y de proveedor, jerga de trastienda — P-1 de la spec);
-//   · panel plegable «Más filtros», en rejilla por intención: Quién · Cuándo · Riesgo.
-// Con el panel plegado, el `(n)` del botón es el estado persistente de los filtros que no se ven.
+//   · panel plegable «Filtros», en rejilla por intención: Quién · Cuándo · Riesgo.
+// Con el panel plegado, la burbuja del botón es el estado persistente de los filtros que no se ven.
+// Épica #14560 (ronda 2): el molde (tarjeta, buscador, botón, vistas rápidas, panel) es
+// `BarraFiltrosCola`, el mismo de Impuestos; aquí queda solo el contenido propio del SOAT.
 //
 // El ESTADO de los filtros se queda en la página, porque alimenta la query de la cola y el cuerpo del
 // export; esta barra solo lo pinta y lo cambia. Lo único propio es si el panel está abierto.
@@ -16,15 +18,15 @@
 // «Limpiar todo») y filtraría al «Aplicar» en vez de en vivo. Los estados van como chips del kit
 // (`FiltroSegmentado`): el `Embudo` pide un conteo por estado que el API de la cola no da.
 
-import { useState, type ReactNode, type RefObject } from 'react';
+import type { RefObject } from 'react';
 import { ESTADO_SOAT_LABEL, EstadoSoat, type FiltroVigenciaCola } from '@operaciones/shared-types';
 import ThFiltroMulti from '../../flit/ThFiltroMulti';
 import RangoFechas from '../../flit/RangoFechas';
 import type { Preset } from '../../flit/FiltrosInteligentes';
 import { FiltroVigenciaSoat } from '../VigenciaSoat';
 import EmbudoSoat from './EmbudoSoat';
-import { Icono } from '../../flit/kit/Icono';
-import { FlitCard, flitInp } from '../../flit/flitPageKit';
+import { flitInp } from '../../flit/flitPageKit';
+import BarraFiltrosCola, { GrupoFiltros } from '../BarraFiltrosCola';
 import { PASTILLA_INCOMPLETA_LABEL, type FacetasSoat, type FiltroEstadoSoat } from './tipos';
 
 export type GestionSel = '' | 'operaciones' | 'proveedor';
@@ -52,20 +54,10 @@ export interface BarraFiltrosSoatProps {
   hayFiltros: boolean; limpiarFiltros: () => void;
 }
 
-const ID_PANEL = 'soat-mas-filtros';
-
-function Grupo({ titulo, children }: { titulo: string; children: ReactNode }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-3">
-      <p className="text-xs font-semibold uppercase tracking-wide text-[color:var(--color-text-tertiary)]">{titulo}</p>
-      <div className="flex flex-wrap items-center gap-3">{children}</div>
-    </div>
-  );
-}
+const Grupo = GrupoFiltros;
 
 export default function BarraFiltrosSoat(p: BarraFiltrosSoatProps) {
   const { esGestor, esCliente, estado, setEstado, texto } = p;
-  const [abierto, setAbierto] = useState(false);
   // Compañía para el Cliente solo si su cola tiene más de una (§3): con una sola, filtrar por ella
   // no cambia nada. Para Operaciones y gestor, como siempre.
   const conCompania = !esCliente || (p.facetas?.companias.length ?? 0) > 1;
@@ -86,50 +78,8 @@ export default function BarraFiltrosSoat(p: BarraFiltrosSoatProps) {
     ...(p.conIncompletas ? [{ valor: 'descartada' as FiltroEstadoSoat, etiqueta: PASTILLA_INCOMPLETA_LABEL.descartada }] : []),
   ];
 
-  return (
-    <FlitCard>
-      <div className="filtros" data-kit="filtros">
-      <div ref={p.refPills} tabIndex={-1} className="flit-focus mb-3 max-w-full overflow-x-auto rounded-[9px]">
-        <EmbudoSoat ariaLabel="Estado del SOAT" opciones={opcionesEstado} valor={estado} onCambio={setEstado} />
-      </div>
-      <div className="filtros__barra">
-        <div className="control-icono filtros__buscar">
-          <Icono nombre="buscar" size={18} />
-          <input className="control" type="search" placeholder="Buscar placa, VIN, comprador…" aria-label="Buscar SOAT"
-            value={texto} onChange={(e) => p.setTexto(e.target.value)} />
-        </div>
-        <button type="button" className="btn secondary filtros__boton" aria-expanded={abierto} aria-controls={ID_PANEL}
-          onClick={() => setAbierto((a) => !a)}>
-          <Icono nombre="filtro" size={20} />
-          {activosPanel > 0 ? `Más filtros (${activosPanel})` : 'Más filtros'}
-        </button>
-        {(p.hayFiltros || !!texto) && (
-          <button type="button" className="btn ghost" onClick={p.limpiarFiltros}>
-            <Icono nombre="cerrar" size={16} />
-            Limpiar filtros
-          </button>
-        )}
-      </div>
-
-      {presets.length > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold text-[color:var(--color-text-secondary)]">Vistas rápidas:</span>
-          {presets.map((pr) => {
-            const puesto = p.preset === pr.nombre;
-            return (
-              <button key={pr.nombre} type="button" aria-pressed={puesto} title={pr.descripcion}
-                className="chip chip--sm h-10 min-h-0 whitespace-nowrap transition-colors"
-                onClick={() => (puesto ? p.limpiarFiltros() : p.onAplicarPreset(pr))}>
-                {pr.nombre}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {abierto && (
-        <div id={ID_PANEL} role="group" aria-label="Más filtros"
-          className="filtros__panel mt-3 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+  const panel = (
+    <>
           <Grupo titulo="Quién">
             {conCompania && (
               <ThFiltroMulti seleccion={p.companiasSel} onCambio={p.setCompaniasSel} placeholder="Compañía"
@@ -181,9 +131,15 @@ export default function BarraFiltrosSoat(p: BarraFiltrosSoatProps) {
               Solo sin gestión
             </label>
           </Grupo>
-        </div>
-      )}
-      </div>
-    </FlitCard>
+    </>
+  );
+
+  return (
+    <BarraFiltrosCola refEmbudo={p.refPills} texto={texto} setTexto={p.setTexto}
+      placeholder="Buscar placa, VIN, comprador…" ariaBuscar="Buscar SOAT"
+      embudo={<EmbudoSoat ariaLabel="Estado del SOAT" opciones={opcionesEstado} valor={estado} onCambio={setEstado} />}
+      panel={panel} cuentaPanel={activosPanel}
+      vistas={presets} vista={p.preset} onVista={p.onAplicarPreset}
+      hayFiltros={p.hayFiltros} limpiarFiltros={p.limpiarFiltros} />
   );
 }
