@@ -28,8 +28,8 @@ registrarEstados({
   'soat-completada': { tono: 'ok', glifo: 'finalizado' },
 });
 
-/** Glifo del estado en su disco de color, como la `EtiquetaEstado` del kit. */
-function IconoEstado({ clave }: { clave: string }) {
+/** Glifo del estado en su disco de color, como la `EtiquetaEstado` del kit. Lo usa también Impuestos. */
+export function IconoEstado({ clave }: { clave: string }) {
   const e = estadoKit(clave);
   return (
     <span aria-hidden="true" className="kit-disco kit-etiqueta__icono !bg-[var(--c)] !text-[color:var(--kit-sobre-relleno)]">

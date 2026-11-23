@@ -3,18 +3,15 @@
 // Lo único propio de cada módulo es el glifo de cada estado, que se registra aquí con el prefijo del
 // módulo para no pisar las claves del kit. Las colas no exponen conteos por estado: el chip va sin cifra.
 // Nombres accesibles y `aria-pressed` sin cambio: el ícono es decorativo y el texto es la etiqueta de siempre.
-// Los glifos de los estados del SOAT se registran en ChipEstadoSoat: se importa para que existan al pintar.
+// Los glifos de los estados se registran en ChipEstadoSoat / ChipEstadoImpuesto: se importan para que existan al pintar.
 import './soat/ChipEstadoSoat';
+import './impuestos/ChipEstadoImpuesto';
 import { Embudo } from '../flit/Bloques';
 import { registrarEstados } from '../flit/kit/tonos';
 
 registrarEstados({
   'soat-todos': { tono: 'neutro', glifo: 'todos' },
   'impuesto-todos': { tono: 'neutro', glifo: 'todos' },
-  'impuesto-pendiente': { tono: 'neutro', glifo: 'pausa' },
-  'impuesto-solicitado': { tono: 'info', glifo: 'reloj' },
-  'impuesto-con_novedad': { tono: 'danger', glifo: 'alerta' },
-  'impuesto-pagado': { tono: 'ok', glifo: 'doble-check' },
 });
 
 export interface OpcionEmbudo<T extends string> {

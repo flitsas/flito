@@ -20,6 +20,7 @@ import { Icono } from '../../flit/kit/Icono';
 import { Girador } from '../../flit/Cargador';
 import type { SolicitudIncompletaFila } from '@operaciones/shared-types';
 import { flitBtnSecondarySm } from '../../flit/flitPageKit';
+import { claseBoton } from '../../flit/GradientButton';
 import { ChipIncompletaSoat } from './ChipEstadoSoat';
 import { fecha } from './tipos';
 
@@ -88,9 +89,9 @@ export default function FilaIncompletaSoat({
             </button>
           )}
           {puedeVer && (
-            <button type="button" className={flitBtnSecondarySm} data-ver-incompleta={fila.id} onClick={() => onVer(fila)}>
+            <button type="button" className={claseBoton('secondary', 'sm')} data-variante="secundario" data-ver-incompleta={fila.id} onClick={() => onVer(fila)}>
               {porCompletar && puedeCompletar ? 'Completar' : 'Ver'}
-              <Icono nombre="derecha" size={16} className="-mr-1 shrink-0" />
+              <Icono nombre="derecha" size={16} />
             </button>
           )}
         </div>

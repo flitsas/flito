@@ -405,7 +405,12 @@ test.describe('FLITO — Impuestos · envío del comprobante a FLIT 2 y reemplaz
     await iniciar(page);
     const { modal } = await abrirReemplazo(page, 'ERR001');
     await expect(modal).toBeVisible();
-    esperarSinViolacionesGraves(await correrAxe(page), 'reemplazo de comprobante');
+    // Acotado a los diálogos (el detalle y el de reemplazo), que es lo que este test audita. Sobre el
+    // documento entero, axe medía también la cola que queda DETRÁS del modal, desplazada por el clic
+    // en «Ver», y sus botones salían «parcialmente tapados» por la barra superior fija: un falso
+    // `target-size` que dependía de la altura de las filas, no del diálogo (Épica #14560). La cola
+    // tiene su propio axe en `flito-impuestos-fases-a11y`.
+    esperarSinViolacionesGraves(await correrAxe(page, '[role="dialog"]'), 'reemplazo de comprobante');
   });
 });
 

@@ -240,7 +240,7 @@ const panelRango = (page: Page, etiqueta: string) =>
 
 /** Deja puesto el rango del filtro nuevo, pinchando los dos extremos del mes visible. */
 /**
- * HU #12819: en la cola SOAT los filtros secundarios viven en el panel plegable «Más filtros»;
+ * HU #12819: en la cola SOAT los filtros secundarios viven en el panel plegable «Filtros»;
  * en Impuestos (UI Kit 2026) todos viven en el panel «Filtros». Idempotente: si ya está abierto no lo cierra.
  */
 async function abrirMasFiltrosSoat(page: Page) {
@@ -248,9 +248,8 @@ async function abrirMasFiltrosSoat(page: Page) {
   // UI Kit 2026: en Impuestos TODOS los filtros viven en el panel que abre «Filtros» (`PanelFiltros`).
   const enImpuestos = ruta.startsWith('/flito/impuestos');
   if (!enImpuestos && !ruta.startsWith('/flito/soat')) return;
-  const boton = enImpuestos
-    ? page.getByRole('button', { name: /^Filtros/ })
-    : page.getByRole('button', { name: /^Más filtros/ });
+  // Épica #14560 (ronda 2): el botón se llama «Filtros» en las dos colas.
+  const boton = page.getByRole('button', { name: /^Filtros/ });
   // Primero que la cola haya pintado: durante la carga inicial la pantalla se vuelve a montar
   // (sesión y permisos) y un panel abierto antes se cerraría con ella.
   if (enImpuestos) await expect(page.getByText('ABC123').first()).toBeVisible();
