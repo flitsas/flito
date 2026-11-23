@@ -285,6 +285,9 @@ const RUTAS_13426: [string, Decision][] = [
   ['POST /api/flito/impuestos/certificacion-directa/:id/consultar',             'filtra'],
   ['GET /api/flito/impuestos/certificacion-directa/:id',                        'filtra'],
   ['PATCH /api/flito/impuestos/certificacion-directa/:id',                      'filtra'],
+  ['DELETE /api/flito/impuestos/certificacion-directa/:id',                     'filtra'],
+  ['POST /api/flito/impuestos/certificacion-directa/eliminar-lote',             'filtra'],
+  ['POST /api/flito/impuestos/certificacion-directa/certificados/zip',          'filtra'],
   ['POST /api/flito/impuestos/:id/recibos',                                    'filtra'],
   ['POST /api/flito/impuestos/:id/recibos/reemplazar-pago',                    'filtra'],
   ['POST /api/flito/impuestos/:id/soportes/pdf',                               'filtra'], // Bug #14532: misma frontera que el ZIP
