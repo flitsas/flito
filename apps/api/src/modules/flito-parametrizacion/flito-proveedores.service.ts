@@ -69,7 +69,8 @@ export const MENSAJE_SOAT_SIN_SERVICIO = 'Los datos de SOAT solo se aceptan si e
 const mensajeNitDuplicado = (nombre: string) => `Ya existe un proveedor con ese NIT: ${nombre}`;
 const mensajeNombreDuplicado = (nombre: string) => `Ya existe un proveedor con ese nombre: ${nombre}`;
 
-const INDICES_DE_NIT: ReadonlySet<string> = new Set(['uq_flito_proveedores_nit_vivo', 'uq_flito_proveedores_logistica_nit']);
+// HU #14355: el NIT solo vive en el padre; el índice del perfil de logística y el trigger que lo relanzaba ya no existen.
+const INDICES_DE_NIT: ReadonlySet<string> = new Set(['uq_flito_proveedores_nit_vivo']);
 
 const nombreNormalizado = (valor: unknown) => sql`lower(btrim(regexp_replace(${valor}, '\\s+', ' ', 'g')))`;
 const nitSinVerificacion = (valor: unknown) => sql`split_part(${valor}, '-', 1)`;
@@ -119,7 +120,7 @@ function restriccionDeUnicidad(e: unknown): string | null | undefined {
 
 /**
  * Ejecuta una escritura y traduce la carrera de unicidad a 409 (RN-PROVG-2). El error original no sale de aquí: su DETAIL
- * trae el NIT y terminaría en el log. Vale para el padre y para los índices de los perfiles a los que baja el trigger.
+ * trae el NIT y terminaría en el log. Desde la 0314 (HU #14355) los únicos índices de nombre y NIT son los del padre.
  */
 export async function conUnicidadTraducida<T>(g: Pick<ProveedorGeneralesBody, 'nit' | 'nombre'> | null, fn: () => Promise<T>): Promise<T> {
   try {
@@ -155,7 +156,7 @@ export async function bloquearProveedorVigente(tx: TxProveedor, id: string): Pro
 
 /**
  * Orden canónico de bloqueos de los perfiles: SOAT y luego Logística. Es el de la asignación de compañía (`FOR SHARE` sobre
- * uno y luego el otro) y el del trigger `padre_a_perfil`; bloquear al revés da `40P01` con un proveedor con ambos servicios.
+ * uno y luego el otro); bloquear al revés da `40P01` con un proveedor con ambos servicios.
  * Se llama justo después de `bloquearProveedorVigente`. Para SOAT basta `FOR NO KEY UPDATE`: choca con `FOR SHARE` y no frena
  * las FK de los inserts en `flito_soat`. Un perfil que no existe no bloquea nada.
  */
@@ -339,7 +340,7 @@ export async function crearProveedor(datos: CrearProveedorBody, actor: ActorAudi
     await exigirUnicos(tx, g);
     const [padre] = await tx.insert(flitoProveedores).values({ ...g }).returning();
     if (padre === undefined) throw new Error('El alta del proveedor no devolvió la fila');
-    // HU #14673: el perfil solo lleva lo suyo. El espejo de los datos generales lo copia del padre `perfil_crea_padre` (0313).
+    // HU #14673 y #14355: el perfil solo lleva lo suyo; los datos generales viven únicamente en el padre.
     if (servicios.includes('soat')) await tx.insert(flitoProveedoresSoat).values({ id: padre.id, ...columnasDeSoat(soat ?? {}) });
     if (servicios.includes('logistica')) await tx.insert(flitoProveedoresLogistica).values({ id: padre.id });
     await registrarAuditoriaProveedor(tx, padre.id, actor.userId, [

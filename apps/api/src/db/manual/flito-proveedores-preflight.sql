@@ -1,5 +1,9 @@
 -- Comprobación previa de proveedores repetidos (HU #14328, Feature #14323, ADR-0039 §5.3). SOLO LECTURA.
 --
+-- OBSOLETA TRAS LA 0314 (HU #14355): los perfiles ya no tienen `nombre` ni `nit`, así que sobre un esquema contraído
+-- este script falla al leerlos. Se conserva para los ambientes que aún no tienen la 0292; para la 0314 use
+-- flito-proveedores-contraccion-preflight.sql.
+--
 -- Cuándo: antes del merge de la 0292 en DEV y antes de cada promoción, en QA y PDN. La API de PDN usa
 -- `strategy: Recreate`: si la migración se detiene, PDN queda caída hasta corregir el dato o revertir el digest.
 --
