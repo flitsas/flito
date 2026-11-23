@@ -6,7 +6,7 @@
 //   · RN-PROV-1 — Impacto (solo lectura): `soatEnCurso` = filas de `flito_soat` con `proveedor_soat_id` = P y
 //       `estado <> 'pagado'`; `companiasGestorPorDefecto` = clientes VIGENTES (`clienteVigente()`) cuyo gestor por
 //       defecto de «SOAT sin trámite» es P (`clients.flito_proveedor_soat_sin_tramite_id`); `usuariosAfectados` =
-//       usuarios con `flito_proveedor_soat_id` = P y sin baja lógica. `puedeEliminar`/`motivoNoEliminable` = RN-PROV-6
+//       usuarios con `flito_proveedor_id` = P y sin baja lógica (HU #14354: la pertenencia del modelo nuevo). `puedeEliminar`/`motivoNoEliminable` = RN-PROV-6
 //       (HU #13960, `motivoNoEliminableProveedor`).
 //   · RN-PROV-2 y RN-PROV-3 — RETIRADAS con `PATCH /proveedores-soat/:id/estado` (HU #14334). El cambio de estado es
 //       `cambiarEstadoProveedor` (RN-PEST-1, RN-PEST-2): conserva `FOR UPDATE`, invalidar sesiones sin tocar `users.active`, y
@@ -80,7 +80,9 @@ const proveedorVigente = (id: string) => and(eq(flitoProveedoresSoat.id, id), is
 
 /** RN-PROV-1. `null` si el proveedor no existe o está eliminado. No modifica nada. */
 export async function impactoProveedorSoat(tx: Ejecutor, id: string): Promise<ImpactoProveedorSoat | null> {
-  const [proveedor] = await tx.select({ activo: flitoProveedoresSoat.activo }).from(flitoProveedoresSoat)
+  // HU #14354 (R21): `activo` sale del padre; el perfil SOAT vigente decide si el proveedor «existe» para este impacto.
+  const [proveedor] = await tx.select({ activo: flitoProveedores.activo }).from(flitoProveedores)
+    .innerJoin(flitoProveedoresSoat, eq(flitoProveedoresSoat.id, flitoProveedores.id))
     .where(proveedorVigente(id)).limit(1);
   if (!proveedor) return null;
 
@@ -91,7 +93,7 @@ export async function impactoProveedorSoat(tx: Ejecutor, id: string): Promise<Im
       .where(and(eq(clients.flitoProveedorSoatSinTramiteId, id), clienteVigente()))
       .orderBy(asc(clients.name)),
     tx.select({ total: count() }).from(users)
-      .where(and(eq(users.flitoProveedorSoatId, id), isNull(users.deletedAt))),
+      .where(and(eq(users.flitoProveedorId, id), isNull(users.deletedAt))),
   ]);
 
   const base = {

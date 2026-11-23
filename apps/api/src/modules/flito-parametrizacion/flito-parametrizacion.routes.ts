@@ -7,13 +7,12 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { mensajesDeTipo } from '../../shared/utils/zod-mensajes.js';
-import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import {
   clients,
   flitoImpuestos,
   flitoOrganismoVigencias,
-  flitoProveedoresSoat,
   flitoReglasProveedorSoat,
   organismosTransitoConfig,
 } from '../../db/schema.js';
@@ -50,7 +49,7 @@ import {
   ServicioAdicionalConflictoError, ServicioAdicionalError, ServicioAdicionalNoEncontradoError,
 } from './flito-servicios-adicionales.service.js';
 import {
-  ProveedorSoatNoEncontradoError, ProveedorSoatNoUsableError, exigirProveedorSoatUsable, impactoProveedorSoat,
+  ProveedorSoatNoUsableError, exigirProveedorSoatUsable,
 } from './flito-proveedores-estado.service.js';
 
 const router = Router();
@@ -301,41 +300,9 @@ router.patch('/companias/:id', async (req: Request, res: Response, next: NextFun
   res.json(companiaDto(updated));
 });
 
-// ───────────────────────────────── Proveedores de SOAT ──────────────────────
-
-function proveedorDto(p: typeof flitoProveedoresSoat.$inferSelect) {
-  return {
-    id: p.id,
-    nombre: p.nombre,
-    estrategia: p.estrategia,
-    umbralOcr: p.umbralOcr === null ? null : Number(p.umbralOcr),
-    slaHoras: p.slaHoras,
-    activo: p.activo,
-  };
-}
-
-router.get('/proveedores-soat', exigirFuncion('parametrizacion.proveedores.listar'), async (_req: Request, res: Response) => {
-  // HU #13957: los proveedores eliminados (baja lógica, `deleted_at`) no se listan.
-  const filas = await db.select().from(flitoProveedoresSoat)
-    .where(isNull(flitoProveedoresSoat.deletedAt)).orderBy(asc(flitoProveedoresSoat.nombre));
-  res.json(filas.map(proveedorDto));
-});
-
-// HU #14334: las escrituras de proveedores viven en `flito-proveedores.routes.ts` (ADR-0039 §7.1). Aquí solo quedan las lecturas.
-
-// ── HU #13958: vista previa del impacto de un proveedor SOAT ─────────────────────────────────────────────────────
-// Exige `parametrizacion.proveedores.estado`, que concede «Activar o desactivar proveedores», exclusiva del Administrador (0261).
-
-const UUID = z.string().uuid();
-const idProveedor = (req: Request): string | null => (UUID.safeParse(req.params.id).success ? req.params.id : null);
-
-router.get('/proveedores-soat/:id/impacto', exigirFuncion('parametrizacion.proveedores.estado'), async (req: Request, res: Response) => {
-  const id = idProveedor(req);
-  if (id === null) { res.status(400).json({ error: 'ID inválido' }); return; }
-  const impacto = await impactoProveedorSoat(db, id);
-  if (!impacto) { res.status(404).json({ error: new ProveedorSoatNoEncontradoError().message }); return; }
-  res.json(impacto);
-});
+// ───────────────────────────────── Proveedores ──────────────────────────────
+// HU #14354 (F5): `GET /proveedores-soat` y `GET /proveedores-soat/:id/impacto` se retiraron. Lectura, impacto y escritura
+// viven en `flito-proveedores.routes.ts` (`/api/flito/parametrizacion/proveedores`, ADR-0039 §7.1).
 
 // ───────────────────────────────── Organismos + modalidad ───────────────────
 

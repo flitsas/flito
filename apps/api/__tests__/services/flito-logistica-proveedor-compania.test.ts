@@ -28,9 +28,7 @@ async function buildApp() {
   const app = express();
   app.use(express.json());
   const { default: router } = await import('../../src/modules/flito-parametrizacion/flito-parametrizacion.routes.js');
-  const { default: logistica } = await import('../../src/modules/flito-parametrizacion/flito-proveedores-logistica.routes.js');
   const { errorHandler } = await import('../../src/shared/middleware/errorHandler.js');
-  app.use('/api/flito/parametrizacion/proveedores-logistica', logistica);
   app.use('/api/flito/parametrizacion', router);
   app.use(errorHandler);
   return app;

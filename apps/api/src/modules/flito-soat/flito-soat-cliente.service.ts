@@ -100,6 +100,7 @@ import {
   auditLogs,
   clients,
   flitoCompradores,
+  flitoProveedores,
   flitoProveedoresSoat,
   flitoSoat,
   flitoSoatIncompletas,
@@ -1218,12 +1219,14 @@ export async function resolverDestinoCanalCliente(
   tx: Tx, companiaId: number,
 ): Promise<DestinoCanalCliente> {
   const [fila] = await tx
-    .select({ proveedorId: flitoProveedoresSoat.id, activo: flitoProveedoresSoat.activo, deletedAt: flitoProveedoresSoat.deletedAt })
+    // HU #14354 (R21): `activo` sale del padre, unido por el mismo UUID; la baja del servicio, del perfil SOAT.
+    .select({ proveedorId: flitoProveedoresSoat.id, activo: flitoProveedores.activo, deletedAt: flitoProveedoresSoat.deletedAt })
     .from(clients)
     .leftJoin(
       flitoProveedoresSoat,
       eq(flitoProveedoresSoat.id, clients.flitoProveedorSoatSinTramiteId),
     )
+    .leftJoin(flitoProveedores, eq(flitoProveedores.id, clients.flitoProveedorSoatSinTramiteId))
     .where(eq(clients.id, companiaId))
     .limit(1);
 

@@ -363,7 +363,8 @@ describe('AC2 — el destino sale del gestor por defecto de la compañía', () =
     expect(consultaDelResolutor()).toHaveLength(1);
     const q = consultaDelResolutor()[0];
     expect(q.tabla).toBe('clients');
-    expect(q.joins).toEqual(['flito_proveedores_soat']);
+    // HU #14354 (R21): el perfil SOAT (su baja) y el padre (`activo`), los dos por la PK: siguen siendo UNA consulta.
+    expect(q.joins).toEqual(['flito_proveedores_soat', 'flito_proveedores']);
     // Y no hay una SEGUNDA consulta al catálogo: «sin gestor» y «gestor inactivo» son el mismo
     // desenlace y tienen que leerse en el mismo instante.
     expect(consultas.filter((c) => c.tabla === 'flito_proveedores_soat')).toHaveLength(0);
