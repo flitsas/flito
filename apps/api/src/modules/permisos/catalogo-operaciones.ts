@@ -44,6 +44,7 @@ const IMP = 'flito-impuestos/flito-impuestos.routes.ts';
 const IMP_DIR = 'flito-impuestos/flito-impuestos.direccion.routes.ts';
 const IMP_REEMP = 'flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts';
 const IMP_CERT = 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts';
+const IMP_DOCFAC = 'flito-impuestos/flito-impuestos.documento-factura.routes.ts';
 const DER = 'flito-derechos/flito-derechos.routes.ts';
 const REV = 'flito-revisiones/flito-revisiones.routes.ts';
 const COMP = 'flito-compuerta/flito-compuerta.routes.ts';
@@ -155,6 +156,9 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${IMP_DIR} PATCH /:id/direccion`, 'impuestos.tramite.corregir_direccion', 'Corregir dirección del comprador', 'Guardar la dirección, municipio y departamento correctos del comprador de un trámite de impuestos.'),
   // HU #13269: textos byte a byte con la 0220. Nace sin rol (AC7).
   op(`${IMP_REEMP} POST /:id/recibos/reemplazar-pago`, 'impuestos.recibos.reemplazar', 'Reemplazar el comprobante de pago de un impuesto', 'Sustituir el comprobante de pago ya cargado en un impuesto por otro corregido y, si el trámite viene de FLIT 2, reenviarlo allá.'),
+  // HU #14664: mismo código que certificar (quien certifica corrige/reintenta estos 3 campos).
+  op(`${IMP_DOCFAC} PATCH /:id/documento-factura`, 'impuestos.tramite.certificar', 'Certificar un trámite de impuestos', 'Dar por pagado y certificado el impuesto de un vehículo.'),
+  op(`${IMP_DOCFAC} POST /:id/documento-factura/reintentar`, 'impuestos.tramite.certificar', 'Certificar un trámite de impuestos', 'Dar por pagado y certificado el impuesto de un vehículo.'),
   // Un solo código para la pantalla: la acción lo absorbe (predecesor) y lo concede (apoyo).
   op(`${IMP_CERT} GET /certificacion-directa/catalogo`, 'impuestos.certificacion_directa.gestionar', 'Certificar un impuesto sin trámite', 'Cargar la factura de venta, consultar el RUNT por VIN y descargar el certificado.'),
   op(`${IMP_CERT} POST /certificacion-directa/extraer`, 'impuestos.certificacion_directa.gestionar', 'Certificar un impuesto sin trámite', 'Cargar la factura de venta, consultar el RUNT por VIN y descargar el certificado.'),

@@ -185,6 +185,9 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-impuestos/flito-impuestos.routes.ts', metodo: 'POST', ruta: '/:id/devolver-gestor', codigo: 'impuestos.tramite.devolver' },
   // HU #12833: sub-router propio de la corrección de dirección.
   { fichero: 'flito-impuestos/flito-impuestos.direccion.routes.ts', metodo: 'PATCH', ruta: '/:id/direccion', codigo: 'impuestos.tramite.corregir_direccion' },
+  // HU #14664: corregir o reintentar número/fecha/avalúo — mismo permiso que certificar.
+  { fichero: 'flito-impuestos/flito-impuestos.documento-factura.routes.ts', metodo: 'PATCH', ruta: '/:id/documento-factura', codigo: 'impuestos.tramite.certificar' },
+  { fichero: 'flito-impuestos/flito-impuestos.documento-factura.routes.ts', metodo: 'POST', ruta: '/:id/documento-factura/reintentar', codigo: 'impuestos.tramite.certificar' },
   { fichero: 'flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts', metodo: 'POST', ruta: '/:id/recibos/reemplazar-pago', codigo: 'impuestos.recibos.reemplazar' },
   // Certificar sin trámite (épica #14163): sub-router propio, una sola operación `gestionar`.
   { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'GET', ruta: '/certificacion-directa/catalogo', codigo: 'impuestos.certificacion_directa.gestionar' },

@@ -213,6 +213,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     // HU #14110: confirmar la recogida y sus dos consultas piden la misma `logistica.recogida.confirmar`. HU #14147: +1 (pendientes-firma), cuatro rutas con la misma función.
     // HU #14115: despachar/entregar/devolver el viaje reutilizan `logistica.actas.*` de las rutas de acta.
     // HU #14125: `POST /traslados/buscar` reutiliza `logistica.consola.ver` del GET de la consola (la placa va en el cuerpo).
+    // HU #14664: corregir/reintentar documento de factura reutilizan `impuestos.tramite.certificar` del certificar (sin función nueva ni migración).
     expect(compartidosFlito.sort()).toEqual([
       ['bolsas.bolsa.inactivar', 2], ['bolsas.bolsa.ver', 3], ['bolsas.cierre.crear', 2], ['bolsas.cierres.ver', 2],
       ['bolsas.documentos.cargar', 3], ['bolsas.documentos.ver', 4],
@@ -220,6 +221,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       ['bolsas.transito.inactivar', 2],
       ['derechos.cola.ver', 2],
       ['impuestos.certificacion_directa.gestionar', 12], ['impuestos.cola.ver', 2],
+      ['impuestos.tramite.certificar', 3],
       ['logistica.actas.despachar', 3], ['logistica.actas.devolver', 2], ['logistica.actas.entregar', 2], // HU #14353: +GET /actas/:id/mensajeros
       ['logistica.consola.ver', 3], // HU #14351: +POST /buscar
       ['logistica.documento.escanear', 2], ['logistica.documento.resolver_tramite', 3],
