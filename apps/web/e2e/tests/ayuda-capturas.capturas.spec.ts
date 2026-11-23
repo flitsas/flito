@@ -1606,7 +1606,7 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await page.goto('/flito/soat');
     await expect(page.getByText(DATOS_DEMO.placas[0]).first()).toBeVisible();
 
-    // Pasos 1 y 2 — Pastillas, buscador, Más filtros y vistas rápidas; arriba, la solicitud por validar.
+    // Pasos 1 y 2 — Pastillas, buscador, Filtros y vistas rápidas; arriba, la solicitud por validar.
     await capturar(page, dir, '01-cola');
 
     // Paso 4 — Marcar filas y enviar al gestor: el botón dice sobre cuántas actúa.
