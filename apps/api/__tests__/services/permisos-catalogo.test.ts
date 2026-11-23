@@ -208,7 +208,8 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     // HU #13907 (ADR-0029): la rama tránsito del catálogo reutilizó los códigos de las rutas `/transito…`; desde la
     // HU #13911 (rutas retiradas) cada `bolsas.transito.*` lo guarda UNA sola ruta, salvo inactivar y reactivar, que
     // piden la misma `bolsas.transito.inactivar`.
-    // Certificar sin trámite: las nueve rutas de la pantalla piden `impuestos.certificacion_directa.gestionar`. La acción la absorbe.
+    // Certificar sin trámite: las doce rutas de la pantalla piden `impuestos.certificacion_directa.gestionar`. La acción la absorbe.
+    // HU #14665: +3 (eliminar, eliminar en lote y el ZIP de certificados; reutilizan la misma función).
     // HU #14142: `POST /consultar-vehiculo` (ingreso manual de la LT) reutiliza `logistica.documento.escanear` de `/escanear` (sin función nueva).
     // HU #13958: el impacto y el cambio de estado de un proveedor SOAT piden la misma `parametrizacion.proveedores.estado`
     // (gemelo de `clients.clientes.estado`).
@@ -224,7 +225,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       ['bolsas.movimientos.ver', 2], ['bolsas.recarga.registrar', 2],
       ['bolsas.transito.inactivar', 2],
       ['derechos.cola.ver', 2],
-      ['impuestos.certificacion_directa.gestionar', 9], ['impuestos.cola.ver', 2],
+      ['impuestos.certificacion_directa.gestionar', 12], ['impuestos.cola.ver', 2],
       ['logistica.actas.despachar', 3], ['logistica.actas.devolver', 2], ['logistica.actas.entregar', 2], // HU #14353: +GET /actas/:id/mensajeros
       ['logistica.consola.ver', 3], // HU #14351: +POST /buscar
       ['logistica.documento.escanear', 2], ['logistica.documento.resolver_tramite', 3],

@@ -58,4 +58,28 @@ describe('PDF del certificado sin trámite', () => {
     expect(t).not.toContain('VIN consultado');
     expect(t).not.toContain('Placa (dato de FLITO)');
   });
+
+  describe('placa opcional (HU #14665)', () => {
+    it('sin placa: omite la línea de placa, sin dejar rótulo vacío ni «null»', async () => {
+      const t = textoDelPdf(await construirCertificadoDirectoPdf({ ...base, placa: null }));
+      expect(t).not.toContain('Placa (dato de FLITO)');
+      expect(t).not.toContain('Placa consultada');
+      expect(t).not.toContain('null');
+      expect(t).toContain('VIN consultado: 9ZZTEST0000000001');
+    });
+
+    it('sin placa y consultado con documento: tampoco imprime la línea de placa', async () => {
+      const t = textoDelPdf(await construirCertificadoDirectoPdf({ ...base, placa: null, modalidadConsulta: 'placa_documento' }));
+      expect(t).not.toContain('Placa consultada');
+      expect(t).not.toContain('Placa (dato de FLITO)');
+      expect(t).toContain('VIN (dato de FLITO): 9ZZTEST0000000001');
+    });
+
+    it('sin placa, el título del PDF usa el VIN', async () => {
+      const pdf = await construirCertificadoDirectoPdf({ ...base, placa: null });
+      // El título queda en el diccionario /Info del PDF; basta con que no truene con `placa: null`
+      // (`sanitize` exige un string) y que el documento siga siendo un PDF válido.
+      expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
+    });
+  });
 });

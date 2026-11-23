@@ -196,6 +196,10 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'POST', ruta: '/certificacion-directa/:id/consultar', codigo: 'impuestos.certificacion_directa.gestionar' },
   { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'GET', ruta: '/certificacion-directa/:id', codigo: 'impuestos.certificacion_directa.gestionar' },
   { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'PATCH', ruta: '/certificacion-directa/:id', codigo: 'impuestos.certificacion_directa.gestionar' },
+  // HU #14665: eliminar, eliminar en lote y el ZIP de certificados (misma función).
+  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'DELETE', ruta: '/certificacion-directa/:id', codigo: 'impuestos.certificacion_directa.gestionar' },
+  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'POST', ruta: '/certificacion-directa/eliminar-lote', codigo: 'impuestos.certificacion_directa.gestionar' },
+  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'POST', ruta: '/certificacion-directa/certificados/zip', codigo: 'impuestos.certificacion_directa.gestionar' },
   // flito-derechos/flito-derechos.routes.ts
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'POST', ruta: '/cargar', codigo: 'derechos.recibos.cargar' },
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'GET', ruta: '/', codigo: 'derechos.cola.ver' },

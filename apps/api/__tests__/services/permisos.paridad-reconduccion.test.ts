@@ -186,6 +186,10 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
       'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts POST /certificacion-directa/:id/consultar',
       'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts GET /certificacion-directa/:id',
       'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts PATCH /certificacion-directa/:id',
+      // HU #14665: eliminar, eliminar en lote y el ZIP de certificados reutilizan el mismo código, sin reparto de partida.
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts DELETE /certificacion-directa/:id',
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts POST /certificacion-directa/eliminar-lote',
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts POST /certificacion-directa/certificados/zip',
       // Épica #14560 (ADR-0045): `tramites.vistas_columnas.administrar` nace en el árbol (0305;
       // `accion.tramites.administrar_vistas_columnas`, solo `admin`); no se siembra.
       'flito-vistas-columnas/flito-vistas-columnas.routes.ts PUT /:tablaId/predeterminada/general',

@@ -22,7 +22,8 @@ const ETIQUETA_REGISTRO: Record<keyof RegistroRuntGuardado, string> = {
 };
 
 export interface CertificadoDirectoPdfDatos {
-  placa: string;
+  /** Opcional desde la HU #14665: la consulta RUNT ya no depende de la placa. */
+  placa: string | null;
   vin: string;
   documento: string | null;
   nombrePropietario: string | null;
@@ -42,23 +43,24 @@ const RESULTADO: Record<ComparacionCampoFacturaRunt['resultado'], string> = {
   no_verificable: 'No reportado por el RUNT',
 };
 
-/** Líneas que el PDF imprime. Omite lo no diligenciado. El documento no se rotula como validado ante el RUNT. */
+/**
+ * Líneas que el PDF imprime. Omite lo no diligenciado (incluida la placa, opcional desde la HU
+ * #14665). El documento no se rotula como validado ante el RUNT.
+ */
 export function lineasDatoFlito(d: Pick<CertificadoDirectoPdfDatos, 'nombrePropietario' | 'documento' | 'vin' | 'placa' | 'organismo' | 'modalidadConsulta'>): [string, string][] {
   const porVin = d.modalidadConsulta === 'vin';
   const lineas: [string, string][] = [];
   if (d.nombrePropietario) lineas.push(['Nombre (dato de FLITO)', d.nombrePropietario]);
   if (d.documento) lineas.push(['Documento (dato de FLITO)', d.documento]);
-  lineas.push(
-    [porVin ? 'VIN consultado' : 'VIN (dato de FLITO)', d.vin],
-    [porVin ? 'Placa (dato de FLITO)' : 'Placa consultada', d.placa],
-    ['Organismo (dato de FLITO)', d.organismo],
-  );
+  lineas.push([porVin ? 'VIN consultado' : 'VIN (dato de FLITO)', d.vin]);
+  if (d.placa) lineas.push([porVin ? 'Placa (dato de FLITO)' : 'Placa consultada', d.placa]);
+  lineas.push(['Organismo (dato de FLITO)', d.organismo]);
   return lineas;
 }
 
 export async function construirCertificadoDirectoPdf(d: CertificadoDirectoPdfDatos): Promise<Buffer> {
   const doc = await PDFDocument.create();
-  doc.setTitle(`Certificado RUNT ${sanitize(d.placa)}`);
+  doc.setTitle(`Certificado RUNT ${sanitize(d.placa ?? d.vin)}`);
   doc.setAuthor('FLITO');
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
