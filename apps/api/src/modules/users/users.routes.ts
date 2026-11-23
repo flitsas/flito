@@ -374,7 +374,7 @@ function avisarTransitoCodigoObsoleto(req: Request, verbo: string): void {
 // de escribir, para que una compañía inventada no salga como un 23503 servido en un 500.
 const companiaIdSchema = z.number().int().positive('Compañía inválida').nullable().optional();
 // FLITO (HU #12053, #14341) — el proveedor del tipo_enlace=proveedor, con cualquier servicio. Mismo patrón que `companiaId`.
-// `flitoProveedorSoatId` es el cuerpo anterior y se interpreta como su proveedor hasta F5 (AC6).
+// `flitoProveedorSoatId` es el cuerpo anterior y se interpreta como su proveedor (AC6). HU #14354 (F5): el alias de entrada se conserva.
 const proveedorIdSchema = z.string().guid('Proveedor inválido').nullable().optional();
 /** HU #14341 (AC6): el proveedor pedido. `undefined` = no vino; `conflicto` = los dos campos traen valores distintos. */
 function proveedorDelCuerpo(d: { flitoProveedorId?: string | null; flitoProveedorSoatId?: string | null }): string | null | undefined | 'conflicto' {

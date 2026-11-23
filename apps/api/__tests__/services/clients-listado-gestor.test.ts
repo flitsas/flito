@@ -3,7 +3,7 @@
 //
 // La HU #12078 dejó la columna `clients.flito_proveedor_soat_sin_tramite_id`, que es un uuid. Un
 // uuid no se puede pintar, y resolverlo en el cliente exigiría el catálogo
-// `GET /flito/parametrizacion/proveedores-soat`, que es `requireRole('admin','auditor')`:
+// `GET /flito/parametrizacion/proveedores?servicio=soat` (HU #14354), que es `requireRole('admin','auditor')`:
 // `financiera` ve esta pantalla y NO esa ruta. Así que el listado lo entrega ya RESUELTO
 // —`{ id, nombre, activo }`, o `null`— por la misma puerta por la que ya sale `soatSinTramite`.
 //
@@ -212,11 +212,12 @@ describe('la unión: por la izquierda y por la columna del canal', () => {
     expect(uniones.map((u) => u.tipo)).toEqual(['leftJoin', 'leftJoin']);
   });
 
-  it('une `flito_proveedores_soat` por `flito_proveedor_soat_sin_tramite_id`', async () => {
+  // HU #14354 (R21): el gestor se lee del padre `flito_proveedores`, con el alias `gestor_sin_tramite` (dos uniones a la misma tabla).
+  it('une el padre `flito_proveedores` (alias `gestor_sin_tramite`) por `flito_proveedor_soat_sin_tramite_id`', async () => {
     await listar();
 
     const { sql } = new PgDialect().sqlToQuery(uniones[0].on as never);
-    expect(sql).toContain('"flito_proveedores_soat"."id"');
+    expect(sql).toContain('"gestor_sin_tramite"."id"');
     expect(sql).toContain('"clients"."flito_proveedor_soat_sin_tramite_id"');
   });
 });
@@ -305,15 +306,18 @@ describe('el catálogo de proveedores NO se abre a nadie nuevo', () => {
   async function appParametrizacion() {
     const app = express();
     app.use(express.json());
+    // HU #14354 (F5): el catálogo de proveedores es la gestión unificada, montada antes del router general como en `app.ts`.
+    const { default: proveedores } = await import('../../src/modules/flito-parametrizacion/flito-proveedores.routes.js');
+    app.use('/api/flito/parametrizacion/proveedores', proveedores);
     const { default: router } = await import('../../src/modules/flito-parametrizacion/flito-parametrizacion.routes.js');
     app.use('/api/flito/parametrizacion', router);
     return app;
   }
 
-  it('`financiera` sigue recibiendo 403 en `GET /flito/parametrizacion/proveedores-soat`', async () => {
+  it('`financiera` sigue recibiendo 403 en `GET /flito/parametrizacion/proveedores?servicio=soat`', async () => {
     const app = await appParametrizacion();
 
-    const r = await request(app).get('/api/flito/parametrizacion/proveedores-soat')
+    const r = await request(app).get('/api/flito/parametrizacion/proveedores?servicio=soat')
       .set('Authorization', await auth('financiera'));
 
     expect(r.status).toBe(403);
@@ -339,7 +343,8 @@ describe('el listado entrega el proveedor de logística (HU #14148)', () => {
 
   it('une por la IZQUIERDA y por la columna del proveedor de logística (sin perder compañías sin proveedor)', async () => {
     await listar();
-    const u = uniones.find((x) => (new PgDialect().sqlToQuery(x.on as never).sql).includes('"flito_proveedores_logistica"."id"'))!;
+    // HU #14354 (R21): del padre `flito_proveedores`, con el alias `prov_logistica`.
+    const u = uniones.find((x) => (new PgDialect().sqlToQuery(x.on as never).sql).includes('"prov_logistica"."id"'))!;
     expect(u.tipo).toBe('leftJoin');
     expect(new PgDialect().sqlToQuery(u.on as never).sql).toContain('"clients"."flito_proveedor_logistica_id"');
   });

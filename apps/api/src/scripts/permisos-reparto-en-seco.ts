@@ -265,7 +265,7 @@ async function informeHu12875(): Promise<string> {
              count(u.id) FILTER (WHERE u.active AND u.deleted_at IS NULL)::int AS usuarios,
              count(u.id) FILTER (WHERE u.active AND u.deleted_at IS NULL AND (
                (r.tipo_enlace = 'compania' AND u.compania_id IS NULL)
-               OR (r.tipo_enlace IN ('proveedor', 'proveedor_soat') AND u.flito_proveedor_soat_id IS NULL)
+               OR (r.tipo_enlace IN ('proveedor', 'proveedor_soat') AND u.flito_proveedor_id IS NULL)
                OR (r.tipo_enlace = 'organismos_transito' AND u.transito_codigo IS NULL
                    AND NOT EXISTS (SELECT 1 FROM flito_gestor_organismos g WHERE g.user_id = u.id))
              ))::int AS sin_id
