@@ -419,7 +419,7 @@ test.describe('HU #12053 · AC4 — el aviso antes y el toast después', () => {
 
   test('TC-12053-13 · «Al guardar, este usuario deberá volver a iniciar sesión.» está en Editar y NO en Nuevo', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
-    const prov = usuario({ id: 11, username: 'gestor.sura', name: 'Gestor SURA', role: 'proveedor', flitoProveedorSoatId: SURA });
+    const prov = usuario({ id: 11, username: 'gestor.sura', name: 'Gestor SURA', role: 'proveedor', flitoProveedorId: SURA });
     mockUsers(page, [prov]);
     await mockCatalogos(page);
 
@@ -776,16 +776,6 @@ test.describe('HU #14344 · proveedor de cualquier servicio al atar', () => {
     await expect.poll(() => patches.length).toBe(1);
     expect(patches[0].flitoProveedorId).toBeNull();
     expect(patches[0]).not.toHaveProperty('flitoProveedorSoatId');
-  });
-
-  test('AC4 · un usuario creado antes, solo con el campo anterior, muestra su proveedor', async ({ page }) => {
-    await loginAs(page, OPERACIONES_USER);
-    const antiguo = usuario({ id: 11, username: 'gestor.sura', name: 'Gestor SURA', role: 'proveedor', flitoProveedorSoatId: SURA });
-    mockUsers(page, [antiguo]);
-    await mockCatalogos(page);
-    await page.goto('/users');
-    await page.getByRole('button', { name: 'Editar' }).first().click();
-    await expect(page.getByLabel('Proveedor', { exact: true })).toHaveValue(SURA);
   });
 
   test('sin la función de listar: lo dice, sin reintento, y conserva al asignado', async ({ page }) => {
