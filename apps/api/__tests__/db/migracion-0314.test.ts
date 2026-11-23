@@ -8,7 +8,8 @@
 // AC3 reproduce el runner (`src/scripts/db-apply.ts`): el archivo y el INSERT al ledger en la misma transacción, aquí un
 // SAVEPOINT. Sobre una base ya contraída la columna vieja se restaura dentro de la transacción para poder desalinearla.
 //
-// Mutantes que mata: quitar la guarda o una de sus comparaciones (AC3 no fallaría); dejar un trigger o una función de
+// Mutantes que mata: quitar la guarda o una de sus comparaciones, de SOAT o de Logística, o la normalización del NIT
+// (`NULLIF(btrim(...), '')`) (AC3 no fallaría o contaría espacios/vacío como diferencia); dejar un trigger o una función de
 // transición (AC4); dejar una columna vieja o retirar la configuración de SOAT (AC5); no recrear `users_ambito_trg`
 // (AC6: el rol de proveedor sin proveedor entraría); poner un valor en el mensaje de la guarda (AC3, PII).
 process.env.TZ = 'UTC';
@@ -109,6 +110,31 @@ async function crearProveedorSoat(tx: Tx) {
   return { id, nombre };
 }
 
+async function crearProveedorLogistica(tx: Tx) {
+  const nombre = `ProvLog 0314 ${sufijo()}`;
+  const nit = `9${String(Date.now()).slice(-8)}${Math.floor(Math.random() * 10)}`;
+  const [p] = await tx`INSERT INTO flito_proveedores (nombre, nit, contacto, telefono)
+    VALUES (${nombre}, ${nit}, ${'Contacto 0314'}, ${'3001234567'}) RETURNING id`;
+  const id = p!.id as string;
+  await tx`INSERT INTO flito_proveedores_logistica (id) VALUES (${id})`;
+  return { id, nombre, nit };
+}
+
+/**
+ * Estado previo a la 0314 en Logística: las columnas viejas existen (tipos de la 0102/0278; `nombre` admite NULL porque
+ * la tabla ya tiene filas y la guarda solo la lee vía `to_jsonb`) y el espejo coincide con el padre en todas las filas.
+ */
+async function restaurarEspejoLogistica(tx: Tx) {
+  await tx.unsafe('ALTER TABLE flito_proveedores_logistica ADD COLUMN IF NOT EXISTS nombre varchar(150)');
+  await tx.unsafe('ALTER TABLE flito_proveedores_logistica ADD COLUMN IF NOT EXISTS activo boolean NOT NULL DEFAULT true');
+  await tx.unsafe('ALTER TABLE flito_proveedores_logistica ADD COLUMN IF NOT EXISTS nit varchar(20)');
+  await tx.unsafe('ALTER TABLE flito_proveedores_logistica ADD COLUMN IF NOT EXISTS contacto varchar(150)');
+  await tx.unsafe('ALTER TABLE flito_proveedores_logistica ADD COLUMN IF NOT EXISTS telefono varchar(30)');
+  for (const t of ['flito_proveedores', 'flito_proveedores_logistica']) await tx.unsafe(`ALTER TABLE ${t} DISABLE TRIGGER USER`);
+  await tx`UPDATE flito_proveedores_logistica l SET nombre = p.nombre, activo = p.activo, nit = p.nit, contacto = p.contacto,
+             telefono = p.telefono FROM flito_proveedores p WHERE p.id = l.id`;
+}
+
 /** El runner: archivo + INSERT al ledger en la misma transacción (aquí, un SAVEPOINT). Devuelve el error. */
 async function aplicarComoElRunner(tx: Tx, marca: string): Promise<Error> {
   try {
@@ -170,6 +196,63 @@ describe.skipIf(!URL_BASE)('0314 — contra PostgreSQL (tx con ROLLBACK)', () =>
         expect(await columnas(tx, 'flito_proveedores_soat')).toContain('nombre');
         expect(await columnas(tx, 'users')).toContain('flito_proveedor_soat_id');
         expect(await tx`SELECT 1 FROM _kyverum_applied_migrations WHERE sha256 = ${marca}`).toHaveLength(0);
+      });
+    } finally { await sql.end(); }
+  });
+
+  it('AC3 (Logística): un NIT, contacto o teléfono distinto detiene la migración; espacios o vacío contra NULL no cuentan', async () => {
+    const sql = abrirBase();
+    try {
+      await enTx(sql, async (tx) => {
+        const a = await crearProveedorLogistica(tx);
+        const b = await crearProveedorLogistica(tx);
+        await restaurarEspejoLogistica(tx);
+        const marca = `prueba-ac3-log-${sufijo()}`;
+        const nitAjeno = `8${String(Date.now()).slice(-8)}7`;
+
+        // Caso 1: solo el NIT del perfil difiere del padre.
+        await tx`UPDATE flito_proveedores_logistica SET nit = ${nitAjeno} WHERE id = ${a.id}`;
+        const e1 = await aplicarComoElRunner(tx, marca);
+        expect(e1.message).toMatch(/^0314 detenida: \d+ caso\(s\)/);
+        expect(e1.message).toContain(`PERFIL DISTINTO: Logística ${a.id} difiere de su proveedor padre en: nit.`);
+        expect(e1.message).not.toContain(nitAjeno); // solo UUIDs y nombres de campo, nunca valores
+        expect(e1.message).not.toContain(a.nit);
+
+        // Caso 2: el mismo NIT con espacios alrededor no es diferencia; contacto y teléfono de otro perfil sí.
+        await tx`UPDATE flito_proveedores_logistica SET nit = ${`  ${a.nit}  `} WHERE id = ${a.id}`;
+        await tx`UPDATE flito_proveedores_logistica SET contacto = 'Otro contacto', telefono = '3109999999' WHERE id = ${b.id}`;
+        const e2 = await aplicarComoElRunner(tx, marca);
+        expect(e2.message).toMatch(/^0314 detenida: \d+ caso\(s\)/);
+        expect(e2.message).toContain(`PERFIL DISTINTO: Logística ${b.id} difiere de su proveedor padre en: contacto, telefono.`);
+        expect(e2.message).not.toContain(`Logística ${a.id}`);
+
+        // Caso 3: NIT vacío en el perfil contra NULL en el padre tampoco es diferencia.
+        await tx`UPDATE flito_proveedores SET nit = NULL WHERE id = ${a.id}`;
+        await tx`UPDATE flito_proveedores_logistica SET nit = '' WHERE id = ${a.id}`;
+        const e3 = await aplicarComoElRunner(tx, marca);
+        expect(e3.message).toMatch(/^0314 detenida: \d+ caso\(s\)/);
+        expect(e3.message).not.toContain(`Logística ${a.id}`);
+
+        expect(await columnas(tx, 'flito_proveedores_logistica')).toContain('nit');
+        expect(await tx`SELECT 1 FROM _kyverum_applied_migrations WHERE sha256 = ${marca}`).toHaveLength(0);
+      });
+    } finally { await sql.end(); }
+  });
+
+  it('AC3 (SOAT): un perfil con activo distinto del padre detiene la migración', async () => {
+    const sql = abrirBase();
+    try {
+      await enTx(sql, async (tx) => {
+        const a = await crearProveedorSoat(tx);
+        await tx.unsafe('ALTER TABLE flito_proveedores_soat ADD COLUMN IF NOT EXISTS nombre varchar(150)');
+        await tx.unsafe('ALTER TABLE flito_proveedores_soat ADD COLUMN IF NOT EXISTS activo boolean');
+        await tx.unsafe('ALTER TABLE flito_proveedores_soat DISABLE TRIGGER USER');
+        await tx`UPDATE flito_proveedores_soat s SET nombre = p.nombre, activo = p.activo FROM flito_proveedores p WHERE p.id = s.id`;
+        await tx`UPDATE flito_proveedores_soat SET activo = NOT activo WHERE id = ${a.id}`;
+
+        const e = await aplicarComoElRunner(tx, `prueba-ac3-activo-${sufijo()}`);
+        expect(e.message).toMatch(/^0314 detenida: \d+ caso\(s\)/);
+        expect(e.message).toContain(`PERFIL DISTINTO: SOAT ${a.id} difiere de su proveedor padre en: activo.`);
       });
     } finally { await sql.end(); }
   });

@@ -17,9 +17,8 @@ export const flitoLogisticaActaEstadoEnum = pgEnum('flito_logistica_acta_estado'
 export const flitoLogisticaTipoDocEnum = pgEnum('flito_logistica_tipo_doc', ['licencia_transito', 'placa', 'otro']);
 
 // Perfil logístico del proveedor (ADR-0039): los datos generales viven en `flito_proveedores`, con el mismo UUID.
-// HU #14673 (0313): `nombre`, `estrategia`, `activo`, `nit`, `contacto`, `telefono` y sus índices siguen en la BD (espejo
-// del padre que llenan los triggers; `estrategia` con su DEFAULT), pero el código ya no los declara: Drizzle los
-// nombraría en cada select/insert y la imagen no sobreviviría a su DROP (#14355).
+// Las columnas viejas `nombre`, `estrategia`, `activo`, `nit`, `contacto`, `telefono` y sus índices se retiraron de la BD
+// en la 0314 (HU #14355).
 export const flitoProveedoresLogistica = pgTable('flito_proveedores_logistica', {
   id: uuid('id').primaryKey().defaultRandom(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), deletedAt: timestamp('deleted_at', { withTimezone: true }), deletedBy: integer('deleted_by').references(() => users.id, { onDelete: 'restrict' }), // HU #14329 (0292).
