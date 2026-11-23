@@ -29587,7 +29587,7 @@ paths:
               schema:
                 type: array
                 items:
-                  "$ref": "#/components/schemas/Forma-b5c5591fd1"
+                  "$ref": "#/components/schemas/Forma-540a39a8fb"
         "401":
           description: No autenticado.
           content:
@@ -29652,7 +29652,7 @@ paths:
         content:
           multipart/form-data:
             schema:
-              "$ref": "#/components/schemas/Forma-51789e7727"
+              "$ref": "#/components/schemas/Forma-44d60892e6"
         description: Formulario con los archivos que recibe la ruta.
       responses:
         "201":
@@ -29660,7 +29660,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-b5c5591fd1"
+                "$ref": "#/components/schemas/Forma-540a39a8fb"
         "400":
           description: Petición inválida.
           content:
@@ -29739,6 +29739,92 @@ paths:
                 required:
                   - error
   "/api/flito/impuestos/certificacion-directa/{id}":
+    delete:
+      operationId: delete-api-flito-impuestos-certificacion-directa-id
+      tags:
+        - flito-impuestos
+      summary: "DELETE /api/flito/impuestos/certificacion-directa/:id"
+      description: "HU #14665 (AC6): eliminar un registro no certificado. Fuente: apps/api/src/modules/flito-impuestos/flito-impuestos.certificacion-directa.routes.ts. Exige la función: impuestos.certificacion_directa.gestionar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - impuestos.certificacion_directa.gestionar
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Parámetro id de la ruta.
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Respuesta exitosa.
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
     get:
       operationId: get-api-flito-impuestos-certificacion-directa-id
       tags:
@@ -29762,7 +29848,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-b5c5591fd1"
+                "$ref": "#/components/schemas/Forma-540a39a8fb"
         "401":
           description: No autenticado.
           content:
@@ -29850,7 +29936,7 @@ paths:
         content:
           multipart/form-data:
             schema:
-              "$ref": "#/components/schemas/Forma-51789e7727"
+              "$ref": "#/components/schemas/Forma-44d60892e6"
         description: Formulario con los archivos que recibe la ruta.
       responses:
         "200":
@@ -29858,7 +29944,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-b5c5591fd1"
+                "$ref": "#/components/schemas/Forma-540a39a8fb"
         "400":
           description: Petición inválida.
           content:
@@ -30052,7 +30138,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-b5c5591fd1"
+                "$ref": "#/components/schemas/Forma-540a39a8fb"
         "401":
           description: No autenticado.
           content:
@@ -30294,6 +30380,281 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
+  /api/flito/impuestos/certificacion-directa/certificados/zip:
+    post:
+      operationId: post-api-flito-impuestos-certificacion-directa-certificados-zip
+      tags:
+        - flito-impuestos
+      summary: POST /api/flito/impuestos/certificacion-directa/certificados/zip
+      description: "HU #14665 (AC8): descarga masiva de certificados RUNT, equivalente de `flito-impuestos.certificados.routes.ts` (HU #13205) para este módulo. POST, así que no choca con el patrón `GET /:id` ni con `GET /:id/certificado` aunque el orden de registro cambiara. 400 cuerpo · 403 sin función · 409 ninguno certificado (con `omitidos`) · 429 frecuencia. Fuente: apps/api/src/modules/flito-impuestos/flito-impuestos.certificacion-directa.routes.ts. Exige la función: impuestos.certificacion_directa.gestionar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - impuestos.certificacion_directa.gestionar
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  minItems: 1
+                  maxItems: 100
+              required:
+                - ids
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  codigo:
+                    type: string
+                  omitidos:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        identificador:
+                          type: string
+                        causa:
+                          type: string
+                          enum:
+                            - sin_certificacion_vigente
+                            - no_disponible
+                      required:
+                        - identificador
+                        - causa
+                required:
+                  - error
+                  - codigo
+                  - omitidos
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                      codigo:
+                        type: string
+                    required:
+                      - error
+                      - codigo
+                  - type: object
+                    properties:
+                      error:
+                        type: string
+                    required:
+                      - error
+  /api/flito/impuestos/certificacion-directa/eliminar-lote:
+    post:
+      operationId: post-api-flito-impuestos-certificacion-directa-eliminar-lote
+      tags:
+        - flito-impuestos
+      summary: POST /api/flito/impuestos/certificacion-directa/eliminar-lote
+      description: "HU #14665 (AC7): eliminar en lote; lo certificado se omite, no tumba el lote. Fuente: apps/api/src/modules/flito-impuestos/flito-impuestos.certificacion-directa.routes.ts. Exige la función: impuestos.certificacion_directa.gestionar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - impuestos.certificacion_directa.gestionar
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  minItems: 1
+                  maxItems: 100
+              required:
+                - ids
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  eliminados:
+                    type: array
+                    items:
+                      type: string
+                  omitidos:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - eliminados
+                  - omitidos
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
   /api/flito/impuestos/certificacion-directa/extraer:
     post:
       operationId: post-api-flito-impuestos-certificacion-directa-extraer
@@ -30335,6 +30696,12 @@ paths:
                     type: string
                   cilindrada:
                     type: string
+                  tipoDocumentoPropietario:
+                    type: string
+                  documentoPropietario:
+                    type: string
+                  nombrePropietario:
+                    type: string
                   aviso:
                     type:
                       - string
@@ -30346,6 +30713,9 @@ paths:
                   - anio
                   - color
                   - cilindrada
+                  - tipoDocumentoPropietario
+                  - documentoPropietario
+                  - nombrePropietario
                   - aviso
         "400":
           description: Petición inválida.
@@ -47395,7 +47765,7 @@ paths:
                 type: object
                 properties:
                   extraccion:
-                    "$ref": "#/components/schemas/Forma-b8a95ca624"
+                    "$ref": "#/components/schemas/Forma-b1ea705d9e"
                 required:
                   - extraccion
         "400":
@@ -48130,7 +48500,7 @@ paths:
                 type: object
                 properties:
                   extraccion:
-                    "$ref": "#/components/schemas/Forma-b8a95ca624"
+                    "$ref": "#/components/schemas/Forma-b1ea705d9e"
                   lectura:
                     type: string
                     enum:
@@ -83389,14 +83759,14 @@ paths:
                       - vinculado
                       - suspendido
                       - desvinculado
+                  razonSocial:
+                    type: string
                   createdBy:
                     type: number
                   observaciones:
                     type:
                       - string
                       - "null"
-                  razonSocial:
-                    type: string
                   contactoNombre:
                     type:
                       - string
@@ -83437,9 +83807,9 @@ paths:
                   - id
                   - nit
                   - estado
+                  - razonSocial
                   - createdBy
                   - observaciones
-                  - razonSocial
                   - contactoNombre
                   - contactoEmail
                   - contactoTelefono
@@ -127720,6 +128090,56 @@ components:
         - otra_compania
         - ya_conciliada
         - cobrado_otro_cliente
+    Forma-44d60892e6:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        organismoCodigo:
+          type: string
+          minLength: 1
+          maxLength: 5
+        placa:
+          type: string
+        documentoPropietario:
+          type: string
+        tipoDocumentoPropietario:
+          type: string
+        nombrePropietario:
+          type: string
+        vin:
+          type: string
+          minLength: 1
+          maxLength: 17
+        marca:
+          type: string
+          minLength: 1
+          maxLength: 60
+        linea:
+          type: string
+          minLength: 1
+          maxLength: 80
+        anio:
+          type: string
+          pattern: "^\\d{4}$"
+        color:
+          type: string
+          minLength: 1
+          maxLength: 60
+        cilindrada:
+          type: string
+          minLength: 1
+          maxLength: 20
+        factura:
+          type: string
+          format: binary
+      required:
+        - organismoCodigo
+        - vin
+        - marca
+        - linea
+        - anio
+        - color
+        - cilindrada
     Forma-45e9dc9384:
       description: Forma que comparten varias operaciones.
       type: object
@@ -128407,59 +128827,82 @@ components:
         - keyVersion
         - createdAt
         - updatedAt
-    Forma-51789e7727:
+    Forma-540a39a8fb:
       description: Forma que comparten varias operaciones.
       type: object
       properties:
+        id:
+          type: string
         organismoCodigo:
           type: string
-          minLength: 1
-          maxLength: 5
+        organismoNombre:
+          type: string
         placa:
-          type: string
-          minLength: 1
-          maxLength: 10
+          type:
+            - string
+            - "null"
         documentoPropietario:
-          type: string
+          type:
+            - string
+            - "null"
         tipoDocumentoPropietario:
-          type: string
+          type:
+            - string
+            - "null"
         nombrePropietario:
-          type: string
+          type:
+            - string
+            - "null"
         vin:
           type: string
-          minLength: 1
-          maxLength: 17
         marca:
           type: string
-          minLength: 1
-          maxLength: 60
         linea:
           type: string
-          minLength: 1
-          maxLength: 80
         anio:
           type: string
-          pattern: "^\\d{4}$"
         color:
           type: string
-          minLength: 1
-          maxLength: 60
         cilindrada:
           type: string
-          minLength: 1
-          maxLength: 20
-        factura:
+        estado:
           type: string
-          format: binary
+          enum:
+            - radicado
+            - sin_respuesta
+            - sin_vehiculo
+            - sin_coincidencia
+            - certificado
+        comparacion:
+          type:
+            - array
+            - "null"
+          items:
+            "$ref": "#/components/schemas/Forma-6d65949e76"
+        certificadoEn:
+          type:
+            - string
+            - "null"
+        createdAt:
+          type: string
       required:
+        - id
         - organismoCodigo
+        - organismoNombre
         - placa
+        - documentoPropietario
+        - tipoDocumentoPropietario
+        - nombrePropietario
         - vin
         - marca
         - linea
         - anio
         - color
         - cilindrada
+        - estado
+        - comparacion
+        - certificadoEn
+        - createdAt
     Forma-5424732a96:
       description: Forma que comparten varias operaciones.
       type: object
@@ -132779,6 +133222,38 @@ components:
           type: array
           items:
             type: string
+    Forma-b1ea705d9e:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        direccion:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        vin:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        placa:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        municipio:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        departamento:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        numeroFactura:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        fechaFactura:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        tipoDocumento:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        numeroDocumento:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        nombres:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        apellidos:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        razonSocial:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        celular:
+          "$ref": "#/components/schemas/Forma-2795a98920"
+        valorVehiculo:
+          "$ref": "#/components/schemas/Forma-2795a98920"
     Forma-b2a1be9be7:
       description: Forma que comparten varias operaciones.
       type: object
@@ -132904,80 +133379,6 @@ components:
             type: string
       required:
         - rango
-    Forma-b5c5591fd1:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        id:
-          type: string
-        organismoCodigo:
-          type: string
-        organismoNombre:
-          type: string
-        placa:
-          type: string
-        documentoPropietario:
-          type:
-            - string
-            - "null"
-        tipoDocumentoPropietario:
-          type:
-            - string
-            - "null"
-        nombrePropietario:
-          type:
-            - string
-            - "null"
-        vin:
-          type: string
-        marca:
-          type: string
-        linea:
-          type: string
-        anio:
-          type: string
-        color:
-          type: string
-        cilindrada:
-          type: string
-        estado:
-          type: string
-          enum:
-            - radicado
-            - sin_respuesta
-            - sin_vehiculo
-            - sin_coincidencia
-            - certificado
-        comparacion:
-          type:
-            - array
-            - "null"
-          items:
-            "$ref": "#/components/schemas/Forma-6d65949e76"
-        certificadoEn:
-          type:
-            - string
-            - "null"
-        createdAt:
-          type: string
-      required:
-        - id
-        - organismoCodigo
-        - organismoNombre
-        - placa
-        - documentoPropietario
-        - tipoDocumentoPropietario
-        - nombrePropietario
-        - vin
-        - marca
-        - linea
-        - anio
-        - color
-        - cilindrada
-        - estado
-        - comparacion
-        - certificadoEn
-        - createdAt
     Forma-b782fcf6fc:
       description: Forma que comparten varias operaciones.
       type: object
@@ -133029,38 +133430,6 @@ components:
         - saldo
         - ultimaRecargaValor
         - ultimaRecargaEn
-    Forma-b8a95ca624:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        direccion:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        vin:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        placa:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        municipio:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        departamento:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        numeroFactura:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        fechaFactura:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        tipoDocumento:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        numeroDocumento:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        razonSocial:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        nombres:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        apellidos:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        celular:
-          "$ref": "#/components/schemas/Forma-2795a98920"
-        valorVehiculo:
-          "$ref": "#/components/schemas/Forma-2795a98920"
     Forma-b8ce431176:
       description: Forma que comparten varias operaciones.
       type: object
