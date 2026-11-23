@@ -11,7 +11,6 @@ import { clienteVigente } from '../clients/cliente-operable.js';
 import {
   clients,
   flitoOrganismoVigencias,
-  flitoProveedoresSoat,
   flitoReglasProveedorSoat,
   organismosTransitoConfig,
 } from '../../db/schema.js';
@@ -20,8 +19,6 @@ import {
   AmbitoReglaProveedor,
   ModalidadOrganismo,
 } from '@operaciones/shared-types';
-
-export type ProveedorSoatRow = typeof flitoProveedoresSoat.$inferSelect;
 
 export type CompaniaRow = typeof clients.$inferSelect;
 export type OrganismoRow = typeof organismosTransitoConfig.$inferSelect;

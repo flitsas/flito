@@ -23,7 +23,7 @@ import { sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import type { ColumnaDetalleId } from '@operaciones/shared-types';
 import {
   flitoBolsasUnicas, flitoBolsasUnicasMovimientos, flitoConciliacionBoletas, flitoLogisticaActaLineas, flitoLogisticaActas,
-  flitoLogisticaDocumentos, flitoLogisticaTrasladoLts, flitoLogisticaTraslados, flitoProveedoresLogistica, flitoTramiteViajesLogistica,
+  flitoLogisticaDocumentos, flitoLogisticaTrasladoLts, flitoLogisticaTraslados, flitoProveedores, flitoTramiteViajesLogistica,
   flitoTramites, siigoColaFacturacion, siigoFacturaEstadosDian, siigoFacturaTramites, siigoFacturas, siigoLoteTramites,
 } from '../../db/schema.js';
 import { sumarDias, type DimensionesBase, type FechaBase } from './flito-torre.filtro.js';
@@ -34,7 +34,8 @@ type Cols = Partial<Record<ColumnaDetalleId, SQL>>;
 const T = flitoTramites;
 const TR = flitoLogisticaTraslados;
 const A = flitoLogisticaActas;
-const PL = flitoProveedoresLogistica;
+// HU #14354 (R21): el nombre del proveedor de logística sale del padre, unido por el mismo UUID que el perfil.
+const PL = flitoProveedores;
 const V = flitoTramiteViajesLogistica;
 const F = siigoFacturas;
 const SFT = siigoFacturaTramites;

@@ -15,7 +15,7 @@ import {
   auditLogs,
   clients,
   flitoCompradores,
-  flitoProveedoresSoat,
+  flitoProveedores, flitoProveedoresSoat,
   flitoRevisiones,
   flitoSoat,
   flitoSoatSolicitud,
@@ -606,6 +606,8 @@ export function conJoinsCola<Q extends PgSelect>(q: Q) {
     .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
     .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
     .leftJoin(organismosTransitoConfig, eq(flitoSoat.organismoCodigo, organismosTransitoConfig.codigo))
+    // HU #14354 (R21): el nombre sale del padre; SLA y umbral de OCR siguen en el perfil SOAT.
+    .leftJoin(flitoProveedores, eq(flitoSoat.proveedorSoatId, flitoProveedores.id))
     .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
     .leftJoin(users, eq(flitoSoat.enviadoPorId, users.id))
     // HU #14017: `flito_soat_solicitud` es 1:1 por PK (`soat_id`), así que no multiplica filas.
@@ -702,8 +704,7 @@ export async function cola(ctx: SoatCtx, f: FiltrosCola = {}): Promise<ColaSoatP
       tipoServicio: vehicles.tipoServicio,
       companiaNombre: clients.name,
       organismoNombre: organismosTransitoConfig.alias,
-      proveedorSoatNombre: flitoProveedoresSoat.nombre,
-      proveedorSlaHoras: flitoProveedoresSoat.slaHoras,
+      proveedorSoatNombre: flitoProveedores.nombre, proveedorSlaHoras: flitoProveedoresSoat.slaHoras,
       enviadoPorNombre: users.name,
       tipoSoat: flitoSoatSolicitud.tipoSoat,
       ...PROYECCION_VIGENCIA,
@@ -762,7 +763,7 @@ export async function facetasCola(ctx: SoatCtx): Promise<FacetasCola> {
     // entero por la puerta de al lado, y encima ordenado. No se lee lo que no se va a devolver.
     esExterno(ctx)
       ? Promise.resolve([] as { id: string | null; nombre: string | null }[])
-      : conJoinsCola(db.selectDistinct({ id: flitoProveedoresSoat.id, nombre: flitoProveedoresSoat.nombre }).from(flitoSoat).$dynamic()).where(where),
+      : conJoinsCola(db.selectDistinct({ id: flitoProveedores.id, nombre: flitoProveedores.nombre }).from(flitoSoat).$dynamic()).where(where),
   ]);
 
   return {
@@ -1419,15 +1420,15 @@ export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItemSa
       // cuya fila en la cola sí muestra el dato.
       cilindraje: vehicles.cilindraje, carroceria: vehicles.carroceria, tipoServicio: vehicles.tipoServicio,
       companiaNombre: clients.name, organismoNombre: organismosTransitoConfig.alias,
-      proveedorSoatNombre: flitoProveedoresSoat.nombre, proveedorSlaHoras: flitoProveedoresSoat.slaHoras,
-      enviadoPorNombre: users.name,
-      tipoSoat: flitoSoatSolicitud.tipoSoat,
+      proveedorSoatNombre: flitoProveedores.nombre, proveedorSlaHoras: flitoProveedoresSoat.slaHoras,
+      enviadoPorNombre: users.name, tipoSoat: flitoSoatSolicitud.tipoSoat,
       ...PROYECCION_VIGENCIA,
     })
     .from(flitoSoat)
     .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
     .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
     .leftJoin(organismosTransitoConfig, eq(flitoSoat.organismoCodigo, organismosTransitoConfig.codigo))
+    .leftJoin(flitoProveedores, eq(flitoSoat.proveedorSoatId, flitoProveedores.id))
     .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
     .leftJoin(users, eq(flitoSoat.enviadoPorId, users.id))
     .leftJoin(flitoSoatSolicitud, eq(flitoSoatSolicitud.soatId, flitoSoat.id))

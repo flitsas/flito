@@ -55,7 +55,8 @@
 
 import type { Request } from 'express';
 import { sql } from 'drizzle-orm';
-import { clients, flitoProveedoresLogistica, flitoProveedoresSoat } from '../../db/schema.js';
+import { alias } from 'drizzle-orm/pg-core';
+import { clients, flitoProveedores } from '../../db/schema.js';
 import { registrarAccesoCliente } from '../siigo/siigo.pii.js';
 
 /**
@@ -181,17 +182,25 @@ export const CAMPOS_PII_LISTADO: readonly string[] = Object.entries(COLUMNAS_LIS
 // para nadie que pueda leer esta ruta.
 
 /**
+ * HU #14354 (ADR-0039 §3, R21): los dos proveedores de la compañía se leen del padre `flito_proveedores`, unido por el
+ * mismo UUID que el perfil. Dos uniones a la misma tabla, de ahí los alias. El padre trae NIT, teléfono, correo y
+ * contacto (PII): de él solo se proyectan `id`, `nombre` y `activo`, nunca un `select()` sin columnas.
+ */
+export const provLogistica = alias(flitoProveedores, 'prov_logistica');
+export const gestorSinTramite = alias(flitoProveedores, 'gestor_sin_tramite');
+
+/**
  * HU #14148 — proveedor de logística de la compañía, RESUELTO por un `LEFT JOIN` (como el gestor SOAT): solo id y nombre.
  * Contacto, teléfono y NIT del proveedor NO viajan aquí: quien solo ve Clientes no los ve (Ley 1581). Se publican planas
  * (`proveedorLogisticaId`, `proveedorLogisticaNombre`), `null` las dos si la compañía no tiene proveedor.
  */
 export const COLUMNAS_PROVEEDOR_LOGISTICA = {
-  proveedorLogisticaId: flitoProveedoresLogistica.id,
-  proveedorLogisticaNombre: flitoProveedoresLogistica.nombre,
+  proveedorLogisticaId: provLogistica.id,
+  proveedorLogisticaNombre: provLogistica.nombre,
 };
 
 /**
- * Lo que se le pide a `flito_proveedores_soat` al unirla, y NADA más.
+ * Lo que se le pide al gestor (padre `flito_proveedores`, alias `gestorSinTramite`) al unirlo, y NADA más.
  *
  * Tres columnas nombradas, no la tabla entera: la unión amplía lo que la ruta entrega y eso es una
  * decisión de exposición, igual que `COLUMNAS_LISTADO`. `umbralOcr`, `slaHoras` y `estrategia` son
@@ -202,9 +211,9 @@ export const COLUMNAS_PROVEEDOR_LOGISTICA = {
  * compañía están cayendo en `gestion_operaciones`.
  */
 export const COLUMNAS_GESTOR_SIN_TRAMITE = {
-  gestorSinTramiteId: flitoProveedoresSoat.id,
-  gestorSinTramiteNombre: flitoProveedoresSoat.nombre,
-  gestorSinTramiteActivo: flitoProveedoresSoat.activo,
+  gestorSinTramiteId: gestorSinTramite.id,
+  gestorSinTramiteNombre: gestorSinTramite.nombre,
+  gestorSinTramiteActivo: gestorSinTramite.activo,
 };
 
 /**
@@ -226,7 +235,7 @@ export const COLUMNAS_GESTOR_SIN_TRAMITE = {
  * —`notes`, por ejemplo— saldría por HTTP SIN entrar en esa lista, que es justo el defecto que este
  * archivo existe para impedir. Lo único que lo caza hoy es un test («la proyección se amplía
  * NOMINALMENTE»), que afirma la igualdad ordenada de las claves. Toda columna de `clients` va en
- * `COLUMNAS_LISTADO`; aquí solo entra lo que venga de la unión con `flito_proveedores_soat`.
+ * `COLUMNAS_LISTADO`; aquí solo entra lo que venga de la unión con el gestor (padre `flito_proveedores`).
  */
 export const COLUMNAS_LISTADO_CON_GESTOR = {
   ...COLUMNAS_LISTADO,

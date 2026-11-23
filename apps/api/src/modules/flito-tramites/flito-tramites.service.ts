@@ -20,7 +20,7 @@ import {
 import type { FuenteTramite } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
-  clients, flitoCompradores, flitoExcepcionesAutogestion, flitoImpuestos, flitoLogisticaDocumentos, flitoProveedoresSoat, flitoSoat,
+  clients, flitoCompradores, flitoExcepcionesAutogestion, flitoImpuestos, flitoLogisticaDocumentos, flitoProveedores, flitoProveedoresSoat, flitoSoat,
   flitoTramiteHistorial, flitoTramites, organismosTransitoConfig, users, vehicles,
 } from '../../db/schema.js';
 import { flitoDerechosTramite } from '../../db/schema.js';
@@ -354,7 +354,8 @@ export function proyeccion() {
     tipoVehiculo: vehicles.tipoVehiculo,
     soatId: flitoSoat.id,
     soatProveedorId: flitoSoat.proveedorSoatId,
-    soatProveedorNombre: flitoProveedoresSoat.nombre,
+    // HU #14354 (R21): el nombre sale del padre; el SLA, del perfil SOAT.
+    soatProveedorNombre: flitoProveedores.nombre,
     soatSlaHoras: flitoProveedoresSoat.slaHoras,
     soatEnviadoEn: flitoSoat.enviadoEn,
     soatPagadoEn: flitoSoat.pagadoEn,
@@ -376,6 +377,7 @@ export function proyeccion() {
     .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
     .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
     .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
+    .leftJoin(flitoProveedores, eq(flitoSoat.proveedorSoatId, flitoProveedores.id))
     .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
     .leftJoin(flitoDerechosTramite, eq(flitoDerechosTramite.tramiteId, flitoTramites.id))
     // Estado logístico de la LT (tracking): a lo sumo una por trámite (unique tramite+tipo).

@@ -115,16 +115,17 @@ describe('HU #14332 AC10 — cerrada a enlaces y a quien no tiene la función', 
   });
 });
 
-describe('HU #14334 — las rutas viejas de escritura y el listado unificado ya no existen', () => {
+describe('HU #14334 y #14354 — las rutas viejas de proveedores (escritura y, desde F5, lectura) ya no existen', () => {
   const VIEJAS: readonly ['get' | 'post' | 'patch' | 'delete', string][] = [
     ['get', '/proveedores'],
     ['post', '/proveedores-soat'], ['patch', `/proveedores-soat/${ID}`], ['patch', `/proveedores-soat/${ID}/estado`], ['delete', `/proveedores-soat/${ID}`],
     ['post', '/proveedores-logistica'], ['patch', `/proveedores-logistica/${ID}`], ['patch', `/proveedores-logistica/${ID}/estado`], ['delete', `/proveedores-logistica/${ID}`],
+    // HU #14354 (F5), AC3: las lecturas que convivían hasta F5.
+    ['get', '/proveedores-soat'], ['get', `/proveedores-soat/${ID}/impacto`], ['get', '/proveedores-logistica'], ['get', `/proveedores-logistica/${ID}/impacto`],
   ];
   it.each(VIEJAS)('%s %s → 404', async (metodo, ruta) => {
     const a = express(); a.use(express.json());
     const PAR = '/api/flito/parametrizacion';
-    a.use(`${PAR}/proveedores-logistica`, (await import(`${DIR}/flito-proveedores-logistica.routes.js`)).default);
     a.use(PAR, (await import(`${DIR}/flito-parametrizacion.routes.js`)).default);
     const t = await con(LISTAR, CREAR, EDITAR, ESTADO, ELIMINAR);
     expect((await request(a)[metodo](PAR + ruta).set('Authorization', t).send({})).status).toBe(404);

@@ -29824,7 +29824,7 @@ paths:
               schema:
                 type: array
                 items:
-                  "$ref": "#/components/schemas/Forma-540a39a8fb"
+                  "$ref": "#/components/schemas/Forma-cc4e81eebd"
         "401":
           description: No autenticado.
           content:
@@ -29889,7 +29889,7 @@ paths:
         content:
           multipart/form-data:
             schema:
-              "$ref": "#/components/schemas/Forma-44d60892e6"
+              "$ref": "#/components/schemas/Forma-71dc4f01b6"
         description: Formulario con los archivos que recibe la ruta.
       responses:
         "201":
@@ -29897,7 +29897,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-540a39a8fb"
+                "$ref": "#/components/schemas/Forma-cc4e81eebd"
         "400":
           description: Petición inválida.
           content:
@@ -30085,7 +30085,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-540a39a8fb"
+                "$ref": "#/components/schemas/Forma-cc4e81eebd"
         "401":
           description: No autenticado.
           content:
@@ -30173,7 +30173,7 @@ paths:
         content:
           multipart/form-data:
             schema:
-              "$ref": "#/components/schemas/Forma-44d60892e6"
+              "$ref": "#/components/schemas/Forma-71dc4f01b6"
         description: Formulario con los archivos que recibe la ruta.
       responses:
         "200":
@@ -30181,7 +30181,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-540a39a8fb"
+                "$ref": "#/components/schemas/Forma-cc4e81eebd"
         "400":
           description: Petición inválida.
           content:
@@ -30375,7 +30375,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-540a39a8fb"
+                "$ref": "#/components/schemas/Forma-cc4e81eebd"
         "401":
           description: No autenticado.
           content:
@@ -39712,432 +39712,6 @@ paths:
                     required:
                       - error
                       - campos
-        "429":
-          description: Límite de peticiones superado.
-          headers:
-            Retry-After:
-              description: Segundos que hay que esperar antes de reintentar.
-              schema:
-                type: integer
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-        "500":
-          description: Error interno del servidor.
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-  /api/flito/parametrizacion/proveedores-logistica:
-    get:
-      operationId: get-api-flito-parametrizacion-proveedores-logistica
-      tags:
-        - flito-parametrizacion
-      summary: GET /api/flito/parametrizacion/proveedores-logistica
-      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores-logistica.routes.ts. Exige la función: parametrizacion.proveedores.listar."
-      security:
-        - bearerAuth: []
-      x-flit-funciones:
-        - parametrizacion.proveedores.listar
-      responses:
-        "200":
-          description: Respuesta exitosa.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                    nombre:
-                      type: string
-                    nit:
-                      type:
-                        - string
-                        - "null"
-                    contacto:
-                      type:
-                        - string
-                        - "null"
-                    telefono:
-                      type:
-                        - string
-                        - "null"
-                    activo:
-                      type: boolean
-                  required:
-                    - id
-                    - nombre
-                    - nit
-                    - contacto
-                    - telefono
-                    - activo
-        "401":
-          description: No autenticado.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "403":
-          description: Sin permisos.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                  funcion:
-                    type: string
-                  motivo:
-                    type: string
-                    enum:
-                      - sin_funcion
-                      - sin_modulo
-                      - no_reconocida
-                      - no_resuelto
-                required:
-                  - error
-                  - funcion
-                  - motivo
-        "429":
-          description: Límite de peticiones superado.
-          headers:
-            Retry-After:
-              description: Segundos que hay que esperar antes de reintentar.
-              schema:
-                type: integer
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-        "500":
-          description: Error interno del servidor.
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-  "/api/flito/parametrizacion/proveedores-logistica/{id}/impacto":
-    get:
-      operationId: get-api-flito-parametrizacion-proveedores-logistica-id-impacto
-      tags:
-        - flito-parametrizacion
-      summary: "GET /api/flito/parametrizacion/proveedores-logistica/:id/impacto"
-      description: "HU #14148 — cuántas compañías lo tienen y los 3 primeros nombres. Fuente: apps/api/src/modules/flito-parametrizacion/flito-proveedores-logistica.routes.ts. Exige la función: parametrizacion.proveedores.estado."
-      security:
-        - bearerAuth: []
-      x-flit-funciones:
-        - parametrizacion.proveedores.estado
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: Parámetro id de la ruta.
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Respuesta exitosa.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  companias:
-                    type: number
-                  nombres:
-                    type: array
-                    items:
-                      type: string
-                required:
-                  - companias
-                  - nombres
-        "400":
-          description: Petición inválida.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "401":
-          description: No autenticado.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "403":
-          description: Sin permisos.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                  funcion:
-                    type: string
-                  motivo:
-                    type: string
-                    enum:
-                      - sin_funcion
-                      - sin_modulo
-                      - no_reconocida
-                      - no_resuelto
-                required:
-                  - error
-                  - funcion
-                  - motivo
-        "404":
-          description: No encontrado.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "429":
-          description: Límite de peticiones superado.
-          headers:
-            Retry-After:
-              description: Segundos que hay que esperar antes de reintentar.
-              schema:
-                type: integer
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-        "500":
-          description: Error interno del servidor.
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-  /api/flito/parametrizacion/proveedores-soat:
-    get:
-      operationId: get-api-flito-parametrizacion-proveedores-soat
-      tags:
-        - flito-parametrizacion
-      summary: GET /api/flito/parametrizacion/proveedores-soat
-      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-parametrizacion.routes.ts. Exige la función: parametrizacion.proveedores.listar."
-      security:
-        - bearerAuth: []
-      x-flit-funciones:
-        - parametrizacion.proveedores.listar
-      responses:
-        "200":
-          description: Respuesta exitosa.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                    nombre:
-                      type: string
-                    estrategia:
-                      type: string
-                    umbralOcr:
-                      type:
-                        - number
-                        - "null"
-                    slaHoras:
-                      type:
-                        - number
-                        - "null"
-                    activo:
-                      type: boolean
-                  required:
-                    - id
-                    - nombre
-                    - estrategia
-                    - umbralOcr
-                    - slaHoras
-                    - activo
-        "401":
-          description: No autenticado.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "403":
-          description: Sin permisos.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                  funcion:
-                    type: string
-                  motivo:
-                    type: string
-                    enum:
-                      - sin_funcion
-                      - sin_modulo
-                      - no_reconocida
-                      - no_resuelto
-                required:
-                  - error
-                  - funcion
-                  - motivo
-        "429":
-          description: Límite de peticiones superado.
-          headers:
-            Retry-After:
-              description: Segundos que hay que esperar antes de reintentar.
-              schema:
-                type: integer
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-        "500":
-          description: Error interno del servidor.
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/Error"
-  "/api/flito/parametrizacion/proveedores-soat/{id}/impacto":
-    get:
-      operationId: get-api-flito-parametrizacion-proveedores-soat-id-impacto
-      tags:
-        - flito-parametrizacion
-      summary: "GET /api/flito/parametrizacion/proveedores-soat/:id/impacto"
-      description: "Fuente: apps/api/src/modules/flito-parametrizacion/flito-parametrizacion.routes.ts. Exige la función: parametrizacion.proveedores.estado."
-      security:
-        - bearerAuth: []
-      x-flit-funciones:
-        - parametrizacion.proveedores.estado
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: Parámetro id de la ruta.
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Respuesta exitosa.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  activo:
-                    type: boolean
-                  soatEnCurso:
-                    type: number
-                  companiasGestorPorDefecto:
-                    type: object
-                    properties:
-                      cantidad:
-                        type: number
-                      nombres:
-                        type: array
-                        items:
-                          type: string
-                    required:
-                      - cantidad
-                      - nombres
-                  usuariosAfectados:
-                    type: number
-                  puedeEliminar:
-                    type: boolean
-                  motivoNoEliminable:
-                    type:
-                      - string
-                      - "null"
-                required:
-                  - activo
-                  - soatEnCurso
-                  - companiasGestorPorDefecto
-                  - usuariosAfectados
-                  - puedeEliminar
-                  - motivoNoEliminable
-        "400":
-          description: Petición inválida.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "401":
-          description: No autenticado.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
-        "403":
-          description: Sin permisos.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                  funcion:
-                    type: string
-                  motivo:
-                    type: string
-                    enum:
-                      - sin_funcion
-                      - sin_modulo
-                      - no_reconocida
-                      - no_resuelto
-                required:
-                  - error
-                  - funcion
-                  - motivo
-        "404":
-          description: No encontrado.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                required:
-                  - error
         "429":
           description: Límite de peticiones superado.
           headers:
@@ -128327,56 +127901,6 @@ components:
         - otra_compania
         - ya_conciliada
         - cobrado_otro_cliente
-    Forma-44d60892e6:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        organismoCodigo:
-          type: string
-          minLength: 1
-          maxLength: 5
-        placa:
-          type: string
-        documentoPropietario:
-          type: string
-        tipoDocumentoPropietario:
-          type: string
-        nombrePropietario:
-          type: string
-        vin:
-          type: string
-          minLength: 1
-          maxLength: 17
-        marca:
-          type: string
-          minLength: 1
-          maxLength: 60
-        linea:
-          type: string
-          minLength: 1
-          maxLength: 80
-        anio:
-          type: string
-          pattern: "^\\d{4}$"
-        color:
-          type: string
-          minLength: 1
-          maxLength: 60
-        cilindrada:
-          type: string
-          minLength: 1
-          maxLength: 20
-        factura:
-          type: string
-          format: binary
-      required:
-        - organismoCodigo
-        - vin
-        - marca
-        - linea
-        - anio
-        - color
-        - cilindrada
     Forma-45e9dc9384:
       description: Forma que comparten varias operaciones.
       type: object
@@ -129064,82 +128588,6 @@ components:
         - keyVersion
         - createdAt
         - updatedAt
-    Forma-540a39a8fb:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        id:
-          type: string
-        organismoCodigo:
-          type: string
-        organismoNombre:
-          type: string
-        placa:
-          type:
-            - string
-            - "null"
-        documentoPropietario:
-          type:
-            - string
-            - "null"
-        tipoDocumentoPropietario:
-          type:
-            - string
-            - "null"
-        nombrePropietario:
-          type:
-            - string
-            - "null"
-        vin:
-          type: string
-        marca:
-          type: string
-        linea:
-          type: string
-        anio:
-          type: string
-        color:
-          type: string
-        cilindrada:
-          type: string
-        estado:
-          type: string
-          enum:
-            - radicado
-            - sin_respuesta
-            - sin_vehiculo
-            - sin_coincidencia
-            - certificado
-        comparacion:
-          type:
-            - array
-            - "null"
-          items:
-            "$ref": "#/components/schemas/Forma-6d65949e76"
-        certificadoEn:
-          type:
-            - string
-            - "null"
-        createdAt:
-          type: string
-      required:
-        - id
-        - organismoCodigo
-        - organismoNombre
-        - placa
-        - documentoPropietario
-        - tipoDocumentoPropietario
-        - nombrePropietario
-        - vin
-        - marca
-        - linea
-        - anio
-        - color
-        - cilindrada
-        - estado
-        - comparacion
-        - certificadoEn
-        - createdAt
     Forma-5424732a96:
       description: Forma que comparten varias operaciones.
       type: object
@@ -130547,6 +129995,53 @@ components:
           type: array
           items:
             type: string
+    Forma-71dc4f01b6:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        organismoCodigo:
+          type: string
+        placa:
+          type: string
+        documentoPropietario:
+          type: string
+        tipoDocumentoPropietario:
+          type: string
+        nombrePropietario:
+          type: string
+        vin:
+          type: string
+          minLength: 1
+          maxLength: 17
+        marca:
+          type: string
+          minLength: 1
+          maxLength: 60
+        linea:
+          type: string
+          minLength: 1
+          maxLength: 80
+        anio:
+          type: string
+          pattern: "^\\d{4}$"
+        color:
+          type: string
+          minLength: 1
+          maxLength: 60
+        cilindrada:
+          type: string
+          minLength: 1
+          maxLength: 20
+        factura:
+          type: string
+          format: binary
+      required:
+        - vin
+        - marca
+        - linea
+        - anio
+        - color
+        - cilindrada
     Forma-759aaa100d:
       description: Forma que comparten varias operaciones.
       type: object
@@ -134618,6 +134113,86 @@ components:
         - fechaFactura
         - avaluoComercial
         - ultimoCambio
+    Forma-cc4e81eebd:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        id:
+          type: string
+        organismoCodigo:
+          type:
+            - string
+            - "null"
+        organismoNombre:
+          type:
+            - string
+            - "null"
+        placa:
+          type:
+            - string
+            - "null"
+        documentoPropietario:
+          type:
+            - string
+            - "null"
+        tipoDocumentoPropietario:
+          type:
+            - string
+            - "null"
+        nombrePropietario:
+          type:
+            - string
+            - "null"
+        vin:
+          type: string
+        marca:
+          type: string
+        linea:
+          type: string
+        anio:
+          type: string
+        color:
+          type: string
+        cilindrada:
+          type: string
+        estado:
+          type: string
+          enum:
+            - radicado
+            - sin_respuesta
+            - sin_vehiculo
+            - sin_coincidencia
+            - certificado
+        comparacion:
+          type:
+            - array
+            - "null"
+          items:
+            "$ref": "#/components/schemas/Forma-6d65949e76"
+        certificadoEn:
+          type:
+            - string
+            - "null"
+        createdAt:
+          type: string
+      required:
+        - id
+        - organismoCodigo
+        - organismoNombre
+        - placa
+        - documentoPropietario
+        - tipoDocumentoPropietario
+        - nombrePropietario
+        - vin
+        - marca
+        - linea
+        - anio
+        - color
+        - cilindrada
+        - estado
+        - comparacion
+        - certificadoEn
+        - createdAt
     Forma-cc63018c73:
       description: Forma que comparten varias operaciones.
       type: object

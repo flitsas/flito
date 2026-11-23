@@ -15,6 +15,7 @@ import {
   clients,
   flitoGestorOrganismos,
   flitoOrganismoVigencias,
+  flitoProveedores,
   flitoProveedoresLogistica,
   flitoProveedoresSoat,
   flitoReglasProveedorSoat,
@@ -78,18 +79,23 @@ async function main(): Promise<void> {
   ]);
 
   // ── Proveedores de SOAT ─────────────────────────────────────────────────────
-  const proveedores = await db.insert(flitoProveedoresSoat).values([
+  const creados = await db.insert(flitoProveedoresSoat).values([
     { nombre: 'Seguros del Estado', estrategia: 'portal', slaHoras: 24 },
     { nombre: 'SURA', estrategia: 'portal', umbralOcr: '0.900', slaHoras: 48 },
-  ]).returning();
+  ]).returning({ id: flitoProveedoresSoat.id });
+  // HU #14354 (R21): el nombre se lee del padre (lo escribe `perfil_crea_padre`, 0292), no del perfil.
+  const proveedores = await db.select({ id: flitoProveedores.id, nombre: flitoProveedores.nombre }).from(flitoProveedores)
+    .where(inArray(flitoProveedores.id, creados.map((p) => p.id)));
   const estado = proveedores.find((p) => p.nombre === 'Seguros del Estado')!;
   const sura = proveedores.find((p) => p.nombre === 'SURA')!;
 
   // ── Proveedor logístico por defecto (Fase 1: mensajería propia de FLIT) ──────
   // Se consulta antes de insertar: `perfil_crea_padre` (0292) escribe el padre antes de que un ON CONFLICT del
   // perfil pueda actuar, y un nombre ya sembrado por una migración chocaría con el índice único del padre.
-  const [mensajeria] = await db.select({ id: flitoProveedoresLogistica.id }).from(flitoProveedoresLogistica)
-    .where(eq(flitoProveedoresLogistica.nombre, 'Mensajería FLIT')).limit(1);
+  // HU #14354: el nombre se busca en el padre, unido al perfil de logística por el mismo UUID.
+  const [mensajeria] = await db.select({ id: flitoProveedores.id }).from(flitoProveedores)
+    .innerJoin(flitoProveedoresLogistica, eq(flitoProveedoresLogistica.id, flitoProveedores.id))
+    .where(eq(flitoProveedores.nombre, 'Mensajería FLIT')).limit(1);
   if (!mensajeria) {
     await db.insert(flitoProveedoresLogistica).values({ nombre: 'Mensajería FLIT', estrategia: 'pwa_propia', activo: true });
   }
@@ -115,10 +121,10 @@ async function main(): Promise<void> {
       // El operador FLITO ES admin (despliegue FLITO-only; el rol `operaciones` se fusionó en `admin`).
       { username: 'operaciones', name: 'Operaciones FLIT', email: 'operaciones@flito.co', passwordHash: hash, role: 'admin' },
       // Dos gestores del MISMO proveedor: permite demostrar CA-04 (toma atómica de la misma cola).
-      { username: 'gestor.sura', name: 'Gestor SURA (1)', email: 'gestor.sura@flito.co', passwordHash: hash, role: 'proveedor', flitoProveedorSoatId: sura.id },
-      { username: 'gestor.sura2', name: 'Gestor SURA (2)', email: 'gestor.sura2@flito.co', passwordHash: hash, role: 'proveedor', flitoProveedorSoatId: sura.id },
+      { username: 'gestor.sura', name: 'Gestor SURA (1)', email: 'gestor.sura@flito.co', passwordHash: hash, role: 'proveedor', flitoProveedorId: sura.id },
+      { username: 'gestor.sura2', name: 'Gestor SURA (2)', email: 'gestor.sura2@flito.co', passwordHash: hash, role: 'proveedor', flitoProveedorId: sura.id },
       // Gestor del otro proveedor: demuestra CA-09 (aislamiento entre proveedores).
-      { username: 'gestor.estado', name: 'Gestor Seguros del Estado', email: 'gestor.estado@flito.co', passwordHash: hash, role: 'proveedor', flitoProveedorSoatId: estado.id },
+      { username: 'gestor.estado', name: 'Gestor Seguros del Estado', email: 'gestor.estado@flito.co', passwordHash: hash, role: 'proveedor', flitoProveedorId: estado.id },
       // Gestores de impuestos. Su atadura (CA-10) NO va aquí desde la HU #12053: `transito_codigo` es
       // del rol `transito` y solo cabía UNO. Va en `flito_gestor_organismos`, abajo.
       { username: 'gestor.medellin', name: 'Gestor Movilidad Medellín', email: 'gestor.medellin@flito.co', passwordHash: hash, role: 'gestor_impuestos' },
