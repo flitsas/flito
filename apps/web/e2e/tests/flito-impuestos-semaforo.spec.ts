@@ -136,7 +136,7 @@ test.describe('FLITO — Impuestos · semáforo de la cola (HU #12830)', () => {
     await page.goto('/flito/impuestos');
     await expect(filaDe(page, 'VER001')).toBeVisible();
 
-    await page.getByLabel('Filtros inteligentes').click();
+    // Épica #14560 (ronda 2): «Con alertas» es una vista rápida a la vista, sin desplegable.
     await page.getByRole('button', { name: /Con alertas/ }).click();
 
     await expect.poll(() => consultas.at(-1)).toContain('semaforo=naranja%2Crojo');
@@ -147,5 +147,27 @@ test.describe('FLITO — Impuestos · semáforo de la cola (HU #12830)', () => {
     await expect(filaDe(page, 'ERR001')).toHaveCount(0); // error_analisis sin semáforo no entra
     await expect(filaDe(page, 'ANA001')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toBeVisible();
+  });
+
+  // Épica #14560 (ronda 2): las vistas rápidas son chips que se apagan con un segundo clic, como en SOAT.
+  test('AC3 · un segundo clic en «Con alertas» la quita: sin semaforo= y vuelven las filas sin alerta', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/impuestos');
+    await expect(filaDe(page, 'VER001')).toBeVisible();
+    const vista = page.getByRole('button', { name: 'Con alertas', exact: true });
+
+    await vista.click();
+    await expect(vista).toHaveAttribute('aria-pressed', 'true');
+    await expect.poll(() => consultas.at(-1)).toContain('semaforo=');
+    await expect(filaDe(page, 'VER001')).toHaveCount(0);
+
+    const n = consultas.length;
+    await vista.click();
+    await expect(vista).toHaveAttribute('aria-pressed', 'false');
+    await expect.poll(() => consultas.length).toBeGreaterThan(n);
+    await expect.poll(() => consultas.at(-1)).not.toContain('semaforo=');
+    await expect(filaDe(page, 'VER001')).toBeVisible();
+    await expect(filaDe(page, 'NAR001')).toBeVisible();
   });
 });

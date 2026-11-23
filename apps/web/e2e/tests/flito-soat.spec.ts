@@ -87,11 +87,11 @@ async function mock(page: import('@playwright/test').Page) {
 }
 
 /**
- * HU #12819: los filtros secundarios de la cola SOAT viven en el panel plegable «Más filtros».
+ * HU #12819: los filtros secundarios de la cola SOAT viven en el panel plegable «Filtros».
  * Idempotente: si ya está abierto no lo cierra.
  */
 async function abrirMasFiltrosSoat(page: import('@playwright/test').Page) {
-  const boton = page.getByRole('button', { name: /^Más filtros/ });
+  const boton = page.getByRole('button', { name: /^Filtros/ });
   // Primero que la cola haya pintado (tabla o vacío): durante la carga inicial la pantalla se
   // vuelve a montar (sesión y permisos) y un panel abierto antes se cerraría con ella.
   await expect(page.getByRole('region', { name: 'Pólizas SOAT' }).or(page.getByText(/Ningún SOAT coincide|No hay SOAT|No tienes SOAT|Todavía no hay/))).toBeVisible();
@@ -175,7 +175,7 @@ test.describe('FLITO — Portal SOAT', () => {
     await page.getByRole('button', { name: '30 días' }).click();
     await expect.poll(() => urlsPedidas.at(-1) ?? '').toContain('solicitadoDesde=');
     expect(urlsPedidas.at(-1)).toContain('solicitadoHasta=');
-    // HU #12819: en el panel «Más filtros» los rangos van apilados y el calendario abierto tapa al
+    // HU #12819: en el panel «Filtros» los rangos van apilados y el calendario abierto tapa al
     // de abajo; se cierra, que es lo que hace cualquiera al terminar de elegir.
     await rango('Solicitado').click();
 
@@ -1113,7 +1113,7 @@ test.describe('FLITO — SOAT · vigencia frente al RUNT (HU #12097)', () => {
     await expect(page.getByRole('row').filter({ hasText: 'CLI007' })).toBeVisible();
     // HU #12819: con el panel ABIERTO, o el «no está» se cumpliría solo por estar plegado.
     await abrirMasFiltrosSoat(page);
-    await expect(page.getByRole('group', { name: 'Más filtros' })).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Filtros' })).toBeVisible();
     await expect(page.getByLabel('Vigencia')).toHaveCount(0);
     await expect(page.getByText('Sin verificar')).toHaveCount(0);
     await expect(page.getByText('No se pudo consultar')).toHaveCount(0);
@@ -1270,6 +1270,30 @@ test.describe('FLITO — SOAT: listas de apoyo por enlace (HU #13452)', () => {
 
 // Épica #14560 — patrón unificado de cola (`docs/ux/flito-soat-impuestos-patron-unificado.md` §10).
 test.describe('FLITO — SOAT · patrón unificado de cola (Épica #14560)', () => {
+  // Ronda 2: la vista rápida es un chip que se apaga con un segundo clic (la misma pieza que Impuestos).
+  test('un segundo clic en «Listos para enviar» la quita: sin estado= y vuelve la cola entera', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/soat');
+    const tabla = page.getByRole('region', { name: 'Pólizas SOAT' });
+    await expect(tabla.getByText('PAG777')).toBeVisible();
+    const vista = page.getByRole('button', { name: 'Listos para enviar', exact: true });
+
+    await vista.click();
+    await expect(vista).toHaveAttribute('aria-pressed', 'true');
+    await expect.poll(() => urlsPedidas.at(-1)).toContain('estado=pendiente');
+    await expect(tabla.getByText('PAG777')).toHaveCount(0);
+    await expect(tabla.getByText('ABC123')).toBeVisible();
+
+    const n = urlsPedidas.length;
+    await vista.click();
+    await expect(vista).toHaveAttribute('aria-pressed', 'false');
+    await expect.poll(() => urlsPedidas.length).toBeGreaterThan(n);
+    await expect.poll(() => urlsPedidas.at(-1)).not.toContain('estado=');
+    await expect(tabla.getByText('PAG777')).toBeVisible();
+    await expect(tabla.getByText('XYZ789')).toBeVisible();
+  });
+
   test('§10.2 · Estado es la columna que sigue a Vehículo, la primera de datos', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mock(page);

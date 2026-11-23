@@ -265,7 +265,8 @@ test.describe('FLITO — Impuestos', () => {
     await page.goto('/flito/impuestos');
     await abrirFiltros(page);
     await page.getByLabel('Gestiona').selectOption('operaciones');
-    await page.getByRole('button', { name: 'Aplicar filtros' }).click();
+    // Épica #14560 (ronda 2): el panel filtra en vivo, sin «Aplicar»; se pliega con su mismo botón.
+    await page.getByRole('button', { name: /^Filtros/ }).click();
     await page.getByRole('row').filter({ hasText: 'OPS001' }).getByRole('button', { name: 'Ver' }).click();
     const modal = page.getByRole('dialog');
     await modal.getByRole('button', { name: 'Devolver al gestor' }).click();
@@ -315,7 +316,8 @@ test.describe('FLITO — Impuestos', () => {
     // Con el panel de filtros ABIERTO: cerrado, el select no existiría para nadie y el aserto no diría nada.
     await abrirFiltros(page);
     await expect(page.getByLabel('Gestiona')).toHaveCount(0);
-    await page.getByRole('button', { name: 'Aplicar filtros' }).click();
+    // Épica #14560 (ronda 2): el panel filtra en vivo, sin «Aplicar»; se pliega con su mismo botón.
+    await page.getByRole('button', { name: /^Filtros/ }).click();
 
     await page.getByRole('button', { name: 'Ver' }).first().click();
     const modal = page.getByRole('dialog');
@@ -806,7 +808,7 @@ test.describe('FLITO — Impuestos · certificación masiva', () => {
     await expect(page.getByRole('dialog')).toBeVisible();
     const antes = pedidas;
 
-    await page.getByRole('button', { name: 'Listo' }).click();
+    await page.getByRole('button', { name: 'Listo', exact: true }).click();
 
     await expect(page.getByText('1 seleccionado(s)')).toHaveCount(0);
     await expect.poll(() => pedidas).toBeGreaterThan(antes);
@@ -876,7 +878,7 @@ test.describe('FLITO — Impuestos · certificación masiva', () => {
     expect(certificados[0]).toEqual({ ids: ['s0'] });
 
     // Cerrar el resultado vacía la selección (`onListo`), así que se vuelve a marcar para la otra.
-    await page.getByRole('button', { name: 'Listo' }).click();
+    await page.getByRole('button', { name: 'Listo', exact: true }).click();
     await expect(page.getByText('2 seleccionado(s)')).toHaveCount(0);
     await page.getByLabel('Seleccionar ABC123').check();
     await page.getByLabel('Seleccionar SOL000').check();

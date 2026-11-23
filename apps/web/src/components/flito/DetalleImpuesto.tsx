@@ -25,7 +25,8 @@ import ModalCargaReciboFase, { type ResultadoConEscritura } from './ModalCargaRe
 import ModalReemplazoComprobante from './ModalReemplazoComprobante';
 import { CeldaEnvioComprobante, textoToastReemplazo } from './EnvioComprobante';
 import { toastOk } from '../flit/ToastFlito';
-import { ChipDocumentos, TONO_IMPUESTO, fecha, pesos, type ImpuestoItem } from './ImpuestoCola';
+import { ChipDocumentos, fecha, pesos, type ImpuestoItem } from './ImpuestoCola';
+import ChipEstadoImpuesto from './impuestos/ChipEstadoImpuesto';
 import { SeccionValidacion, useDetalleValidacion, type Carga } from './ValidacionRunt';
 import { AvisoDireccion, DireccionComprador, EstadoCargaDireccion } from './DireccionComprador';
 
@@ -241,7 +242,7 @@ export default function DetalleImpuesto({
       <div className="space-y-4 text-sm">
         {/* 1 · estado */}
         <div className="flex flex-wrap items-center gap-2">
-          <StatusChip tone={TONO_IMPUESTO[imp.estado]}>{ESTADO_IMPUESTO_LABEL[imp.estado]}</StatusChip>
+          <ChipEstadoImpuesto estado={imp.estado} />
           {imp.estancado && <ChipSinGestion desde={imp.enviadoEn} />}
           {imp.marcadoPorDiferencia && <StatusChip tone="warning">Diferencia de valor</StatusChip>}
           <ChipDocumentos imp={imp} />

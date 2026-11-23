@@ -17,6 +17,7 @@ import { useAuth } from '../lib/auth';
 import { conEnlace, vacioConEnlace } from '../lib/copyEnlace';
 import GradientButton, { claseBoton } from '../components/flit/GradientButton';
 import DataTable from '../components/flit/DataTable';
+import Paginacion from '../components/flit/Paginacion';
 import InlineAlert from '../components/flit/InlineAlert';
 import { BarraAccion } from '../components/flit/Bloques';
 import { Icono } from '../components/flit/kit/Icono';
@@ -24,6 +25,7 @@ import type { Preset } from '../components/flit/FiltrosInteligentes';
 import { columnasImpuestos } from '../components/flito/impuestos/ImpuestosColumnas';
 import EmbudoEstadoCola from '../components/flito/EmbudoEstadoCola';
 import ImpuestosFiltros from '../components/flito/impuestos/ImpuestosFiltros';
+import { AccionesCabecera } from '../components/flito/impuestos/AccionesCabecera';
 import {
   AvisoExportCola, BotonExportarCola, COLA_IMPUESTOS, useExportCola, type FiltrosExportCola,
 } from '../components/flito/ExportarCola';
@@ -56,6 +58,8 @@ const ESTADOS_OPERACIONES: EstadoImpuesto[] = [
   EstadoImpuesto.PENDIENTE, EstadoImpuesto.SOLICITADO, EstadoImpuesto.CON_NOVEDAD, EstadoImpuesto.PAGADO,
 ];
 const ESTADOS_GESTOR: EstadoImpuesto[] = [EstadoImpuesto.SOLICITADO, EstadoImpuesto.PAGADO];
+/** Acciones de cabecera: a ancho completo por debajo de `sm`, la primaria primero (como en SOAT). */
+const ACCION_CABECERA = 'w-full justify-center sm:w-auto';
 
 /**
  * Traduce el fallo de un intento de certificación al desenlace que se le muestra al gestor.
@@ -401,30 +405,32 @@ export default function FlitoImpuestos() {
 
   // Carga masiva de recibos: la acción primaria del día de esta cola (solo operaciones y gestor).
   const cargaRecibosBoton = (esOperaciones || esGestor) ? (
-    <GradientButton onClick={() => setCargaRecibos(true)}>
-      <Icono nombre="nube-subir" size={18} />
+    <GradientButton className={ACCION_CABECERA} onClick={() => setCargaRecibos(true)}>
+      <Icono nombre="nube-subir" size={16} className="shrink-0" />
       Cargar recibos (masivo)
     </GradientButton>
   ) : null;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="space-y-4">
       {/* La cabecera del módulo es del shell (decisión D1). Sus acciones dependen del estado de esta
-          cola (modal de carga, export con sus filtros), así que viven aquí, en una barra bajo las
-          pestañas, y no en el shell. */}
+          cola (modal de carga, export con sus filtros), así que se pintan aquí pero DENTRO de la
+          cabecera, en el hueco que deja el shell (Épica #14560): misma composición que la del SOAT. */}
       {(esOperaciones || esGestor || puedeExportar) && (
-        // Carga masiva (primaria) y «Exportar a Excel» en UNA fila alineada a la derecha (sm+); la nota del export
-        // queda debajo. Bajo sm, todo apilado a ancho completo.
-        <div className="flex w-full sm:w-auto sm:self-end">
-          {puedeExportar ? (
-            <BotonExportarCola
-              antes={cargaRecibosBoton}
-              ocupado={exportacion.ocupado}
-              onExportar={exportacion.exportar}
-              incluirPago={ofrecerExportarPago ? { marcado: incluirPago, onCambio: setIncluirPago } : undefined}
-            />
-          ) : cargaRecibosBoton}
-        </div>
+        <AccionesCabecera>
+          {/* Carga masiva (primaria) y «Exportar a Excel» en UNA fila alineada a la derecha (sm+); la nota
+              del export queda debajo. Bajo sm, todo apilado a ancho completo. */}
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:items-start sm:justify-end">
+            {puedeExportar ? (
+              <BotonExportarCola
+                antes={cargaRecibosBoton}
+                ocupado={exportacion.ocupado}
+                onExportar={exportacion.exportar}
+                incluirPago={ofrecerExportarPago ? { marcado: incluirPago, onCambio: setIncluirPago } : undefined}
+              />
+            ) : cargaRecibosBoton}
+          </div>
+        </AccionesCabecera>
       )}
 
       {/* La banda se monta solo donde se monta el botón: un `role="alert"` colgado en la pantalla
@@ -441,13 +447,14 @@ export default function FlitoImpuestos() {
         />
       )}
 
-      <EmbudoEstadoCola modulo="impuesto" ariaLabel="Fases del impuesto" valor={estado} onCambio={setEstado}
-        opciones={[
-          ...(!esGestor ? [{ valor: 'todos' as const, etiqueta: 'Todos' }] : []),
-          ...estadosDisponibles.map((e) => ({ valor: e, etiqueta: ESTADO_IMPUESTO_LABEL[e] })),
-        ]} />
-
       <ImpuestosFiltros<FiltrosPreset>
+        embudo={(
+          <EmbudoEstadoCola modulo="impuesto" ariaLabel="Fases del impuesto" valor={estado} onCambio={setEstado}
+            opciones={[
+              ...(!esGestor ? [{ valor: 'todos' as const, etiqueta: 'Todos' }] : []),
+              ...estadosDisponibles.map((e) => ({ valor: e, etiqueta: ESTADO_IMPUESTO_LABEL[e] })),
+            ]} />
+        )}
         esGestor={esGestor}
         texto={texto} setTexto={setTexto}
         facetas={facetas}
@@ -529,6 +536,11 @@ export default function FlitoImpuestos() {
         />
       )}
 
+      {/* «N impuestos · página X de Y» con su paginador también ARRIBA de la tabla, como el SOAT. */}
+      {data && filas.length > 0 && (
+        <Paginacion total={data.total} page={data.page} totalPaginas={totalPaginas} sustantivo="impuestos"
+          onPrev={() => setPage((p) => Math.max(1, p - 1))} onNext={() => setPage((p) => p + 1)} />
+      )}
       <DataTable
         ariaLabel="Cola de impuestos"
         columnas={columnas}
