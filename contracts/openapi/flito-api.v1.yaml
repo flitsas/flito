@@ -27017,7 +27017,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-9009ff9a19"
+                "$ref": "#/components/schemas/Forma-cf830021ef"
         "401":
           description: No autenticado.
           content:
@@ -27116,7 +27116,7 @@ paths:
             application/json:
               schema:
                 anyOf:
-                  - "$ref": "#/components/schemas/Forma-9009ff9a19"
+                  - "$ref": "#/components/schemas/Forma-cf830021ef"
                   - type: object
                     properties:
                       id:
@@ -27577,7 +27577,7 @@ paths:
             application/json:
               schema:
                 anyOf:
-                  - "$ref": "#/components/schemas/Forma-9009ff9a19"
+                  - "$ref": "#/components/schemas/Forma-cf830021ef"
                   - type: object
                     properties:
                       id:
@@ -27791,6 +27791,243 @@ paths:
                   error:
                     type: string
                 required:
+                  - error
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/flito/impuestos/{id}/documento-factura":
+    patch:
+      operationId: patch-api-flito-impuestos-id-documento-factura
+      tags:
+        - flito-impuestos
+      summary: "PATCH /api/flito/impuestos/:id/documento-factura"
+      description: "PATCH /:id/documento-factura — corrección manual (AC2). Sin restricción de estado (AC4): también certificado o pagado. 400 id/body inválido · 403 sin función (no toca la fila) · 404 fuera de frontera. Fuente: apps/api/src/modules/flito-impuestos/flito-impuestos.documento-factura.routes.ts. Exige la función: impuestos.tramite.certificar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - impuestos.tramite.certificar
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Parámetro id de la ruta.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                numeroFactura:
+                  type: string
+                  maxLength: 60
+                fechaFactura:
+                  type: string
+                avaluoComercial:
+                  type: string
+                motivo:
+                  type: string
+              required:
+                - motivo
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Forma-cc0e851bdd"
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/flito/impuestos/{id}/documento-factura/reintentar":
+    post:
+      operationId: post-api-flito-impuestos-id-documento-factura-reintentar
+      tags:
+        - flito-impuestos
+      summary: "POST /api/flito/impuestos/:id/documento-factura/reintentar"
+      description: "POST /:id/documento-factura/reintentar — vuelve a leer SOLO estos 3 campos de la misma factura (AC3). SÍNCRONO: responde en el mismo request (decisión del humano, sin cola). 400 · 403 · 404 · 409 `FACTURA_NO_DISPONIBLE` (nunca el motivo crudo del error). Fuente: apps/api/src/modules/flito-impuestos/flito-impuestos.documento-factura.routes.ts. Exige la función: impuestos.tramite.certificar."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - impuestos.tramite.certificar
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Parámetro id de la ruta.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                motivo:
+                  type: string
+              required:
+                - motivo
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Forma-cc0e851bdd"
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "404":
+          description: No encontrado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "409":
+          description: Conflicto con el estado actual.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: string
+                  error:
+                    type: string
+                required:
+                  - code
                   - error
         "429":
           description: Límite de peticiones superado.
@@ -28032,7 +28269,7 @@ paths:
             application/json:
               schema:
                 anyOf:
-                  - "$ref": "#/components/schemas/Forma-9009ff9a19"
+                  - "$ref": "#/components/schemas/Forma-cf830021ef"
                   - type: object
                     properties:
                       id:
@@ -28287,7 +28524,7 @@ paths:
             application/json:
               schema:
                 anyOf:
-                  - "$ref": "#/components/schemas/Forma-9009ff9a19"
+                  - "$ref": "#/components/schemas/Forma-cf830021ef"
                   - type: object
                     properties:
                       id:
@@ -29059,7 +29296,7 @@ paths:
             application/json:
               schema:
                 anyOf:
-                  - "$ref": "#/components/schemas/Forma-9009ff9a19"
+                  - "$ref": "#/components/schemas/Forma-cf830021ef"
                   - type: object
                     properties:
                       id:
@@ -104260,8 +104497,8 @@ paths:
                       via:
                         type: string
                         enum:
-                          - registro_externo
                           - reintento
+                          - registro_externo
                       viaTexto:
                         type: string
                       antiguedadHoras:
@@ -131505,317 +131742,6 @@ components:
         - createdBy
         - createdAt
         - updatedAt
-    Forma-9009ff9a19:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        extraccion:
-          description: "[por verificar] el código la tipa como `unknown`."
-        extraccionFacturaVenta:
-          description: "[por verificar] el código la tipa como `unknown`."
-        pagadoEn:
-          type:
-            - string
-            - "null"
-        direccionComprador:
-          "$ref": "#/components/schemas/Forma-ce25026149"
-        comparacion:
-          type:
-            - object
-            - "null"
-          properties:
-            version:
-              type: number
-              enum:
-                - 1
-            motivo:
-              type:
-                - string
-                - "null"
-              enum:
-                - runt_sin_respuesta
-                - error_lectura_factura
-                - null
-            detalleRunt:
-              type: string
-              enum:
-                - sin_respuesta
-                - sin_registro
-                - traspaso
-                - sin_identificador
-            campos:
-              type: array
-              items:
-                "$ref": "#/components/schemas/Forma-6d65949e76"
-            resumen:
-              type: object
-              properties:
-                coinciden:
-                  type: number
-                difieren:
-                  type: number
-                noVerificables:
-                  type: number
-              required:
-                - coinciden
-                - difieren
-                - noVerificables
-            calculadoEn:
-              type: string
-          required:
-            - version
-            - motivo
-            - campos
-            - resumen
-            - calculadoEn
-        soportes:
-          type: array
-          items:
-            "$ref": "#/components/schemas/Forma-d2a9ba8398"
-        envioFlit2:
-          type:
-            - object
-            - "null"
-          properties:
-            estado:
-              type: string
-              enum:
-                - error
-                - pendiente
-                - en_espera
-                - enviado
-                - ya_cargado_gestor
-                - sin_comprobante
-            intentos:
-              type: number
-            ultimoIntentoEn:
-              type:
-                - string
-                - "null"
-          required:
-            - estado
-            - intentos
-            - ultimoIntentoEn
-        envioComprobante:
-          type:
-            - object
-            - "null"
-          properties:
-            destino:
-              type: string
-              enum:
-                - flit2
-                - flit1
-            estado:
-              type: string
-              enum:
-                - error
-                - pendiente
-                - en_espera
-                - enviado
-                - ya_cargado_gestor
-                - sin_comprobante
-            intentos:
-              type: number
-            ultimoIntentoEn:
-              type:
-                - string
-                - "null"
-          required:
-            - destino
-            - estado
-            - intentos
-            - ultimoIntentoEn
-        id:
-          type: string
-        tramiteId:
-          type: string
-        idFlit:
-          type: string
-        placa:
-          type:
-            - string
-            - "null"
-        vin:
-          type: string
-        marca:
-          type:
-            - string
-            - "null"
-        linea:
-          type:
-            - string
-            - "null"
-        tipoTramite:
-          type:
-            - string
-            - "null"
-        fechaAprobacion:
-          type:
-            - string
-            - "null"
-        fechaCreacion:
-          type:
-            - string
-            - "null"
-        estado:
-          type: string
-          enum:
-            - pendiente
-            - solicitado
-            - con_novedad
-            - pagado
-        compradorNombre:
-          type:
-            - string
-            - "null"
-        compradorDocumento:
-          type:
-            - string
-            - "null"
-        compradorTipoDocumento:
-          type:
-            - string
-            - "null"
-        companiaNombre:
-          type: string
-        organismoCodigo:
-          type: string
-        organismoNombre:
-          type:
-            - string
-            - "null"
-        valorLiquidado:
-          type:
-            - number
-            - "null"
-        valorPagado:
-          type:
-            - number
-            - "null"
-        marcadoPorDiferencia:
-          type: boolean
-        tieneFacturaVenta:
-          type: boolean
-        enviadoPorNombre:
-          type:
-            - string
-            - "null"
-        enviadoEn:
-          type:
-            - string
-            - "null"
-        liquidadoEn:
-          type:
-            - string
-            - "null"
-        documentos:
-          type:
-            - string
-            - "null"
-          enum:
-            - ambos
-            - liquidacion
-            - pago
-            - null
-        estancado:
-          type: boolean
-        motivoRechazo:
-          type:
-            - string
-            - "null"
-        creadoEn:
-          type: string
-        gestionOperaciones:
-          type: boolean
-        certificacion:
-          type:
-            - object
-            - "null"
-          properties:
-            id:
-              type: string
-            certificadoEn:
-              type: string
-            certificadoPorNombre:
-              type:
-                - string
-                - "null"
-            automatica:
-              type: boolean
-          required:
-            - id
-            - certificadoEn
-            - certificadoPorNombre
-            - automatica
-        analisisEstado:
-          type:
-            - string
-            - "null"
-          enum:
-            - en_curso
-            - completado
-            - error_analisis
-            - null
-        semaforo:
-          type:
-            - string
-            - "null"
-          enum:
-            - verde
-            - naranja
-            - rojo
-            - null
-        motivoSemaforo:
-          type:
-            - string
-            - "null"
-          enum:
-            - runt_sin_respuesta
-            - error_lectura_factura
-            - null
-      required:
-        - extraccion
-        - extraccionFacturaVenta
-        - pagadoEn
-        - direccionComprador
-        - comparacion
-        - soportes
-        - envioFlit2
-        - envioComprobante
-        - id
-        - tramiteId
-        - idFlit
-        - placa
-        - vin
-        - marca
-        - linea
-        - tipoTramite
-        - fechaAprobacion
-        - fechaCreacion
-        - estado
-        - compradorNombre
-        - compradorDocumento
-        - compradorTipoDocumento
-        - companiaNombre
-        - organismoCodigo
-        - organismoNombre
-        - valorLiquidado
-        - valorPagado
-        - marcadoPorDiferencia
-        - tieneFacturaVenta
-        - enviadoPorNombre
-        - enviadoEn
-        - liquidadoEn
-        - documentos
-        - estancado
-        - motivoRechazo
-        - creadoEn
-        - gestionOperaciones
-        - certificacion
-        - analisisEstado
-        - semaforo
-        - motivoSemaforo
     Forma-9038f5e674:
       description: Forma que comparten varias operaciones.
       type: object
@@ -134584,6 +134510,114 @@ components:
         - derecho
         - tramite_digital
         - servicios_adicionales
+    Forma-cc0e851bdd:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        numeroFactura:
+          type:
+            - object
+            - "null"
+          properties:
+            valor:
+              type:
+                - string
+                - "null"
+            confianza:
+              type: number
+            confiable:
+              type: boolean
+            confirmadoPor:
+              type:
+                - string
+                - "null"
+            confirmadoEn:
+              type:
+                - string
+                - "null"
+          required:
+            - valor
+            - confianza
+            - confiable
+        fechaFactura:
+          type:
+            - object
+            - "null"
+          properties:
+            valor:
+              type:
+                - string
+                - "null"
+            confianza:
+              type: number
+            confiable:
+              type: boolean
+            confirmadoPor:
+              type:
+                - string
+                - "null"
+            confirmadoEn:
+              type:
+                - string
+                - "null"
+          required:
+            - valor
+            - confianza
+            - confiable
+        avaluoComercial:
+          type:
+            - object
+            - "null"
+          properties:
+            valor:
+              type:
+                - string
+                - "null"
+            confianza:
+              type: number
+            confiable:
+              type: boolean
+            confirmadoPor:
+              type:
+                - string
+                - "null"
+            confirmadoEn:
+              type:
+                - string
+                - "null"
+          required:
+            - valor
+            - confianza
+            - confiable
+        ultimoCambio:
+          type:
+            - object
+            - "null"
+          properties:
+            tipo:
+              type: string
+              enum:
+                - correccion
+                - reintento
+            usuarioId:
+              type: string
+            usuarioNombre:
+              type: string
+            en:
+              type: string
+            motivo:
+              type: string
+          required:
+            - tipo
+            - usuarioId
+            - usuarioNombre
+            - en
+            - motivo
+      required:
+        - numeroFactura
+        - fechaFactura
+        - avaluoComercial
+        - ultimoCambio
     Forma-cc63018c73:
       description: Forma que comparten varias operaciones.
       type: object
@@ -134693,6 +134727,320 @@ components:
         - propuesta
         - confirmadaPor
         - confirmadaEn
+    Forma-cf830021ef:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        extraccion:
+          description: "[por verificar] el código la tipa como `unknown`."
+        extraccionFacturaVenta:
+          description: "[por verificar] el código la tipa como `unknown`."
+        pagadoEn:
+          type:
+            - string
+            - "null"
+        direccionComprador:
+          "$ref": "#/components/schemas/Forma-ce25026149"
+        datosDocumentoFactura:
+          "$ref": "#/components/schemas/Forma-cc0e851bdd"
+        comparacion:
+          type:
+            - object
+            - "null"
+          properties:
+            version:
+              type: number
+              enum:
+                - 1
+            motivo:
+              type:
+                - string
+                - "null"
+              enum:
+                - runt_sin_respuesta
+                - error_lectura_factura
+                - null
+            detalleRunt:
+              type: string
+              enum:
+                - sin_respuesta
+                - sin_registro
+                - traspaso
+                - sin_identificador
+            campos:
+              type: array
+              items:
+                "$ref": "#/components/schemas/Forma-6d65949e76"
+            resumen:
+              type: object
+              properties:
+                coinciden:
+                  type: number
+                difieren:
+                  type: number
+                noVerificables:
+                  type: number
+              required:
+                - coinciden
+                - difieren
+                - noVerificables
+            calculadoEn:
+              type: string
+          required:
+            - version
+            - motivo
+            - campos
+            - resumen
+            - calculadoEn
+        soportes:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Forma-d2a9ba8398"
+        envioFlit2:
+          type:
+            - object
+            - "null"
+          properties:
+            estado:
+              type: string
+              enum:
+                - error
+                - pendiente
+                - en_espera
+                - enviado
+                - ya_cargado_gestor
+                - sin_comprobante
+            intentos:
+              type: number
+            ultimoIntentoEn:
+              type:
+                - string
+                - "null"
+          required:
+            - estado
+            - intentos
+            - ultimoIntentoEn
+        envioComprobante:
+          type:
+            - object
+            - "null"
+          properties:
+            destino:
+              type: string
+              enum:
+                - flit2
+                - flit1
+            estado:
+              type: string
+              enum:
+                - error
+                - pendiente
+                - en_espera
+                - enviado
+                - ya_cargado_gestor
+                - sin_comprobante
+            intentos:
+              type: number
+            ultimoIntentoEn:
+              type:
+                - string
+                - "null"
+          required:
+            - destino
+            - estado
+            - intentos
+            - ultimoIntentoEn
+        id:
+          type: string
+        tramiteId:
+          type: string
+        idFlit:
+          type: string
+        placa:
+          type:
+            - string
+            - "null"
+        vin:
+          type: string
+        marca:
+          type:
+            - string
+            - "null"
+        linea:
+          type:
+            - string
+            - "null"
+        tipoTramite:
+          type:
+            - string
+            - "null"
+        fechaAprobacion:
+          type:
+            - string
+            - "null"
+        fechaCreacion:
+          type:
+            - string
+            - "null"
+        estado:
+          type: string
+          enum:
+            - pendiente
+            - solicitado
+            - con_novedad
+            - pagado
+        compradorNombre:
+          type:
+            - string
+            - "null"
+        compradorDocumento:
+          type:
+            - string
+            - "null"
+        compradorTipoDocumento:
+          type:
+            - string
+            - "null"
+        companiaNombre:
+          type: string
+        organismoCodigo:
+          type: string
+        organismoNombre:
+          type:
+            - string
+            - "null"
+        valorLiquidado:
+          type:
+            - number
+            - "null"
+        valorPagado:
+          type:
+            - number
+            - "null"
+        marcadoPorDiferencia:
+          type: boolean
+        tieneFacturaVenta:
+          type: boolean
+        enviadoPorNombre:
+          type:
+            - string
+            - "null"
+        enviadoEn:
+          type:
+            - string
+            - "null"
+        liquidadoEn:
+          type:
+            - string
+            - "null"
+        documentos:
+          type:
+            - string
+            - "null"
+          enum:
+            - ambos
+            - liquidacion
+            - pago
+            - null
+        estancado:
+          type: boolean
+        motivoRechazo:
+          type:
+            - string
+            - "null"
+        creadoEn:
+          type: string
+        gestionOperaciones:
+          type: boolean
+        certificacion:
+          type:
+            - object
+            - "null"
+          properties:
+            id:
+              type: string
+            certificadoEn:
+              type: string
+            certificadoPorNombre:
+              type:
+                - string
+                - "null"
+            automatica:
+              type: boolean
+          required:
+            - id
+            - certificadoEn
+            - certificadoPorNombre
+            - automatica
+        analisisEstado:
+          type:
+            - string
+            - "null"
+          enum:
+            - en_curso
+            - completado
+            - error_analisis
+            - null
+        semaforo:
+          type:
+            - string
+            - "null"
+          enum:
+            - verde
+            - naranja
+            - rojo
+            - null
+        motivoSemaforo:
+          type:
+            - string
+            - "null"
+          enum:
+            - runt_sin_respuesta
+            - error_lectura_factura
+            - null
+      required:
+        - extraccion
+        - extraccionFacturaVenta
+        - pagadoEn
+        - direccionComprador
+        - datosDocumentoFactura
+        - comparacion
+        - soportes
+        - envioFlit2
+        - envioComprobante
+        - id
+        - tramiteId
+        - idFlit
+        - placa
+        - vin
+        - marca
+        - linea
+        - tipoTramite
+        - fechaAprobacion
+        - fechaCreacion
+        - estado
+        - compradorNombre
+        - compradorDocumento
+        - compradorTipoDocumento
+        - companiaNombre
+        - organismoCodigo
+        - organismoNombre
+        - valorLiquidado
+        - valorPagado
+        - marcadoPorDiferencia
+        - tieneFacturaVenta
+        - enviadoPorNombre
+        - enviadoEn
+        - liquidadoEn
+        - documentos
+        - estancado
+        - motivoRechazo
+        - creadoEn
+        - gestionOperaciones
+        - certificacion
+        - analisisEstado
+        - semaforo
+        - motivoSemaforo
     Forma-d19b76c86e:
       description: Forma que comparten varias operaciones.
       type: object

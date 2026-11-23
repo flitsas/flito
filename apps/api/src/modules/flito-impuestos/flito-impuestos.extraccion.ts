@@ -258,12 +258,31 @@ const confiables = (e: ExtraccionFacturaVentaImpuesto): number =>
   [...CAMPOS_VEHICULO_FACTURA, ...CAMPOS_DIRECCION_FACTURA]
     .filter((c) => (e[c] as CampoExtraido | undefined)?.confiable).length;
 
+/**
+ * Guarda del reintento (preparada en HU #14663 para HU #14664, mismo principio que `NO_MANUAL` /
+ * `LIMPIEZA_DIRECCION_REANALISIS` en `flito-impuestos.direccion.ts`): si una corrección manual de
+ * número/fecha/avalúo llega a guardar su auditoría bajo la clave `ultimoCambioDocumento` del mismo
+ * jsonb, el reanálisis la conserva en vez de pisarla con la lectura fresca. Hoy esa clave no existe
+ * en ninguna fila, así que esto es un no-op: `ultimoCambioDocumento` siempre es `undefined` y
+ * `extraccionFinal` queda igual a `extraccion`.
+ */
+function conUltimoCambioDocumentoPreservado(
+  extraccion: ExtraccionFacturaVentaImpuesto, previa: unknown,
+): ExtraccionFacturaVentaImpuesto {
+  const ultimoCambioDocumento = (previa as { ultimoCambioDocumento?: unknown } | null | undefined)?.ultimoCambioDocumento;
+  if (ultimoCambioDocumento === undefined) return extraccion;
+  return { ...extraccion, ultimoCambioDocumento } as ExtraccionFacturaVentaImpuesto;
+}
+
 /** Paso `extraccion` de la cola de la HU 12825. No consulta el RUNT. */
 export const pasoExtraccion: PasoAnalisis = async ({ impuestoId }) => {
   const factura = await descargarFacturaDeImpuesto(impuestoId);
   const extraccion = await extraerDeFactura(factura);
+  const [previa] = await db.select({ extraccion: flitoImpuestos.extraccionFacturaVenta })
+    .from(flitoImpuestos).where(eq(flitoImpuestos.id, impuestoId)).limit(1);
+  const extraccionFinal = conUltimoCambioDocumentoPreservado(extraccion, previa?.extraccion);
   // Solo si sigue `en_curso`: no pisa una fila que se reseteó mientras el job corría.
-  await db.update(flitoImpuestos).set({ extraccionFacturaVenta: extraccion })
+  await db.update(flitoImpuestos).set({ extraccionFacturaVenta: extraccionFinal })
     .where(and(eq(flitoImpuestos.id, impuestoId), eq(flitoImpuestos.analisisEstado, AnalisisEstadoImpuesto.EN_CURSO)));
   await registrarAccesoSistema(
     impuestoId, ['direccion', 'municipio', 'departamento', 'vin', 'numero_factura', 'fecha_factura', 'avaluo_comercial'],

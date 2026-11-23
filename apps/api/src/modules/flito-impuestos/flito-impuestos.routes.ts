@@ -53,6 +53,7 @@ import { getFlitAdapter } from '../flito-sync/flit.adapter.js';
 import { descargarFacturaVentaFlit2, FacturaNoDisponibleError } from './flito-impuestos.extraccion.js';
 import analisisRouter from './flito-impuestos.analisis.routes.js';
 import direccionRouter from './flito-impuestos.direccion.routes.js';
+import documentoFacturaRouter from './flito-impuestos.documento-factura.routes.js';
 import certificadosRouter from './flito-impuestos.certificados.routes.js';
 import certificacionDirectaRouter from './flito-impuestos.certificacion-directa.routes.js';
 import reciboFaseRouter from './flito-impuestos.recibo-fase.routes.js';
@@ -64,6 +65,7 @@ const router = Router();
 router.use(authMiddleware);
 router.use(analisisRouter(contextoImpuesto)); // HU #12825: hereda authMiddleware
 router.use(direccionRouter(contextoImpuesto)); // HU #12833: PATCH /:id/direccion
+router.use(documentoFacturaRouter(contextoImpuesto)); // HU #14664: corregir/reintentar número, fecha y avalúo
 router.use(certificadosRouter(contextoImpuesto)); // HU #13205: POST /certificados/zip
 router.use(certificacionDirectaRouter(contextoImpuesto));
 router.use(reciboFaseRouter(contextoImpuesto)); // HU #13208: POST /:id/recibos (carga por fase)
