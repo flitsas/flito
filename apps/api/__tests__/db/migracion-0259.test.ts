@@ -45,15 +45,15 @@ describe('0259 — reglas del archivo (análisis estático)', () => {
     expect(SIN_COMENTARIOS.replace(/ON DELETE RESTRICT/g, '')).not.toMatch(/\bUPDATE\b|\bINSERT\b|\bDELETE\b|DROP INDEX/);
   });
 
-  it('el esquema Drizzle declara deleted_at/deleted_by, el índice único parcial y ya no la unicidad global', () => {
+  // HU #14673 (F5 E1): `nombre` y el índice único parcial siguen en la BD como espejo del padre (0313) hasta la #14355,
+  // pero Drizzle ya no los declara. La unicidad del nombre la sostiene el padre (`uq_flito_proveedores_nombre_vivo`).
+  it('el esquema Drizzle declara deleted_at/deleted_by y ya no declara nombre ni su índice (HU #14673)', () => {
     expect(flitoProveedoresSoat.deletedAt.notNull).toBe(false);
     expect(flitoProveedoresSoat.deletedBy.notNull).toBe(false);
-    expect(flitoProveedoresSoat.nombre.isUnique).toBe(false);
+    expect('nombre' in flitoProveedoresSoat).toBe(false);
     const cfg = getTableConfig(flitoProveedoresSoat);
     expect(cfg.uniqueConstraints).toHaveLength(0);
-    const uq = cfg.indexes.find((i) => i.config.name === INDICE_PROVEEDOR_SOAT_NOMBRE_VIVO);
-    expect(uq?.config.unique).toBe(true);
-    expect(uq?.config.where).toBeDefined();
+    expect(cfg.indexes.find((i) => i.config.name === INDICE_PROVEEDOR_SOAT_NOMBRE_VIVO)).toBeUndefined();
     const fk = cfg.foreignKeys.find((f) => f.reference().columns[0]?.name === 'deleted_by');
     expect(fk?.onDelete).toBe('restrict');
   });

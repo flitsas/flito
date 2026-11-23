@@ -339,16 +339,9 @@ export async function crearProveedor(datos: CrearProveedorBody, actor: ActorAudi
     await exigirUnicos(tx, g);
     const [padre] = await tx.insert(flitoProveedores).values({ ...g }).returning();
     if (padre === undefined) throw new Error('El alta del proveedor no devolvió la fila');
-    if (servicios.includes('soat')) {
-      await tx.insert(flitoProveedoresSoat).values({
-        id: padre.id, nombre: g.nombre, ...columnasDeSoat(soat ?? {}),
-      });
-    }
-    if (servicios.includes('logistica')) {
-      await tx.insert(flitoProveedoresLogistica).values({
-        id: padre.id, nombre: g.nombre, nit: g.nit, contacto: g.contacto, telefono: g.telefono,
-      });
-    }
+    // HU #14673: el perfil solo lleva lo suyo. El espejo de los datos generales lo copia del padre `perfil_crea_padre` (0313).
+    if (servicios.includes('soat')) await tx.insert(flitoProveedoresSoat).values({ id: padre.id, ...columnasDeSoat(soat ?? {}) });
+    if (servicios.includes('logistica')) await tx.insert(flitoProveedoresLogistica).values({ id: padre.id });
     await registrarAuditoriaProveedor(tx, padre.id, actor.userId, [
       ...entradasDeCambios('crear', {}, generalesDe(g)),
       ...(soat === undefined ? [] : entradasDeSoat('crear', soat)),
