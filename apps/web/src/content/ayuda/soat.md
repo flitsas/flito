@@ -11,8 +11,8 @@ consultas:
   - cómo cargo la factura del SOAT
   - qué hago si el comprobante del SOAT tiene contraseña
   - el nombre del archivo es la contraseña del PDF
-version: 1.18
-fecha: 2026-11-18
+version: 1.19
+fecha: 2026-11-23
 ---
 ## Qué es
 

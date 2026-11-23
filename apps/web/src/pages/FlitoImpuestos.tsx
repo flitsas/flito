@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  ESTADOS_IMPUESTO_CERTIFICABLES, EstadoImpuesto, ResultadoCertificacion, TOPE_LOTE_CERTIFICACION,
+  ESTADO_IMPUESTO_LABEL, ESTADOS_IMPUESTO_CERTIFICABLES, EstadoImpuesto, ResultadoCertificacion, TOPE_LOTE_CERTIFICACION,
 } from '@operaciones/shared-types';
 import { ApiError, api, errorMessage } from '../lib/api';
 import {
@@ -22,7 +22,7 @@ import { BarraAccion } from '../components/flit/Bloques';
 import { Icono } from '../components/flit/kit/Icono';
 import type { Preset } from '../components/flit/FiltrosInteligentes';
 import { columnasImpuestos } from '../components/flito/impuestos/ImpuestosColumnas';
-import ImpuestosEmbudo from '../components/flito/impuestos/ImpuestosEmbudo';
+import EmbudoEstadoCola from '../components/flito/EmbudoEstadoCola';
 import ImpuestosFiltros from '../components/flito/impuestos/ImpuestosFiltros';
 import {
   AvisoExportCola, BotonExportarCola, COLA_IMPUESTOS, useExportCola, type FiltrosExportCola,
@@ -364,7 +364,7 @@ export default function FlitoImpuestos() {
       marcada: (f) => seleccion.has(f.id),
       onFila: (f) => toggle(f.id),
     } : null,
-    accionTramite: (f) => (
+    accionCertificacion: (f) => (
       <AccionesTramite fila={f} onAbrir={() => setValidacionId(f.id)}>
         <AccionCertificacion
           certificacion={f.certificacion}
@@ -441,7 +441,11 @@ export default function FlitoImpuestos() {
         />
       )}
 
-      <ImpuestosEmbudo estados={estadosDisponibles} conTodos={!esGestor} activo={estado} onElegir={setEstado} />
+      <EmbudoEstadoCola modulo="impuesto" ariaLabel="Fases del impuesto" valor={estado} onCambio={setEstado}
+        opciones={[
+          ...(!esGestor ? [{ valor: 'todos' as const, etiqueta: 'Todos' }] : []),
+          ...estadosDisponibles.map((e) => ({ valor: e, etiqueta: ESTADO_IMPUESTO_LABEL[e] })),
+        ]} />
 
       <ImpuestosFiltros<FiltrosPreset>
         esGestor={esGestor}

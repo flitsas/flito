@@ -65,11 +65,14 @@ export function BarraAccion({ children, accion }: { children: ReactNode; accion?
   return <div className="barra-accion" role="status" data-kit="barra-accion"><p>{children}</p>{accion}</div>;
 }
 
-export interface ChipEmbudo { id: string; etiqueta: string; cuenta: number; estado?: string }
+/** `cuenta` opcional: las colas que no exponen conteos por estado pintan el chip sin cifra. */
+export interface ChipEmbudo { id: string; etiqueta: string; cuenta?: number; estado?: string }
 /** Embudo de estados (`.embudo`): chips en columna con disco 32, nombre 12 y cifra 20; filtra al pulsar. */
-export function Embudo({ chips, activo, onElegir, etiqueta }: { chips: ChipEmbudo[]; activo?: string; onElegir: (id: string) => void; etiqueta: string }) {
+export function Embudo({ chips, activo, onElegir, etiqueta, className }: {
+  chips: ChipEmbudo[]; activo?: string; onElegir: (id: string) => void; etiqueta: string; className?: string;
+}) {
   return (
-    <div className="embudo" role="group" aria-label={etiqueta} data-kit="embudo">
+    <div className={`embudo${className ? ` ${className}` : ''}`} role="group" aria-label={etiqueta} data-kit="embudo">
       {chips.map((c) => {
         const e = estadoKit(c.estado ?? c.id);
         return (
@@ -77,7 +80,7 @@ export function Embudo({ chips, activo, onElegir, etiqueta }: { chips: ChipEmbud
             {e.icono ? <img className="estado-ico" src={ICONO_ESTADO_KIT[e.icono]} alt="" aria-hidden="true" />
               : <span className={`kico estado-ico estado-ico--${e.tono === 'ok' ? 'ok' : e.tono === 'warn' ? 'warn' : e.tono === 'danger' ? 'danger' : e.tono === 'info' ? 'info' : 'neutro'}`} aria-hidden="true"><Icono nombre={e.glifo ?? 'punto'} /></span>}
             <span>{c.etiqueta}</span>
-            <strong className="tabular-nums">{c.cuenta.toLocaleString('es-CO')}</strong>
+            {c.cuenta !== undefined && <strong className="tabular-nums">{c.cuenta.toLocaleString('es-CO')}</strong>}
           </button>
         );
       })}
