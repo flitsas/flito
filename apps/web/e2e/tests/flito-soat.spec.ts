@@ -1267,3 +1267,36 @@ test.describe('FLITO — SOAT: listas de apoyo por enlace (HU #13452)', () => {
     expect(pedidas).toEqual([]);
   });
 });
+
+// Épica #14560 — patrón unificado de cola (`docs/ux/flito-soat-impuestos-patron-unificado.md` §10).
+test.describe('FLITO — SOAT · patrón unificado de cola (Épica #14560)', () => {
+  test('§10.2 · Estado es la columna que sigue a Vehículo, la primera de datos', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/soat');
+    const tabla = page.getByRole('region', { name: 'Pólizas SOAT' });
+    await expect(tabla.getByRole('columnheader', { name: 'Estado' })).toBeVisible();
+    // Por `textContent`: el `innerText` vendría en mayúsculas por CSS.
+    const h = await tabla.getByRole('columnheader').evaluateAll((ths) => ths.map((t) => t.textContent?.trim() ?? ''));
+    expect(h.filter(Boolean).slice(0, 2)).toEqual(['Vehículo', 'Estado']);
+    expect(h.indexOf('Estado')).toBe(h.indexOf('Vehículo') + 1);
+  });
+
+  test('§10.7 · por debajo de 900 px la cola es de tarjetas, con rótulo por celda y sin scroll horizontal', async ({ page }) => {
+    await page.setViewportSize({ width: 800, height: 900 });
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/soat');
+    const tabla = page.getByRole('region', { name: 'Pólizas SOAT' });
+    await expect(tabla).toHaveAttribute('data-modo', 'tarjetas');
+    const estado = tabla.locator('td[data-etiqueta="Estado"]').first();
+    await expect(estado).toBeVisible();
+    // La tarjeta pinta el rótulo con `td::before { content: attr(data-etiqueta) }`: se mide que esté puesto.
+    const celda = await estado.evaluate((td) => ({
+      display: getComputedStyle(td).display, rotulo: getComputedStyle(td, '::before').content,
+    }));
+    expect(celda.display).not.toBe('table-cell');
+    expect(celda.rotulo).toBe('"Estado"');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+  });
+});

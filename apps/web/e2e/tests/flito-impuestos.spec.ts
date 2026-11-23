@@ -492,7 +492,7 @@ test.describe('FLITO — Impuestos · certificación RUNT', () => {
     await expect(page.getByText('Certificado', { exact: true })).toHaveCount(1);
   });
 
-  test('la acción vive bajo el trámite y ya no hay columna Certificación', async ({ page }) => {
+  test('la acción vive en la celda de Estado y ya no hay columna Certificación', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockCert(page);
 
@@ -502,13 +502,18 @@ test.describe('FLITO — Impuestos · certificación RUNT', () => {
     // gastaba ancho en todas las demás para decir «—».
     await expect(page.getByRole('columnheader', { name: 'Certificación' })).toHaveCount(0);
 
-    // Botón y chip pasan a la celda del trámite. Se comprueba por contenido de la celda y no por su
-    // posición: el índice de columna baila con la casilla de selección, que solo sale cuando hay
-    // filas seleccionables.
-    const celdaDelTramite = page.getByRole('cell').filter({ hasText: 'FLIT-1002' });
-    await expect(celdaDelTramite.getByRole('button', { name: 'Certificar' })).toBeVisible();
-    await expect(page.getByRole('cell').filter({ hasText: 'FLIT-1003' })
-      .getByRole('button', { name: 'Descargar certificado en PDF' })).toBeVisible();
+    // Épica #14560 (§3.3): botón y chip viven en la celda de Estado (señales de la misma intención),
+    // no bajo el N.º de trámite. Se comprueba por contenido de la celda y no por su posición: el
+    // índice de columna baila con la casilla de selección, que solo sale con el permiso.
+    const celdaDelBoton = (id: string, boton: string) => page.getByRole('row').filter({ hasText: id })
+      .getByRole('cell').filter({ has: page.getByRole('button', { name: boton }) });
+    const certificar = celdaDelBoton('FLIT-1002', 'Certificar');
+    await expect(certificar).toHaveCount(1);
+    await expect(certificar).toContainText('Solicitado');
+    await expect(certificar).not.toContainText('FLIT-1002');
+    const descargar = celdaDelBoton('FLIT-1003', 'Descargar certificado en PDF');
+    await expect(descargar).toHaveCount(1);
+    await expect(descargar).not.toContainText('FLIT-1003');
   });
 
   test('AC2 — al certificar, la fila pasa a Certificado sin recargar', async ({ page }) => {
@@ -1549,5 +1554,75 @@ test.describe('FLITO — Impuestos · ficha de ayuda (HU #12592, AC7)', () => {
     }
     expect(md).not.toMatch(/\/api\//);
     expect(md).not.toMatch(/\|[-:]+\|/);
+  });
+});
+
+// Épica #14560 — patrón unificado de cola y detalle (`docs/ux/flito-soat-impuestos-patron-unificado.md` §10).
+test.describe('FLITO — Impuestos · patrón unificado de cola y detalle (Épica #14560)', () => {
+  /** Rótulos de la cabecera por `textContent` (el `innerText` vendría en mayúsculas por CSS). */
+  const rotulos = (page: import('@playwright/test').Page) => page.getByRole('table', { name: 'Cola de impuestos' })
+    .getByRole('columnheader').evaluateAll((ths) => ths.map((t) => t.textContent?.trim() ?? ''));
+
+  test('§10.2 · Estado es la columna que sigue a Vehículo, la primera de datos', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/impuestos');
+    await expect(page.getByRole('columnheader', { name: 'Estado' })).toBeVisible();
+    const h = await rotulos(page);
+    // La casilla de selección no tiene texto: se descarta y Vehículo · Estado abren la tabla.
+    expect(h.filter(Boolean).slice(0, 2)).toEqual(['Vehículo', 'Estado']);
+    expect(h.indexOf('Estado')).toBe(h.indexOf('Vehículo') + 1);
+  });
+
+  test('§10.3 · «Fechas» y «Liquidado» salen de la tabla y el dato sigue en el detalle', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page, () => IMPUESTOS.map((x, i) => (i === 0 ? {
+      ...x, fechaCreacion: '2026-03-28T12:00:00Z', fechaAprobacion: '2026-03-30T12:00:00Z', valorLiquidado: 120000, valorPagado: 130000,
+    } : x)));
+    await page.goto('/flito/impuestos');
+    await expect(page.getByRole('columnheader', { name: 'Estado' })).toBeVisible();
+    const h = await rotulos(page);
+    expect(h).not.toContain('Fechas');
+    expect(h).not.toContain('Liquidado');
+    expect(h).toContain('Valor');
+    // Una sola columna de dinero: con pagado, la fila muestra el pagado y no el liquidado.
+    const fila = page.getByRole('row').filter({ hasText: 'ABC123' });
+    await expect(fila).toContainText('130.000');
+    await expect(fila).not.toContainText('120.000');
+
+    await fila.getByRole('button', { name: 'Ver' }).click();
+    const detalle = page.getByRole('dialog', { name: 'Impuesto · ABC123' });
+    const ficha = (rotulo: string) => detalle.locator('[data-kit="fichas"] > div')
+      .filter({ has: page.locator('dt', { hasText: new RegExp(`^${rotulo}$`) }) }).locator('dd');
+    await expect(ficha('Trámite creado')).not.toHaveText('—');
+    await expect(ficha('Trámite aprobado')).not.toHaveText(/^(—|Sin aprobar)$/);
+    await expect(ficha('Valor liquidado')).toContainText('120.000');
+    await expect(ficha('Valor pagado')).toContainText('130.000');
+  });
+
+  /** `true` si `a` va antes que `b` en el documento. */
+  const antes = async (a: import('@playwright/test').Locator, b: import('@playwright/test').Locator) =>
+    a.evaluate((x, y) => !!(y && x.compareDocumentPosition(y) & Node.DOCUMENT_POSITION_FOLLOWING), await b.elementHandle());
+
+  test('§10.4 · el motivo de la novedad va arriba, antes del comprobante', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page, () => IMPUESTOS.map((x, i) => (i === 0
+      ? { ...x, estado: 'con_novedad', motivoRechazo: 'La factura no corresponde al VIN.' } : x)));
+    const detalle = await abrirDetalle(page, 'ABC123');
+    const motivo = detalle.getByRole('alert').filter({ hasText: 'La factura no corresponde al VIN.' });
+    await expect(motivo).toBeVisible();
+    const comprobante = detalle.getByRole('group', { name: 'Acciones del comprobante' });
+    await expect(comprobante).toBeVisible();
+    expect(await antes(motivo, comprobante)).toBe(true);
+  });
+
+  test('§10.4 · el aviso de solo lectura va arriba, antes del comprobante', async ({ page }) => {
+    await loginAs(page, AUDITOR_USER);
+    await mock(page);
+    const detalle = await abrirDetalle(page, 'OPS001');
+    const aviso = detalle.getByRole('status').filter({ hasText: 'Solo lectura' });
+    await expect(aviso).toBeVisible();
+    const comprobante = detalle.getByRole('group', { name: 'Acciones del comprobante' });
+    expect(await antes(aviso, comprobante)).toBe(true);
   });
 });

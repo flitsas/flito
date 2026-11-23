@@ -8,6 +8,9 @@
 //
 // El VIN se pinta en la celda, como el de cualquier SOAT de la cola; nunca entra en un `aria-label`.
 //
+// Épica #14560: la fila vive dentro del `DataTable` de la cola (filas previas): `<tr>` plano, cada celda
+// con su `data-etiqueta` para el modo tarjeta (<900 px), y el relleno lo pone el kit (`.tabla-wrap td`).
+//
 // HU 12998: «Reintentar consulta» (UX §3.3) solo en la incompleta y solo con el permiso — sin él no
 // se pinta. El botón se describe con la celda del vehículo (`aria-describedby`), no con el VIN en su
 // nombre. En vuelo: `disabled` + `aria-busy` + «Consultando…», solo en ESTA fila.
@@ -16,7 +19,7 @@ import EtiquetaTipoSoat from './EtiquetaTipoSoat';
 import { Icono } from '../../flit/kit/Icono';
 import { Girador } from '../../flit/Cargador';
 import type { SolicitudIncompletaFila } from '@operaciones/shared-types';
-import { FlitTr, flitBtnSecondarySm } from '../../flit/flitPageKit';
+import { flitBtnSecondarySm } from '../../flit/flitPageKit';
 import { ChipIncompletaSoat } from './ChipEstadoSoat';
 import { fecha } from './tipos';
 
@@ -42,11 +45,11 @@ export default function FilaIncompletaSoat({
   const motivoTexto = fila.motivoPendiente === 'falta_factura_venta' ? 'Falta factura de venta' : 'Faltan datos del propietario';
   const idVehiculo = `inc-vehiculo-${fila.id}`;
   return (
-    <FlitTr>
+    <tr data-fila="incompleta">
       {/* Celda vacía y no una casilla deshabilitada: no hay nada que marcar, y una casilla gris
           invita a preguntar por qué. Mantiene alineadas las columnas. */}
-      {conCasillas && <td className="px-3 py-2" />}
-      <td id={idVehiculo} className="px-4 py-2 align-top">
+      {conCasillas && <td data-etiqueta="Seleccionar" />}
+      <td id={idVehiculo} data-etiqueta="Vehículo" className="align-top">
         {/* Renovación con RUNT caído: `vin` es null y el identificador es la PLACA (HU 14019, AC7/AC9). */}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="whitespace-nowrap font-mono text-sm font-semibold">{fila.vin ?? fila.placa ?? '—'}</span>
@@ -54,7 +57,7 @@ export default function FilaIncompletaSoat({
         </div>
         {!porCompletar && <div className="text-xs text-[color:var(--color-text-tertiary)]">Datos del RUNT pendientes</div>}
       </td>
-      <td className="px-3 py-2">
+      <td data-etiqueta="Estado">
         <div className="flex flex-col items-start gap-1">
           <ChipIncompletaSoat estado={fila.estado} />
           {porCompletar && <span className="text-xs text-[color:var(--color-text-secondary)]">{motivoTexto}</span>}
@@ -68,12 +71,12 @@ export default function FilaIncompletaSoat({
           )}
         </div>
       </td>
-      {conCompania && <td className="px-3 py-2 text-sm">{fila.companiaNombre ?? '—'}</td>}
-      {!esCliente && <td className="px-3 py-2 text-sm">—</td>}
-      <td className="px-3 py-2 text-sm">—</td>
-      <td className="px-3 py-2 text-sm">—</td>
-      {!esCliente && <td className="px-3 py-2 text-sm">—</td>}
-      <td className="px-3 py-2">
+      {conCompania && <td data-etiqueta="Compañía" className="text-sm">{fila.companiaNombre ?? '—'}</td>}
+      {!esCliente && <td data-etiqueta="Gestiona" className="text-sm">—</td>}
+      <td data-etiqueta="Solicitado" className="text-sm">—</td>
+      <td data-etiqueta="Pagado" className="text-sm">—</td>
+      {!esCliente && <td data-etiqueta="Valor" className="text-right text-sm">—</td>}
+      <td className="fila-abrir">
         <div className="flex items-center gap-2 whitespace-nowrap">
           {incompleta && !porCompletar && puedeReintentar && onReintentar && (
             <button type="button" className={flitBtnSecondarySm} aria-describedby={idVehiculo}
@@ -92,6 +95,6 @@ export default function FilaIncompletaSoat({
           )}
         </div>
       </td>
-    </FlitTr>
+    </tr>
   );
 }

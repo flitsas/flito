@@ -299,7 +299,7 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   const SOAT_13771: Record<string, { version: string; capturas: string[]; diagrama: string | null; fecha?: string }> = {
     // HU #13968: SOAT sin trámite por proveedor (soat y clients cambiaron de nuevo).
     // Épica #14560: pastillas de estado con ícono y la primaria junto a Exportar a Excel (1.17; 1.16 venía del merge).
-    soat: { version: '1.18', fecha: '2026-11-18', diagrama: 'ciclo-soat.svg', capturas: [
+    soat: { version: '1.19', fecha: '2026-11-23', diagrama: 'ciclo-soat.svg', capturas: [
       '01-cola.png', '02-enviar-al-gestor.png', '03-detalle.png', '04-solicitar-soat.png'] },
     // Bug #14532: Liquidación y Pagado en la ventana del ZIP (04-documentos-del-zip regenerada).
     // Épica #14560: columna Propietario, panel Columnas (03-columnas) y detalle en ventana (04-detalle); selección y ZIP pasan a 05 y 06.
@@ -368,7 +368,8 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   // Las dos fichas describen procesos de más de 3 pasos o con decisiones: las dos llevan diagrama.
   const IMPUESTOS_13772: Record<string, { version: string; fecha?: string; capturas: string[]; diagrama: string | null }> = {
     // Bug #14532: Liquidación y Pagado, y descarga individual por fila (01-cola y 02-seleccion regeneradas).
-    flito_impuestos: { version: '1.11', fecha: '2026-11-17', diagrama: 'ciclo-impuesto.svg', capturas: [
+    // Épica #14560: detalle con el mismo orden que el del SOAT (secciones Comprobante y Datos).
+    flito_impuestos: { version: '1.12', fecha: '2026-11-23', diagrama: 'ciclo-impuesto.svg', capturas: [
       '01-cola.png', '02-seleccion.png', '03-carga-masiva.png', '04-validacion-runt.png', '05-detalle.png'] },
     flito_derechos: { version: '1.4', fecha: '2026-11-17', diagrama: 'canastas-de-carga.svg', capturas: [
       '01-resultado-de-la-carga.png', '02-drive.png', '03-registrados.png'] },
