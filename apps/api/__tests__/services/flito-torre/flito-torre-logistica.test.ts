@@ -34,6 +34,7 @@ const permisos = await import('../../../src/shared/permisos-efectivos.js');
 const { default: tableros } = await import('../../../src/modules/flito-torre/flito-torre.tableros.routes.js');
 import type { FilasPermisos } from '../../../src/shared/permisos-efectivos.js';
 import { conCadena } from '../../helpers/auth.js';
+import { proveedorLogistica } from '../../helpers/proveedor-padre.js';
 
 const TODO = { enlace: 'ninguno' } as const;
 const HOY = '2035-03-31';
@@ -202,8 +203,8 @@ describe.skipIf(!URL_BASE)('Torre › Logística, Facturación y Bolsas contra P
     const doc = await documento(tLt, x);
     await tx`INSERT INTO flito_logistica_traslado_lts (traslado_id, destino, documento_id, concepto_precio) VALUES (${tr2}, 'cliente', ${doc}, 'legado')`;
     // ── Actas de entrega (punto cliente): 2 pendientes (una con su documento), 1 entregada y 4 devueltas (3 en marzo).
-    const [prov] = await tx`INSERT INTO flito_proveedores_logistica (nombre) VALUES ('Mensajería Andina') RETURNING id`;
-    const a1 = await acta(x, { estado: 'generada', creada: haceDias(4), proveedor: prov!.id as string });
+    const prov = await proveedorLogistica(tx, { nombre: 'Mensajería Andina' });
+    const a1 = await acta(x, { estado: 'generada', creada: haceDias(4), proveedor: prov });
     await documento(await s.tramite({ cia: x, placa: 'ZQA111' }), x, a1);
     await acta(y, { estado: 'despachada', creada: haceDias(2) });
     await acta(x, { estado: 'entregada', creada: haceDias(6), entregada: haceDias(5) });

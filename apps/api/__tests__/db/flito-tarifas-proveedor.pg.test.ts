@@ -5,6 +5,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type postgres from 'postgres';
 import { abrirBase, enTx, leerMigracion, URL_BASE } from '../helpers/base-en-tx.js';
+import { proveedorLogistica, proveedorSoat } from '../helpers/proveedor-padre.js';
 
 // El servicio solo se importa por su clasificador de errores: sin BD propia.
 vi.mock('../../src/db/client.js', () => ({ db: {}, getPoolStats: vi.fn() }));
@@ -17,12 +18,11 @@ const MIGRACION = leerMigracion('0300_flito_tarifas_proveedor.sql');
 let n = 0;
 const sello = () => `${String(Date.now()).slice(-7)}${n++}`;
 
-/** Un proveedor con perfil de Logística (el trigger de la 0292 crea el padre con el mismo id) y, opcional, de SOAT. */
+/** Un proveedor con perfil de Logística (padre primero, con el mismo id: HU #14355) y, opcional, de SOAT. */
 async function proveedor(sql: Tx | postgres.Sql, conSoat = false): Promise<string> {
   const nombre = `TP13763 ${sello()}`;
-  const [l] = await sql`INSERT INTO flito_proveedores_logistica (nombre, activo, nit) VALUES (${nombre}, true, ${`8${sello()}`}) RETURNING id`;
-  const id = l!.id as string;
-  if (conSoat) await sql`INSERT INTO flito_proveedores_soat (id, nombre, activo) VALUES (${id}, ${nombre}, true)`;
+  const id = await proveedorLogistica(sql, { nombre, nit: `8${sello()}` });
+  if (conSoat) await proveedorSoat(sql, { id, nombre });
   return id;
 }
 

@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import type postgres from 'postgres';
 import { abrirBase, enTx, leerMigracion, URL_BASE } from '../helpers/base-en-tx.js';
+import { proveedorLogistica } from '../helpers/proveedor-padre.js';
 
 type Tx = postgres.TransactionSql;
 const MIGRACION = leerMigracion('0298_flito_logistica_corte_proveedor.sql');
@@ -28,8 +29,7 @@ async function conMundo(fn: (m: Mundo) => Promise<void>) {
   try {
     await enTx(sql, async (tx) => {
       await tx`DROP TABLE IF EXISTS flito_logistica_corte_proveedor`;
-      const prov = async (nombre: string) => (await tx`INSERT INTO flito_proveedores_logistica (nombre, activo, nit)
-        VALUES (${`${nombre} ${sello()}`}, true, ${`9${sello()}`}) RETURNING id`)[0]!.id as string;
+      const prov = async (nombre: string) => proveedorLogistica(tx, { nombre: `${nombre} ${sello()}`, nit: `9${sello()}` });
       const A = await prov('Proveedor A'); const B = await prov('Proveedor B');
       const org = (await tx`SELECT codigo FROM organismos_transito_config LIMIT 1`)[0]?.codigo as string
         ?? (await tx`INSERT INTO organismos_transito_config (codigo, activo) VALUES ('99999', true) RETURNING codigo`)[0]!.codigo as string;

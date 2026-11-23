@@ -13,6 +13,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from '../../src/db/schema.js';
 import { URL_BASE } from '../helpers/base-en-tx.js';
 import { conCadena } from '../helpers/auth.js';
+import { darDeBajaProveedor } from '../helpers/proveedor-padre.js';
 
 const real = vi.hoisted(() => ({ db: null as unknown as Record<string | symbol, unknown> }));
 vi.mock('../../src/db/client.js', () => ({
@@ -84,17 +85,15 @@ describe.skipIf(!URL_BASE)('Feature #14325 — frontera por servicio, login y at
     }
   };
 
-  /** El usuario directo en la base. Con `vieja` lo crea como la imagen anterior, escribiendo solo la columna de SOAT. */
-  const usuario = async (rol: string, proveedor: string | null, o: { vieja?: boolean } = {}): Promise<number> => {
+  /** El usuario directo en la base. HU #14355: la columna vieja `flito_proveedor_soat_id` ya no existe (0314). */
+  const usuario = async (rol: string, proveedor: string | null): Promise<number> => {
     n += 1;
     const nombre = `${PREFIJO}_u${n}`;
-    const [f] = o.vieja
-      ? await sql`INSERT INTO users (username, name, password_hash, role, flito_proveedor_soat_id) VALUES (${nombre}, ${nombre}, ${hash}, ${rol}, ${proveedor}) RETURNING id`
-      : await sql`INSERT INTO users (username, name, password_hash, role, flito_proveedor_id) VALUES (${nombre}, ${nombre}, ${hash}, ${rol}, ${proveedor}) RETURNING id`;
+    const [f] = await sql`INSERT INTO users (username, name, password_hash, role, flito_proveedor_id) VALUES (${nombre}, ${nombre}, ${hash}, ${rol}, ${proveedor}) RETURNING id`;
     return f!.id as number;
   };
   const usernameDe = async (id: number) => (await sql`SELECT username FROM users WHERE id = ${id}`)[0]!.username as string;
-  const columnas = async (id: number) => (await sql`SELECT flito_proveedor_id AS nueva, flito_proveedor_soat_id AS vieja, role, name, active, deleted_at FROM users WHERE id = ${id}`)[0]!;
+  const columnas = async (id: number) => (await sql`SELECT flito_proveedor_id AS nueva, role, name, active, deleted_at FROM users WHERE id = ${id}`)[0]!;
 
   const bearer = async (id: number) => {
     await new Promise((r) => setTimeout(r, 1100)); // `iat` en segundos: una sesión invalidada en este segundo también caería.
@@ -166,9 +165,10 @@ describe.skipIf(!URL_BASE)('Feature #14325 — frontera por servicio, login y at
       expect(paginas).toContain('flito_logistica');
     }, 30_000);
 
-    it('AC5: usuario existente creado con la columna vieja → mismo menú y su cola de SOAT, sin la ajena', async () => {
+    // HU #14355: la columna vieja ya no existe; el usuario existente es el que la 0292 migró a `flito_proveedor_id`.
+    it('AC5: usuario existente (migrado a la columna nueva) → mismo menú y su cola de SOAT, sin la ajena', async () => {
       const [p, otro] = [await nuevoProveedor(['soat']), await nuevoProveedor(['soat'])];
-      const u = await usuario('zzf3_gestor', p.id, { vieja: true });
+      const u = await usuario('zzf3_gestor', p.id);
       expect((await columnas(u)).nueva).toBe(p.id);
       const cia = (await sql`INSERT INTO clients (name, soat_autogestionable) VALUES (${`${PREFIJO} Cia ${n}`}, false) RETURNING id`)[0]!.id as number;
       const veh = async () => (await sql`INSERT INTO vehicles DEFAULT VALUES RETURNING id`)[0]!.id as number;
@@ -209,12 +209,11 @@ describe.skipIf(!URL_BASE)('Feature #14325 — frontera por servicio, login y at
   });
 
   describe('HU #14340 — corte de acceso', () => {
-    it('AC1 y AC5: proveedor inactivo de SOAT, Logística o ambos → login rechazado; el de Logística no tiene columna vieja', async () => {
+    it('AC1 y AC5: proveedor inactivo de SOAT, Logística o ambos → login rechazado', async () => {
       const admin = await bearer(adminId);
       for (const servicios of [['soat'], ['logistica'], ['soat', 'logistica']] as ('soat' | 'logistica')[][]) {
         const p = await nuevoProveedor(servicios);
         const u = await usuario('zzf3_mensajero', p.id);
-        if (!servicios.includes('soat')) expect((await columnas(u)).vieja).toBeNull();
         expect((await login(u)).status).toBe(200);
         const e = await request(app).patch(`/api/flito/parametrizacion/proveedores/${p.id}/estado`).set('Authorization', admin)
           .send({ activo: false, versionEsperada: await version(p.id) });
@@ -262,7 +261,7 @@ describe.skipIf(!URL_BASE)('Feature #14325 — frontera por servicio, login y at
       await sql`UPDATE flito_proveedores SET activo = false WHERE id = ${inactivo.id}`;
       const eliminado = await nuevoProveedor(['soat', 'logistica']);
       await sql`UPDATE flito_proveedores SET activo = false WHERE id = ${eliminado.id}`;
-      await sql`UPDATE flito_proveedores SET deleted_at = now() WHERE id = ${eliminado.id}`;
+      await darDeBajaProveedor(sql, eliminado.id); // HU #14355: padre y perfiles, como `eliminarProveedor`
 
       for (const id of [soloL.id, inactivo.id, eliminado.id]) expect((await asignar(admin, c, { proveedorSoatSinTramiteId: id })).status, id).toBe(400);
       for (const id of [soloS.id, inactivo.id, eliminado.id]) expect((await asignar(admin, c, { proveedorLogisticaId: id })).status, id).toBe(422);
@@ -278,7 +277,7 @@ describe.skipIf(!URL_BASE)('Feature #14325 — frontera por servicio, login y at
       await sql`UPDATE flito_proveedores SET activo = false WHERE id = ${inactivo.id}`;
       const eliminado = await nuevoProveedor(['soat']);
       await sql`UPDATE flito_proveedores SET activo = false WHERE id = ${eliminado.id}`;
-      await sql`UPDATE flito_proveedores SET deleted_at = now() WHERE id = ${eliminado.id}`;
+      await darDeBajaProveedor(sql, eliminado.id); // HU #14355: padre y perfiles, como `eliminarProveedor`
       const db = real.db as unknown as { transaction: <T>(f: (tx: never) => Promise<T>) => Promise<T> };
       await expect(db.transaction((tx) => exigirProveedorSoatUsable(tx, soloL.id))).rejects.toBeInstanceOf(ProveedorSoatNoUsableError);
       await expect(db.transaction((tx) => exigirProveedorSoatUsable(tx, inactivo.id))).rejects.toBeInstanceOf(ProveedorSoatNoUsableError);
@@ -299,7 +298,7 @@ describe.skipIf(!URL_BASE)('Feature #14325 — frontera por servicio, login y at
       await sql`UPDATE flito_proveedores SET activo = false WHERE id = ${inactivo.id}`;
       const eliminado = await nuevoProveedor(['soat']);
       await sql`UPDATE flito_proveedores SET activo = false WHERE id = ${eliminado.id}`;
-      await sql`UPDATE flito_proveedores SET deleted_at = now() WHERE id = ${eliminado.id}`;
+      await darDeBajaProveedor(sql, eliminado.id); // HU #14355: padre y perfiles, como `eliminarProveedor`
       const soat = async (letra: string, estado: string, gestionOperaciones: boolean) => {
         const veh = (await sql`INSERT INTO vehicles DEFAULT VALUES RETURNING id`)[0]!.id as number;
         return (await sql`INSERT INTO flito_soat (compania_id, vehiculo_id, vin, estado, proveedor_soat_id, gestion_operaciones)
@@ -381,7 +380,8 @@ describe.skipIf(!URL_BASE)('Feature #14325 — frontera por servicio, login y at
   describe('HU #14341 — atar usuarios por Operaciones', () => {
     const alta = async (cuerpo: Record<string, unknown>) => request(app).post('/api/users').set('Authorization', await bearer(adminId)).send(altaBody(cuerpo));
 
-    it('AC1: solo Logística → columna nueva y vieja vacía. AC2: con SOAT → las dos con el mismo valor', async () => {
+    // HU #14355: sin columna vieja; `flitoProveedorSoatId` del DTO se deriva del perfil SOAT vigente (HU #14354).
+    it('AC1: solo Logística → columna nueva y flitoProveedorSoatId vacío. AC2: con SOAT → el DTO lo deriva del mismo proveedor', async () => {
       const [l, s] = [await nuevoProveedor(['logistica']), await nuevoProveedor(['soat'])];
       const a = await alta({ role: 'zzf3_mensajero', flitoProveedorId: l.id });
       expect(a.status).toBe(201);
@@ -389,9 +389,8 @@ describe.skipIf(!URL_BASE)('Feature #14325 — frontera por servicio, login y at
       expect(a.body.flitoProveedorSoatId).toBeNull();
       const b = await alta({ role: 'zzf3_mensajero', flitoProveedorId: s.id });
       expect(b.status).toBe(201);
-      const c = await columnas(b.body.id);
-      expect(c.nueva).toBe(s.id);
-      expect(c.vieja).toBe(s.id);
+      expect(b.body.flitoProveedorSoatId).toBe(s.id);
+      expect((await columnas(b.body.id)).nueva).toBe(s.id);
     }, 30_000);
 
     it('AC3: sin proveedor al crear o al editar → 400 y no se guarda', async () => {
@@ -408,7 +407,7 @@ describe.skipIf(!URL_BASE)('Feature #14325 — frontera por servicio, login y at
       const inactivo = await nuevoProveedor(['soat']);
       await sql`UPDATE flito_proveedores SET activo = false WHERE id = ${inactivo.id}`;
       const eliminado = await nuevoProveedor(['logistica']);
-      await sql`UPDATE flito_proveedores SET deleted_at = now() WHERE id = ${eliminado.id}`;
+      await darDeBajaProveedor(sql, eliminado.id); // HU #14355: padre y perfiles, como `eliminarProveedor`
       for (const id of [inactivo.id, eliminado.id, 'f0000000-0000-4000-8000-0000000fffff']) {
         const cuerpo = altaBody({ role: 'zzf3_mensajero', flitoProveedorId: id });
         const r = await request(app).post('/api/users').set('Authorization', await bearer(adminId)).send(cuerpo);
@@ -417,9 +416,9 @@ describe.skipIf(!URL_BASE)('Feature #14325 — frontera por servicio, login y at
       }
     }, 30_000);
 
-    it('AC5: existente con la columna vieja → la lista conserva proveedor y nombre; editar otro campo no lo toca ni con el proveedor inactivo', async () => {
+    it('AC5: existente → la lista conserva proveedor y nombre; editar otro campo no lo toca ni con el proveedor inactivo', async () => {
       const p = await nuevoProveedor(['soat']);
-      const u = await usuario('zzf3_mensajero', p.id, { vieja: true });
+      const u = await usuario('zzf3_mensajero', p.id);
       await sql`UPDATE flito_proveedores SET activo = false WHERE id = ${p.id}`;
       const admin = await bearer(adminId);
       const lista = await request(app).get('/api/users').query({ q: await usernameDe(u) }).set('Authorization', admin);
@@ -427,22 +426,19 @@ describe.skipIf(!URL_BASE)('Feature #14325 — frontera por servicio, login y at
       expect(lista.body[0]).toMatchObject({ id: u, flitoProveedorId: p.id, flitoProveedorSoatId: p.id, proveedorNombre: p.nombre });
       const e = await request(app).patch(`/api/users/${u}`).set('Authorization', admin).send({ name: 'Otro nombre' });
       expect(e.status).toBe(200);
-      const c = await columnas(u);
-      expect([c.nueva, c.vieja]).toEqual([p.id, p.id]);
+      expect((await columnas(u)).nueva).toBe(p.id);
     }, 30_000);
 
     it('AC6: solo `flitoProveedorSoatId` → es su proveedor; con los dos distintos → 400', async () => {
       const [p, q] = [await nuevoProveedor(['logistica']), await nuevoProveedor(['soat'])];
       const a = await alta({ role: 'zzf3_mensajero', flitoProveedorSoatId: p.id });
       expect(a.status).toBe(201);
-      const c = await columnas(a.body.id);
-      expect([c.nueva, c.vieja]).toEqual([p.id, null]);
+      expect((await columnas(a.body.id)).nueva).toBe(p.id);
       const b = await alta({ role: 'zzf3_mensajero', flitoProveedorSoatId: p.id, flitoProveedorId: q.id });
       expect(b.status).toBe(400);
       const e = await request(app).patch(`/api/users/${a.body.id}`).set('Authorization', await bearer(adminId)).send({ flitoProveedorSoatId: q.id });
       expect(e.status).toBe(200);
-      const d = await columnas(a.body.id);
-      expect([d.nueva, d.vieja]).toEqual([q.id, q.id]);
+      expect((await columnas(a.body.id)).nueva).toBe(q.id);
     }, 30_000);
 
     it('AC7: cambiar el proveedor invalida la sesión; al volver a entrar opera con el nuevo', async () => {
