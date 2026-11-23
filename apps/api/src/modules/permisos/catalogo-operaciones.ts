@@ -165,6 +165,10 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${IMP_CERT} POST /certificacion-directa/:id/consultar`, 'impuestos.certificacion_directa.gestionar', 'Certificar un impuesto sin trámite', 'Cargar la factura de venta, consultar el RUNT por VIN y descargar el certificado.'),
   op(`${IMP_CERT} GET /certificacion-directa/:id`, 'impuestos.certificacion_directa.gestionar', 'Certificar un impuesto sin trámite', 'Cargar la factura de venta, consultar el RUNT por VIN y descargar el certificado.'),
   op(`${IMP_CERT} PATCH /certificacion-directa/:id`, 'impuestos.certificacion_directa.gestionar', 'Certificar un impuesto sin trámite', 'Cargar la factura de venta, consultar el RUNT por VIN y descargar el certificado.'),
+  // HU #14665: eliminar, eliminar en lote y el ZIP de certificados; mismo código (la acción ya lo absorbe).
+  op(`${IMP_CERT} DELETE /certificacion-directa/:id`, 'impuestos.certificacion_directa.gestionar', 'Certificar un impuesto sin trámite', 'Cargar la factura de venta, consultar el RUNT por VIN y descargar el certificado.'),
+  op(`${IMP_CERT} POST /certificacion-directa/eliminar-lote`, 'impuestos.certificacion_directa.gestionar', 'Certificar un impuesto sin trámite', 'Cargar la factura de venta, consultar el RUNT por VIN y descargar el certificado.'),
+  op(`${IMP_CERT} POST /certificacion-directa/certificados/zip`, 'impuestos.certificacion_directa.gestionar', 'Certificar un impuesto sin trámite', 'Cargar la factura de venta, consultar el RUNT por VIN y descargar el certificado.'),
 
   // ── Derechos de tránsito ──────────────────────────────────────────────────────────────────────
   op(`${DER} GET /`, 'derechos.cola.ver', 'Ver los derechos de tránsito', 'Abrir el listado de recibos de derechos cobrados por el organismo.'),

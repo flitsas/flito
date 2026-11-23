@@ -184,6 +184,10 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
       'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts POST /certificacion-directa/:id/consultar',
       'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts GET /certificacion-directa/:id',
       'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts PATCH /certificacion-directa/:id',
+      // HU #14665: eliminar, eliminar en lote y el ZIP de certificados reutilizan el mismo código, sin reparto de partida.
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts DELETE /certificacion-directa/:id',
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts POST /certificacion-directa/eliminar-lote',
+      'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts POST /certificacion-directa/certificados/zip',
       // HU #13945: `clients.clientes.estado` nace absorbida por la acción exclusiva del Administrador
       // `accion.clientes.activar_desactivar`; la siembra la 0255 (solo `admin`), no el seed plano.
       'clients/clients.routes.ts GET /:id/impacto',
