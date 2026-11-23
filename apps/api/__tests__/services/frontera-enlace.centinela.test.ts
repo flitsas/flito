@@ -275,6 +275,8 @@ function rutasAbiertas(): { ruta: string; cerrada: boolean; decision: Decision }
 const RUTAS_13426: [string, Decision][] = [
   ['POST /api/flito/impuestos/:id/reanalizar',                                 'filtra'],
   ['PATCH /api/flito/impuestos/:id/direccion',                                 'filtra'],
+  ['PATCH /api/flito/impuestos/:id/documento-factura',                        'filtra'], // HU #14664
+  ['POST /api/flito/impuestos/:id/documento-factura/reintentar',              'filtra'], // HU #14664
   ['POST /api/flito/impuestos/certificados/zip',                               'filtra'],
   ['GET /api/flito/impuestos/certificacion-directa/catalogo',                   'filtra'],
   ['POST /api/flito/impuestos/certificacion-directa/extraer',                   'filtra'],
