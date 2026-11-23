@@ -1,6 +1,6 @@
 // Feature #14324 (HU #14332, #14333, #14334, #14335) — gestión de proveedores contra PostgreSQL de verdad.
 //
-// Todo dentro de una transacción con ROLLBACK (`base-en-tx.ts`), con 0292 y 0293 aplicadas DENTRO: la base local compartida
+// Todo dentro de una transacción con ROLLBACK (`base-en-tx.ts`), con 0292, 0293 y 0313 aplicadas DENTRO: la base local compartida
 // puede no tenerlas. `db.transaction(fn)` abre un SAVEPOINT y lo revierte si `fn` lanza, para medir que un rechazo no deja
 // nada escrito. Las carreras necesitan dos conexiones: se saltan si la base no tiene la 0293 aplicada de verdad.
 // Sin TEST_DATABASE_URL se SALTA todo (el CI no levanta Postgres); las rutas se miden en `proveedores-gestion.routes.test.ts`.
@@ -76,6 +76,9 @@ async function conBase(fn: (tx: Tx) => Promise<void>) {
     await enTx(sql, async (tx) => {
       await tx.unsafe(leerMigracion('0292_flito_proveedores_padre.sql'));
       await tx.unsafe(leerMigracion('0293_flito_proveedores_logistica_unicidad_viva.sql'));
+      // HU #14673: el código ya no escribe el espejo del perfil; lo llenan los triggers de la 0313, que se reaplica
+      // después de la 0292 porque esta reescribe `perfil_crea_padre` con su cuerpo original.
+      await tx.unsafe(leerMigracion('0313_flito_proveedores_perfil_espejo.sql'));
       await sembrarAdminActivo(tx);
       actual.tx = tx;
       actual.db = drizzle(Object.assign(tx, { options: sql.options }) as unknown as postgres.Sql, { schema });
