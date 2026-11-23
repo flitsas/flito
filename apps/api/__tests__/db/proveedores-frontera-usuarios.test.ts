@@ -462,6 +462,29 @@ describe.skipIf(!URL_BASE)('Feature #14325 — frontera por servicio, login y at
     }, 30_000);
   });
 
+  describe('HU #14354 — flitoProveedorSoatId derivado del perfil SOAT vigente', () => {
+    it('HU #14354 · el usuario de un proveedor cuyo servicio SOAT está retirado ya no expone flitoProveedorSoatId', async () => {
+      const p = await nuevoProveedor(['soat', 'logistica']);
+      const u = await usuario('zzf3_mensajero', p.id);
+      const admin = await bearer(adminId);
+      const leer = async () => {
+        const r = await request(app).get('/api/users').query({ q: await usernameDe(u) }).set('Authorization', admin);
+        expect(r.status).toBe(200);
+        return r.body.find((f: { id: number }) => f.id === u);
+      };
+      // Control: con el perfil SOAT vigente la lectura lo deriva.
+      expect(await leer()).toMatchObject({ flitoProveedorId: p.id, flitoProveedorSoatId: p.id });
+
+      // Baja lógica del perfil SOAT por el servicio real (el mismo camino de la #14338 AC6).
+      const q = await request(app).delete(`/api/flito/parametrizacion/proveedores/${p.id}/servicios/soat`).set('Authorization', admin);
+      expect(q.status).toBe(200);
+      const [perfil] = await sql`SELECT deleted_at FROM flito_proveedores_soat WHERE id = ${p.id}`;
+      expect(perfil!.deleted_at).not.toBeNull(); // la fila sigue, dada de baja: es justo lo que el filtro debe descartar
+
+      expect(await leer()).toMatchObject({ flitoProveedorId: p.id, flitoProveedorSoatId: null });
+    }, 30_000);
+  });
+
   it('#14343 fuera de la épica: `/api/users` sigue cerrado al enlace proveedor, también al crear', async () => {
     const p = await nuevoProveedor(['soat']);
     const auth = await bearer(await usuario('zzf3_gestor', p.id));
