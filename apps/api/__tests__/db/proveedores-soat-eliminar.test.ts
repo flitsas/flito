@@ -160,15 +160,16 @@ describe.skipIf(!URL_BASE)('eliminarProveedor — contra PostgreSQL (tx con ROLL
     });
   });
 
-  it('AC6: el eliminado no aparece en GET /proveedores-soat', async () => {
+  // HU #14354 (F5): `GET /proveedores-soat` se retiró; el listado es `GET /proveedores?servicio=soat` de la gestión unificada.
+  it('AC6: el eliminado no aparece en GET /proveedores?servicio=soat', async () => {
     await conBase(async (tx, f) => {
       const [admin] = await tx`SELECT id FROM users WHERE role = 'admin' AND deleted_at IS NULL AND active ORDER BY id LIMIT 1`;
       const app = express();
       app.use(express.json());
-      const { default: router } = await import('../../src/modules/flito-parametrizacion/flito-parametrizacion.routes.js');
-      app.use('/api/flito/parametrizacion', router);
+      const { default: router } = await import('../../src/modules/flito-parametrizacion/flito-proveedores.routes.js');
+      app.use('/api/flito/parametrizacion/proveedores', router);
       const token = await testToken({ sub: admin!.id as number, role: 'admin' });
-      const ids = async () => (await request(app).get('/api/flito/parametrizacion/proveedores-soat')
+      const ids = async () => (await request(app).get('/api/flito/parametrizacion/proveedores?servicio=soat')
         .set('Authorization', `Bearer ${token}`)).body.map((p: { id: string }) => p.id);
       expect(await ids()).toContain(f.p);
       await eliminarProveedor(f.p, ACTOR);

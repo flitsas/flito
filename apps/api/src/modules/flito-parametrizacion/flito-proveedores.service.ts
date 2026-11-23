@@ -1,6 +1,6 @@
 // HU #14332 (Feature #14324, ADR-0039 §4.1, §4.2 y §7.1) — Crear, editar y consultar proveedores con sus servicios.
 // Módulo FLITO `flito-parametrizacion`, montado en `/api/flito/parametrizacion/proveedores`. Habla con la identidad única
-// `flito_proveedores` y sus perfiles; las rutas `proveedores-soat` y `proveedores-logistica` conviven hasta F5.
+// `flito_proveedores` y sus perfiles. HU #14354 (F5): las rutas `proveedores-soat` y `proveedores-logistica` se retiraron.
 //
 // Reglas:
 //   · RN-PROVG-1 (R2, R7) — Crear exige al menos un servicio. Los datos de SOAT solo se aceptan si el servicio está pedido
@@ -25,6 +25,12 @@ import { clients, flitoProveedores, flitoProveedoresLogistica, flitoProveedoresS
 import type { ActorAuditoria } from '../../shared/historial/permisos-auditoria.js';
 import { clienteVigente } from '../clients/cliente-operable.js';
 import { entradasDeCambios, registrarAuditoriaProveedor, type EntradaAuditoriaProveedor } from './flito-proveedores-auditoria.js';
+
+/** «900.123.456 - 7» → «900123456-7». Movida aquí desde el servicio de logística retirado (HU #14354). */
+export function normalizarNit(nit: string): string {
+  return nit.replace(/[.\s]/g, '').replace(/–|—/g, '-');
+}
+export const NIT_VALIDO = /^\d{5,15}(-\d)?$/;
 
 export type TxProveedor = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type EjecutorProveedor = typeof db | TxProveedor;
@@ -284,7 +290,8 @@ export async function detalleProveedor(id: string): Promise<ProveedorDetalleDto>
   if (p === undefined) throw new ProveedorNoEncontradoError();
   const [item, [soat]] = await Promise.all([
     itemDeProveedor(db, p),
-    db.select().from(flitoProveedoresSoat)
+    db.select({ estrategia: flitoProveedoresSoat.estrategia, umbralOcr: flitoProveedoresSoat.umbralOcr, slaHoras: flitoProveedoresSoat.slaHoras })
+      .from(flitoProveedoresSoat)
       .where(and(eq(flitoProveedoresSoat.id, id), isNull(flitoProveedoresSoat.deletedAt))).limit(1),
   ]);
   return {

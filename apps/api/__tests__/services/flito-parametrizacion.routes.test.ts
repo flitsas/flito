@@ -74,10 +74,19 @@ describe('parametrización — RBAC', () => {
     expect(r.status).toBe(403);
   });
 
-  it('proveedor (gestor SOAT) → lectura 403', async () => {
-    const app = await buildApp();
-    const r = await request(app).get('/api/flito/parametrizacion/proveedores-soat').set('Authorization', await auth('proveedor'));
-    expect(r.status).toBe(403);
+  // HU #14354 (F5), AC3: las rutas antiguas de proveedores ya no existen. Sobre `createApp()` y con el Administrador, que
+  // tiene todas las funciones: si alguna siguiera montada respondería 200 (o 404 de «no encontrado» con cuerpo de dominio).
+  it.each([
+    '/api/flito/parametrizacion/proveedores-soat',
+    '/api/flito/parametrizacion/proveedores-soat/b0000000-0000-4000-8000-000000000002/impacto',
+    '/api/flito/parametrizacion/proveedores-logistica',
+    '/api/flito/parametrizacion/proveedores-logistica/b0000000-0000-4000-8000-000000000002/impacto',
+  ])('AC3 (HU #14354): GET %s → 404, la ruta antigua ya no existe', async (url) => {
+    selectMock.mockImplementation(() => chain([]));
+    const { createApp } = await import('../../src/app.js');
+    const r = await request(createApp()).get(url).set('Authorization', await auth('admin'));
+    expect(r.status).toBe(404);
+    expect(JSON.stringify(r.body ?? {})).not.toMatch(/proveedor/i);
   });
 
   it('auditor → lectura 200 (solo lectura)', async () => {

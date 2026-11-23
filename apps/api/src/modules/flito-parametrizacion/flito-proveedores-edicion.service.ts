@@ -33,7 +33,9 @@ const texto = (v: number | null | undefined) => (v == null ? null : String(v));
 
 /** Lee el perfil vigente y prepara el UPDATE y la auditoría de la configuración de SOAT. */
 async function cambiosDeSoat(tx: TxProveedor, id: string, soat: ProveedorSoatBody) {
-  const [perfil] = await tx.select().from(flitoProveedoresSoat)
+  // HU #14354: solo la configuración de SOAT del perfil, nunca los datos generales que ahora viven en el padre.
+  const [perfil] = await tx.select({ estrategia: flitoProveedoresSoat.estrategia, umbralOcr: flitoProveedoresSoat.umbralOcr, slaHoras: flitoProveedoresSoat.slaHoras })
+    .from(flitoProveedoresSoat)
     .where(and(eq(flitoProveedoresSoat.id, id), isNull(flitoProveedoresSoat.deletedAt))).for('no key update').limit(1);
   if (perfil === undefined) throw new DatosSoatInvalidosError(MENSAJE_SOAT_SIN_SERVICIO);
   const set = columnasDeSoat(soat);

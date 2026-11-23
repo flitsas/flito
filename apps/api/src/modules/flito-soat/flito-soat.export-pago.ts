@@ -12,7 +12,7 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { ESTADO_SOAT_LABEL, TipoSoporte, type EstadoSoat } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
-import { flitoProveedoresSoat, flitoSoat, flitoSoportes } from '../../db/schema.js';
+import { flitoProveedores, flitoSoat, flitoSoportes } from '../../db/schema.js';
 import {
   celdaFecha, celdaInstante, celdaNumero, celdaTexto, type CeldasPagoSoat,
 } from '../../shared/export/cola-flito-excel.js';
@@ -21,7 +21,7 @@ import {
  * Lo que la proyección del export SUMA cuando el archivo sale ampliado, escrito campo a campo
  * (RN-E1 sigue: sigue sin haber `select()` sin proyección, y `extraccion` sigue fuera).
  *
- * `proveedorNombre` sale de `flito_proveedores_soat`, que `conJoinsCola` ya une con `leftJoin`: cero
+ * `proveedorNombre` sale del padre `flito_proveedores` (HU #14354), que `conJoinsCola` ya une con `leftJoin`: cero
  * joins nuevos. `gestionOperaciones` decide si la celda `Gestor` dice el proveedor o «Operaciones»
  * —cuando Operaciones asume, `proveedor_soat_id` se CONSERVA para poder devolverlo (HU #11152), así
  * que mirar solo el nombre publicaría al proveedor equivocado—.
@@ -33,7 +33,7 @@ export const COLUMNAS_PAGO_SOAT = {
   valorPagado: flitoSoat.valorPagado,
   numeroPoliza: flitoSoat.numeroPoliza,
   gestionOperaciones: flitoSoat.gestionOperaciones,
-  proveedorNombre: flitoProveedoresSoat.nombre,
+  proveedorNombre: flitoProveedores.nombre,
   motivoRechazo: flitoSoat.motivoRechazo,
   estadoVigencia: flitoSoat.estadoVigencia,
   venceEl: flitoSoat.venceEl,

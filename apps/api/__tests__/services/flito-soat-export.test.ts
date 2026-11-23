@@ -2204,7 +2204,8 @@ describe('archivo ampliado — cada valor de pago bajo su cabecera, con centinel
     for (const col of ['vin', 'placa', 'numSerie', 'valorPagado', 'pagadoEn', 'enviadoEn', 'numeroPoliza', 'proveedorNombre', 'gestionOperaciones', 'estadoVigencia', 'venceEl', 'polizaRunt', 'verificadaEn', 'createdAt', 'motivoRechazo', 'estado']) {
       expect(lectura.columnas, col).toContain(col);
     }
-    expect(origenDe(lectura.proyeccion.proveedorNombre)).toBe('col:flito_proveedores_soat.nombre');
+    // HU #14354 (R21): el nombre sale del padre `flito_proveedores`, que `conJoinsCola` une por el mismo UUID.
+    expect(origenDe(lectura.proyeccion.proveedorNombre)).toBe('col:flito_proveedores.nombre');
     expect(origenDe(lectura.proyeccion.valorPagado)).toBe('col:flito_soat.valor_pagado');
     // Sigue sin `flito_tramites` en la lectura principal: un SOAT sirve a varios trámites.
     expect(lectura.joins).not.toContain('flito_tramites');

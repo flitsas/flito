@@ -57,7 +57,6 @@ const { cambiarEstadoProveedor, impactoProveedor, EstadoProveedorCambiadoError }
 const { eliminarProveedor, ProveedorNoEliminableError } = await import(`${P}/flito-proveedores-eliminar.service.js`);
 const { historialProveedor } = await import(`${P}/flito-proveedores-auditoria.js`);
 const { ProveedorLogisticaAsignadoError } = await import(`${P}/flito-logistica-proveedor-compania.service.js`);
-const { listarProveedoresLogistica } = await import(`${P}/flito-proveedores-logistica.service.js`);
 
 const ACTOR = { userId: null, email: null, rol: null };
 const SOAT = { estrategia: 'portal', umbralOcr: 0.8, slaHoras: 24 };
@@ -295,15 +294,16 @@ describe.skipIf(!URL_BASE)('HU #14332 — crear, editar y listar', () => {
     });
   });
 
-  it('AC8: GET /proveedores-soat solo devuelve proveedores con el perfil de SOAT vigente', async () => {
+  // HU #14354 (F5): `GET /proveedores-soat` se retiró; su sucesor es `GET /proveedores?servicio=soat` de la gestión unificada.
+  it('AC8: GET /proveedores?servicio=soat solo devuelve proveedores con el perfil de SOAT vigente', async () => {
     await conBase(async () => {
       const a = await crearCon(['soat', 'logistica']);
       await quitarServicio(a.id, 'soat', ACTOR);
       const b = await crearCon(['soat']);
       const app = express(); app.use(express.json());
-      app.use('/p', (await import(`${P}/flito-parametrizacion.routes.js`)).default);
+      app.use('/p', (await import(`${P}/flito-proveedores.routes.js`)).default);
       const token = await testToken({ sub: 1, role: 'admin', funciones: ['parametrizacion.proveedores.listar'] });
-      const r = await request(app).get('/p/proveedores-soat').set('Authorization', `Bearer ${token}`);
+      const r = await request(app).get('/p?servicio=soat').set('Authorization', `Bearer ${token}`);
       expect(r.status).toBe(200);
       const ids = r.body.map((p: { id: string }) => p.id);
       expect(ids).toContain(b.id);
@@ -738,8 +738,6 @@ describe.skipIf(!URL_BASE)('HU #14334 — inactivar y eliminar', () => {
         expect((await perfilLog(tx, l.id))!.deleted_at).not.toBeNull();
         expect((await padre(tx, l.id)).deleted_at).not.toBeNull();
       }
-      const modulo = await import(`${P}/flito-proveedores-logistica-gestion.service.js`);
-      expect(modulo).not.toHaveProperty('eliminarProveedorLogistica');
     });
   });
 
@@ -748,7 +746,7 @@ describe.skipIf(!URL_BASE)('HU #14334 — inactivar y eliminar', () => {
       const { exigirProveedorLogisticaUsable, ProveedorLogisticaNoUsableError } = await import(`${P}/flito-logistica-proveedor-compania.service.js`);
       const a = await crearCon(['soat', 'logistica']);
       await quitarServicio(a.id, 'logistica', ACTOR);
-      expect((await listarProveedoresLogistica()).map((p: { id: string }) => p.id)).not.toContain(a.id);
+      expect((await listarProveedores({ servicio: 'logistica' })).map((p: { id: string }) => p.id)).not.toContain(a.id);
       expect(await rechazo(exigirProveedorLogisticaUsable(actual.db, a.id))).toBeInstanceOf(ProveedorLogisticaNoUsableError);
     });
   });

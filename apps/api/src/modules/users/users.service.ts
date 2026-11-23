@@ -32,7 +32,7 @@ import {
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
-  clients, flitoGestorOrganismos, flitoProveedores, organismosTransitoConfig, permisosRoles,
+  clients, flitoGestorOrganismos, flitoProveedores, flitoProveedoresSoat, organismosTransitoConfig, permisosRoles,
   permisosUsuarioFuncion, users,
 } from '../../db/schema.js';
 import {
@@ -44,8 +44,8 @@ import { conSeguroAntiBloqueo } from '../../shared/permisos-anti-bloqueo.js';
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
- * Proyección del usuario que sale por HTTP. `flitoProveedorSoatId` SÍ está (es una columna y el
- * listado la necesita para decir a qué proveedor pertenece un `proveedor`); los organismos NO pueden
+ * Proyección del usuario que sale por HTTP. `flitoProveedorSoatId` SÍ está (el listado la necesita para decir a qué
+ * proveedor pertenece un `proveedor`; desde la HU #14354 es un campo DERIVADO, ver abajo); los organismos NO pueden
  * estar (son otra tabla y `.returning()` no hace join) y se componen aparte.
  */
 export const userSelect = {
@@ -64,7 +64,10 @@ export const userSelect = {
   companiaId: users.companiaId,
   // Ídem para el proveedor SOAT del rol `proveedor` (AC5 de la #12053): la celda «Ámbito» de la
   // tabla lo pinta sin abrir el formulario.
-  flitoProveedorSoatId: users.flitoProveedorSoatId,
+  // HU #14354 (F5): ya no se lee la columna vieja. Es el proveedor del usuario SI tiene el perfil SOAT vigente, que es lo
+  // que el trigger dejaba en ella. Subconsulta correlacionada sobre la PK: vale también en `.returning()`.
+  flitoProveedorSoatId: sql<string | null>`(SELECT ${flitoProveedoresSoat.id} FROM ${flitoProveedoresSoat}
+    WHERE ${flitoProveedoresSoat.id} = ${users.flitoProveedorId} AND ${flitoProveedoresSoat.deletedAt} IS NULL)`,
   // HU #14341: la pertenencia real, con cualquier servicio. La columna vieja la llena el trigger y se retira en F5.
   flitoProveedorId: users.flitoProveedorId,
   createdAt: users.createdAt,

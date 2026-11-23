@@ -60,7 +60,6 @@ const CON = 'flito-conciliacion/flito-conciliacion.routes.ts';
 const CMP = 'flito-comparendos/flito-comparendos.routes.ts';
 const LIQ = 'flito-liquidacion/flito-liquidacion.routes.ts';
 const PAR = 'flito-parametrizacion/flito-parametrizacion.routes.ts';
-const PLOG = 'flito-parametrizacion/flito-proveedores-logistica.routes.ts'; // HU #14103
 const PROV = 'flito-parametrizacion/flito-proveedores.routes.ts'; // HU #14332
 const TPROV = 'flito-parametrizacion/flito-tarifas-proveedor.routes.ts'; // Épica #13763 (ADR-0041)
 const SYN = 'flito-sync/flito-sync.routes.ts';
@@ -390,13 +389,8 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${PAR} PATCH /companias/:id [general]`, 'parametrizacion.companias.editar', 'Editar una compañía cliente', 'Cambiar la configuración comercial y operativa de la compañía.'),
   op(`${PAR} PATCH /companias/:id [autogestion]`, 'parametrizacion.companias.autogestion', 'Habilitar o revocar la autogestión de una compañía', 'Encender o apagar la autogestión de SOAT, impuestos y logística de la compañía.'),
   op(`${PAR} PATCH /companias/:id [sinTramite]`, 'parametrizacion.companias.soat_sin_tramite', 'Elegir proveedor de SOAT sin trámite de una compañía', 'Elegir el proveedor al que van los SOAT sin trámite de la compañía (Sin proveedor cierra el canal).'),
-  op(`${PAR} GET /proveedores-soat`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
-  // HU #13958: nacen absorbidas por «Activar o desactivar proveedores» (exclusiva del Administrador, 0261).
-  op(`${PAR} GET /proveedores-soat/:id/impacto`, 'parametrizacion.proveedores.estado', 'Activar o desactivar proveedores', 'Ver el impacto de desactivar un proveedor SOAT y cambiar su estado (activo o inactivo).'),
-  // HU #13960: nace absorbida por «Eliminar proveedores» (exclusiva del Administrador, 0263).
-  // HU #14103: proveedores de logística; reutilizan las funciones de proveedores SOAT (gestión de proveedores).
-  op(`${PLOG} GET /`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
-  op(`${PLOG} GET /:id/impacto`, 'parametrizacion.proveedores.estado', 'Activar o desactivar proveedores', 'Ver el impacto de desactivar un proveedor SOAT y cambiar su estado (activo o inactivo).'),
+  // HU #14354 (F5): `GET /proveedores-soat`, `GET /proveedores-soat/:id/impacto` y las lecturas de `proveedores-logistica`
+  // se retiraron; sus funciones siguen guardando las rutas de `${PROV}`.
   // HU #14332–#14335: gestión unificada de proveedores (ADR-0039 §7.1); `historial` es la única función nueva (0294).
   op(`${PROV} GET /`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
   op(`${PROV} GET /selector`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
