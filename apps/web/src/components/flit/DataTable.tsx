@@ -12,6 +12,9 @@ import Paginacion from './Paginacion';
  * Aditivas para tablas cruzadas (Torre #14590): `encabezadoFila` (la 1.ª columna es `<th scope="row">`, fija en
  * `matriz`), `pie` (filas de `<tfoot>`, que se repiten en cada página), `caption` (`sr-only`) y `regionDesplazable`
  * (el contenedor que se desliza es enfocable, con ese `aria-label`).
+ * Aditivas para colas con fila marcada y filas especiales (Épica #14560, cola SOAT): `filaMarcada` (velo + filete
+ * izquierdo del acento, `data-marcada`) y `filasPrevias` (`<tr>` propios del consumidor, ANTES de las filas de datos;
+ * cuentan como contenido para el estado vacío).
  */
 export interface ColumnaTabla<T> {
   key: string;
@@ -35,11 +38,15 @@ export interface SeleccionTabla {
   etiquetaFila?: (key: string) => string;
 }
 
+/** Mismo velo + filete que `FlitTr marcada` (flitPageKit), para que la fila marcada no cambie al migrar. */
+const FILA_MARCADA = 'bg-[var(--kit-hover)] shadow-[inset_3px_0_0_var(--kit-azul)]';
+
 const ALIGN = { left: 'text-left', center: 'text-center', right: 'text-right' } as const;
 
 export default function DataTable<T>({
   columnas, filas, getKey, status, onRetry, emptyMessage, emptyDetalle, emptyCta, errorMessage, ariaLabel,
   matriz = false, seleccion, onFilaClick, paginacion, minWidth, encabezadoFila = false, pie, caption, regionDesplazable,
+  filaMarcada, filasPrevias,
 }: {
   columnas: ColumnaTabla<T>[];
   filas: T[];
@@ -61,8 +68,14 @@ export default function DataTable<T>({
   pie?: ReactNode;
   caption?: string;
   regionDesplazable?: string;
+  /** Fila marcada por el consumidor (selección propia): velo + filete izquierdo, como `FlitTr marcada`. */
+  filaMarcada?: (row: T) => boolean;
+  /** `<tr>` del consumidor que van antes de las filas de datos (p. ej. solicitudes incompletas del SOAT). */
+  filasPrevias?: ReactNode;
 }) {
-  const efectivo: EstadoUi = status && status !== 'ready' ? status : filas.length === 0 ? 'empty' : 'ready';
+  const hayPrevias = filasPrevias !== undefined && filasPrevias !== null && filasPrevias !== false
+    && !(Array.isArray(filasPrevias) && filasPrevias.length === 0);
+  const efectivo: EstadoUi = status && status !== 'ready' ? status : filas.length === 0 && !hayPrevias ? 'empty' : 'ready';
   const keys = filas.map(getKey);
   const todas = seleccion ? keys.length > 0 && keys.every((k) => seleccion.seleccionados.has(k)) : false;
   const alternar = (k: string) => {
@@ -89,10 +102,14 @@ export default function DataTable<T>({
             </tr>
           </thead>
           <tbody>
+            {filasPrevias}
             {filas.map((row) => {
               const k = getKey(row);
+              const marcada = filaMarcada ? filaMarcada(row) : false;
+              const clase = [onFilaClick ? 'cursor-pointer' : '', marcada ? FILA_MARCADA : ''].filter(Boolean).join(' ');
               return (
-                <tr key={k} onClick={onFilaClick ? () => onFilaClick(row) : undefined} className={onFilaClick ? 'cursor-pointer' : undefined}
+                <tr key={k} onClick={onFilaClick ? () => onFilaClick(row) : undefined} className={clase || undefined}
+                  data-marcada={marcada || undefined}
                   aria-selected={seleccion ? seleccion.seleccionados.has(k) : undefined}>
                   {seleccion && (
                     <td data-etiqueta="Seleccionar" onClick={(e) => e.stopPropagation()}>

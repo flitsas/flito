@@ -21,6 +21,7 @@ import { api, ApiError } from '../../../lib/api';
 import FlitModal from '../../flit/FlitModal';
 import HistorialEstados from '../../flit/HistorialEstados';
 import ChipSinGestion from '../../flit/ChipSinGestion';
+import { Fichas } from '../../flit/Bloques';
 import VisorSoportes from '../../flit/VisorSoportes';
 import { documentoConTipo } from '../../flit/columnasComunes';
 import { toastOk } from '../../flit/ToastFlito';
@@ -299,21 +300,28 @@ export default function DetalleSoat({ soat, puede, soloLectura, esCliente, prove
             fechas del TRÁMITE en FLIT llegan aquí desde la tabla (P-2). La vigencia (HU 12097) va
             con hora y con «—», nivel de auditoría; el número de póliza del RUNT no se enseña en
             ninguna parte (cuasi-PII, y choca de nombre con `numero_poliza`). */}
-        <dl className="grid grid-cols-1 gap-x-4 gap-y-2 border-t pt-4 sm:grid-cols-2" style={{ borderColor: 'var(--color-border)' }}>
-          <Dato k="VIN" v={soat.vin} /><Dato k="Vehículo" v={`${soat.marca ?? ''} ${soat.linea ?? ''}`.trim() || '—'} />
-          <Dato k="Compañía" v={soat.companiaNombre} /><Dato k="Organismo" v={soat.organismoNombre ?? '—'} />
-          <Dato k="Trámite creado" v={fechaDia(soat.fechaCreacion)} /><Dato k="Trámite aprobado" v={soat.fechaAprobacion ? fechaDia(soat.fechaAprobacion) : 'Sin aprobar'} />
-          {!esCliente && (
-            <Dato k="Gestiona" v={soat.gestionOperaciones
-              ? `Operaciones${soat.proveedorSoatNombre ? ` · retomado de ${soat.proveedorSoatNombre}` : ''}`
-              : soat.proveedorSoatNombre ?? '—'} />
-          )}
-          {!esCliente && <Dato k="Enviado por" v={soat.enviadoPorNombre ?? '—'} />}
-          <Dato k="Enviado" v={fecha(soat.enviadoEn)} />
-          {!esCliente && <Dato k="Valor pagado" v={pesos(soat.valorPagado)} />}
-          {!esCliente && <Dato k="Vigencia" v={textoVigenciaSoat(soat.vigencia)} />}
-          {!esCliente && <Dato k="Último dato del RUNT" v={fecha(soat.vigencia?.verificadaEn ?? null)} />}
-        </dl>
+        <Seccion titulo="Datos">
+          <Fichas items={[
+            { etiqueta: 'VIN', valor: soat.vin },
+            { etiqueta: 'Vehículo', valor: `${soat.marca ?? ''} ${soat.linea ?? ''}`.trim() || '—' },
+            { etiqueta: 'Compañía', valor: soat.companiaNombre },
+            { etiqueta: 'Organismo', valor: soat.organismoNombre ?? '—' },
+            { etiqueta: 'Trámite creado', valor: fechaDia(soat.fechaCreacion) },
+            { etiqueta: 'Trámite aprobado', valor: soat.fechaAprobacion ? fechaDia(soat.fechaAprobacion) : 'Sin aprobar' },
+            ...(!esCliente ? [{
+              etiqueta: 'Gestiona',
+              valor: soat.gestionOperaciones
+                ? `Operaciones${soat.proveedorSoatNombre ? ` · retomado de ${soat.proveedorSoatNombre}` : ''}`
+                : soat.proveedorSoatNombre ?? '—',
+            }, { etiqueta: 'Enviado por', valor: soat.enviadoPorNombre ?? '—' }] : []),
+            { etiqueta: 'Enviado', valor: fecha(soat.enviadoEn) },
+            ...(!esCliente ? [
+              { etiqueta: 'Valor pagado', valor: pesos(soat.valorPagado) },
+              { etiqueta: 'Vigencia', valor: textoVigenciaSoat(soat.vigencia) },
+              { etiqueta: 'Último dato del RUNT', valor: fecha(soat.vigencia?.verificadaEn ?? null) },
+            ] : []),
+          ]} />
+        </Seccion>
 
         {/* 6 · compradores */}
         {soat.compradores.length > 0 && (
@@ -396,15 +404,6 @@ function Seccion({ titulo, children }: { titulo: string; children: ReactNode }) 
     <div className="space-y-2 border-t pt-4" style={{ borderColor: 'var(--color-border)' }}>
       <p className={ROTULO} style={{ color: 'var(--color-text-tertiary)' }}>{titulo}</p>
       {children}
-    </div>
-  );
-}
-
-function Dato({ k, v }: { k: string; v: string }) {
-  return (
-    <div className="flex flex-col">
-      <dt className="text-[11px] uppercase" style={{ color: 'var(--color-text-tertiary)' }}>{k}</dt>
-      <dd className="font-medium">{v}</dd>
     </div>
   );
 }

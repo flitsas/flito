@@ -122,7 +122,7 @@ test.describe('FLITO — Impuestos · cargar comprobante por fase desde el detal
   test('AC1 · con la función aparece entre «Ver soporte» y «Cargar recibo de caja»; no en Pendiente ni con ambos', async ({ page }) => {
     await iniciar(page);
     let detalle = await abrirDetalle(page, 'SOL001');
-    const textos = await detalle.locator('dd').filter({ hasText: 'Ver soporte' }).getByRole('button').allInnerTexts();
+    const textos = await detalle.getByRole('group', { name: 'Acciones del comprobante' }).getByRole('button').allInnerTexts();
     expect(textos.map((t) => t.trim())).toEqual(['Ver soporte', 'Cargar comprobante', 'Cargar recibo de caja']);
     // Secundario como el de caja: el detalle sigue sin primaria.
     await expect(detalle.getByRole('button', { name: 'Cargar comprobante' })).not.toHaveCSS('background-image', /gradient/);

@@ -16,6 +16,7 @@ import EtiquetaTipoSoat from './soat/EtiquetaTipoSoat';
  * eslabón 2 (HU 11906) añadió aquí cilindraje, carrocería y tipo de servicio sin tocar el kit.
  *
  * Extraída de `pages/FlitoSoat.tsx` para mantener esa página bajo el techo max-lines 800 (HU 12170).
+ * Desde la Épica #14560 pinta solo el CONTENIDO: la celda (`<td>`) la pone el `DataTable` de la cola.
  */
 
 /** Un dato de texto de FLIT, tal cual llega. Ausente —`null` o vacío— se pinta «—» (HU 11906, AC2):
@@ -33,7 +34,7 @@ export default function CeldaVehiculoSoat({
 }) {
   const vehiculo = [marca, linea].filter(Boolean).join(' ');
   return (
-    <td className="px-4 py-2 align-top">
+    <div className="align-top">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="text-sm font-semibold">{placa ?? '—'}</span>
         <EtiquetaTipoSoat tipo={tipoSoat} />
@@ -55,6 +56,6 @@ export default function CeldaVehiculoSoat({
       {multiplePropietario && (
         <div className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Múltiple propietario</div>
       )}
-    </td>
+    </div>
   );
 }
