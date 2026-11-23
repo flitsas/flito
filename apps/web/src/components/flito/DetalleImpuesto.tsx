@@ -7,8 +7,7 @@
 
 import { useRef, useState, type ReactNode } from 'react';
 import {
-  ESTADO_IMPUESTO_LABEL, EstadoImpuesto, TipoSoporte,
-  type DatosDocumentoFacturaImpuesto, type DireccionCompradorImpuesto, type FaseRecibo, type ReprogramacionEnvioComprobante,
+  ESTADO_IMPUESTO_LABEL, EstadoImpuesto, TipoSoporte, type DireccionCompradorImpuesto, type FaseRecibo, type ReprogramacionEnvioComprobante,
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
@@ -27,17 +26,16 @@ import { toastOk } from '../flit/ToastFlito';
 import { ChipDocumentos, TONO_IMPUESTO, fecha, pesos, type ImpuestoItem } from './ImpuestoCola';
 import { SeccionValidacion, useDetalleValidacion, type Carga } from './ValidacionRunt';
 import { AvisoDireccion, DireccionComprador, EstadoCargaDireccion } from './DireccionComprador';
-import { DatosDocumentoFactura, EstadoCargaDocumentoFactura } from './DatosDocumentoFactura';
 
 const ESTADOS_OPERACIONES: EstadoImpuesto[] = [
   EstadoImpuesto.PENDIENTE, EstadoImpuesto.SOLICITADO, EstadoImpuesto.CON_NOVEDAD, EstadoImpuesto.PAGADO,
 ];
 
-type Accion = 'idle' | 'rechazar' | 'reactivar' | 'reversar' | 'asumir' | 'devolver' | 'corregirFactura' | 'reintentarFactura';
+type Accion = 'idle' | 'rechazar' | 'reactivar' | 'reversar' | 'asumir' | 'devolver';
 
 export default function DetalleImpuesto({
   imp, esOperaciones, esGestor, soloLectura, puedeCargarCaja, puedeCargarComprobante = false, puedeCorregirDireccion = false,
-  puedeReemplazarComprobante = false, puedeCorregirFactura = false,
+  puedeReemplazarComprobante = false,
   onClose, onCambio, onTraspaso, accionReintento, sinPermisoReintento,
 }: {
   imp: ImpuestoItem; esOperaciones: boolean; esGestor: boolean; soloLectura: boolean;
@@ -52,8 +50,6 @@ export default function DetalleImpuesto({
   puedeCorregirDireccion?: boolean;
   /** `hasFuncion('impuestos.recibos.reemplazar')` (HU #13270): sin ella «Reemplazar comprobante» no se pinta. */
   puedeReemplazarComprobante?: boolean;
-  /** `hasFuncion('impuestos.tramite.certificar')` (HU #14664): mismo permiso de «Reintentar validación»; sin ella «Corregir»/«Reintentar lectura» no se pintan. */
-  puedeCorregirFactura?: boolean;
 }) {
   const [accion, setAccion] = useState<Accion>('idle');
   const [motivo, setMotivo] = useState('');
@@ -84,18 +80,8 @@ export default function DetalleImpuesto({
   // tabla comparativa muestra lo guardado en el mismo render.
   const { carga: cargaApi, recargar } = useDetalleValidacion(imp.id, true, imp.analisisEstado);
   const [direccionGuardada, setDireccionGuardada] = useState<DireccionCompradorImpuesto | null>(null);
-  // HU #14664: la corrección o el reintento de número/fecha/avalúo se parcha aquí, sin recargar todo
-  // el detalle — mismo criterio que `direccionGuardada`.
-  const [datosFacturaActualizados, setDatosFacturaActualizados] = useState<DatosDocumentoFacturaImpuesto | null>(null);
-  const carga: Carga = cargaApi.fase === 'listo' && (direccionGuardada || datosFacturaActualizados)
-    ? {
-      fase: 'listo',
-      datos: {
-        ...cargaApi.datos,
-        ...(direccionGuardada ? { direccionComprador: direccionGuardada } : {}),
-        ...(datosFacturaActualizados ? { datosDocumentoFactura: datosFacturaActualizados } : {}),
-      },
-    }
+  const carga: Carga = cargaApi.fase === 'listo' && direccionGuardada
+    ? { fase: 'listo', datos: { ...cargaApi.datos, direccionComprador: direccionGuardada } }
     : cargaApi;
   const direccion = carga.fase === 'listo' ? carga.datos.direccionComprador : null;
   const campoDireccionRef = useRef<HTMLInputElement>(null);
@@ -280,21 +266,7 @@ export default function DetalleImpuesto({
         {/* HU #12831 (AC2): entre el <dl> y el historial. «Reintentar validación» llega con la #12832. */}
         <SeccionValidacion imp={imp} accionReintento={accionReintento} sinPermiso={sinPermisoReintento} detalle={{ carga, recargar }} />
 
-        {/* HU #14664: entre la validación y la dirección del comprador (spec UX, «Dónde queda»). Mismo
-            fetch compartido; cargando/error solo si el de arriba todavía no los cubre. */}
-        {carga.fase === 'listo'
-          ? (
-            <DatosDocumentoFactura impId={imp.id} datos={carga.datos.datosDocumentoFactura ?? null}
-              puedeCorregir={puedeCorregirFactura && !soloLectura}
-              abierta={accion === 'corregirFactura' ? 'corregir' : accion === 'reintentarFactura' ? 'reintentar' : null}
-              bloqueada={accion !== 'idle' && accion !== 'corregirFactura' && accion !== 'reintentarFactura'}
-              onAbrir={(forma) => setAccion(forma === 'corregir' ? 'corregirFactura' : 'reintentarFactura')}
-              onCerrar={() => setAccion('idle')}
-              onActualizado={(d) => { setDatosFacturaActualizados(d); setAccion('idle'); }} />
-          )
-          : !analisisTerminado && <EstadoCargaDocumentoFactura fase={carga.fase} onRecargar={recargar} />}
-
-        {/* HU #12834: bajo la factura. Con el análisis terminado, cargando y error ya los pinta la
+        {/* HU #12834: bajo la validación. Con el análisis terminado, cargando y error ya los pinta la
             sección de arriba; sin terminar, los pinta este bloque. */}
         {carga.fase === 'listo'
           ? (

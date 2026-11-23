@@ -14,8 +14,7 @@ import {
   ANALISIS_ESTADO_IMPUESTO_LABEL, CAMPO_COMPARACION_FACTURA_RUNT_LABEL, MOTIVO_SEMAFORO_ROJO_LABEL,
   SEMAFORO_IMPUESTO_LABEL,
   type AnalisisEstadoImpuesto, type ComparacionCampoFacturaRunt, type ComparacionFacturaRunt,
-  type DatosDocumentoFacturaImpuesto, type DireccionCompradorImpuesto, type EnvioComprobante, type EnvioComprobanteFlit2,
-  type MotivoSemaforoRojo, type SemaforoImpuesto,
+  type DireccionCompradorImpuesto, type EnvioComprobante, type EnvioComprobanteFlit2, type MotivoSemaforoRojo, type SemaforoImpuesto,
 } from '@operaciones/shared-types';
 import { ApiError, api } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
@@ -165,8 +164,6 @@ export interface DetalleValidacion extends ValidacionFila {
   envioComprobante?: EnvioComprobante | null;
   /** Soportes no descartados del impuesto (HU #13270: decide si hay comprobante de pago que reemplazar). */
   soportes?: Array<{ id: string; tipo: string }>;
-  /** HU #14664: número, fecha y avalúo de la factura + su último cambio manual. `undefined`/`null` = sección vacía. */
-  datosDocumentoFactura?: DatosDocumentoFacturaImpuesto | null;
 }
 
 export type Carga =
