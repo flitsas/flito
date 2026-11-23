@@ -428,6 +428,23 @@ export const revisionReintentoOcrLimiter = rateLimit({
 });
 
 /**
+ * Reintento de lectura de número/fecha/avalúo de la factura desde el detalle de Impuestos (HU
+ * #14664, AC3): vuelve a pasar el documento ya guardado por el motor de OCR, encargado externo con
+ * coste por llamada (AGENTS.md §18). Contador propio por usuario, calco de
+ * {@link revisionReintentoOcrLimiter}: 10 en 15 minutos.
+ */
+export const documentoFacturaReintentoLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKey('documento-factura-reintento:'),
+  handler: frenoConRastro('documento-factura-reintento'),
+  message: { error: 'Demasiados reintentos de lectura seguidos. Espera unos minutos e intenta de nuevo.' },
+  store: makeStore('rl:documento-factura-reintento:'),
+});
+
+/**
  * Intentos de contraseña de un comprobante SOAT en PDF cifrado (Bug #14569; calco de
  * {@link soatLecturaFacturaLimiter}). La clave suele ser la cédula o el NIT del titular: sin tope,
  * la carga de factura sería un oráculo para adivinarla por fuerza bruta. 10 intentos cada 15 min

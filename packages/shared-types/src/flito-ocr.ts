@@ -276,7 +276,29 @@ export type FuenteExtraccionFactura = 'notas_finales' | 'ocr';
  * contra el RUNT: es «no verificable», no «distinto».
  */
 export type ExtraccionFacturaVentaImpuestoCampos = Partial<Record<CampoExtraccionFacturaImpuesto, CampoExtraido>>;
-export type ExtraccionFacturaVentaImpuesto = ExtraccionFacturaVentaImpuestoCampos & { fuente?: FuenteExtraccionFactura };
+
+/** Tipo de movimiento manual sobre número/fecha/avalúo de la factura (HU #14664). */
+export const TipoCambioDocumentoFactura = { CORRECCION: 'correccion', REINTENTO: 'reintento' } as const;
+
+export type TipoCambioDocumentoFactura = (typeof TipoCambioDocumentoFactura)[keyof typeof TipoCambioDocumentoFactura];
+
+/**
+ * El ÚLTIMO movimiento manual sobre número/fecha/avalúo (HU #14664, AC5). Se SOBRESCRIBE en cada
+ * corrección o reintento — no hay historial de movimientos anteriores.
+ */
+export interface UltimoCambioDocumentoFactura {
+  tipo: TipoCambioDocumentoFactura;
+  usuarioId: string;
+  usuarioNombre: string;
+  en: string; // ISO
+  motivo: string;
+}
+
+export type ExtraccionFacturaVentaImpuesto = ExtraccionFacturaVentaImpuestoCampos & {
+  fuente?: FuenteExtraccionFactura;
+  /** HU #14664 (AC5): auditoría de la última corrección o reintento de número/fecha/avalúo. */
+  ultimoCambioDocumento?: UltimoCambioDocumentoFactura;
+};
 export type ExtraccionDerechoTramite = Partial<Record<CampoDerechoTramite, CampoExtraido>>;
 
 export const CAMPO_SOAT_LABEL: Record<CampoSoat, string> = {

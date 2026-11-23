@@ -20,7 +20,8 @@ import { clasificacionDeTipoFlit, expresionesFlitRaw } from '../../shared/export
 import {
   ANS_OPERATIVO, EstadoImpuesto, ESTADO_IMPUESTO_LABEL, NOMBRE_CERTIFICADOR_AUTOMATICO, SemaforoImpuesto,
   TipoSoporte, esMotivoSemaforoRojo, type AnalisisEstadoImpuesto, type ComparacionFacturaRunt,
-  type DireccionCompradorImpuesto, type DocumentosImpuesto, type EnvioComprobante, type EnvioComprobanteFlit2, type MotivoSemaforoRojo,
+  type DatosDocumentoFacturaImpuesto, type DireccionCompradorImpuesto, type DocumentosImpuesto,
+  type EnvioComprobante, type EnvioComprobanteFlit2, type MotivoSemaforoRojo,
 } from '@operaciones/shared-types';
 import { ImpuestoError, esGestorDeOrganismo as esGestor, fueraDelAlcanceImpuestos, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { condicionAlcanceImpuesto, exigirCompaniaPropia, exigirImpuestosPropios } from './flito-impuestos.alcance.js';
@@ -29,6 +30,7 @@ import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
 import { encolarAnalisis, marcarEnCursoEnTx } from './flito-impuestos.analisis.service.js';
 import { bloqueDireccionDetalle, direccionFlitDe } from './flito-impuestos.direccion.js';
+import { bloqueDatosDocumentoFacturaDetalle } from './flito-impuestos.documento-factura.js';
 import { envioDeImpuesto, programarEnvioComprobante } from './flito-impuestos.envio-flit2.service.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -642,6 +644,8 @@ export async function facturaVentaFlitConAcceso(
 export interface ImpuestoDetalle extends ImpuestoColaItem {
   extraccion: unknown; extraccionFacturaVenta: unknown; pagadoEn: string | null;
   direccionComprador: DireccionCompradorImpuesto; // HU #12833: la efectiva (factura/manual > FLIT)
+  /** HU #14664: número, fecha y avalúo de la factura, con su último cambio manual (AC1/AC5). */
+  datosDocumentoFactura: DatosDocumentoFacturaImpuesto;
   /** HU #12830/#12831: comparación factura ↔ RUNT tal como la guardó la 12827; `null` = sin calcular. */
   comparacion: ComparacionFacturaRunt | null;
   soportes: Array<{ id: string; tipo: string; nombreArchivo: string; subidoEn: string }>;
@@ -664,6 +668,7 @@ export async function detalleImpuesto(id: string, ctx: ImpuestoCtx): Promise<Imp
     ...item, extraccion: imp.extraccion, extraccionFacturaVenta: imp.extraccionFacturaVenta,
     pagadoEn: imp.pagadoEn ? imp.pagadoEn.toISOString() : null,
     direccionComprador: bloqueDireccionDetalle(imp, await direccionFlitDe(imp.tramiteId)),
+    datosDocumentoFactura: bloqueDatosDocumentoFacturaDetalle(imp.extraccionFacturaVenta),
     comparacion: imp.comparacionFacturaRunt ?? null,
     soportes: soportes.map((s) => ({ ...s, subidoEn: s.subidoEn.toISOString() })),
     envioFlit2: envio.envioFlit2,

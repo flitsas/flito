@@ -6,6 +6,7 @@
 // (RN-01, CA-03/04, compuerta) se apoyan en estos catálogos.
 
 import type { SoatActivoRunt, VigenciaProximaSoat } from './flito-soat-activo.js';
+import type { CampoExtraido, UltimoCambioDocumentoFactura } from './flito-ocr.js';
 
 /**
  * Estado del trámite en FLIT (fuente externa, sincronizada; FLITO no es dueño).
@@ -322,6 +323,35 @@ export interface CorregirDireccionImpuestoBody {
  * la marca «Dirección sin confirmar». Solo se envía con `incluirPago: true`.
  */
 export const CABECERA_DIRECCIONES_SIN_CONFIRMAR = 'X-Direcciones-Sin-Confirmar';
+
+/**
+ * HU #14664 — número, fecha y avalúo de la factura de venta, con su último cambio manual. Solo
+ * estos 3 campos + auditoría: nada del comprador/vehículo (AGENTS.md §14 — PII fuera de este bloque).
+ * `null` en un campo = sin lectura (ni OCR ni corrección) de ese dato; `ultimoCambio: null` = nunca
+ * se corrigió ni se reintentó.
+ */
+export interface DatosDocumentoFacturaImpuesto {
+  numeroFactura: CampoExtraido | null;
+  fechaFactura: CampoExtraido | null;
+  avaluoComercial: CampoExtraido | null;
+  ultimoCambio: UltimoCambioDocumentoFactura | null;
+}
+
+/**
+ * Body de `PATCH /api/flito/impuestos/:id/documento-factura` (HU #14664, AC2). Omitir una llave no
+ * toca ese campo; `''` (tras recorte) lo vacía. `motivo` es obligatorio siempre.
+ */
+export interface CorregirDocumentoFacturaBody {
+  numeroFactura?: string;
+  fechaFactura?: string;
+  avaluoComercial?: string;
+  motivo: string;
+}
+
+/** Body de `POST /api/flito/impuestos/:id/documento-factura/reintentar` (HU #14664, AC3). */
+export interface ReintentarDocumentoFacturaBody {
+  motivo: string;
+}
 
 /** Estados de Impuestos visibles para el gestor (nunca `Pendiente`). */
 export const ESTADOS_IMPUESTO_VISIBLES_GESTOR: readonly EstadoImpuesto[] = [
