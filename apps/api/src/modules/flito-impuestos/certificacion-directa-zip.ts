@@ -68,7 +68,8 @@ export function planificarZipCertificacionDirecta(
         // Del snapshot congelado, no de la fila: un certificado anterior a la HU #14665 tiene
         // documento y se consultó por placa+documento.
         modalidadConsulta: fila.snapshot.modalidadConsulta ?? 'vin',
-        organismo: organismos.get(fila.organismoCodigo) ?? fila.organismoCodigo,
+        // Opcional desde la HU #14665 (segundo lote): sin código no hay nada que resolver.
+        organismo: fila.organismoCodigo ? (organismos.get(fila.organismoCodigo) ?? fila.organismoCodigo) : null,
         campos: fila.snapshot.campos,
         registroRunt: fila.snapshot.registroRunt,
         certificadoPorNombre: fila.certificadoPorNombre ?? 'FLITO',

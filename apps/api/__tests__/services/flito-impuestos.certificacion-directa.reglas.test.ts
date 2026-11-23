@@ -87,4 +87,13 @@ describe('PDF', () => {
     expect(rotulos('vin')).toEqual(['VIN consultado', 'Placa (dato de FLITO)', 'Organismo (dato de FLITO)']);
     expect(rotulos('placa_documento')).toEqual(['VIN (dato de FLITO)', 'Placa consultada', 'Organismo (dato de FLITO)']);
   });
+
+  it('organismo opcional (HU #14665, segundo lote): sin organismo omite la línea, sin rótulo vacío ni «null»', () => {
+    const lineas = lineasDatoFlito({
+      nombrePropietario: null, documento: null, vin: 'V', placa: 'P', organismo: null, modalidadConsulta: 'vin',
+    });
+    const rotulos = lineas.map(([k]) => k);
+    expect(rotulos).not.toContain('Organismo (dato de FLITO)');
+    expect(lineas.map((l) => l.join(' ')).join('\n')).not.toContain('null');
+  });
 });
