@@ -113974,10 +113974,6 @@ paths:
                       type:
                         - string
                         - "null"
-                    flitoProveedorSoatId:
-                      type:
-                        - string
-                        - "null"
                     deletedAt:
                       type:
                         - string
@@ -113995,6 +113991,10 @@ paths:
                       type:
                         - number
                         - "null"
+                    flitoProveedorSoatId:
+                      type:
+                        - string
+                        - "null"
                   required:
                     - organismosCodigos
                     - funciones
@@ -114008,11 +114008,11 @@ paths:
                     - active
                     - allowedPages
                     - transitoCodigo
-                    - flitoProveedorSoatId
                     - deletedAt
                     - deletedBy
                     - flitoProveedorId
                     - companiaId
+                    - flitoProveedorSoatId
         "400":
           description: Petición inválida.
           content:
@@ -115522,12 +115522,12 @@ paths:
                             - active
                             - allowed_pages
                             - transito_codigo
-                            - flito_proveedor_soat_id
                             - flito_proveedor_id
                             - deleted_at
                             - compania_id
                             - funciones
                             - organismos_codigos
+                            - flito_proveedor_soat_id
                             - conjunto
                             - null
                         valorAntes:

@@ -38,8 +38,11 @@ describe('0264 — reglas del archivo (análisis estático)', () => {
     expect(SIN_COMENTARIOS).not.toMatch(/\bWHERE\b/i);
   });
 
-  it('el esquema Drizzle declara los mismos índices, misma columna y sin predicado (sin drift)', () => {
-    for (const [tabla, def] of [[users, INDICES.idx_users_flito_proveedor_soat], [clients, INDICES.idx_clients_flito_proveedor_soat_sin_tramite]] as const) {
+  // HU #14673 (F5 E1): `users.flito_proveedor_soat_id` y su índice siguen en la BD hasta la #14355, pero Drizzle ya no
+  // los declara. Solo queda el de `clients`, cuya columna no se retira.
+  it('el esquema Drizzle declara el índice de clients, misma columna y sin predicado; el de users ya no (HU #14673)', () => {
+    expect(getTableConfig(users).indexes.some((i) => i.config.name === 'idx_users_flito_proveedor_soat')).toBe(false);
+    for (const [tabla, def] of [[clients, INDICES.idx_clients_flito_proveedor_soat_sin_tramite]] as const) {
       const cfg = getTableConfig(tabla);
       const nombre = Object.keys(INDICES).find((k) => INDICES[k as keyof typeof INDICES] === def)!;
       const idx = cfg.indexes.find((i) => i.config.name === nombre);

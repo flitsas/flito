@@ -78,15 +78,15 @@ export const flitoSoatEstadoEnum = pgEnum('flito_soat_estado', ['pendiente', 'so
 
 // Proveedor que adquiere el SOAT (RN-05: determina la estrategia de flujo). HU #13957 (0259): baja lógica (`deleted_at`/
 // `deleted_by`) y nombre único solo entre vigentes (exacto, como la constraint que reemplaza): un eliminado lo libera.
+// HU #14673 (0313): `nombre`, `activo` y su índice siguen en la BD como espejo del padre que llenan los triggers, pero
+// el código ya no los declara: Drizzle los nombraría en cada select/insert y la imagen no sobreviviría a su DROP (#14355).
 export const flitoProveedoresSoat = pgTable('flito_proveedores_soat', {
   id: uuid('id').primaryKey().defaultRandom(),
-  nombre: varchar('nombre', { length: 150 }).notNull(),
   estrategia: varchar('estrategia', { length: 40 }).notNull().default('portal'),
   umbralOcr: numeric('umbral_ocr', { precision: 4, scale: 3 }),
   slaHoras: integer('sla_horas'),
-  activo: boolean('activo').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), deletedAt: timestamp('deleted_at', { withTimezone: true }), deletedBy: integer('deleted_by').references(() => users.id, { onDelete: 'restrict' }),
-}, (t) => ({ nombreVivoUq: uniqueIndex('uq_flito_proveedores_soat_nombre_vivo').on(t.nombre).where(sql`deleted_at IS NULL`) }));
+});
 
 // SOAT anclado al VIN. RN-01 (ADR-0031, migración 0267): a lo sumo UN SOAT ABIERTO (estado <> 'pagado')
 // por VIN y por vehículo —índices únicos parciales—; los `pagado` son historial y pueden ser varios.

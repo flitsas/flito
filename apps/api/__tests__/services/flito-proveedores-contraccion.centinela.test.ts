@@ -21,6 +21,10 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { eq, getTableColumns } from 'drizzle-orm';
+import { getTableConfig } from 'drizzle-orm/pg-core';
+import { db } from '../../src/db/client.js';
+import { flitoProveedoresLogistica, flitoProveedoresSoat, users } from '../../src/db/schema.js';
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src');
 const DIRECTORIOS = ['modules', 'scripts'] as const;
@@ -85,7 +89,7 @@ describe('HU #14354 — AC1: nadie en apps/api lee las columnas viejas de los pe
     expect(marcadas).toEqual([0, 1, 1, 2, 0]);
   });
 
-  it('AC3: los routers y servicios de las rutas antiguas de logística ya no existen', () => {
+  it('AC3 (#14354): los routers y servicios de las rutas antiguas de logística ya no existen', () => {
     const PAR = path.join(RAIZ, 'modules', 'flito-parametrizacion');
     for (const f of [
       'flito-proveedores-logistica.routes.ts',
@@ -93,5 +97,46 @@ describe('HU #14354 — AC1: nadie en apps/api lee las columnas viejas de los pe
       'flito-proveedores-logistica-gestion.service.ts',
     ]) expect(existsSync(path.join(PAR, f)), f).toBe(false);
     expect(readFileSync(path.join(RAIZ, 'app.ts'), 'utf8')).not.toMatch(/proveedores-logistica/);
+  });
+});
+
+// HU #14673 (F5 E1) — Drizzle nombra TODAS las columnas declaradas en `select()`, `insert` y `returning`, aunque la
+// consulta no las pida. Si el código las declarara, la imagen no sobreviviría al DROP de la #14355. Siguen en la BD
+// como espejo del padre que llenan los triggers de la 0313.
+//
+// Mutante que mata: volver a declarar cualquiera de ellas en `src/db/schema/` (el `toSQL()` la nombraría).
+describe('HU #14673 — AC1/AC2: el código ya no declara las columnas viejas', () => {
+  const nombresSql = (t: Parameters<typeof getTableColumns>[0]) => Object.values(getTableColumns(t)).map((c) => c.name).sort();
+
+  it('AC1: el perfil SOAT conserva solo su configuración (sin nombre ni activo)', () => {
+    expect(nombresSql(flitoProveedoresSoat)).toEqual(
+      ['created_at', 'deleted_at', 'deleted_by', 'estrategia', 'id', 'sla_horas', 'umbral_ocr'],
+    );
+  });
+
+  it('AC1: el perfil de logística no declara nombre, estrategia, activo, nit, contacto ni teléfono', () => {
+    expect(nombresSql(flitoProveedoresLogistica)).toEqual(['created_at', 'deleted_at', 'deleted_by', 'id']);
+  });
+
+  it('AC1: users no declara flito_proveedor_soat_id ni su índice; sí flito_proveedor_id', () => {
+    const columnas = nombresSql(users);
+    expect(columnas).not.toContain('flito_proveedor_soat_id');
+    expect(columnas).toContain('flito_proveedor_id');
+    expect(getTableConfig(users).indexes.map((i) => i.config.name)).not.toContain('idx_users_flito_proveedor_soat');
+  });
+
+  it('AC2: el SQL de las escrituras de perfil no nombra las columnas viejas', () => {
+    const VIEJAS = /"(nombre|activo|nit|contacto|telefono)"/;
+    const consultas = [
+      db.insert(flitoProveedoresSoat).values({ id: '00000000-0000-0000-0000-000000000001', estrategia: 'portal' }).returning(),
+      db.insert(flitoProveedoresLogistica).values({ id: '00000000-0000-0000-0000-000000000001' }).returning(),
+      db.update(flitoProveedoresLogistica).set({ deletedAt: null, deletedBy: null }).where(eq(flitoProveedoresLogistica.id, 'x')).returning(),
+      db.select().from(flitoProveedoresSoat),
+      db.select().from(users),
+    ];
+    for (const q of consultas) expect(q.toSQL().sql).not.toMatch(VIEJAS);
+    expect(db.select().from(users).toSQL().sql).not.toMatch(/flito_proveedor_soat_id/);
+    // Logística tampoco nombra `estrategia`: su valor lo pone el DEFAULT de la BD.
+    expect(db.insert(flitoProveedoresLogistica).values({ id: 'x' }).toSQL().sql).not.toMatch(/"estrategia"/);
   });
 });
