@@ -73,7 +73,9 @@ const idsLoteSchema = z.object({
 const opcional = (max: number) => z.string().trim().max(max).optional().transform((v) => v || null);
 
 const datosSchema = z.object({
-  organismoCodigo: z.string().trim().min(1).max(5),
+  // Opcional desde la HU #14665 (segundo lote): la Épica #14163 nunca lo pidió en el formulario y no
+  // participa en la consulta RUNT (siempre por VIN).
+  organismoCodigo: opcional(5),
   // Opcional desde la HU #14665: la consulta RUNT ya no depende de la placa, solo del VIN.
   placa: opcional(10),
   documentoPropietario: opcional(30),
@@ -245,7 +247,9 @@ export default function certificacionDirectaRouter(_ctx: Contexto): Router {
     if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
     try {
       const filas = await filasCertificacionDirectaPorIds(parsed.data.ids);
-      const organismos = await organismosAliasPorCodigos(filas.map((f) => f.organismoCodigo));
+      const organismos = await organismosAliasPorCodigos(
+        filas.map((f) => f.organismoCodigo).filter((c): c is string => c !== null),
+      );
       const { incluidos, omitidos } = planificarZipCertificacionDirecta(parsed.data.ids, filas, organismos);
 
       if (incluidos.length === 0) {

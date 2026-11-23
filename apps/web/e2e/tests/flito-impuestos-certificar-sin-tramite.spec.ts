@@ -15,18 +15,17 @@ const FACTURA = { name: 'factura.pdf', mimeType: 'application/pdf', buffer: PDF_
 const LECTURA = { vin: '9BGEB69K0TG118228', marca: 'Chevrolet', linea: 'Onix', anio: '2026', color: 'Blanco', cilindrada: '1200', aviso: null };
 
 const fila = (extra: Record<string, unknown> = {}) => ({
-  id: 'c1', organismoCodigo: 'STT-MZL', organismoNombre: 'STT Manizales', placa: 'ABC123',
+  id: 'c1', placa: 'ABC123',
   tipoDocumentoPropietario: 'CC', documentoPropietario: '10101010', nombrePropietario: 'Ana Pérez', ...LECTURA, aviso: undefined,
   estado: 'radicado', comparacion: null, certificadoEn: null, createdAt: '2026-10-01T12:00:00Z', ...extra,
 });
 
 const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
-/** Cola de impuestos (la pestaña por defecto) y catálogo del módulo de certificar. */
+/** Cola de impuestos (la pestaña por defecto). */
 async function mockBase(page: Page) {
   await page.route(/\/api\/flito\/impuestos\/facetas/, (r) => r.fulfill(json({ companias: [], organismos: [] })));
   await page.route(/\/api\/flito\/impuestos\?/, (r) => r.fulfill(json({ items: [], total: 0, page: 1, pageSize: 50 })));
-  await page.route(/\/certificacion-directa\/catalogo$/, (r) => r.fulfill(json({ organismos: [{ codigo: 'STT-MZL', nombre: 'STT Manizales' }] })));
 }
 
 async function irACertificar(page: Page, funciones: string[] = CON) {
@@ -119,10 +118,9 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     await expect(page.getByLabel('VIN', { exact: true })).toHaveValue(LECTURA.vin);
     await expect(page.getByText('Compañía')).toHaveCount(0);
 
-    // Solo falta el organismo: la placa ya no es obligatoria (HU #14665).
-    await expect(page.getByText('Faltan 1 dato para guardar.')).toBeVisible();
-    await expect(guardar(page)).toBeDisabled();
-    await page.getByLabel('Organismo', { exact: true }).selectOption('STT-MZL');
+    // Todo lo obligatorio llega de la lectura y ya no hay organismo que elegir (HU #14665): listo de inmediato.
+    await expect(page.getByText('Listo para guardar.')).toBeVisible();
+    await expect(guardar(page)).toBeEnabled();
     await page.getByLabel(/^Placa/).fill('ABC123');
     await page.getByLabel('Documento del propietario (opcional)').fill('10101010');
     await page.getByLabel('Tipo de documento', { exact: true }).selectOption('CC');
@@ -228,7 +226,7 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     await expect(page.getByRole('region', { name: /^Páginas de/ })).toHaveCount(0);
   });
 
-  test('8 · alta sin propietario: se guarda, y VIN y organismo siguen siendo obligatorios (la placa ya no)', async ({ page }) => {
+  test('8 · alta sin propietario: se guarda, y el VIN sigue siendo obligatorio (la placa ya no)', async ({ page }) => {
     await irACertificar(page);
     await page.route(/\/certificacion-directa\/extraer$/, (r) => r.fulfill(json(LECTURA)));
     let cuerpo = '';
@@ -247,11 +245,11 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     await page.locator('input[type="file"]').setInputFiles(FACTURA);
     await expect(page.getByLabel('VIN', { exact: true })).toHaveValue(LECTURA.vin);
 
-    // Solo falta el organismo: el propietario no cuenta y la placa ya no es obligatoria (HU #14665).
-    await expect(page.getByText('Faltan 1 dato para guardar.')).toBeVisible();
-    await expect(guardar(page)).toBeDisabled();
-    await page.getByLabel('Organismo', { exact: true }).selectOption('STT-MZL');
+    // Todo llegó de la lectura: listo de inmediato, sin organismo que exigir (HU #14665).
+    await expect(page.getByText('Listo para guardar.')).toBeVisible();
     await page.getByLabel(/^Placa/).fill('ABC123');
+
+    // El propietario no cuenta y la placa ya no es obligatoria, pero el VIN sí.
     await page.getByLabel('VIN', { exact: true }).fill('');
     await expect(page.getByText(/1 dato para guardar\.$/)).toBeVisible();
     await expect(guardar(page)).toBeDisabled();
@@ -307,7 +305,6 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     await nueva(page);
     await page.locator('input[type="file"]').setInputFiles(FACTURA);
     await expect(page.getByLabel('VIN', { exact: true })).toHaveValue(LECTURA.vin);
-    await page.getByLabel('Organismo', { exact: true }).selectOption('STT-MZL');
     await page.getByLabel(/^Placa/).fill('ABC123');
     await expect(page.getByText('Listo para guardar.')).toBeVisible();
   }
@@ -440,7 +437,6 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     await expect(documento(page)).toHaveValue('');
     await expect(tipoDoc(page)).toBeEnabled();
     await expect(page.getByRole('button', { name: 'Descargar certificado' })).toHaveCount(0);
-    await page.getByLabel('Organismo', { exact: true }).selectOption('STT-MZL');
     await page.getByLabel(/^Placa/).fill('XYZ987');
     await expect(guardar(page)).toBeEnabled();
   });
@@ -546,7 +542,6 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     await nueva(page);
     await page.locator('input[type="file"]').setInputFiles(FACTURA);
     await expect(page.getByLabel('VIN', { exact: true })).toHaveValue(LECTURA.vin);
-    await page.getByLabel('Organismo', { exact: true }).selectOption('STT-MZL');
     // La placa ya no es obligatoria: sin ella «Listo para guardar.» y sin `required` en el campo.
     await expect(page.getByLabel(/^Placa/)).not.toHaveAttribute('required');
     await expect(page.getByText('Listo para guardar.')).toBeVisible();

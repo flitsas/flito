@@ -13,12 +13,9 @@ import { Icono } from '../components/flit/kit/Icono';
 import { OPCIONES_TIPO_DOC } from '../lib/soatCliente';
 
 export interface Borrador {
-  organismoCodigo: string; placa: string; tipoDocumentoPropietario: string; documentoPropietario: string;
+  placa: string; tipoDocumentoPropietario: string; documentoPropietario: string;
   nombrePropietario: string; vin: string; marca: string; linea: string; anio: string;
   color: string; cilindrada: string;
-}
-export interface Catalogo {
-  organismos: { codigo: string; nombre: string }[];
 }
 export type CampoLeido = 'vin' | 'marca' | 'linea' | 'anio' | 'color' | 'cilindrada';
 const CAMPOS_LEIDOS: CampoLeido[] = ['vin', 'marca', 'linea', 'anio', 'color', 'cilindrada'];
@@ -26,10 +23,10 @@ const CAMPOS_LEIDOS: CampoLeido[] = ['vin', 'marca', 'linea', 'anio', 'color', '
 const CONTROL = `${flitInp} h-10 !py-0`;
 // Placa opcional desde la HU #14665: la consulta RUNT ya no depende de ella, solo del VIN.
 const OBLIGATORIOS: (keyof Borrador)[] = [
-  'organismoCodigo', 'vin', 'marca', 'linea', 'anio', 'color', 'cilindrada',
+  'vin', 'marca', 'linea', 'anio', 'color', 'cilindrada',
 ];
 const ID_MODALIDAD_RUNT = 'cert-modalidad-runt';
-// El catálogo trae su propio marcador vacío; aquí lo pone `Sel`.
+// `Sel` pone su propio marcador vacío para el selector de tipo de documento.
 const TIPOS_DOC = OPCIONES_TIPO_DOC.filter((o) => o.valor).map((o) => ({ v: o.valor, t: o.etiqueta }));
 
 /** true desde `lg` (1024 px). La vista previa no se monta por debajo: no descarga ni rasteriza el PDF. */
@@ -66,7 +63,6 @@ interface Props {
   vista: 'alta' | 'detalle';
   borrador: Borrador;
   onBorrador: (b: Borrador) => void;
-  catalogo: Catalogo | null;
   pdf: File | null;
   onPdf: (f: File) => void;
   leyendo: boolean;
@@ -245,10 +241,6 @@ export default function CertificarEditor(p: Props) {
             aria-busy={leyendo}
             onSubmit={(ev) => { ev.preventDefault(); p.onSubmit(); }}
           >
-            <Bloque titulo="Organismo de tránsito" cols={colsForm}>
-              <Sel id="cert-organismo" etiqueta="Organismo" valor={b.organismoCodigo} disabled={certificado} onChange={set('organismoCodigo')}
-                opciones={(p.catalogo?.organismos ?? []).map((o) => ({ v: o.codigo, t: o.nombre }))} />
-            </Bloque>
             <Bloque titulo="Propietario" nota="El RUNT se consulta siempre por VIN. El documento y el nombre son datos informativos que se guardan con el registro y aparecen en el certificado cuando estén diligenciados." notaId={ID_MODALIDAD_RUNT} cols={ampliada ? colsForm : 'lg:grid-cols-3'}>
               <Sel id="cert-tipo-documento" etiqueta="Tipo de documento" valor={b.tipoDocumentoPropietario} disabled={certificado} onChange={set('tipoDocumentoPropietario')}
                 obligatorio={!!b.documentoPropietario.trim()} describidoPor={ID_MODALIDAD_RUNT} opciones={TIPOS_DOC} />

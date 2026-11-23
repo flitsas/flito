@@ -28,7 +28,8 @@ export interface CertificadoDirectoPdfDatos {
   documento: string | null;
   nombrePropietario: string | null;
   modalidadConsulta: ModalidadConsultaRunt;
-  organismo: string;
+  /** Opcional desde la HU #14665 (segundo lote): la Épica #14163 nunca lo pidió en el formulario. */
+  organismo: string | null;
   campos: ComparacionCampoFacturaRunt[];
   registroRunt: RegistroRuntGuardado;
   certificadoPorNombre: string;
@@ -54,7 +55,8 @@ export function lineasDatoFlito(d: Pick<CertificadoDirectoPdfDatos, 'nombrePropi
   if (d.documento) lineas.push(['Documento (dato de FLITO)', d.documento]);
   lineas.push([porVin ? 'VIN consultado' : 'VIN (dato de FLITO)', d.vin]);
   if (d.placa) lineas.push([porVin ? 'Placa (dato de FLITO)' : 'Placa consultada', d.placa]);
-  lineas.push(['Organismo (dato de FLITO)', d.organismo]);
+  // Opcional desde la HU #14665 (segundo lote): la Épica #14163 nunca pidió este campo.
+  if (d.organismo) lineas.push(['Organismo (dato de FLITO)', d.organismo]);
   return lineas;
 }
 

@@ -332,11 +332,30 @@ describe('POST crear', () => {
     });
   });
 
-  it('sin organismo es 400 y no guarda la factura', async () => {
-    const { organismoCodigo: _o, ...sinOrg } = datos;
-    const r = await crear(sinOrg);
-    expect(r.status).toBe(400);
-    expect(storage.upload).not.toHaveBeenCalled();
+  describe('organismo opcional (HU #14665, segundo lote: la Épica #14163 nunca lo pidió)', () => {
+    it('sin organismo: 201, guarda null, no consulta el catálogo y la respuesta trae organismoNombre null', async () => {
+      kdb.when.select(ORG, []); // si se consultara con código null, esto haría fallar con «no existe»
+      const valores: Record<string, unknown>[] = [];
+      kdb.insert.mockImplementation(() => {
+        const t: Record<string, unknown> = {};
+        t.values = (v: Record<string, unknown>) => { valores.push(v); return t; };
+        t.returning = () => Promise.resolve([filaBd({ organismoCodigo: null })]);
+        return t;
+      });
+      const { organismoCodigo: _o, ...sinOrg } = datos;
+      const r = await crear(sinOrg);
+      expect(r.status).toBe(201);
+      expect(valores[0]).toMatchObject({ organismoCodigo: null });
+      expect(r.body.organismoCodigo).toBeNull();
+      expect(r.body.organismoNombre).toBeNull();
+      expect(storage.upload).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([['vacío', ''], ['con solo espacios', '   ']])('organismo %s: guarda null', async (_n, v) => {
+      kdb.when.insert(FILA, [filaBd({ organismoCodigo: null })]);
+      const r = await crear({ ...datos, organismoCodigo: v });
+      expect(r.status).toBe(201);
+    });
   });
 
   it('organismo inexistente es 400', async () => {
@@ -552,6 +571,23 @@ describe('PATCH editar', () => {
     const r = await editar({ ...datos, documentoPropietario: '', tipoDocumentoPropietario: 'NIT' });
     expect(r.status).toBe(200);
     expect(sets[0]).toMatchObject({ documentoPropietario: null, tipoDocumentoPropietario: null });
+  });
+
+  it('quitar el organismo (HU #14665, segundo lote): 200 y guarda null', async () => {
+    kdb.when.selectOnce(FILA, [filaBd()]).select(FILA, []);
+    const sets: Record<string, unknown>[] = [];
+    kdb.update.mockImplementation(() => {
+      const t: Record<string, unknown> = {};
+      t.set = (v: Record<string, unknown>) => { sets.push(v); return t; };
+      t.where = () => t;
+      t.returning = () => Promise.resolve([filaBd({ organismoCodigo: null })]);
+      return t;
+    });
+    const { organismoCodigo: _o, ...sinOrg } = datos;
+    const r = await editar(sinOrg);
+    expect(r.status).toBe(200);
+    expect(sets[0]).toMatchObject({ organismoCodigo: null });
+    expect(r.body.organismoNombre).toBeNull();
   });
 
   it('documento sin tipo: 400 con el mensaje del campo y el registro no cambia', async () => {
@@ -1140,6 +1176,21 @@ describe('POST /certificados/zip (HU #14665, AC8)', () => {
     expect(r.status).toBe(200);
     const leido = await JSZip.loadAsync(r.body as Buffer);
     expect(Object.keys(leido.files)).toEqual(['9ZZTEST0000000001.pdf']);
+  });
+
+  it('con uno certificado sin organismo: el PDF no afirma un organismo (HU #14665, segundo lote)', async () => {
+    // Sin organismoCodigo no hay consulta a `organismos_transito_config` (lista vacía): si la
+    // resolución de `certificacion-directa-zip.ts` deja de mandar `null` y manda cualquier otro
+    // valor por defecto, el PDF terminaría afirmando un organismo que no existe.
+    kdb.when.select(FILA, [filaCertificada({ organismoCodigo: null })]);
+    const r = await zip([ID]);
+    expect(r.status).toBe(200);
+    const leido = await JSZip.loadAsync(r.body as Buffer);
+    const pdf = await leido.files['ABC123.pdf']!.async('nodebuffer');
+    const t = textoDelPdf(pdf);
+    expect(t).not.toContain('Organismo (dato de FLITO)');
+    expect(t).not.toContain('null');
+    expect(t).toContain('VIN consultado: 9ZZTEST0000000001');
   });
 
   it('un id no certificado junto a uno certificado: el ZIP trae solo el certificado y la cabecera cuenta 1', async () => {
