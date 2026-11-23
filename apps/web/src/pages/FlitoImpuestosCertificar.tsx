@@ -2,7 +2,7 @@
 // El certificado se genera al descargar y no se archiva.
 import { useCallback, useEffect, useState } from 'react';
 import { CAMPO_COMPARACION_FACTURA_RUNT_LABEL, type ComparacionCampoFacturaRunt } from '@operaciones/shared-types';
-import CertificarEditor, { type Borrador, type Catalogo, type CampoLeido } from './FlitoImpuestosCertificarEditor';
+import CertificarEditor, { type Borrador, type CampoLeido } from './FlitoImpuestosCertificarEditor';
 import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
 import { BarraAccion } from '../components/flit/Bloques';
 import GradientButton from '../components/flit/GradientButton';
@@ -39,7 +39,7 @@ interface Fila {
 }
 
 const VACIO: Borrador = {
-  organismoCodigo: '', placa: '', tipoDocumentoPropietario: '', documentoPropietario: '', nombrePropietario: '',
+  placa: '', tipoDocumentoPropietario: '', documentoPropietario: '', nombrePropietario: '',
   vin: '', marca: '', linea: '', anio: '', color: '', cilindrada: '',
 };
 
@@ -73,7 +73,7 @@ function avisoDe(e: unknown): string {
 
 function desdeFila(f: Fila): Borrador {
   return {
-    organismoCodigo: f.organismoCodigo, placa: f.placa ?? '',
+    placa: f.placa ?? '',
     tipoDocumentoPropietario: f.tipoDocumentoPropietario ?? '',
     documentoPropietario: f.documentoPropietario ?? '', nombrePropietario: f.nombrePropietario ?? '',
     vin: f.vin, marca: f.marca, linea: f.linea, anio: f.anio, color: f.color, cilindrada: f.cilindrada,
@@ -96,7 +96,6 @@ export default function FlitoImpuestosCertificar() {
   const [filas, setFilas] = useState<Fila[] | null>(null);
   const [errorLista, setErrorLista] = useState<string | null>(null);
   const [fila, setFila] = useState<Fila | null>(null);
-  const [catalogo, setCatalogo] = useState<Catalogo | null>(null);
   const [borrador, setBorrador] = useState<Borrador>(VACIO);
   const [pdf, setPdf] = useState<File | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -188,10 +187,6 @@ export default function FlitoImpuestosCertificar() {
     setLeidosN(null);
     setBorrador(VACIO);
     setVista('alta');
-    if (!catalogo) {
-      try { setCatalogo(await api.get<Catalogo>(`${BASE}/catalogo`)); }
-      catch (e) { setAviso(avisoDe(e)); }
-    }
   }
 
   function abrirDetalle(f: Fila) {
@@ -203,9 +198,6 @@ export default function FlitoImpuestosCertificar() {
     setLeidosN(null);
     setAviso(CON_AVISO_AL_ABRIR.has(f.estado) ? ESTADO[f.estado].aviso : null);
     setVista('detalle');
-    if (!catalogo) {
-      void api.get<Catalogo>(`${BASE}/catalogo`).then(setCatalogo).catch((e) => setAviso(avisoDe(e)));
-    }
   }
 
   // Lectura automática al elegir el PDF. Solo rellena campos que siguen vacíos: lo que el gestor
@@ -403,7 +395,6 @@ export default function FlitoImpuestosCertificar() {
           vista={vista}
           borrador={borrador}
           onBorrador={setBorrador}
-          catalogo={catalogo}
           pdf={pdf}
           onPdf={elegirPdf}
           leyendo={leyendo}

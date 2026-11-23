@@ -82,4 +82,18 @@ describe('PDF del certificado sin trámite', () => {
       expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
     });
   });
+
+  describe('organismo opcional (HU #14665, segundo lote)', () => {
+    it('sin organismo: omite la línea, sin dejar rótulo vacío ni «null»', async () => {
+      const t = textoDelPdf(await construirCertificadoDirectoPdf({ ...base, organismo: null }));
+      expect(t).not.toContain('Organismo (dato de FLITO)');
+      expect(t).not.toContain('null');
+      expect(t).toContain('VIN consultado: 9ZZTEST0000000001');
+    });
+
+    it('sin organismo, el PDF sigue siendo válido', async () => {
+      const pdf = await construirCertificadoDirectoPdf({ ...base, organismo: null });
+      expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
+    });
+  });
 });

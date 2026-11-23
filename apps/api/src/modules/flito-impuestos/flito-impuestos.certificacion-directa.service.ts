@@ -36,7 +36,8 @@ const UNIQUE = '23505';
 export const FALTA_TIPO_DOCUMENTO = 'Falta el tipo de documento del propietario';
 
 export interface DatosAlta extends DatosVehiculoDiligenciados {
-  organismoCodigo: string;
+  /** Opcional desde la HU #14665 (segundo lote): la Épica #14163 nunca lo pidió en el formulario. */
+  organismoCodigo: string | null;
   /** Opcional desde la HU #14665: la consulta RUNT ya no depende de la placa, solo del VIN. */
   placa: string | null;
   documentoPropietario: string | null;
@@ -53,8 +54,9 @@ export interface SugerenciaFactura {
 
 export interface FilaCertificacionDirecta {
   id: string;
-  organismoCodigo: string;
-  organismoNombre: string;
+  /** Opcional desde la HU #14665 (segundo lote): el organismo ya no es un campo del formulario. */
+  organismoCodigo: string | null;
+  organismoNombre: string | null;
   placa: string | null;
   documentoPropietario: string | null;
   tipoDocumentoPropietario: string | null;
@@ -82,14 +84,19 @@ function aIso(d: Date | null): string | null {
   return d ? d.toISOString() : null;
 }
 
-async function nombresDe(organismoCodigo: string): Promise<{ organismo: string }> {
+/**
+ * Sin código (opcional desde la HU #14665, segundo lote): no hay nada que resolver, ni se consulta la
+ * BD. Con código (caso legado, o si se reintrodujera) sigue validando contra el catálogo igual que hoy.
+ */
+async function nombresDe(organismoCodigo: string | null): Promise<{ organismo: string | null }> {
+  if (!organismoCodigo) return { organismo: null };
   const [og] = await db.select({ alias: organismosTransitoConfig.alias }).from(organismosTransitoConfig)
     .where(eq(organismosTransitoConfig.codigo, organismoCodigo)).limit(1);
   if (!og) throw new ImpuestoError(400, 'El organismo de tránsito no existe');
   return { organismo: og.alias?.trim() || organismoCodigo };
 }
 
-function aFila(r: Fila, organismo: string): FilaCertificacionDirecta {
+function aFila(r: Fila, organismo: string | null): FilaCertificacionDirecta {
   return {
     id: r.id, organismoCodigo: r.organismoCodigo,
     organismoNombre: organismo, placa: r.placa, documentoPropietario: r.documentoPropietario,
@@ -424,7 +431,7 @@ export async function organismosAliasPorCodigos(codigos: readonly string[]): Pro
 }
 
 export async function datosCertificadoDirecto(id: string): Promise<{
-  fila: Fila; snapshot: SnapshotCertificacionDirecta; organismo: string;
+  fila: Fila; snapshot: SnapshotCertificacionDirecta; organismo: string | null;
 }> {
   const fila = await cargar(id);
   if (fila.estado !== 'certificado' || !fila.snapshot || !fila.certificadoEn) {

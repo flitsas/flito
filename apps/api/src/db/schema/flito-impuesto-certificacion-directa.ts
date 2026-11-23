@@ -47,7 +47,11 @@ export interface SnapshotCertificacionDirecta {
 
 export const flitoImpuestoCertificacionDirecta = pgTable('flito_impuesto_certificacion_directa', {
   id: uuid('id').primaryKey().defaultRandom(),
-  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().references(() => organismosTransitoConfig.codigo),
+  /**
+   * Opcional desde la HU #14665 (segundo lote): la Épica #14163 nunca lo pidió en el formulario y no
+   * participa en la consulta RUNT; solo era una línea informativa del certificado. La FK se mantiene.
+   */
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).references(() => organismosTransitoConfig.codigo),
   /** Opcional desde la HU #14665: la consulta RUNT ya no depende de la placa, solo del VIN. */
   placa: varchar('placa', { length: 10 }),
   placaNorm: varchar('placa_norm', { length: 10 }),
