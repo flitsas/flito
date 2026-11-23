@@ -23,6 +23,7 @@ export const ACCIONES_AUDITABLES = ['crear', 'editar', 'borrar', 'baja', 'reacti
  */
 export const CAMPOS_AUDITABLES = {
   usuario: ['role', 'active', 'deleted_at', 'password', 'funciones', 'allowed_pages',
+    // `flito_proveedor_soat_id`: solo histórico desde F5 (HU #14673); se conserva para leer la auditoría ya escrita.
     'organismos_codigos', 'compania_id', 'flito_proveedor_soat_id', 'flito_proveedor_id', 'transito_codigo'],
   rol: ['nombre', 'descripcion', 'tipo_enlace', 'tipo_principal', 'activo'],
   rol_funcion: ['conjunto'],

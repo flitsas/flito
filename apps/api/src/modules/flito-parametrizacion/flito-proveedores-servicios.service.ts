@@ -109,31 +109,33 @@ export async function exigirServicioQuitable(tx: TxProveedor, id: string, servic
   if (motivo !== null) throw new ServicioNoQuitableError(servicio, motivo.texto, motivo.bloqueos);
 }
 
-/** RN-PSERV-4. Baja lógica del perfil, sin tocar el padre: la 0293 impide que este UPDATE le suba los datos vaciados. */
+/**
+ * RN-PSERV-4. Baja lógica del perfil, sin tocar el padre: la 0293 impide que este UPDATE le suba los datos vaciados. El
+ * vaciado de NIT, contacto y teléfono del perfil de Logística lo hace `perfil_espejo_baja` (0313, HU #14673).
+ */
 export async function retirarPerfil(tx: TxProveedor, id: string, servicio: ServicioProveedor, actorId: number | null, ahora: Date): Promise<void> {
   if (servicio === 'soat') {
     await tx.update(flitoProveedoresSoat).set({ deletedAt: ahora, deletedBy: actorId }).where(eq(flitoProveedoresSoat.id, id));
     return;
   }
-  await tx.update(flitoProveedoresLogistica)
-    .set({ deletedAt: ahora, deletedBy: actorId, nit: null, contacto: null, telefono: null })
-    .where(eq(flitoProveedoresLogistica.id, id));
+  await tx.update(flitoProveedoresLogistica).set({ deletedAt: ahora, deletedBy: actorId }).where(eq(flitoProveedoresLogistica.id, id));
 }
 
-/** RN-PSERV-4. Reactiva el perfil de baja o crea el que nunca existió, con los datos del padre ya guardado. */
+/**
+ * RN-PSERV-4. Reactiva el perfil de baja o crea el que nunca existió. El padre ya está guardado: el espejo de sus datos
+ * generales lo copian `perfil_espejo_baja` al reactivar y `perfil_crea_padre` al crear (0313, HU #14673).
+ */
 export async function darPerfil(tx: TxProveedor, padre: FilaProveedor, servicio: ServicioProveedor, soat: ProveedorSoatBody | undefined): Promise<void> {
-  const base = { nombre: padre.nombre, activo: padre.activo };
   if (servicio === 'soat') {
-    const datos = { ...base, ...columnasDeSoat(soat ?? {}) };
+    const datos = columnasDeSoat(soat ?? {});
     const reactivado = await tx.update(flitoProveedoresSoat).set({ ...datos, deletedAt: null, deletedBy: null })
       .where(eq(flitoProveedoresSoat.id, padre.id)).returning({ id: flitoProveedoresSoat.id });
     if (reactivado.length === 0) await tx.insert(flitoProveedoresSoat).values({ id: padre.id, ...datos });
     return;
   }
-  const datos = { ...base, nit: padre.nit, contacto: padre.contacto, telefono: padre.telefono };
-  const reactivado = await tx.update(flitoProveedoresLogistica).set({ ...datos, deletedAt: null, deletedBy: null })
+  const reactivado = await tx.update(flitoProveedoresLogistica).set({ deletedAt: null, deletedBy: null })
     .where(eq(flitoProveedoresLogistica.id, padre.id)).returning({ id: flitoProveedoresLogistica.id });
-  if (reactivado.length === 0) await tx.insert(flitoProveedoresLogistica).values({ id: padre.id, ...datos });
+  if (reactivado.length === 0) await tx.insert(flitoProveedoresLogistica).values({ id: padre.id });
 }
 
 /** RN-PSERV-1, RN-PSERV-2. El orden importa: el último servicio responde 422 aunque también tenga bloqueos. */

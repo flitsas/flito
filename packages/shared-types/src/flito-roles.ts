@@ -9,7 +9,10 @@
 
 import type { UserRole } from './permissions.js';
 
-/** Gestor SOAT = proveedor. Atado a un proveedor SOAT (`users.flito_proveedor_soat_id`). */
+/**
+ * Gestor SOAT = proveedor. Atado a un proveedor (`users.flito_proveedor_id`); `flito_proveedor_soat_id` es solo
+ * histórico desde F5 (HU #14673).
+ */
 export const FLITO_GESTOR_SOAT_ROLE = 'proveedor' as const satisfies UserRole;
 /**
  * Gestor de Impuestos. Atado a UNO O MÁS organismos de tránsito, en la tabla puente

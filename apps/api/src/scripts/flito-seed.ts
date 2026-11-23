@@ -9,7 +9,7 @@
 // Ejecutar: npx tsx src/scripts/flito-seed.ts   (idempotente: no re-siembra si ya hay datos)
 
 import argon2 from 'argon2';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import {
   clients,
@@ -79,25 +79,28 @@ async function main(): Promise<void> {
   ]);
 
   // ── Proveedores de SOAT ─────────────────────────────────────────────────────
-  const creados = await db.insert(flitoProveedoresSoat).values([
-    { nombre: 'Seguros del Estado', estrategia: 'portal', slaHoras: 24 },
-    { nombre: 'SURA', estrategia: 'portal', umbralOcr: '0.900', slaHoras: 48 },
-  ]).returning({ id: flitoProveedoresSoat.id });
-  // HU #14354 (R21): el nombre se lee del padre (lo escribe `perfil_crea_padre`, 0292), no del perfil.
-  const proveedores = await db.select({ id: flitoProveedores.id, nombre: flitoProveedores.nombre }).from(flitoProveedores)
-    .where(inArray(flitoProveedores.id, creados.map((p) => p.id)));
+  // HU #14673: primero el padre y después el perfil con el mismo UUID. El perfil ya no declara el nombre: su espejo lo
+  // copia del padre `perfil_crea_padre` (0313).
+  const proveedores = await db.insert(flitoProveedores).values([{ nombre: 'Seguros del Estado' }, { nombre: 'SURA' }])
+    .returning({ id: flitoProveedores.id, nombre: flitoProveedores.nombre });
   const estado = proveedores.find((p) => p.nombre === 'Seguros del Estado')!;
   const sura = proveedores.find((p) => p.nombre === 'SURA')!;
+  await db.insert(flitoProveedoresSoat).values([
+    { id: estado.id, estrategia: 'portal', slaHoras: 24 },
+    { id: sura.id, estrategia: 'portal', umbralOcr: '0.900', slaHoras: 48 },
+  ]);
 
   // ── Proveedor logístico por defecto (Fase 1: mensajería propia de FLIT) ──────
-  // Se consulta antes de insertar: `perfil_crea_padre` (0292) escribe el padre antes de que un ON CONFLICT del
-  // perfil pueda actuar, y un nombre ya sembrado por una migración chocaría con el índice único del padre.
-  // HU #14354: el nombre se busca en el padre, unido al perfil de logística por el mismo UUID.
-  const [mensajeria] = await db.select({ id: flitoProveedores.id }).from(flitoProveedores)
-    .innerJoin(flitoProveedoresLogistica, eq(flitoProveedoresLogistica.id, flitoProveedores.id))
-    .where(eq(flitoProveedores.nombre, 'Mensajería FLIT')).limit(1);
-  if (!mensajeria) {
-    await db.insert(flitoProveedoresLogistica).values({ nombre: 'Mensajería FLIT', estrategia: 'pwa_propia', activo: true });
+  // Se consulta antes de insertar: un nombre ya sembrado por una migración chocaría con el índice único del padre.
+  // HU #14673: se reutiliza el padre vigente con ese nombre o se crea, y después va el perfil con el mismo UUID si aún
+  // no lo tiene (su `estrategia` toma el DEFAULT `pwa_propia` de la BD y el espejo lo copia `perfil_crea_padre`, 0313).
+  const [mensajeria] = await db.select({ id: flitoProveedores.id, perfil: flitoProveedoresLogistica.id }).from(flitoProveedores)
+    .leftJoin(flitoProveedoresLogistica, eq(flitoProveedoresLogistica.id, flitoProveedores.id))
+    .where(and(eq(flitoProveedores.nombre, 'Mensajería FLIT'), isNull(flitoProveedores.deletedAt))).limit(1);
+  if (!mensajeria?.perfil) {
+    const id = mensajeria?.id
+      ?? (await db.insert(flitoProveedores).values({ nombre: 'Mensajería FLIT' }).returning({ id: flitoProveedores.id }))[0]!.id;
+    await db.insert(flitoProveedoresLogistica).values({ id });
   }
 
   // ── Reglas de enrutamiento ───────────────────────────────────────────────────
