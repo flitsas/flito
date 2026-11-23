@@ -24,8 +24,9 @@ export type CampoLeido = 'vin' | 'marca' | 'linea' | 'anio' | 'color' | 'cilindr
 const CAMPOS_LEIDOS: CampoLeido[] = ['vin', 'marca', 'linea', 'anio', 'color', 'cilindrada'];
 
 const CONTROL = `${flitInp} h-10 !py-0`;
+// Placa opcional desde la HU #14665: la consulta RUNT ya no depende de ella, solo del VIN.
 const OBLIGATORIOS: (keyof Borrador)[] = [
-  'organismoCodigo', 'placa', 'vin', 'marca', 'linea', 'anio', 'color', 'cilindrada',
+  'organismoCodigo', 'vin', 'marca', 'linea', 'anio', 'color', 'cilindrada',
 ];
 const ID_MODALIDAD_RUNT = 'cert-modalidad-runt';
 // El catálogo trae su propio marcador vacío; aquí lo pone `Sel`.
@@ -248,14 +249,14 @@ export default function CertificarEditor(p: Props) {
               <Sel id="cert-organismo" etiqueta="Organismo" valor={b.organismoCodigo} disabled={certificado} onChange={set('organismoCodigo')}
                 opciones={(p.catalogo?.organismos ?? []).map((o) => ({ v: o.codigo, t: o.nombre }))} />
             </Bloque>
-            <Bloque titulo="Propietario" nota="Con documento, elige el tipo: el RUNT se consulta por placa y documento. Sin documento, por VIN." notaId={ID_MODALIDAD_RUNT} cols={ampliada ? colsForm : 'lg:grid-cols-3'}>
+            <Bloque titulo="Propietario" nota="El RUNT se consulta siempre por VIN. El documento y el nombre son datos informativos que se guardan con el registro y aparecen en el certificado cuando estén diligenciados." notaId={ID_MODALIDAD_RUNT} cols={ampliada ? colsForm : 'lg:grid-cols-3'}>
               <Sel id="cert-tipo-documento" etiqueta="Tipo de documento" valor={b.tipoDocumentoPropietario} disabled={certificado} onChange={set('tipoDocumentoPropietario')}
                 obligatorio={!!b.documentoPropietario.trim()} describidoPor={ID_MODALIDAD_RUNT} opciones={TIPOS_DOC} />
               <Campo id="cert-documento" etiqueta="Documento del propietario (opcional)" opcional maxLength={30} describidoPor={ID_MODALIDAD_RUNT} valor={b.documentoPropietario} disabled={certificado} onChange={setDocumento} />
               <Campo id="cert-nombre" etiqueta="Nombre del propietario (opcional)" opcional maxLength={200} valor={b.nombrePropietario} disabled={certificado} onChange={set('nombrePropietario')} />
             </Bloque>
             <Bloque titulo="Vehículo" cols={ampliada ? colsForm : 'lg:grid-cols-3'}>
-              <Campo id="cert-placa" etiqueta="Placa" valor={b.placa} disabled={certificado} onChange={set('placa')} />
+              <Campo id="cert-placa" etiqueta="Placa (opcional)" opcional valor={b.placa} disabled={certificado} onChange={set('placa')} />
               <Campo id="cert-vin" etiqueta="VIN" valor={b.vin} disabled={certificado} onChange={set('vin')} leido={leido('vin')} ayuda={ayuda('vin')} />
               <Campo id="cert-marca" etiqueta="Marca" valor={b.marca} disabled={certificado} onChange={set('marca')} leido={leido('marca')} ayuda={ayuda('marca')} />
               <Campo id="cert-linea" etiqueta="Línea" valor={b.linea} disabled={certificado} onChange={set('linea')} leido={leido('linea')} ayuda={ayuda('linea')} />
