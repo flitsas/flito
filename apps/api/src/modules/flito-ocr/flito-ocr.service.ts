@@ -558,16 +558,20 @@ export async function extraerFacturaVenta(doc: DocumentoAAnalizar): Promise<Extr
  * persistan la misma forma.
  *
  * HU #14293: número, fecha de emisión y avalúo tienen también los normalizadores del parser, y no
- * escalan: se muestran, no deciden. El fallback local NO los lee: sus patrones de `numeroFactura` y
- * `fechaFactura` son los del canal SOAT, dan confianza alta y no distinguen la fecha de emisión de las
- * demás. Sin motor quedan ausentes.
+ * escalan: se muestran, no deciden.
+ *
+ * HU #14663: el fallback local SÍ los lee (`camposSinLecturaLocal = []`), con tope de confianza
+ * `'media'` —nunca `'alta'`: el motor local no confirma el orden día/mes de la fecha de emisión ni
+ * la fila del producto del avalúo— y solo con etiqueta explícita en el documento (`FECHA DE
+ * EMISIÓN`, `SUBTOTAL BASE GRAVABLE`); sin esa etiqueta el campo queda ausente en vez de tomar por
+ * accidente otra fecha u otro monto del documento.
  *
  * HU #14665: además los cinco campos de IDENTIDAD del propietario/comprador (`tipoDocumento`,
  * `numeroDocumento`, `nombres`, `apellidos`, `razonSocial`), con los MISMOS normalizadores que usa
  * `extraerFacturaVenta` para esos campos. Entran a `escalacion` por el mismo criterio que allí: son
  * los que decidan a nombre de quién queda la certificación, y es donde el error caro de esta
  * plantilla —confundir al comprador con el concesionario emisor— produce un valor plausible y
- * equivocado. El fallback local tampoco los lee (mismo motivo que arriba): sin motor quedan ausentes.
+ * equivocado. El fallback local no tiene patrón de identidad: sin motor esos cinco quedan ausentes.
  */
 export async function extraerVehiculoFacturaVenta(doc: DocumentoAAnalizar): Promise<ExtraccionFacturaVentaImpuestoCampos> {
   const campos = [
@@ -603,7 +607,7 @@ export async function extraerVehiculoFacturaVenta(doc: DocumentoAAnalizar): Prom
     [CampoFacturaVenta.NOMBRES]: textoTitularN(200),
     [CampoFacturaVenta.APELLIDOS]: textoTitularN(200),
     [CampoFacturaVenta.RAZON_SOCIAL]: textoTitularN(200),
-  }, CAMPOS_DOCUMENTO_FACTURA);
+  }, []);
   return r as ExtraccionFacturaVentaImpuestoCampos;
 }
 

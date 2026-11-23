@@ -387,16 +387,24 @@ describe('extraerVehiculoFacturaVenta — número, fecha y avalúo (HU #14293)',
     expect(anthropicMock).toHaveBeenCalledTimes(1);
   });
 
-  it('fallback local: no se le piden, quedan ausentes aunque el documento los traiga, y el resto sigue', async () => {
+  it('fallback local (HU #14663): SÍ se piden ahora y pasan por los normalizadores del parser, tope media', async () => {
     anthropicMock.mockResolvedValueOnce({ ok: false, status: 503, message: 'upstream down' });
-    textoDocumentoMock.mockResolvedValueOnce('FACTURA ZZ1234 FECHA DE VENTA 02/03/2030');
-    camposDesdeTextoMock.mockReturnValueOnce({ vin: { valor: '9ABCD1234EF567890', confianza: 'alta' } });
+    textoDocumentoMock.mockResolvedValueOnce('FACTURA ZZ1234 FECHA DE EMISION 02/03/2030');
+    camposDesdeTextoMock.mockReturnValueOnce({
+      vin: { valor: '9ABCD1234EF567890', confianza: 'alta' },
+      numeroFactura: { valor: 'ZZ1234', confianza: 'media' },
+      fechaFactura: { valor: '02/03/2030', confianza: 'media' },
+      avaluoComercial: { valor: '1,234,567.89', confianza: 'media' },
+    });
     const r = await extraerVehiculoFacturaVenta(doc());
     const pedidos = camposDesdeTextoMock.mock.calls[0][1] as string[];
     for (const c of ['numeroFactura', 'fechaFactura', 'avaluoComercial']) {
-      expect(pedidos, c).not.toContain(c);
-      expect(r[c as 'numeroFactura'], c).toEqual({ valor: null, confianza: 0, confiable: false });
+      expect(pedidos, c).toContain(c);
     }
+    // El motor local nunca reporta 'alta' para estos tres (AC6): 'media' nunca es `confiable` (umbral).
+    expect(r.numeroFactura).toMatchObject({ valor: 'ZZ1234', confiable: false });
+    expect(r.fechaFactura).toMatchObject({ valor: '2030-03-02', confiable: false });
+    expect(r.avaluoComercial).toMatchObject({ valor: '1234567.89', confiable: false });
     expect(pedidos).toContain('vin');
     expect(r.vin).toMatchObject({ valor: '9ABCD1234EF567890', confiable: true });
   });
@@ -431,6 +439,16 @@ describe('extraerVehiculoFacturaVenta — número, fecha y avalúo (HU #14293)',
     expect(p).toContain('NO extraigas correo ni teléfono');
     expect(p).not.toContain('NO extraigas nombre, documento, correo ni teléfono');
     expect(p).not.toContain('valorVehiculo');
+  });
+
+  it('el prompt advierte la ambigüedad día/mes de fechaFactura sin asumir un orden por defecto (HU #14663, AC1/AC2/AC4)', () => {
+    const p = PROMPT_FACTURA_VENTA_VEHICULO;
+    expect(p).toMatch(/fechaFactura:[\s\S]*AMBIGÜEDAD DE ORDEN DÍA\/MES/);
+    expect(p).toMatch(/día de la fecha de emisión es 12 o menor[\s\S]*NO puedes saber cuál usó el emisor/);
+    expect(p).toMatch(/mes en LETRAS en cualquier parte del documento/);
+    expect(p).toMatch(/dos órdenes de dígitos distintos[\s\S]*responde valor=null y confianza=null/);
+    expect(p).toMatch(/NUNCA respondas "alta": responde confianza "baja"/);
+    expect(p).toMatch(/día de la fecha de emisión es 13 o mayor, el orden día\/mes es el único posible/);
   });
 });
 

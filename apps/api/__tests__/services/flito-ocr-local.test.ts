@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { camposDesdeTexto } from '../../src/modules/flito-ocr/flito-ocr-local.js';
-import { CampoSoat, CampoImpuesto } from '@operaciones/shared-types';
+import { CampoSoat, CampoImpuesto, CampoDocumentoFacturaImpuesto } from '@operaciones/shared-types';
 
 // SOAT FUAST: 3 fechas del bloque superior en orden (exp, desde, hasta); TOTAL A PAGAR con el monto unas
 // filas abajo (por las 2 columnas); "PRIMA SOAT" es un parcial que NO debe confundirse con el total.
@@ -73,5 +73,44 @@ describe('camposDesdeTexto — patrones del fallback local (maquetación real)',
   it('placa sin etiqueta pero única → confianza media (no pasa el umbral → revisión)', () => {
     const r = camposDesdeTexto('vehiculo QOX858 registrado', [CampoSoat.PLACA]);
     expect(r.placa).toMatchObject({ valor: 'QOX858', confianza: 'media' });
+  });
+});
+
+// HU #14663 (AC5/AC6): factura de venta de vehículo por el motor local — fechaFactura y
+// avaluoComercial solo con etiqueta explícita y nunca en 'alta' (el local no confirma el orden
+// día/mes ni la fila del producto); numeroFactura no cambia (ya protegido por el normalizador).
+describe('camposDesdeTexto — factura de venta: fechaFactura y avaluoComercial (HU #14663)', () => {
+  it('fechaFactura con "FECHA DE EMISIÓN" se lee, nunca en confianza alta', () => {
+    const r = camposDesdeTexto('FACTURA ZZ1234 FECHA DE EMISION 02/03/2030 FECHA DE VENCIMIENTO 02/04/2030', [
+      CampoDocumentoFacturaImpuesto.FECHA_FACTURA,
+    ]);
+    expect(r.fechaFactura).toMatchObject({ valor: '02/03/2030', confianza: 'media' });
+  });
+
+  it('fechaFactura sin "FECHA DE EMISIÓN" (otra fecha suelta en el documento) queda ausente', () => {
+    const r = camposDesdeTexto('FACTURA ZZ1234 FECHA DE VENCIMIENTO 02/04/2030', [
+      CampoDocumentoFacturaImpuesto.FECHA_FACTURA,
+    ]);
+    expect(r.fechaFactura).toEqual({ valor: null, confianza: null });
+  });
+
+  it('avaluoComercial con "SUBTOTAL BASE GRAVABLE" se lee, nunca en confianza alta', () => {
+    const r = camposDesdeTexto('SUBTOTAL BASE GRAVABLE $ 1,234,567.89 TOTAL A PAGAR $ 1,469,135.59', [
+      CampoDocumentoFacturaImpuesto.AVALUO_COMERCIAL,
+    ]);
+    expect(r.avaluoComercial.confianza).toBe('media');
+    expect(r.avaluoComercial.valor).toContain('1,234,567.89');
+  });
+
+  it('avaluoComercial sin "SUBTOTAL BASE GRAVABLE" (solo el total) queda ausente', () => {
+    const r = camposDesdeTexto('TOTAL A PAGAR $ 1,469,135.59', [CampoDocumentoFacturaImpuesto.AVALUO_COMERCIAL]);
+    expect(r.avaluoComercial).toEqual({ valor: null, confianza: null });
+  });
+
+  it('numeroFactura no cambia con este WI: sigue en confianza alta con la etiqueta genérica', () => {
+    const r = camposDesdeTexto('FACTURA No. ZZ1234 FECHA DE EMISION 02/03/2030', [
+      CampoDocumentoFacturaImpuesto.NUMERO_FACTURA,
+    ]);
+    expect(r.numeroFactura).toMatchObject({ confianza: 'alta' });
   });
 });
