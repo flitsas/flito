@@ -154,6 +154,9 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-revisiones/flito-revisiones.routes.ts', metodo: 'GET', ruta: '/campos/:modulo', codigo: 'revisiones.campos.ver' },
   { fichero: 'flito-revisiones/flito-revisiones.routes.ts', metodo: 'GET', ruta: '/soporte/:soporteId/archivo', codigo: 'revisiones.soporte.descargar' },
   { fichero: 'flito-revisiones/flito-revisiones.routes.ts', metodo: 'POST', ruta: '/:id/resolver', codigo: 'revisiones.revision.resolver' },
+  // Bug #14569: candidatos/buscar y reintentar-lectura reutilizan revisiones.revision.resolver.
+  { fichero: 'flito-revisiones/flito-revisiones.routes.ts', metodo: 'POST', ruta: '/:id/candidatos/buscar', codigo: 'revisiones.revision.resolver' },
+  { fichero: 'flito-revisiones/flito-revisiones.routes.ts', metodo: 'POST', ruta: '/:id/reintentar-lectura', codigo: 'revisiones.revision.resolver' },
   { fichero: 'flito-revisiones/flito-revisiones.routes.ts', metodo: 'POST', ruta: '/:id/descartar', codigo: 'revisiones.revision.descartar' },
   // flito-sync/flito-sync.routes.ts
   { fichero: 'flito-sync/flito-sync.routes.ts', metodo: 'GET', ruta: '/estado', codigo: 'sync.sync.ver_estado' },
@@ -186,15 +189,6 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-impuestos/flito-impuestos.direccion.routes.ts', metodo: 'PATCH', ruta: '/:id/direccion', codigo: 'impuestos.tramite.corregir_direccion' },
   { fichero: 'flito-impuestos/flito-impuestos.recibo-reemplazo.routes.ts', metodo: 'POST', ruta: '/:id/recibos/reemplazar-pago', codigo: 'impuestos.recibos.reemplazar' },
   // Certificar sin trámite (épica #14163): sub-router propio, una sola operación `gestionar`.
-  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'GET', ruta: '/certificacion-directa/catalogo', codigo: 'impuestos.certificacion_directa.gestionar' },
-  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'POST', ruta: '/certificacion-directa/extraer', codigo: 'impuestos.certificacion_directa.gestionar' },
-  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'GET', ruta: '/certificacion-directa', codigo: 'impuestos.certificacion_directa.gestionar' },
-  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'POST', ruta: '/certificacion-directa', codigo: 'impuestos.certificacion_directa.gestionar' },
-  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'GET', ruta: '/certificacion-directa/:id/factura', codigo: 'impuestos.certificacion_directa.gestionar' },
-  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'GET', ruta: '/certificacion-directa/:id/certificado', codigo: 'impuestos.certificacion_directa.gestionar' },
-  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'POST', ruta: '/certificacion-directa/:id/consultar', codigo: 'impuestos.certificacion_directa.gestionar' },
-  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'GET', ruta: '/certificacion-directa/:id', codigo: 'impuestos.certificacion_directa.gestionar' },
-  { fichero: 'flito-impuestos/flito-impuestos.certificacion-directa.routes.ts', metodo: 'PATCH', ruta: '/certificacion-directa/:id', codigo: 'impuestos.certificacion_directa.gestionar' },
   // flito-derechos/flito-derechos.routes.ts
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'POST', ruta: '/cargar', codigo: 'derechos.recibos.cargar' },
   { fichero: 'flito-derechos/flito-derechos.routes.ts', metodo: 'GET', ruta: '/', codigo: 'derechos.cola.ver' },
@@ -438,9 +432,6 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/:id/descartar', codigo: 'comprobantes.comprobante.descartar' },
   // HU #12654 — F3 #12607: aceptar la diferencia (+1; 0202).
   { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/:id/diferencia/aceptar', codigo: 'comprobantes.diferencia.aceptar' },
-  // HU #13903: desaplicar y reemplazar (partida: aplicar).
-  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/:id/desaplicar', codigo: 'comprobantes.comprobante.desaplicar' },
-  { fichero: 'flito-comprobantes/flito-comprobantes.routes.ts', metodo: 'POST', ruta: '/:id/reemplazar', codigo: 'comprobantes.comprobante.reemplazar' },
 
   // ── HU #12619 — flito-logistica/flito-logistica-viajes.routes.ts (fichero hermano, nace reconducido; 3 rutas) ──
   { fichero: 'flito-logistica/flito-logistica-viajes.routes.ts', metodo: 'GET', ruta: '/tramites/:tramiteId/viajes', codigo: 'logistica.viajes.ver' },
