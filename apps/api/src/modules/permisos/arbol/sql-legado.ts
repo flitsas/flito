@@ -11,7 +11,9 @@
 //   · Las tablas temporales llevan el sufijo de la HU (`_13429`).
 import { ARBOL_ITEMS_Y_ACCIONES, ELEMENTOS_PERMISOS } from '@operaciones/shared-types';
 import { catalogoCompleto, type FuncionCatalogo } from '../catalogo.js';
-import { ACCIONES_POR_AREA, PADRE, paginaDeAccion } from './expansion.js';
+// Épica #14678: migraciones ya aplicadas — se regeneran con el árbol de antes de la 0315 (menú por áreas).
+import { catalogoAntesDeAreas, padreAntesDeAreas } from './menu-por-areas.js';
+import { ACCIONES_POR_AREA, paginaDeAccion } from './expansion.js';
 import { ITEMS_LEGADO_OPS } from './acciones-legado.js';
 import { ACCIONES_NACIDAS_TRAS_LA_SIEMBRA } from './acciones-finanzas.js';
 import { ITEM_DR_FLIT } from './acciones-dr-flit.js';
@@ -64,7 +66,7 @@ export function paresLegado(): [string, string][] {
 export function cadenaDelArbol(): [string, string, string][] {
   return ARBOL_ITEMS_Y_ACCIONES.filter((n) => !NACIDOS_DESPUES_DE_0239.has(n.codigo)).map((n) => {
     const item = n.tipo === 'item' ? n.codigo : paginaDeAccion(n.codigo);
-    return [n.codigo, item, PADRE.get(item)!] as [string, string, string];
+    return [n.codigo, item, padreAntesDeAreas(item)!] as [string, string, string]; // Épica #14678: el elemento de la 0239
   }).sort((a, b) => a[0].localeCompare(b[0]));
 }
 
@@ -77,9 +79,10 @@ const upsertFunciones = (cols: string, filas: string[], set: string[]): string[]
 ];
 
 /** 0238 — elementos, padre/nivel/orden de toda página, acciones «Administrar» de PESV y padre de los opcionales. */
-export function sqlSiembraLegado(catalogo: FuncionCatalogo[] = catalogoCompleto()): string {
+export function sqlSiembraLegado(catalogoDeHoy: FuncionCatalogo[] = catalogoCompleto()): string {
+  const catalogo = catalogoAntesDeAreas(catalogoDeHoy);
   const porCodigo = new Map(catalogo.map((f) => [f.codigo, f]));
-  const elementos = ELEMENTOS_PERMISOS.filter((e) => !e.derivado).map((e) => porCodigo.get(e.codigo)!);
+  const elementos = ELEMENTOS_PERMISOS.filter((e) => !e.derivado && porCodigo.has(e.codigo)).map((e) => porCodigo.get(e.codigo)!); // Épica #14678: sin los de la 0315
   const paginas = catalogo.filter((f) => f.tipo === 'pagina' && !NACIDOS_DESPUES_DE_0239.has(f.codigo));
   const delArea = new Set(ACCIONES_POR_AREA.legado);
   const acciones = catalogo.filter((f) => delArea.has(f.codigo));

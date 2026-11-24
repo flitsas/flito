@@ -1,6 +1,8 @@
 // HU #13427 / #13428 (Feature #13416 F3) — Administración: Usuarios, Roles y permisos (#13428) e
 // «Integración con Siigo» (#13427, P-3) y «Rendimiento» (#13588, P-37), con los nombres literales del catálogo aprobado. Clientes y
 // proveedores y Bitácora cuelgan de Gestión (decisión del PO del 9-oct): viven en `gestion.ts`.
+// Épica #14678 (ADR-0048): «Integración con Siigo» cuelga ahora de Financiera (sigue aquí por su historia, #13427);
+// Torre · Umbrales sale a Gerencial y Organismos STT entra a Administración (`gestion.ts`).
 import type { NodoArbolDef } from './index.js';
 import { itemsANodos, type ItemDef } from './nodos.js';
 
@@ -23,7 +25,7 @@ export const ITEMS_ADMINISTRACION: readonly ItemDef[] = [
     { clave: 'asignar', nombre: 'Asignar permisos', descripcion: 'Guardar los permisos de un rol.' },
     { clave: 'eliminar', nombre: 'Eliminar rol', descripcion: 'Eliminar un rol sin usuarios.' },
   ] },
-  { slug: 'siigo_credenciales', clave: 'integracion_siigo', nombre: 'Integración con Siigo', elemento: 'administracion', orden: 30, acciones: [
+  { slug: 'siigo_credenciales', clave: 'integracion_siigo', nombre: 'Integración con Siigo', elemento: 'financiera', orden: 100, acciones: [
     { clave: 'credenciales_pruebas', nombre: 'Registrar credenciales de pruebas', descripcion: 'Registrar y borrar las credenciales de Siigo del ambiente de pruebas.' },
     { clave: 'credenciales_produccion', nombre: 'Registrar credenciales de producción', descripcion: 'Registrar y borrar las credenciales de Siigo del ambiente de producción.' },
     { clave: 'probar_conexion', nombre: 'Probar la conexión', descripcion: 'Probar la conexión con Siigo con las credenciales registradas.' },

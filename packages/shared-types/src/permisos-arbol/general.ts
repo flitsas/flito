@@ -4,7 +4,7 @@ import type { NodoArbolDef } from './index.js';
 import { itemsANodos, type ItemDef } from './nodos.js';
 
 export const ITEMS_GENERAL: readonly ItemDef[] = [
-  { slug: 'dashboard', clave: 'dashboard', nombre: 'Tablero', elemento: 'general', orden: 10, acciones: [
+  { slug: 'dashboard', clave: 'dashboard', nombre: 'Tablero', elemento: 'gerencial', orden: 10, acciones: [
     { clave: 'ver', nombre: 'Ver (solo ver)', descripcion: 'Ver el tablero con los bloques de los módulos a los que tiene acceso.' },
   ] },
 ];

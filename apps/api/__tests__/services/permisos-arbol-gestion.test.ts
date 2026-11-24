@@ -61,11 +61,12 @@ const itemDe = (codigo: string): string => {
 };
 
 describe('AC1 — el catálogo de Gestión y Tránsito es la lista aprobada', () => {
-  it('9 ítems, con su elemento: 8 en Gestión y Organismos STT en Tránsito; en el orden del menú', () => {
+  // Épica #14678 (ADR-0048): los 8 de Gestión cuelgan de Operaciones; Organismos STT, de Administración.
+  it('9 ítems, con su elemento: 8 en Operaciones y Organismos STT en Administración; en el orden del menú', () => {
     const items = ARBOL_GESTION.filter((n) => n.tipo === 'item');
     expect(items.map((n) => n.codigo)).toEqual(Object.keys(APROBADO));
-    expect(items.filter((n) => n.padre === 'menu.gestion')).toHaveLength(8);
-    expect(nodo.get('pagina.transito_organismos')!.padre).toBe('menu.transito');
+    expect(items.filter((n) => n.padre === 'menu.operaciones')).toHaveLength(8);
+    expect(nodo.get('pagina.transito_organismos')!.padre).toBe('menu.administracion');
     expect(ITEMS_GESTION.map((i) => i.nombre)).toEqual(['Gestión Trámites', 'SOAT', 'Impuestos', 'Derechos', 'Revisiones OCR', 'Logística', 'Mi ruta', 'Comparendos', 'Organismos STT']);
   });
 
@@ -108,9 +109,10 @@ describe('AC1 — el catálogo de Gestión y Tránsito es la lista aprobada', ()
     expect([...r.filasRol, ...r.filasUsuario].filter((f) => ABSORBIDOS_GESTION.has(f.codigo))).toEqual([]);
   });
 
-  it('elementos de nivel 1 en el orden del menú, con «LAFT» (P-13) y «Ayuda» derivada', () => {
+  it('elementos de nivel 1 en el orden del menú, con «LAFT» (P-13) y «Ayuda» derivada; Épica #14678: los 4 por áreas y 8 deprecados', () => {
     const elementos = ARBOL_PERMISOS.filter((n) => n.tipo === 'elemento');
-    expect(elementos.map((n) => n.nombre)).toEqual(['General', 'Gestión', 'Tránsito', 'Flota', 'Mantenimiento', 'PESV', 'RNDC', 'LAFT', 'Finanzas', 'Administración', 'Ayuda', 'Perfil']);
+    expect(elementos.map((n) => n.nombre)).toEqual(['Operaciones', 'Financiera', 'Gerencial', 'Kyverum', 'General', 'Gestión', 'Tránsito', 'Flota', 'Mantenimiento', 'PESV', 'RNDC', 'LAFT', 'Finanzas', 'Administración', 'Ayuda', 'Perfil']);
+    expect(elementos.filter((n) => n.deprecado).map((n) => n.codigo)).toEqual(['menu.gestion', 'menu.transito', 'menu.flota', 'menu.mantenimiento', 'menu.pesv', 'menu.rndc', 'menu.laft', 'menu.finanzas']);
     expect(elementos.filter((n) => n.derivado).map((n) => n.codigo)).toEqual(['menu.ayuda']);
     for (const e of elementos) expect(e.codigo.startsWith(PREFIJO_ELEMENTO)).toBe(true);
   });

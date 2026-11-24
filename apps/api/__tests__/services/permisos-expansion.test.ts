@@ -18,13 +18,15 @@ function efectivo(rol: string[], conceder: string[] = [], revocar: string[] = []
   return expandir(m, revocar);
 }
 
-const EXPORTAR = ['menu.gestion', 'pagina.flito_soat', 'accion.soat.exportar'];
+// Épica #14678 (ADR-0048): SOAT cuelga de Operaciones; PESV, Flota y Mantenimiento, de Kyverum; Siigo, de Financiera.
+const EXPORTAR = ['menu.operaciones', 'pagina.flito_soat', 'accion.soat.exportar'];
 
 describe('la cadena del árbol', () => {
   it('menu.* → pagina.* → accion.* → anidada; los elementos no cuelgan de nadie', () => {
-    expect(ancestrosDe('accion.soat.exportar_pago')).toEqual(['accion.soat.exportar', 'pagina.flito_soat', 'menu.gestion']);
-    expect(ancestrosDe('accion.pesv_plan.administrar')).toEqual(['pagina.pesv_plan', 'menu.pesv']);
-    expect(PADRE.get('menu.gestion')).toBeNull();
+    expect(ancestrosDe('accion.soat.exportar_pago')).toEqual(['accion.soat.exportar', 'pagina.flito_soat', 'menu.operaciones']);
+    expect(ancestrosDe('accion.pesv_plan.administrar')).toEqual(['pagina.pesv_plan', 'menu.kyverum']);
+    expect(PADRE.get('menu.operaciones')).toBeNull();
+    expect(PADRE.get('menu.gestion')).toBeNull(); // deprecado (expand → contract): sigue siendo elemento, sin hijos
     expect(PADRE.has('menu.ayuda')).toBe(false); // derivada: no es un permiso
     expect(claseDe('vehicles.vehiculos.consultar')).toBeNull(); // HU #13588: ya no es transversal, es de su ítem
     expect(claseDe('vehicles.propietario.ver_documento')).toBe('opcional');
@@ -43,7 +45,7 @@ describe('AC7 / TC-14 — tabla de verdad: la acción es efectiva ⇔ niveles 1 
 
   it('la anidada exige también a su madre: «Exportar con pago» sin «Exportar» no vale', () => {
     expect(efectivo([...EXPORTAR, 'accion.soat.exportar_pago']).has('soat.excel.exportar_pago')).toBe(true);
-    expect(efectivo(['menu.gestion', 'pagina.flito_soat', 'accion.soat.exportar_pago']).has('soat.excel.exportar_pago')).toBe(false);
+    expect(efectivo(['menu.operaciones', 'pagina.flito_soat', 'accion.soat.exportar_pago']).has('soat.excel.exportar_pago')).toBe(false);
   });
 
   it('una operación absorbida marcada suelta NO entra (fallo cerrado); HU #13588: tampoco una antes transversal', () => {
@@ -53,28 +55,28 @@ describe('AC7 / TC-14 — tabla de verdad: la acción es efectiva ⇔ niveles 1 
 
   it('un opcional vale solo si su acción o su ítem antiguo es efectivo', () => {
     const op = 'vehicles.propietario.ver_documento';
-    expect(efectivo(['menu.gestion', 'pagina.vehicles', op]).has(op)).toBe(true);
+    expect(efectivo(['menu.operaciones', 'pagina.vehicles', op]).has(op)).toBe(true);
     expect(efectivo(['pagina.vehicles', op]).has(op)).toBe(false);
     // Si lo declaran dos acciones, basta una (`siigo.conceptos.confirmar`: «Ver» o «Mapeo de conceptos»).
-    const ver = ['menu.finanzas', 'pagina.siigo_parametrizacion', 'accion.facturacion_parametrizacion.ver'];
+    const ver = ['menu.financiera', 'pagina.siigo_parametrizacion', 'accion.facturacion_parametrizacion.ver'];
     expect(efectivo([...ver, 'siigo.conceptos.confirmar']).has('siigo.conceptos.confirmar')).toBe(true);
   });
 });
 
 describe('AC4 / TC-10 y AC5 / TC-11 — desmarcar el nivel 1 o 2 corta lo de dentro y al volver lo recupera exacto', () => {
-  const rol = [...EXPORTAR, 'accion.soat.ver_listado', 'menu.flota', 'pagina.fleet', 'menu.pesv', 'pagina.pesv_plan', 'accion.pesv_plan.administrar'];
+  const rol = [...EXPORTAR, 'accion.soat.ver_listado', 'menu.kyverum', 'pagina.fleet', 'menu.kyverum', 'pagina.pesv_plan', 'accion.pesv_plan.administrar'];
   const antes = efectivo(rol);
 
-  it('TC-10: sin `menu.gestion` caen la página y sus acciones; el resto del rol sigue; al remarcar, idéntico', () => {
-    const sin = efectivo(rol.filter((c) => c !== 'menu.gestion'));
+  it('TC-10: sin `menu.operaciones` caen la página y sus acciones; el resto del rol sigue; al remarcar, idéntico', () => {
+    const sin = efectivo(rol.filter((c) => c !== 'menu.operaciones'));
     for (const c of ['pagina.flito_soat', 'accion.soat.exportar', 'soat.excel.exportar', 'soat.cola.ver']) expect(sin.has(c), c).toBe(false);
     expect(sin.has('fleet.flota.administrar')).toBe(true);
-    expect([...efectivo([...rol.filter((c) => c !== 'menu.gestion'), 'menu.gestion'])].sort()).toEqual([...antes].sort());
+    expect([...efectivo([...rol.filter((c) => c !== 'menu.operaciones'), 'menu.operaciones'])].sort()).toEqual([...antes].sort());
   });
 
   it('TC-11: sin `pagina.flito_soat` caen sus acciones; con el ítem de vuelta, idéntico', () => {
     const sin = efectivo(rol.filter((c) => c !== 'pagina.flito_soat'));
-    expect(sin.has('menu.gestion')).toBe(true);
+    expect(sin.has('menu.operaciones')).toBe(true);
     expect(sin.has('soat.excel.exportar')).toBe(false);
     expect([...efectivo([...rol.filter((c) => c !== 'pagina.flito_soat'), 'pagina.flito_soat'])].sort()).toEqual([...antes].sort());
   });
@@ -82,38 +84,38 @@ describe('AC4 / TC-10 y AC5 / TC-11 — desmarcar el nivel 1 o 2 corta lo de den
 
 describe('AC2 — un ítem antiguo concede todo, sin transitorio marcado', () => {
   it('Flota expande `fleet.flota.administrar`; Órdenes de trabajo, también el pago manual (P-14)', () => {
-    expect(efectivo(['menu.flota', 'pagina.fleet']).has('fleet.flota.administrar')).toBe(true);
-    const ordenes = efectivo(['menu.mantenimiento', 'pagina.maintenance_ordenes']);
+    expect(efectivo(['menu.kyverum', 'pagina.fleet']).has('fleet.flota.administrar')).toBe(true);
+    const ordenes = efectivo(['menu.kyverum', 'pagina.maintenance_ordenes']);
     expect(ordenes.has('maintenance.ordenes.administrar')).toBe(true);
     expect(ordenes.has('liquidacion.pago_manual.administrar')).toBe(true);
   });
 
   it('P-24 A1: el ítem PESV da la pantalla; la administración, solo su acción «Administrar»', () => {
-    const solo = efectivo(['menu.pesv', 'pagina.pesv_plan']);
+    const solo = efectivo(['menu.kyverum', 'pagina.pesv_plan']);
     expect(solo.has('pagina.pesv_plan')).toBe(true);
     expect(solo.has('pesv.plan.administrar')).toBe(false);
-    expect(efectivo(['menu.pesv', 'pagina.pesv_plan', 'accion.pesv_plan.administrar']).has('pesv.plan.administrar')).toBe(true);
+    expect(efectivo(['menu.kyverum', 'pagina.pesv_plan', 'accion.pesv_plan.administrar']).has('pesv.plan.administrar')).toBe(true);
   });
 });
 
 describe('AC7 / TC-15 y TC-12 — opción A (P-25): la excepción entra en M y después manda la cadena', () => {
-  it('TC-15: `revocar menu.gestion` apaga todo Gestión aunque el rol lo tenga', () => {
-    expect(efectivo(EXPORTAR, [], ['menu.gestion']).has('soat.excel.exportar')).toBe(false);
+  it('TC-15: `revocar menu.operaciones` apaga todo Operaciones aunque el rol lo tenga', () => {
+    expect(efectivo(EXPORTAR, [], ['menu.operaciones']).has('soat.excel.exportar')).toBe(false);
   });
 
   it('TC-15: `conceder` del elemento que el rol no tiene enciende lo que el rol ya marca debajo', () => {
     const rol = ['pagina.flito_soat', 'accion.soat.exportar'];
     expect(efectivo(rol).has('soat.excel.exportar')).toBe(false);
-    expect(efectivo(rol, ['menu.gestion']).has('soat.excel.exportar')).toBe(true);
+    expect(efectivo(rol, ['menu.operaciones']).has('soat.excel.exportar')).toBe(true);
   });
 
   it('TC-12: `conceder` de una acción cuyo ítem no tiene NO la habilita', () => {
-    expect(efectivo(['menu.gestion'], ['accion.soat.exportar']).has('soat.excel.exportar')).toBe(false);
-    expect(efectivo(['menu.gestion'], ['accion.soat.exportar', 'pagina.flito_soat']).has('soat.excel.exportar')).toBe(true);
+    expect(efectivo(['menu.operaciones'], ['accion.soat.exportar']).has('soat.excel.exportar')).toBe(false);
+    expect(efectivo(['menu.operaciones'], ['accion.soat.exportar', 'pagina.flito_soat']).has('soat.excel.exportar')).toBe(true);
   });
 
   it('revocar una operación que da un ítem sigue valiendo, al final', () => {
-    expect(efectivo(['menu.gestion', 'pagina.vehicles'], [], ['vehicles.vehiculos.consultar']).has('vehicles.vehiculos.consultar')).toBe(false);
+    expect(efectivo(['menu.operaciones', 'pagina.vehicles'], [], ['vehicles.vehiculos.consultar']).has('vehicles.vehiculos.consultar')).toBe(false);
   });
 });
 

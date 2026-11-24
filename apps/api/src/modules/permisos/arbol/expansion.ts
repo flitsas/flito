@@ -218,13 +218,13 @@ export function claseDe(codigo: string): 'nodo' | 'opcional' | null {
  * HU #13429 — Los NODOS efectivos de un conjunto marcado: `efectivo(n) = n ∈ M ∧ (padre(n) = null ∨
  * efectivo(padre(n)))`. Es la misma función para el resolutor y para el `efectivo` del panel (§5-quater.5).
  */
-export function efectivoDeNodos(marcados: Iterable<string>): Set<string> {
+export function efectivoDeNodos(marcados: Iterable<string>, padres: ReadonlyMap<string, string | null> = PADRE): Set<string> {
   const m = new Set(marcados);
   const memo = new Map<string, boolean>();
   const efectivo = (n: string): boolean => {
     const ya = memo.get(n);
     if (ya !== undefined) return ya;
-    const p = PADRE.get(n);
+    const p = padres.get(n);
     const v = p !== undefined && m.has(n) && (p === null || efectivo(p));
     memo.set(n, v);
     return v;
@@ -232,10 +232,13 @@ export function efectivoDeNodos(marcados: Iterable<string>): Set<string> {
   return new Set([...m].filter(efectivo));
 }
 
-/** Marcados (ya `(R ∪ C)` sin lo revocado) → conjunto efectivo con la cadena y expandido. No muta la entrada. */
-export function expandir(marcados: Iterable<string>, revocados: Iterable<string> = []): Set<string> {
+/**
+ * Marcados (ya `(R ∪ C)` sin lo revocado) → conjunto efectivo con la cadena y expandido. No muta la entrada.
+ * `padres`: el árbol de hoy; los reportes en seco de migraciones viejas pasan el de su época (Épica #14678).
+ */
+export function expandir(marcados: Iterable<string>, revocados: Iterable<string> = [], padres: ReadonlyMap<string, string | null> = PADRE): Set<string> {
   const m = new Set(marcados);
-  const nodos = efectivoDeNodos(m);
+  const nodos = efectivoDeNodos(m, padres);
   const salida = new Set(nodos);
   for (const c of m) {
     const clase = claseDe(c);
@@ -253,10 +256,10 @@ export function expandir(marcados: Iterable<string>, revocados: Iterable<string>
  * HU #13588 — El resolutor tal como era entre la 0239 y la 0240: las 5 sueltas eran TRANSVERSALES (marcadas →
  * efectivas, sin cadena) y ningún ítem las daba. Solo para los reportes en seco (#13429 «mañana», #13588 «hoy»).
  */
-export function expandirComoEn13429(marcados: Iterable<string>, revocados: Iterable<string> = []): Set<string> {
+export function expandirComoEn13429(marcados: Iterable<string>, revocados: Iterable<string> = [], padres: ReadonlyMap<string, string | null> = PADRE): Set<string> {
   const m = new Set(marcados);
   const fuera = new Set(revocados);
-  const salida = expandir(m, fuera);
+  const salida = expandir(m, fuera, padres);
   for (const s of SUELTAS_INCORPORADAS_13588) {
     if (m.has(s) && !fuera.has(s)) salida.add(s);
     else salida.delete(s);

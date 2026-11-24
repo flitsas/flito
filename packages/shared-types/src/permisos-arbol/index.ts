@@ -40,6 +40,11 @@ export interface NodoArbolDef {
   legado?: boolean;
   /** «Ayuda»: no se marca, se calcula (≥1 capítulo visible). */
   derivado?: boolean;
+  /**
+   * Épica #14678 (ADR-0048, expand → contract): elemento del menú viejo por dominios. Sigue en el árbol (y en la base,
+   * con sus marcas) pero sin hijos; el panel no lo pinta. Solo en elementos (`menu.*`).
+   */
+  deprecado?: boolean;
   /** HU #13944: función exclusiva del Administrador — solo el rol `admin` la tiene; no se asigna ni se quita (409). */
   exclusivaAdmin?: boolean;
   /** HU #13429 (contrato del API): profundidad visual 1..4 (la acción anidada y el opcional de acción, 4). */
@@ -76,7 +81,7 @@ export interface ArbolUsuarioRespuesta { userId: number; rol: string; arbol: Nod
 export const PREFIJO_ACCION = 'accion.';
 export const PREFIJO_ELEMENTO = 'menu.';
 
-export { ELEMENTOS_PERMISOS } from './elementos.js';
+export { ELEMENTOS_DEPRECADOS, ELEMENTOS_PERMISOS } from './elementos.js';
 export { ARBOL_CLIENTES_Y_BITACORA, ARBOL_GESTION, ITEMS_CLIENTES_Y_BITACORA, ITEMS_GESTION } from './gestion.js';
 export { ARBOL_FINANZAS, ITEMS_FINANZAS } from './finanzas.js';
 export { ARBOL_ADMINISTRACION, ITEMS_ADMINISTRACION } from './administracion.js';

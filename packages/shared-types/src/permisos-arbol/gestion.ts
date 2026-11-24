@@ -8,6 +8,8 @@
 //   · Impuestos NO repite las acciones de SOAT sin operación propia (P-5).
 //   · Revisiones OCR: «Ver» + una sola «Revisar lecturas» (P-7). Mi ruta: ver, escanear, novedad (P-8).
 //   · Tablero FLITO no está aquí: pasa al Tablero de General (P-11, `general.ts`, #13428).
+// Épica #14678 (ADR-0048, menú por áreas): los 8 de Gestión, Clientes y Bitácora cuelgan de Operaciones; Organismos
+// STT, de Administración (decisión del PO). Los nombres de archivo y de lista se conservan.
 import type { NodoArbolDef } from './index.js';
 import { itemsANodos, type AccionDef, type ItemDef } from './nodos.js';
 
@@ -16,7 +18,7 @@ const a = (clave: string, nombre: string, descripcion: string, hijas?: AccionDef
 
 /** Los ítems del área, en el orden del menú. `clave` es el segmento `<item>` de `accion.<item>.<accion>`. */
 export const ITEMS_GESTION: readonly ItemDef[] = [
-  { slug: 'flito_tramites', clave: 'tramites', nombre: 'Gestión Trámites', elemento: 'gestion', orden: 10, acciones: [
+  { slug: 'flito_tramites', clave: 'tramites', nombre: 'Gestión Trámites', elemento: 'operaciones', orden: 10, acciones: [
     a('ver_listado', 'Ver el listado de trámites', 'Consultar la cola de trámites, filtrarla y ver el historial de cada uno.'),
     a('solicitar_soat', 'Solicitar SOAT', 'Pedir el SOAT de los trámites seleccionados.'),
     a('solicitar_impuestos', 'Solicitar impuestos', 'Pedir el pago de impuestos de los trámites seleccionados.'),
@@ -27,7 +29,7 @@ export const ITEMS_GESTION: readonly ItemDef[] = [
     a('entregar', 'Entregar trámites', 'Marcar trámites como entregados y usar la compuerta de entrega.'),
     a('administrar_vistas_columnas', 'Administrar vistas de columnas', 'Crear vistas de columnas para todos y fijar la predeterminada general.'),
   ] },
-  { slug: 'flito_soat', clave: 'soat', nombre: 'SOAT', elemento: 'gestion', orden: 20, acciones: [
+  { slug: 'flito_soat', clave: 'soat', nombre: 'SOAT', elemento: 'operaciones', orden: 20, acciones: [
     a('ver_listado', 'Ver el listado', 'Consultar la cola de SOAT, filtrarla y ver el detalle y el historial de cada solicitud.'),
     a('ver_soportes', 'Ver soportes', 'Abrir los soportes de una solicitud.'),
     a('cargar_comprobantes', 'Cargar comprobantes', 'Cargar la factura de una solicitud o varias a la vez.'),
@@ -43,7 +45,7 @@ export const ITEMS_GESTION: readonly ItemDef[] = [
     a('cargar_documentos_adicionales', 'Cargar documentos adicionales', 'Cargar documentos adicionales a una solicitud.'),
     a('eliminar_documentos_adicionales', 'Eliminar documentos adicionales', 'Eliminar documentos adicionales de una solicitud.'),
   ] },
-  { slug: 'flito_impuestos', clave: 'impuestos', nombre: 'Impuestos', elemento: 'gestion', orden: 30, acciones: [
+  { slug: 'flito_impuestos', clave: 'impuestos', nombre: 'Impuestos', elemento: 'operaciones', orden: 30, acciones: [
     a('ver_listado', 'Ver el listado', 'Consultar la cola de impuestos, filtrarla y ver el detalle, el historial y la factura de venta.'),
     a('ver_soportes', 'Ver soportes', 'Abrir los soportes de un trámite.'),
     a('cargar_comprobantes', 'Cargar comprobantes', 'Cargar los recibos de pago.'),
@@ -59,17 +61,17 @@ export const ITEMS_GESTION: readonly ItemDef[] = [
     a('descargar_certificado', 'Descargar certificado', 'Descargar el certificado del trámite.'),
     a('certificar_sin_tramite', 'Certificar sin trámite', 'Cargar la factura de venta, consultar el RUNT por VIN y descargar el certificado.'),
   ] },
-  { slug: 'flito_derechos', clave: 'derechos', nombre: 'Derechos', elemento: 'gestion', orden: 40, acciones: [
+  { slug: 'flito_derechos', clave: 'derechos', nombre: 'Derechos', elemento: 'operaciones', orden: 40, acciones: [
     a('ver_listado', 'Ver el listado', 'Consultar la cola de derechos y filtrarla.'),
     a('cargar', 'Cargar recibos', 'Cargar recibos de derechos y ver los candidatos de una placa.'),
     a('procesar_drive', 'Procesar desde Drive', 'Listar y procesar los archivos de Drive y ver su registro.'),
     a('ver_soportes', 'Ver soportes', 'Descargar el soporte de un derecho.'),
   ] },
-  { slug: 'flito_revisiones', clave: 'revisiones', nombre: 'Revisiones OCR', elemento: 'gestion', orden: 50, acciones: [
+  { slug: 'flito_revisiones', clave: 'revisiones', nombre: 'Revisiones OCR', elemento: 'operaciones', orden: 50, acciones: [
     a('ver', 'Ver revisiones', 'Consultar la cola de revisiones, sus campos y sus soportes.'),
     a('revisar_lecturas', 'Revisar lecturas OCR', 'Resolver o descartar las lecturas pendientes.'),
   ] },
-  { slug: 'flito_logistica', clave: 'logistica', nombre: 'Logística', elemento: 'gestion', orden: 60, acciones: [
+  { slug: 'flito_logistica', clave: 'logistica', nombre: 'Logística', elemento: 'operaciones', orden: 60, acciones: [
     a('ver_consola', 'Ver la consola', 'Consultar la consola de logística, filtrarla y ver cada documento.'),
     a('registrar_viajes', 'Registrar viajes adicionales', 'Ver, registrar y quitar viajes adicionales de un trámite.'),
     a('generar_actas', 'Generar actas', 'Validar la LT y generar las actas.'),
@@ -78,18 +80,18 @@ export const ITEMS_GESTION: readonly ItemDef[] = [
     a('cerrar_lote', 'Cerrar lote', 'Cerrar el lote de documentos.'),
     a('reversar_paso', 'Reversar paso', 'Reversar el último paso de un documento.'),
   ] },
-  { slug: 'flito_logistica_ruta', clave: 'mi_ruta', nombre: 'Mi ruta', elemento: 'gestion', orden: 70, acciones: [
+  { slug: 'flito_logistica_ruta', clave: 'mi_ruta', nombre: 'Mi ruta', elemento: 'operaciones', orden: 70, acciones: [
     a('ver', 'Ver mi ruta', 'Ver la ruta del día y sus documentos.'),
     a('escanear', 'Escanear documentos', 'Escanear los documentos de la ruta.'),
     a('reportar_novedad', 'Reportar novedad', 'Reportar una novedad sobre un documento.'),
   ] },
-  { slug: 'flito_comparendos', clave: 'comparendos', nombre: 'Comparendos', elemento: 'gestion', orden: 80, acciones: [
+  { slug: 'flito_comparendos', clave: 'comparendos', nombre: 'Comparendos', elemento: 'operaciones', orden: 80, acciones: [
     a('ver_listado', 'Ver el listado', 'Listar, buscar y exportar comparendos, y ver cada registro y sus eventos.'),
     a('gestionar', 'Gestionar comparendos', 'Registrar la gestión de un comparendo.'),
     a('sincronizar', 'Sincronizar', 'Lanzar la sincronización y ver sus corridas.'),
     a('configurar', 'Configurar', 'Administrar NIT, municipios, causales y el token de SIMIT.'),
   ] },
-  { slug: 'transito_organismos', clave: 'organismos_stt', nombre: 'Organismos STT', elemento: 'transito', orden: 10, acciones: [
+  { slug: 'transito_organismos', clave: 'organismos_stt', nombre: 'Organismos STT', elemento: 'administracion', orden: 80, acciones: [
     a('ver', 'Ver organismos', 'Consultar los organismos de tránsito, su configuración, logo, checklist y vigencias.'),
     a('editar', 'Editar organismos', 'Editar organismos, su modalidad, configuración, logo y checklist.'),
   ] },
@@ -102,7 +104,7 @@ export const ITEMS_GESTION: readonly ItemDef[] = [
  * «Ver clientes y proveedores» es P-21 (2026-10-13).
  */
 export const ITEMS_CLIENTES_Y_BITACORA: readonly ItemDef[] = [
-  { slug: 'clients', clave: 'clientes', nombre: 'Clientes y proveedores', elemento: 'gestion', orden: 90, acciones: [
+  { slug: 'clients', clave: 'clientes', nombre: 'Clientes y proveedores', elemento: 'operaciones', orden: 90, acciones: [
     a('ver', 'Ver clientes y proveedores', 'Consultar los clientes, las compañías y los proveedores de SOAT.'),
     a('crear_editar_clientes', 'Crear y editar clientes', 'Crear clientes y empresas, y editar sus datos generales.'),
     a('crear_editar_proveedores', 'Crear y editar proveedores', 'Crear y editar los proveedores de SOAT.'),
@@ -118,7 +120,7 @@ export const ITEMS_CLIENTES_Y_BITACORA: readonly ItemDef[] = [
     // HU #13960: exclusiva del Administrador. Nace tras la siembra (0263).
     a('eliminar_proveedores', 'Eliminar proveedores', 'Eliminar un proveedor SOAT inactivo, sin SOAT en curso ni compañías asignadas. Sus usuarios quedan inactivos.'),
   ] },
-  { slug: 'flito_bitacora', clave: 'bitacora', nombre: 'Bitácora', elemento: 'gestion', orden: 100, acciones: [
+  { slug: 'flito_bitacora', clave: 'bitacora', nombre: 'Bitácora', elemento: 'operaciones', orden: 100, acciones: [
     a('ver', 'Ver la bitácora', 'Consultar la bitácora de cambios y la de cada registro.'),
   ] },
 ];

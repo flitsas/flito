@@ -222,11 +222,12 @@ SELECT funcion_codigo, COUNT(*) FROM permisos_rol_funcion
  WHERE funcion_codigo LIKE 'menu.%' GROUP BY funcion_codigo;
 
 -- D. Caso de la pérdida conocida (3.6): usuarios con revocar de menu.administracion
---    que tienen transito_organismos por su rol vía menu.transito.
+--    que tienen transito_organismos por SU rol (users.role) vía menu.transito.
 SELECT DISTINCT k.user_id
   FROM permisos_usuario_funcion k
-  JOIN permisos_rol_funcion prf ON prf.funcion_codigo = 'pagina.transito_organismos'
-  JOIN permisos_rol_funcion mt  ON mt.rol_codigo = prf.rol_codigo AND mt.funcion_codigo = 'menu.transito'
+  JOIN users u ON u.id = k.user_id
+  JOIN permisos_rol_funcion prf ON prf.rol_codigo = u.role AND prf.funcion_codigo = 'pagina.transito_organismos'
+  JOIN permisos_rol_funcion mt  ON mt.rol_codigo = u.role AND mt.funcion_codigo = 'menu.transito'
  WHERE k.efecto = 'revocar' AND k.funcion_codigo = 'menu.administracion';
 ```
 
