@@ -1,1 +1,16 @@
-[]
+[
+  {
+    "archivo": "0045_rndc_operaciones_worm.sql",
+    "shaLedger": "b403e60601d26d6a092276ca4251d59ef27041852bd0a1f57e04be5ae85eaf5a",
+    "shaDisco": "8918c956f4484e8b1f8555550902854c45bc78a5ebee0c8e17c6c7fe152c5ba4",
+    "motivo": "Editada en b94e4ef0 tras aplicarse en QA. La versión editada es necesaria para BD limpia (guard pg_roles). Ver ADR-0035.",
+    "wi": "#13981"
+  },
+  {
+    "archivo": "0067_laft_anonimizacion_post_10y.sql",
+    "shaLedger": "f7ea46a90238f763fcb4ea2365ee91cf8882ce4148e9411ad08fadf06e81d95d",
+    "shaDisco": "202df46f0749d1ec1adc7967a2610267987710c3f2ac29d9b50dfd450f0b5ba1",
+    "motivo": "Editada en b94e4ef0 tras aplicarse en QA. El WHERE EXISTS evita el fallo de FK en BD limpia. Ver ADR-0035.",
+    "wi": "#13981"
+  }
+]
