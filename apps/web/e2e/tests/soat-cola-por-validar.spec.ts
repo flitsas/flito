@@ -324,9 +324,12 @@ test.describe('HU #12997 · retrabajo — la pastilla resaltada es la que filtra
   // «Listos para enviar» apagada en `aria-pressed` Y en la cara: el mismo borde que «Sin gestión».
   async function vistaApagada(page: Page) {
     await expect(listos(page)).toHaveAttribute('aria-pressed', 'false');
-    const [a, b] = await Promise.all(['Listos para enviar', 'Sin gestión'].map((n) =>
-      page.getByRole('button', { name: n }).evaluate((el) => getComputedStyle(el).borderColor)));
-    expect(a).toBe(b);
+    // El chip tiene transition-colors: se espera a que termine antes de comparar.
+    await expect.poll(async () => {
+      const [a, b] = await Promise.all(['Listos para enviar', 'Sin gestión'].map((n) =>
+        page.getByRole('button', { name: n }).evaluate((el) => getComputedStyle(el).borderColor)));
+      return a === b;
+    }).toBe(true);
   }
 
   test('secuencia SOAT ↔ incompletas: solo la clicada queda pulsada y la vista rápida no se enciende sola', async ({ page }) => {

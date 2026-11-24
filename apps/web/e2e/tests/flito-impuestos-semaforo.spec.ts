@@ -92,7 +92,7 @@ test.describe('FLITO — Impuestos · semáforo de la cola (HU #12830)', () => {
       await expect(icono).toHaveAttribute('title', texto);
       await expect(icono).toHaveAttribute('data-semaforo', clave);
       await expect(icono).toHaveClass(/flit-focus/);
-      await expect(icono).toHaveClass(/hover:bg-\[var\(--flit-bg-hover\)\]/);
+      await expect(icono).toHaveClass(/hover:bg-\[var\(--kit-hover\)\]/);
     }
     // Nunca analizado: nada, ni guion.
     await expect(filaDe(page, 'PEN001').locator('[data-semaforo], [data-testid="validacion-analizando"]')).toHaveCount(0);
