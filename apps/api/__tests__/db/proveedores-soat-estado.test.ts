@@ -9,6 +9,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import type postgres from 'postgres';
 import * as schema from '../../src/db/schema.js';
 import { abrirBase, enTx, URL_BASE } from '../helpers/base-en-tx.js';
+import { darDeBajaProveedor, proveedorSoat } from '../helpers/proveedor-padre.js';
 
 const actual: { db: ReturnType<typeof drizzle<typeof schema>> | null } = { db: null };
 vi.mock('../../src/db/client.js', () => ({
@@ -35,10 +36,8 @@ const { ProveedorEditadoPorOtroError, ProveedorNoEncontradoError } = await impor
 const version = async (tx: postgres.TransactionSql, id: string) => (await tx`SELECT version FROM flito_proveedores WHERE id = ${id}`)[0]!.version as number;
 
 async function sembrar(tx: postgres.TransactionSql) {
-  const [p] = await tx`INSERT INTO flito_proveedores_soat (nombre) VALUES ('Gestora HU13958') RETURNING id`;
-  const [otroP] = await tx`INSERT INTO flito_proveedores_soat (nombre) VALUES ('Otra HU13958') RETURNING id`;
-  const id = p!.id as string;
-  const otro = otroP!.id as string;
+  const id = await proveedorSoat(tx, { nombre: 'Gestora HU13958' });
+  const otro = await proveedorSoat(tx, { nombre: 'Otra HU13958' });
   const cliente = async (name: string, proveedor: string | null, eliminado = false) =>
     (await tx`INSERT INTO clients (name, soat_sin_tramite, flito_proveedor_soat_sin_tramite_id, deleted_at)
       VALUES (${name}, ${proveedor !== null}, ${proveedor}, CASE WHEN ${eliminado} THEN now() END) RETURNING id`)[0]!.id as number;
@@ -59,7 +58,7 @@ async function sembrar(tx: postgres.TransactionSql) {
   // Usuarios: G activo, H inactivo por su cuenta, I dado de baja (no cuenta), J de otro proveedor.
   const [rol] = await tx`SELECT codigo FROM permisos_roles ORDER BY (codigo = 'gestor_soat') DESC, codigo LIMIT 1`;
   const usuario = async (n: string, proveedor: string, extra: { active?: boolean; baja?: boolean } = {}) =>
-    (await tx`INSERT INTO users (username, name, password_hash, role, flito_proveedor_soat_id, active, deleted_at)
+    (await tx`INSERT INTO users (username, name, password_hash, role, flito_proveedor_id, active, deleted_at)
       VALUES (${'hu13958_' + n}, 'X', 'h', ${rol!.codigo}, ${proveedor}, ${extra.active ?? true}, CASE WHEN ${extra.baja === true} THEN now() END)
       RETURNING id`)[0]!.id as number;
   const g = await usuario('g', id);
@@ -85,7 +84,7 @@ async function conBase(fn: (tx: postgres.TransactionSql, f: Awaited<ReturnType<t
 describe.skipIf(!URL_BASE)('flito-proveedores-estado.service — contra PostgreSQL (tx con ROLLBACK)', () => {
   it('AC1: SOAT en curso del proveedor, compañías vigentes con él por defecto y sus usuarios sin baja; no modifica nada', async () => {
     await conBase(async (tx, f) => {
-      const antes = await tx`SELECT activo FROM flito_proveedores_soat WHERE id = ${f.id}`;
+      const antes = await tx`SELECT activo FROM flito_proveedores WHERE id = ${f.id}`;
       expect(await impactoProveedorSoat(actual.db!, f.id)).toEqual({
         activo: true,
         soatEnCurso: 4,
@@ -94,14 +93,14 @@ describe.skipIf(!URL_BASE)('flito-proveedores-estado.service — contra PostgreS
         puedeEliminar: false, // HU #13960: activo → el primer motivo de RN-PROV-6
         motivoNoEliminable: 'Primero debe desactivarlo.',
       });
-      expect(await tx`SELECT activo FROM flito_proveedores_soat WHERE id = ${f.id}`).toEqual(antes);
+      expect(await tx`SELECT activo FROM flito_proveedores WHERE id = ${f.id}`).toEqual(antes);
     });
   });
 
   it('AC9: inexistente o eliminado → null', async () => {
     await conBase(async (tx, f) => {
       expect(await impactoProveedorSoat(actual.db!, INEXISTENTE)).toBeNull();
-      await tx`UPDATE flito_proveedores_soat SET deleted_at = now() WHERE id = ${f.otro}`;
+      await darDeBajaProveedor(tx, f.otro);
       expect(await impactoProveedorSoat(actual.db!, f.otro)).toBeNull();
     });
   });
@@ -127,7 +126,7 @@ describe.skipIf(!URL_BASE)('flito-proveedores-estado.service — contra PostgreS
 
   it('AC3: un proveedor eliminado (aunque `activo`) también bloquea el login', async () => {
     await conBase(async (tx, f) => {
-      await tx`UPDATE flito_proveedores_soat SET deleted_at = now() WHERE id = ${f.otro}`;
+      await darDeBajaProveedor(tx, f.otro);
       expect(await proveedorInactivo(f.otro)).toBe(true);
     });
   });

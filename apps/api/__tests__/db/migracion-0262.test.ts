@@ -7,6 +7,7 @@
 // pasada no cambia nada.
 import { describe, it, expect } from 'vitest';
 import { abrirBase, enTx, leerMigracion, URL_BASE } from '../helpers/base-en-tx.js';
+import { proveedorSoat } from '../helpers/proveedor-padre.js';
 import { leerRenombresSembrados } from '../helpers/permisos-seed-sql.js';
 import { catalogoCompleto } from '../../src/modules/permisos/catalogo.js';
 
@@ -43,7 +44,7 @@ describe.skipIf(!URL_BASE)('0262 — contra PostgreSQL (tx con ROLLBACK)', () =>
     const sql = abrirBase();
     try {
       await enTx(sql, async (tx) => {
-        const [p] = await tx`INSERT INTO flito_proveedores_soat (nombre) VALUES ('zz_prueba13967 gestor') RETURNING id`;
+        const p = { id: await proveedorSoat(tx, { nombre: 'zz_prueba13967 gestor' }) }; // HU #14355: padre primero
         // El CHECK de la 0175 tal como estaba (si esta base ya aplicó la 0262, se repone dentro de la tx).
         await tx.unsafe(`ALTER TABLE clients DROP CONSTRAINT IF EXISTS clients_sin_tramite_gestor_chk;
           ALTER TABLE clients ADD CONSTRAINT clients_sin_tramite_gestor_chk

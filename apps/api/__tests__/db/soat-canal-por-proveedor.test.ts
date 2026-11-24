@@ -12,6 +12,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import * as schema from '../../src/db/schema.js';
 import { abrirBase, enTx, URL_BASE } from '../helpers/base-en-tx.js';
+import { proveedorSoat } from '../helpers/proveedor-padre.js';
 
 let actual: Record<string | symbol, unknown> | null = null;
 vi.mock('../../src/db/client.js', () => ({
@@ -36,8 +37,8 @@ async function conBase(fn: (tx: postgres.TransactionSql) => Promise<void>) {
   } finally { await sql.end(); }
 }
 
-const proveedor = async (tx: postgres.TransactionSql, nombre: string, activo = true) =>
-  (await tx`INSERT INTO flito_proveedores_soat (nombre, activo) VALUES (${nombre}, ${activo}) RETURNING id`)[0]!.id as string;
+// HU #14355: padre primero; el estado vive en el padre.
+const proveedor = async (tx: postgres.TransactionSql, nombre: string, activo = true) => proveedorSoat(tx, { nombre, activo });
 const compania = async (tx: postgres.TransactionSql, nombre: string, prov: string | null) =>
   (await tx`INSERT INTO clients (name, flito_proveedor_soat_sin_tramite_id) VALUES (${nombre}, ${prov}) RETURNING id`)[0]!.id as number;
 const usuario = async (tx: postgres.TransactionSql, n: string, role: string, companiaId: number | null, borrado = false) =>

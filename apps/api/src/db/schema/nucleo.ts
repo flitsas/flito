@@ -62,8 +62,8 @@ export const users = pgTable('users', {
   // `flito_gestor_organismos`, porque son VARIOS organismos y `transito_codigo` solo guardaba uno
   // —y además es del rol `transito`—. Para un `gestor_impuestos`, `transito_codigo` queda NULL
   // desde la migración 0173: fuente única, sin segundo inquilino.
-  // HU #14330: la identidad del proveedor del usuario. HU #14673: `flito_proveedor_soat_id` sigue en la BD (la llena el
-  // trigger `users_proveedor_sync` para la imagen anterior) pero ya no se declara; se borra en la #14355.
+  // HU #14330: la identidad del proveedor del usuario. La columna vieja `flito_proveedor_soat_id` se eliminó en la 0314
+  // (HU #14355).
   flitoProveedorId: uuid('flito_proveedor_id').references(() => flitoProveedores.id, { onDelete: 'restrict' }),
   /**
    * FLITO — Cliente (Feature #11912): la compañía de la que es este usuario. Es la atadura de
