@@ -33,7 +33,9 @@ const texto = (v: number | null | undefined) => (v == null ? null : String(v));
 
 /** Lee el perfil vigente y prepara el UPDATE y la auditoría de la configuración de SOAT. */
 async function cambiosDeSoat(tx: TxProveedor, id: string, soat: ProveedorSoatBody) {
-  const [perfil] = await tx.select().from(flitoProveedoresSoat)
+  // HU #14354: solo la configuración de SOAT del perfil, nunca los datos generales que ahora viven en el padre.
+  const [perfil] = await tx.select({ estrategia: flitoProveedoresSoat.estrategia, umbralOcr: flitoProveedoresSoat.umbralOcr, slaHoras: flitoProveedoresSoat.slaHoras })
+    .from(flitoProveedoresSoat)
     .where(and(eq(flitoProveedoresSoat.id, id), isNull(flitoProveedoresSoat.deletedAt))).for('no key update').limit(1);
   if (perfil === undefined) throw new DatosSoatInvalidosError(MENSAJE_SOAT_SIN_SERVICIO);
   const set = columnasDeSoat(soat);
@@ -89,7 +91,8 @@ export async function editarProveedor(id: string, datos: EditarProveedorBody, ac
     if (padre === undefined) throw new ProveedorNoEncontradoError();
 
     // Primero se da y después se retira: si el proveedor se quedara sin perfil vigente aunque sea un instante, el trigger
-    // `perfil_a_padre` lo daría de baja. `padre` es la fila ya guardada: el perfil entrante no copia datos obsoletos.
+    // `perfil_a_padre` lo daría de baja. `padre` es la fila ya guardada: el perfil entrante copia de él su espejo en la BD
+    // (`perfil_crea_padre` y `perfil_espejo_baja`, 0313), y el código ya no escribe esas columnas (HU #14673).
     for (const s of agregados) await darPerfil(tx, padre, s, s === 'soat' ? soatNuevo : undefined);
     for (const s of quitados) await retirarPerfil(tx, id, s, actor.userId, ahora);
     if (Object.keys(setSoat).length > 0) {

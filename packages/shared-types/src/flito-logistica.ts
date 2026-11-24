@@ -237,19 +237,6 @@ export function tipoEventoEfectivo(
   return TIPO_DESDE_ESTADO_NUEVO[estadoNuevo] ?? EVENTO_DOCUMENTO_LOGISTICA_TIPO_ALIAS[estadoNuevo] ?? null;
 }
 
-/** Estrategia del proveedor logístico: mensajería propia (PWA FLITO) o integración con tercero (§6). */
-export const EstrategiaProveedorLogistica = {
-  PWA_PROPIA: 'pwa_propia',
-  INTEGRACION_TERCERO: 'integracion_tercero',
-} as const;
-
-export type EstrategiaProveedorLogistica = (typeof EstrategiaProveedorLogistica)[keyof typeof EstrategiaProveedorLogistica];
-
-export const ESTRATEGIA_PROVEEDOR_LOGISTICA_LABEL: Record<EstrategiaProveedorLogistica, string> = {
-  pwa_propia: 'Mensajería propia (PWA)',
-  integracion_tercero: 'Integración con tercero',
-};
-
 /**
  * LT candidata a viaje a cliente (GET /facetas): `clasificado` (origen `organismo`, admite destino
  * cliente o FLIT) o `en_flit` (origen `flit`, solo destino cliente). Placa = identificador del documento; no VIN.

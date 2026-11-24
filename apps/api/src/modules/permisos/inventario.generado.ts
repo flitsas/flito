@@ -279,13 +279,6 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "PATCH", ruta: "/companias/:id", condicion: "general", roles: ["admin"], heredada: false },
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "PATCH", ruta: "/companias/:id", condicion: "autogestion", roles: ["admin"], heredada: false },
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "PATCH", ruta: "/companias/:id", condicion: "sinTramite", roles: ["admin"], heredada: false },
-  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "GET", ruta: "/proveedores-soat", roles: ["admin","auditor"], heredada: false },
-  // HU #13958: «Activar o desactivar proveedores», exclusiva del Administrador (nace en el árbol; su acción la siembra la 0261).
-  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-parametrizacion.routes.ts", metodo: "GET", ruta: "/proveedores-soat/:id/impacto", roles: ["admin"], heredada: false },
-  // HU #14103: proveedores de logística (mismas funciones y reparto que los de SOAT).
-  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-proveedores-logistica.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor"], heredada: false },
-  // HU #14148: impacto y baja de proveedores de logística, y listado unificado (mismas funciones que los de SOAT).
-  { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-proveedores-logistica.routes.ts", metodo: "GET", ruta: "/:id/impacto", roles: ["admin"], heredada: false },
   // HU #14332–#14335: gestión unificada de proveedores (ADR-0039 §7.1); `historial` es la única función nueva (0294).
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-proveedores.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor"], heredada: false },
   { modulo: "parametrizacion", fichero: "flito-parametrizacion/flito-proveedores.routes.ts", metodo: "GET", ruta: "/selector", roles: ["admin","auditor"], heredada: false },

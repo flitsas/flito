@@ -6,12 +6,15 @@
 // Los glifos de los estados se registran en ChipEstadoSoat / ChipEstadoImpuesto: se importan para que existan al pintar.
 import './soat/ChipEstadoSoat';
 import './impuestos/ChipEstadoImpuesto';
+import './impuestos/ChipEstadoCertificacion';
 import { Embudo } from '../flit/Bloques';
 import { registrarEstados } from '../flit/kit/tonos';
 
 registrarEstados({
   'soat-todos': { tono: 'neutro', glifo: 'todos' },
   'impuesto-todos': { tono: 'neutro', glifo: 'todos' },
+  // «Certificar sin trámite» (HU #14665): misma pieza, tercer prefijo.
+  'certificacion-todos': { tono: 'neutro', glifo: 'todos' },
 });
 
 export interface OpcionEmbudo<T extends string> {
@@ -21,8 +24,8 @@ export interface OpcionEmbudo<T extends string> {
 }
 
 export default function EmbudoEstadoCola<T extends string>({ modulo, opciones, valor, onCambio, ariaLabel }: {
-  /** Prefijo de los glifos registrados: `soat-…` / `impuesto-…`. */
-  modulo: 'soat' | 'impuesto';
+  /** Prefijo de los glifos registrados: `soat-…` / `impuesto-…` / `certificacion-…`. */
+  modulo: 'soat' | 'impuesto' | 'certificacion';
   opciones: OpcionEmbudo<T>[];
   valor: T;
   onCambio: (v: T) => void;

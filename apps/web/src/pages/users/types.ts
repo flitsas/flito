@@ -34,8 +34,6 @@ export interface User {
   flitoProveedorId?: string | null;
   /** Nombre de ese proveedor, aunque ya esté inactivo. */
   proveedorNombre?: string | null;
-  /** Campo anterior; convive con `flitoProveedorId` hasta F5. */
-  flitoProveedorSoatId?: string | null;
   /**
    * Organismos cuando `tipoEnlace = 'organismos_transito'` (gestor, tránsito, roles nuevos).
    * **Siempre un array**, nunca `null` ni ausente: `[]` si no aplica o aún no hay filas.
@@ -102,9 +100,8 @@ export const ROLE_TONE: Record<string, ChipTone> = {
   cliente: 'neutral',
 };
 
-/** Id del proveedor del usuario: la columna nueva y, mientras convivan, la anterior. `''` si no tiene. */
-export const proveedorDeUsuario = (u: Pick<User, 'flitoProveedorId' | 'flitoProveedorSoatId'>): string =>
-  u.flitoProveedorId ?? u.flitoProveedorSoatId ?? '';
+/** Id del proveedor del usuario (modelo nuevo, HU #14354). `''` si no tiene. */
+export const proveedorDeUsuario = (u: Pick<User, 'flitoProveedorId'>): string => u.flitoProveedorId ?? '';
 
 /** Miga del rediseño 2026: Inicio › Administración › Usuarios (Inicio y el actual los pone `Miga`). */
 export const MIGA_USUARIOS = [{ etiqueta: 'Administración' }];

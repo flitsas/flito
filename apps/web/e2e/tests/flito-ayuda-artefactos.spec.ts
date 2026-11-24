@@ -369,7 +369,9 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   const IMPUESTOS_13772: Record<string, { version: string; fecha?: string; capturas: string[]; diagrama: string | null }> = {
     // Bug #14532: Liquidación y Pagado, y descarga individual por fila (01-cola y 02-seleccion regeneradas).
     // Épica #14560: detalle con el mismo orden que el del SOAT (secciones Comprobante y Datos); cabecera y vistas rápidas.
-    flito_impuestos: { version: '1.17', fecha: '2026-11-23', diagrama: 'ciclo-impuesto.svg', capturas: [
+    // HU #14665: «Certificar sin trámite» al patrón unificado (cabecera, embudo, búsqueda, columnas) — 1.18,
+    // sin capturas nuevas: la ficha no cita capturas de esa pestaña.
+    flito_impuestos: { version: '1.18', fecha: '2026-11-23', diagrama: 'ciclo-impuesto.svg', capturas: [
       '01-cola.png', '02-seleccion.png', '03-carga-masiva.png', '04-validacion-runt.png', '05-detalle.png'] },
     flito_derechos: { version: '1.4', fecha: '2026-11-17', diagrama: 'canastas-de-carga.svg', capturas: [
       '01-resultado-de-la-carga.png', '02-drive.png', '03-registrados.png'] },

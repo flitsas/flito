@@ -16,15 +16,14 @@ export const flitoLogisticaDocEstadoEnum = pgEnum('flito_logistica_doc_estado', 
 export const flitoLogisticaActaEstadoEnum = pgEnum('flito_logistica_acta_estado', ['generada', 'despachada', 'entregada', 'devuelta']);
 export const flitoLogisticaTipoDocEnum = pgEnum('flito_logistica_tipo_doc', ['licencia_transito', 'placa', 'otro']);
 
-// Proveedor logístico: mensajería propia (PWA FLITO) o integración con tercero (FEATURE §6).
+// Perfil logístico del proveedor (ADR-0039): los datos generales viven en `flito_proveedores`, con el mismo UUID.
+// HU #14673 (0313): `nombre`, `estrategia`, `activo`, `nit`, `contacto`, `telefono` y sus índices siguen en la BD (espejo
+// del padre que llenan los triggers; `estrategia` con su DEFAULT), pero el código ya no los declara: Drizzle los
+// nombraría en cada select/insert y la imagen no sobreviviría a su DROP (#14355).
 export const flitoProveedoresLogistica = pgTable('flito_proveedores_logistica', {
   id: uuid('id').primaryKey().defaultRandom(),
-  nombre: varchar('nombre', { length: 150 }).notNull(),
-  estrategia: varchar('estrategia', { length: 40 }).notNull().default('pwa_propia'),
-  activo: boolean('activo').notNull().default(true),
-  // HU #14103 (0278): nit (único parcial `uq_flito_proveedores_logistica_nit` en la migración; NULL en filas previas), contacto y teléfono, en la misma línea: el techo congelado de schema.ts no admite crecer.
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), nit: varchar('nit', { length: 20 }), contacto: varchar('contacto', { length: 150 }), telefono: varchar('telefono', { length: 30 }), deletedAt: timestamp('deleted_at', { withTimezone: true }), deletedBy: integer('deleted_by').references(() => users.id, { onDelete: 'restrict' }), // HU #14329 (0292). Nombre único entre vigentes: 0293.
-}, (t) => ({ nombreVivoUq: uniqueIndex('uq_flito_proveedores_logistica_nombre_vivo').on(t.nombre).where(sql`deleted_at IS NULL`) }));
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), deletedAt: timestamp('deleted_at', { withTimezone: true }), deletedBy: integer('deleted_by').references(() => users.id, { onDelete: 'restrict' }), // HU #14329 (0292).
+});
 
 // Acta: agrupación por empresa para despacho/entrega (CA-04, una por empresa por lote). El acta
 // firmada + evidencia (columnas de entrega) se pueblan en la Fase 2 (PWA); aquí quedan definidas.

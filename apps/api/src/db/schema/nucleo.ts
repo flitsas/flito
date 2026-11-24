@@ -62,10 +62,12 @@ export const users = pgTable('users', {
   // `flito_gestor_organismos`, porque son VARIOS organismos y `transito_codigo` solo guardaba uno
   // —y además es del rol `transito`—. Para un `gestor_impuestos`, `transito_codigo` queda NULL
   // desde la migración 0173: fuente única, sin segundo inquilino.
-  flitoProveedorSoatId: uuid('flito_proveedor_soat_id').references((): any => flitoProveedoresSoat.id), flitoProveedorId: uuid('flito_proveedor_id').references(() => flitoProveedores.id, { onDelete: 'restrict' }), // HU #14330: la nueva es la identidad; la vieja se sincroniza por trigger y se retira en F5.
+  // HU #14330: la identidad del proveedor del usuario. HU #14673: `flito_proveedor_soat_id` sigue en la BD (la llena el
+  // trigger `users_proveedor_sync` para la imagen anterior) pero ya no se declara; se borra en la #14355.
+  flitoProveedorId: uuid('flito_proveedor_id').references(() => flitoProveedores.id, { onDelete: 'restrict' }),
   /**
    * FLITO — Cliente (Feature #11912): la compañía de la que es este usuario. Es la atadura de
-   * visibilidad del rol `cliente`, igual que `flitoProveedorSoatId` lo es del gestor: `contextoSoat()`
+   * visibilidad del rol `cliente`, igual que `flitoProveedorId` lo es del gestor: `contextoSoat()`
    * la lee de AQUÍ y no del JWT, para que un cambio de compañía surta efecto sin re-emitir el token.
    *
    * NULLABLE en la base a propósito, como `transitoCodigo`: la mayoría de los roles no tienen
@@ -83,7 +85,7 @@ export const users = pgTable('users', {
    * compañía, y `SET NULL` crearía por la puerta de atrás justo el estado que el AC2 declara
    * imposible — un `cliente` sin compañía.
    */
-  // El `(): any` es el mismo truco que `flitoProveedorSoatId` de arriba, y por el mismo motivo:
+  // El `(): any` es el truco que usaba `flitoProveedorSoatId` (retirada del código en la HU #14673):
   // `clients` se declara DESPUÉS de `users`, así que sin la anotación TypeScript no puede inferir el
   // tipo de ninguna de las dos tablas (TS7022) y `db.select().from(users)` degrada a `any` en todo
   // el proyecto.
@@ -104,8 +106,8 @@ export const users = pgTable('users', {
   // HU #12169: mismo argumento que el de arriba, para el `ON DELETE RESTRICT` de `users_role_fkey`.
   // Sin él, borrar un rol escanea `users` entera. También sirve al conteo por rol (CF-22).
   roleIdx: index('idx_users_role').on(t.role),
-  // HU #13971 (0264): impacto/desactivación/eliminación de un proveedor SOAT. Completo, no parcial (ver cabecera 0264).
-  proveedorSoatIdx: index('idx_users_flito_proveedor_soat').on(t.flitoProveedorSoatId), proveedorIdx: index('idx_users_flito_proveedor').on(t.flitoProveedorId),
+  // HU #14330 (0292). `idx_users_flito_proveedor_soat` (0264) sigue en la BD hasta la #14355, sin declarar (HU #14673).
+  proveedorIdx: index('idx_users_flito_proveedor').on(t.flitoProveedorId),
 }));
 
 export const clients = pgTable('clients', {

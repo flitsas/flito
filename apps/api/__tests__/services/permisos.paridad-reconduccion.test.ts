@@ -198,13 +198,7 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
       'clients/clients.routes.ts PATCH /:id/estado',
       // HU #13954: `clients.clientes.eliminar`, absorbida por `accion.clientes.eliminar` (0258, solo `admin`).
       'clients/clients.routes.ts DELETE /:id',
-      // HU #13958: `parametrizacion.proveedores.estado`, absorbida por `accion.clientes.activar_desactivar_proveedores`
-      // (0261, solo `admin`).
-      'flito-parametrizacion/flito-parametrizacion.routes.ts GET /proveedores-soat/:id/impacto',
-      // HU #14103: `PATCH /:id/estado` de proveedores de logística reutiliza `parametrizacion.proveedores.estado` (misma absorción 0261).
-      // HU #14148: impacto de logística reutiliza `…proveedores.estado` (0261). El listado unificado reutiliza `…proveedores.listar`
-      // (no absorbida, igual que los listados por tipo).
-      'flito-parametrizacion/flito-proveedores-logistica.routes.ts GET /:id/impacto',
+      // HU #14354 (F5): los impactos de `proveedores-soat` y `proveedores-logistica` se retiraron; queda el de la gestión unificada.
       // HU #14148: la baja de proveedores de logística reutiliza `…proveedores.eliminar` (0263).
       // HU #14334: la gestión unificada reutiliza `…proveedores.estado` y `…proveedores.eliminar`, absorbidas (0261, 0263).
       'flito-parametrizacion/flito-proveedores.routes.ts GET /:id/impacto',

@@ -213,6 +213,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     // HU #14110: confirmar la recogida y sus dos consultas piden la misma `logistica.recogida.confirmar`. HU #14147: +1 (pendientes-firma), cuatro rutas con la misma función.
     // HU #14115: despachar/entregar/devolver el viaje reutilizan `logistica.actas.*` de las rutas de acta.
     // HU #14125: `POST /traslados/buscar` reutiliza `logistica.consola.ver` del GET de la consola (la placa va en el cuerpo).
+    // HU #14354 (F5): −2 de `…proveedores.estado` y −2 de `…proveedores.listar` (las lecturas viejas de SOAT y de logística).
     // HU #14664: corregir/reintentar documento de factura reutilizan `impuestos.tramite.certificar` del certificar (sin función nueva ni migración).
     expect(compartidosFlito.sort()).toEqual([
       ['bolsas.bolsa.inactivar', 2], ['bolsas.bolsa.ver', 3], ['bolsas.cierre.crear', 2], ['bolsas.cierres.ver', 2],
@@ -233,8 +234,8 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       // HU #14148: +impacto de logística (estado 4), +baja de logística (eliminar 2) y +listado unificado (listar 3).
       // HU #14332–#14335: la gestión unificada entra y las escrituras viejas salen; `crear` y `eliminar` quedan con una guarda.
       ['parametrizacion.proveedores.editar', 2],
-      ['parametrizacion.proveedores.estado', 4], ['parametrizacion.proveedores.listar', 6],
-      // Épica #13763 (ADR-0041 D8): los costos de proveedor reutilizan las funciones de las tarifas (lista y vista con ).
+      ['parametrizacion.proveedores.estado', 2], ['parametrizacion.proveedores.listar', 4],
+      // Épica #13763 (ADR-0041 D8): los costos de proveedor reutilizan las funciones de las tarifas (lista y vista con `listar`).
       ['parametrizacion.tarifas.crear', 2], ['parametrizacion.tarifas.editar', 2], ['parametrizacion.tarifas.historial', 2],
       ['parametrizacion.tarifas.listar', 3],
       ['permisos.catalogo.ver', 2], ['permisos.cuadro.ver', 2],

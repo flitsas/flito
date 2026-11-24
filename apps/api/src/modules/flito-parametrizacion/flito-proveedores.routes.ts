@@ -1,6 +1,6 @@
 // HU #14332, #14333, #14334 y #14335 (Feature #14324, ADR-0039 §7.1) — `/api/flito/parametrizacion/proveedores`.
 // Montado en `app.ts` antes del router general y SIN `conAlcance`: nace cerrado a todo enlace. Es la única vía de escritura de
-// proveedores. De `proveedores-soat` y `proveedores-logistica` solo quedan lecturas, hasta F5.
+// proveedores, y desde la HU #14354 (F5) también la única de lectura: `proveedores-soat` y `proveedores-logistica` se retiraron.
 //
 // Frente a §7.1: `PATCH /:id` también recibe `servicios` (datos y servicios en una sola transacción) y por eso no hay
 // `POST /:id/servicios/:servicio`. `DELETE` se conserva: HU #14333 AC8 pide 422 para el segundo de dos retiros simultáneos,
@@ -20,12 +20,11 @@ import { historialProveedor } from './flito-proveedores-auditoria.js';
 import { editarProveedor } from './flito-proveedores-edicion.service.js';
 import { ProveedorNoEliminableError, eliminarProveedor } from './flito-proveedores-eliminar.service.js';
 import { EstadoProveedorCambiadoError, cambiarEstadoProveedor, impactoProveedor } from './flito-proveedores-estado.service.js';
-import { NIT_VALIDO, normalizarNit } from './flito-proveedores-logistica.service.js';
 import { ServicioNoPrestadoError, ServicioNoQuitableError, quitarServicio } from './flito-proveedores-servicios.service.js';
 import {
   DatosSoatInvalidosError, GeneralesIncompletosError, ProveedorDuplicadoError, ProveedorEditadoPorOtroError, ProveedorNoEncontradoError,
-  ProveedorSinServicioError, crearProveedor, detalleProveedor, existeProveedor, listarProveedores, proveedoresAsignablesAUsuario,
-  selectorProveedores,
+  NIT_VALIDO, ProveedorSinServicioError, crearProveedor, detalleProveedor, existeProveedor, listarProveedores, normalizarNit,
+  proveedoresAsignablesAUsuario, selectorProveedores,
 } from './flito-proveedores.service.js';
 
 const router = Router();

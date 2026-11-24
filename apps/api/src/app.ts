@@ -40,7 +40,6 @@ import flitoVistasColumnasRoutes from './modules/flito-vistas-columnas/flito-vis
 import flitoTableroRoutes from './modules/flito-tablero/flito-tablero.routes.js';
 import flitoDrFlitRoutes from './modules/flito-dr-flit/dr-flit.routes.js';
 import flitoBitacoraRoutes from './modules/flito-bitacora/flito-bitacora.routes.js';
-import flitoProveedoresLogisticaRoutes from './modules/flito-parametrizacion/flito-proveedores-logistica.routes.js';
 import flitoProveedoresRoutes from './modules/flito-parametrizacion/flito-proveedores.routes.js';
 import flitoTarifasProveedorRoutes from './modules/flito-parametrizacion/flito-tarifas-proveedor.routes.js';
 import flitoLogisticaRoutes from './modules/flito-logistica/flito-logistica.routes.js';
@@ -269,8 +268,6 @@ export function createApp() {
   app.use('/api', integracionesRoutes); // TRAM-F3: /simit/consulta, /fasecolda/buscar, /mercadolibre/precio
   app.use('/api/vehicles', ocrRoutes);
   app.use('/api/clients', clientsRoutes);
-  // HU #14103: proveedores de logística (antes del router general, que comparte prefijo).
-  app.use('/api/flito/parametrizacion/proveedores-logistica', flitoProveedoresLogisticaRoutes);
   // HU #14332: gestión unificada (ADR-0039 §7.1). SIN `conAlcance`: cerrada a todo enlace. Antes del router general.
   app.use('/api/flito/parametrizacion/proveedores', flitoProveedoresRoutes);
   // Épica #13763 (ADR-0041): costo de cada proveedor. SIN `conAlcance`: cerrada a todo enlace. Antes del router general.
