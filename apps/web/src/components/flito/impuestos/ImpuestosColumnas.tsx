@@ -8,14 +8,14 @@
 // certificación/semáforo RUNT, dentro de la celda de Estado: son señales de la misma intención, igual
 // que la vigencia RUNT en la celda de Estado del SOAT.
 import type { ReactNode } from 'react';
-import { ESTADO_IMPUESTO_LABEL, EstadoImpuesto } from '@operaciones/shared-types';
+import { EstadoImpuesto } from '@operaciones/shared-types';
 import type { ColumnaTabla } from '../../flit/DataTable';
 import StatusChip from '../../flit/StatusChip';
 import AntiguedadPill from '../../flit/AntiguedadPill';
 import ChipSinGestion from '../../flit/ChipSinGestion';
-import { ChipDocumentos, TONO_IMPUESTO as TONO, fecha, pesos, type ImpuestoItem } from '../ImpuestoCola';
+import ChipEstadoImpuesto from './ChipEstadoImpuesto';
+import { ChipDocumentos, fecha, pesos, type ImpuestoItem } from '../ImpuestoCola';
 
-const SUAVE = 'text-[color:var(--color-text-secondary)]';
 const TENUE = 'text-[color:var(--color-text-tertiary)]';
 
 export interface ContextoColumnas {
@@ -47,12 +47,14 @@ export function columnasImpuestos({ seleccion, accionCertificacion, acciones }: 
       ),
     }] : []),
     {
+      // Misma estructura que `CeldaVehiculoSoat` (Épica #14560, ronda 2): placa en negrita, VIN en mono
+      // pequeño y UNA línea descriptiva, que aquí es el trámite FLIT.
       key: 'vehiculo', header: 'Vehículo',
       render: (f) => (
-        <div>
-          <div className="text-sm font-semibold">{f.placa ?? '—'}</div>
-          <div className={`mono text-[11px] ${SUAVE}`}>{f.vin ?? '—'}</div>
-          <div className={`text-xs ${TENUE}`}>
+        <div className="align-top">
+          <span className="text-sm font-semibold">{f.placa ?? '—'}</span>
+          <div className="font-mono text-[11px]" style={{ color: 'var(--color-text-secondary)' }}>{f.vin ?? '—'}</div>
+          <div className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             Trámite FLIT <span className="tabular-nums">{f.idFlit ?? '—'}</span>
             {f.tipoTramite && <> · {f.tipoTramite}</>}
           </div>
@@ -66,7 +68,7 @@ export function columnasImpuestos({ seleccion, accionCertificacion, acciones }: 
         // apilarlos daba cuatro alturas por fila y una cola mucho más alta que antes.
         <div className="flex flex-col items-start gap-1">
           <div className="flex flex-wrap items-center gap-1">
-            <StatusChip tone={TONO[f.estado]}>{ESTADO_IMPUESTO_LABEL[f.estado]}</StatusChip>
+            <ChipEstadoImpuesto estado={f.estado} />
             {f.estancado && <ChipSinGestion desde={f.enviadoEn} />}
             {f.marcadoPorDiferencia && <StatusChip tone="warning">Diferencia de valor</StatusChip>}
             <ChipDocumentos imp={f} />
@@ -81,16 +83,22 @@ export function columnasImpuestos({ seleccion, accionCertificacion, acciones }: 
       // casos, porque el impuesto se paga ante él igual; el distintivo lleva texto y no solo color.
       key: 'gestiona', header: 'Gestiona',
       render: (f) => {
-        // Antes eran dos columnas (Organismo y Gestiona); ahora una, con el organismo debajo.
+        // Misma estructura que el «Gestiona» del SOAT: quién gestiona en la primera línea (el nombre, o
+        // el chip «Operaciones» si se retomó) y debajo, en pequeño, el dato que lo completa.
         const organismo = f.organismoNombre ?? f.organismoCodigo;
-        return (
-          <div className="text-sm">
-            {f.gestionOperaciones
-              ? <StatusChip tone="warning">Operaciones</StatusChip>
-              : <span>Gestor del organismo</span>}
-            {organismo && <div className={`mt-0.5 text-xs ${TENUE}`}>{organismo}</div>}
-          </div>
-        );
+        return f.gestionOperaciones
+          ? (
+            <div className="text-sm">
+              <StatusChip tone="warning">Operaciones</StatusChip>
+              {organismo && <div className={`mt-0.5 text-xs ${TENUE}`}>{organismo}</div>}
+            </div>
+          )
+          : (
+            <div className="text-sm">
+              <span>{organismo ?? '—'}</span>
+              <div className={`mt-0.5 text-xs ${TENUE}`}>Gestor del organismo</div>
+            </div>
+          );
       },
     },
     {
