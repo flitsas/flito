@@ -218,7 +218,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       ['bolsas.movimientos.ver', 2], ['bolsas.recarga.registrar', 2],
       ['bolsas.transito.inactivar', 2],
       ['derechos.cola.ver', 2],
-      ['impuestos.certificacion_directa.gestionar', 12], ['impuestos.cola.ver', 2],
+      ['impuestos.cola.ver', 2],
       ['logistica.actas.despachar', 2], ['logistica.actas.devolver', 2], ['logistica.actas.entregar', 2],
       ['logistica.consola.ver', 2],
       ['logistica.documento.escanear', 2], ['logistica.documento.resolver_tramite', 3],
