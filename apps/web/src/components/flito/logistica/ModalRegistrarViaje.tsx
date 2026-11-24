@@ -18,8 +18,8 @@ import {
 import FlitModal from '../../flit/FlitModal';
 import { FlitField, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle, flitInp } from '../../flit/flitPageKit';
 
-const MUTED = { color: 'var(--flit-text-muted)' } as const;
-const PELIGRO = { color: 'var(--flit-danger-ink)' } as const;
+const MUTED = { color: 'var(--color-text-tertiary)' } as const;
+const PELIGRO = { color: 'var(--kit-rojo-texto)' } as const;
 
 export default function ModalRegistrarViaje({
   tramiteId, idFlit, tarifaVigente, onClose, onRegistrado, onFallo, restoreFocusRef,
@@ -95,7 +95,7 @@ export default function ModalRegistrarViaje({
         )}
 
         <fieldset className="mt-3">
-          <legend className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Precio</legend>
+          <legend className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>Precio</legend>
           <label className="flex items-start gap-2 text-sm">
             <input type="radio" name="modo" value="inicial" className="mt-1" checked={form.modo === 'inicial'}
               disabled={sinTarifa} onChange={() => cambiar({ modo: 'inicial' })} />

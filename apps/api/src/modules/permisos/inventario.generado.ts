@@ -117,6 +117,8 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "tramites", fichero: "flito-tramites/flito-tramites.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor"], heredada: false },
   { modulo: "tramites", fichero: "flito-tramites/flito-tramites.routes.ts", metodo: "GET", ruta: "/facetas", roles: ["admin","auditor"], heredada: false },
   { modulo: "tramites", fichero: "flito-tramites/flito-tramites.routes.ts", metodo: "GET", ruta: "/:id/historial", roles: ["admin","auditor"], heredada: false },
+  // Épica #14560 (ADR-0046): el detalle del trámite; reutiliza `tramites.cola.ver` (mismos roles que el listado).
+  { modulo: "tramites", fichero: "flito-tramites/flito-tramites.routes.ts", metodo: "GET", ruta: "/:id/detalle", roles: ["admin","auditor"], heredada: false },
   { modulo: "tramites", fichero: "flito-tramites/flito-tramites.routes.ts", metodo: "GET", ruta: "/:id/soportes", roles: ["admin","auditor"], heredada: false },
   { modulo: "tramites", fichero: "flito-tramites/flito-tramites.routes.ts", metodo: "POST", ruta: "/soportes/zip", roles: ["admin"], heredada: false },
   { modulo: "tramites", fichero: "flito-tramites/flito-tramites.routes.ts", metodo: "POST", ruta: "/crear-empresa", roles: ["admin"], heredada: false },
@@ -618,6 +620,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "finanzas", fichero: "finanzas/finanzas.routes.ts", metodo: "GET", ruta: "/reporte-costos/facetas", roles: ["admin","auditor","financiera"], heredada: false },
   { modulo: "finanzas", fichero: "finanzas/finanzas.routes.ts", metodo: "GET", ruta: "/reporte-costos/facturacion-electronica", roles: ["admin","auditor","financiera"], heredada: false },
   { modulo: "finanzas", fichero: "finanzas/finanzas.routes.ts", metodo: "GET", ruta: "/reporte-costos/consolidado", roles: ["admin","auditor","financiera"], heredada: false },
+  { modulo: "finanzas", fichero: "finanzas/finanzas.routes.ts", metodo: "GET", ruta: "/reporte-costos/totales", roles: ["admin","auditor","financiera"], heredada: false }, // Épica #14560
   { modulo: "finanzas", fichero: "finanzas/finanzas.routes.ts", metodo: "POST", ruta: "/reporte-costos/export", roles: ["admin","auditor","financiera"], heredada: false },
   { modulo: "finanzas", fichero: "finanzas/finanzas.routes.ts", metodo: "POST", ruta: "/reporte-costos/consolidado/export", roles: ["admin","auditor","financiera"], heredada: false },
   { modulo: "finanzas", fichero: "finanzas/finanzas.routes.ts", metodo: "GET", ruta: "/tramites/:id/soportes", roles: ["admin","auditor","financiera"], heredada: false },
@@ -779,4 +782,8 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "drflit", fichero: "flito-dr-flit/dr-flit.funciones.ts", metodo: "POST", ruta: "*", condicion: "usar_ia", roles: [], heredada: false },
   { modulo: "drflit", fichero: "flito-dr-flit/dr-flit.funciones.ts", metodo: "POST", ruta: "*", condicion: "radicar_soporte", roles: [], heredada: false },
   { modulo: "drflit", fichero: "flito-dr-flit/dr-flit.funciones.ts", metodo: "POST", ruta: "*", condicion: "consultar_gestion", roles: [], heredada: false },
+  // Épica #14560 (ADR-0045): administrar vistas de columnas (antes decidía el nombre del rol, HU #13425 AC6). Nace en
+  // el árbol (0305): solo `admin`. La general en la ruta; las compartidas en línea (`actorDe`).
+  { modulo: "tramites", fichero: "flito-vistas-columnas/flito-vistas-columnas.routes.ts", metodo: "PUT", ruta: "/:tablaId/predeterminada/general", roles: ["admin"], heredada: false },
+  { modulo: "tramites", fichero: "flito-vistas-columnas/flito-vistas-columnas.routes.ts", metodo: "POST", ruta: "*", condicion: "compartidas", roles: ["admin"], heredada: false },
 ];

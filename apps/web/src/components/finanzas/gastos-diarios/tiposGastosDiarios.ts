@@ -31,8 +31,8 @@ export interface CategoriaGasto {
 export type PatronSerie = 'solido' | 'rayas' | 'puntos' | 'lineas' | 'cruz';
 
 export interface SerieGrafica {
-  /** Token CSS de `flit-tokens.css` (`--flit-serie-*`), con par claro/oscuro; nunca un hex. */
-  token: `--flit-serie-${string}`;
+  /** Color de serie del kit (`--kit-*`, la paleta de `SERIE_KIT`), con par claro/oscuro; nunca un hex. */
+  token: `--kit-${string}`;
   patron: PatronSerie;
 }
 
@@ -44,16 +44,16 @@ const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno
  */
 export const CATEGORIAS: readonly CategoriaGasto[] = [
   { clave: 'soat', titulo: 'SOAT', rotulo: 'SOAT pagados', cuando: 'Pólizas pagadas, el día del pago.',
-    conteo: (n) => plural(n, 'pagado', 'pagados'), serie: { token: '--flit-serie-soat', patron: 'solido' } },
+    conteo: (n) => plural(n, 'pagado', 'pagados'), serie: { token: '--kit-azul', patron: 'solido' } },
   { clave: 'impuesto', titulo: 'Impuestos', rotulo: 'Impuestos pagados', cuando: 'Recibos pagados, el día del pago.',
-    conteo: (n) => plural(n, 'pagado', 'pagados'), serie: { token: '--flit-serie-impuesto', patron: 'rayas' } },
+    conteo: (n) => plural(n, 'pagado', 'pagados'), serie: { token: '--kit-turquesa', patron: 'rayas' } },
   { clave: 'derecho', titulo: 'Derechos de trámite', rotulo: 'Derechos pagados', cuando: 'Derechos con fecha de pago, ese día.',
-    conteo: (n) => plural(n, 'pagado', 'pagados'), serie: { token: '--flit-serie-derecho', patron: 'puntos' } },
+    conteo: (n) => plural(n, 'pagado', 'pagados'), serie: { token: '--kit-verde', patron: 'puntos' } },
   { clave: 'logistica', titulo: 'Logística', rotulo: 'Trámites con logística', cuando: 'Trámites con logística, el día de aprobación del trámite.',
     conteo: (n) => plural(n, 'trámite con logística', 'trámites con logística'),
-    serie: { token: '--flit-serie-logistica', patron: 'lineas' } },
+    serie: { token: '--kit-naranja', patron: 'lineas' } },
   { clave: 'serviciosAdicionales', titulo: 'Servicios adicionales', rotulo: 'Servicios asignados', cuando: 'Cada servicio asignado, el día en que se asignó.',
-    conteo: (n) => plural(n, 'asignado', 'asignados'), serie: { token: '--flit-serie-servicios', patron: 'cruz' } },
+    conteo: (n) => plural(n, 'asignado', 'asignados'), serie: { token: '--kit-gris', patron: 'cruz' } },
 ];
 
 /** Rótulos del bloque Total (AC4). La palabra «estimado» acompaña al GMF: es un mutante del AC9. */

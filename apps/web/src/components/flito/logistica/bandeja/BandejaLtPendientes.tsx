@@ -1,7 +1,9 @@
 // HU #14149 — Pestaña «LT pendientes» de Logística (diseño: docs/ux/logistica-bandeja-lt-pendientes-14149-full.md).
 // Filtros y orden en el cliente: la placa nunca sale del navegador (ni URL, ni consola).
 import { useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp } from 'lucide-react';
+import { iconoComo } from '../../../flit/kit/iconoComo';
+const ArrowDown = iconoComo('abajo');
+const ArrowUp = iconoComo('arriba');
 import {
   FlitCard, FlitEmpty, FlitPillButton, FlitPillGroup, FlitTable, FlitTh, FlitTr, flitBtnSecondary, flitBtnSecondaryStyle, flitInp,
 } from '../../../flit/flitPageKit';
@@ -11,7 +13,7 @@ import ElegirTramiteModal, { type ResultadoModal } from './ElegirTramiteModal';
 import { TOPE_BANDEJA, fechaHora, textoAntiguedad, textoCandidatos, type PendienteLt } from './tipos';
 
 type FiltroFirma = 'todas' | 'con' | 'sin';
-const mutedStyle = { color: 'var(--flit-text-muted)' } as const;
+const mutedStyle = { color: 'var(--color-text-tertiary)' } as const;
 
 interface Props { items: PendienteLt[] | null; cargando: boolean; error: boolean; recargar: () => Promise<void> | void }
 
@@ -73,14 +75,14 @@ export default function BandejaLtPendientes({ items, cargando, error, recargar }
       {primeraCarga && (
         <FlitCard>
           <div className="mt-0 space-y-2" role="status" aria-label="Cargando LT pendientes">
-            {[0, 1, 2, 3, 4].map((i) => <div key={i} className="h-12 animate-pulse rounded-lg" style={{ background: 'var(--flit-border-soft)' }} />)}
+            {[0, 1, 2, 3, 4].map((i) => <div key={i} className="kit-esqueleto h-12" />)}
           </div>
         </FlitCard>
       )}
 
       {error && (
         <FlitCard>
-          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
             <span>No pudimos cargar las LT pendientes. Revisa tu conexión e inténtalo de nuevo.</span>
             <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => void recargar()}>Reintentar</button>
           </div>
@@ -100,7 +102,7 @@ export default function BandejaLtPendientes({ items, cargando, error, recargar }
                 Ninguna LT coincide con tu búsqueda. Quita el filtro de firma o prueba con otra placa.{' '}
                 {filtrando && (
                   <button type="button" onClick={limpiar}
-                    className="flit-focus rounded px-1 font-semibold transition-colors hover:bg-[var(--flit-bg-hover)] hover:underline" style={{ color: 'var(--flit-blue-text)' }}>Limpiar filtros</button>
+                    className="flit-focus rounded px-1 font-semibold transition-colors hover:bg-[var(--kit-hover)] hover:underline" style={{ color: 'var(--color-action)' }}>Limpiar filtros</button>
                 )}
               </FlitEmpty>
             </FlitCard>
@@ -114,7 +116,7 @@ export default function BandejaLtPendientes({ items, cargando, error, recargar }
                         <FlitTh>Placa</FlitTh><FlitTh>Organismo</FlitTh><FlitTh>Recogida</FlitTh>
                         <FlitTh ariaSort={masAntiguaPrimero ? 'descending' : 'ascending'}>
                           <button type="button" onClick={() => setOrden((v) => !v)}
-                            className="flit-focus inline-flex cursor-pointer items-center gap-1 rounded px-1 py-0.5 uppercase tracking-wide transition-colors hover:bg-[var(--flit-bg-hover)] hover:text-[color:var(--flit-text-primary)]">
+                            className="flit-focus inline-flex cursor-pointer items-center gap-1 rounded px-1 py-0.5 uppercase tracking-wide transition-colors hover:bg-[var(--kit-hover)] hover:text-[color:var(--color-text-primary)]">
                             Antigüedad {masAntiguaPrimero ? <ArrowDown size={12} aria-hidden="true" /> : <ArrowUp size={12} aria-hidden="true" />}
                             <span className="sr-only">{masAntiguaPrimero ? ', más antigua primero' : ', más reciente primero'}</span>
                           </button>
@@ -135,7 +137,7 @@ export default function BandejaLtPendientes({ items, cargando, error, recargar }
                           <td className="px-4 py-2"><ChipFirma firmada={l.firmada} /></td>
                           <td className="px-4 py-2">
                             <button type="button" onClick={() => setAbierta(l)}
-                              className="flit-focus cursor-pointer rounded px-2 py-1 text-xs font-semibold transition-colors hover:bg-[var(--flit-bg-hover)] hover:underline" style={{ color: 'var(--flit-blue-text)' }}>
+                              className="flit-focus cursor-pointer rounded px-2 py-1 text-xs font-semibold transition-colors hover:bg-[var(--kit-hover)] hover:underline" style={{ color: 'var(--color-action)' }}>
                               Elegir trámite<span className="sr-only"> de {l.placa ?? 'la LT'}</span>
                             </button>
                           </td>

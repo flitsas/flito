@@ -1,4 +1,4 @@
-// FLITO — Comparendos: paginación por cursor (HU #11560, AC5 y AC6).
+// FLITO — Comparendos: paginación por cursor (HU 11560, AC5 y AC6).
 //
 // `Paginacion.tsx` no se reutiliza y no es un descuido: exige `total`, `page` y `totalPaginas`, y su
 // contador —«1.284 registros · página 3 de 26»— **es su razón de existir**. El API pagina por cursor
@@ -12,8 +12,11 @@
 // dice «de 1.284» ni «página 3 de 47» porque nadie lo sabe. Y la última página no lleva ningún
 // cartel de «fin de la lista»: los dos botones inhabilitados ya lo dicen.
 
-const BTN = 'flit-focus rounded-lg border px-3 py-1.5 text-sm font-semibold disabled:opacity-40';
-const BTN_ESTILO = { borderColor: 'var(--flit-border-input)', color: 'var(--flit-blue-text)' } as const;
+// UI Kit 2026: mismas piezas que `Paginacion` (`.paginador`, texto gris, botones redondos con hover del
+// kit). No delega en su modo cursor porque ese modo pinta solo «Página N» y flechas sin texto, y aquí
+// el contador («N comparendos en esta página · página N») y los rótulos «← Anterior» / «Siguiente →»
+// son contrato (specs E2E y conciliación de boletas).
+const BTN = 'paginador__flecha flit-focus inline-flex h-10 items-center rounded-full border border-[var(--color-border-control)] px-4 text-sm font-semibold text-[color:var(--color-action)] transition-colors hover:bg-[var(--kit-hover)] disabled:opacity-40 disabled:hover:bg-transparent';
 
 interface Props {
   /** Filas de la página actual. No es un total: el API no devuelve ninguno. */
@@ -22,7 +25,7 @@ interface Props {
    * Qué se está contando. Por defecto «comparendos», que es de donde viene el componente.
    *
    * Se abre como prop —igual que el `sustantivo` de `Paginacion.tsx`— porque la conciliación de
-   * boletas pagina también por cursor (HU #11680) y la alternativa era copiar el componente entero
+   * boletas pagina también por cursor (HU 11680) y la alternativa era copiar el componente entero
    * para cambiar una palabra: dos paginaciones idénticas que el día que cambie una se separan.
    */
   sustantivo?: string;
@@ -38,22 +41,22 @@ export default function PaginacionCursor({
   sustantivo = 'comparendos',
 }: Props) {
   return (
-    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-      <span className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-        <strong style={{ color: 'var(--flit-text-primary)' }}>
+    <div className="kit-paginacion paginador mt-3 flex flex-wrap items-center justify-between gap-2" data-kit="paginacion">
+      <span className="paginador__texto text-sm">
+        <strong className="text-[color:var(--color-text-primary)]">
           {enEstaPagina.toLocaleString('es-CO')}
         </strong>
         {' '}{sustantivo} en esta página · página {pagina}
       </span>
       <div className="flex gap-2">
         <button
-          type="button" className={BTN} style={BTN_ESTILO}
+          type="button" className={BTN}
           disabled={!hayAnterior} onClick={onAnterior}
         >
           ← Anterior
         </button>
         <button
-          type="button" className={BTN} style={BTN_ESTILO}
+          type="button" className={BTN}
           disabled={!haySiguiente} onClick={onSiguiente}
         >
           Siguiente →

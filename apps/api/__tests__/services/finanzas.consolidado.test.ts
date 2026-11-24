@@ -200,7 +200,9 @@ describe('AC1 — consolidado por cliente y mes (CF-12, RN-02, RN-06)', () => {
     expect(r.periodo).toBe('mes');
     expect(r.items.map((i) => [i.clienteNombre, i.periodo])).toEqual([['ACME', '2026-09']]);
     // Mutante «el servicio ignora el periodo pedido»: el select que llegó a la base llevaría otra expresión.
-    const proyeccion = kdb.select.mock.calls[0]![0] as ReturnType<typeof selectConsolidado>;
+    // El select de los grupos corre dentro de `sinJit` (una transacción), así que ya no es la primera
+    // llamada: el del maestro de clientes sale antes. Se busca por su forma, no por su posición.
+    const proyeccion = kdb.select.mock.calls.map((c) => c[0]).find((p) => p && 'periodo' in p) as ReturnType<typeof selectConsolidado>;
     expect(proyeccion.periodo).toBe(EXPR_PERIODO.mes);
   });
 });

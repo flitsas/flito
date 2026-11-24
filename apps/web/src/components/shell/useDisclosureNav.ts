@@ -16,35 +16,41 @@ import type { NavItem } from './navItems';
 //  · ⌘K/Ctrl+K cierra, para que el Escape de la CommandPalette no compita con
 //    el listener de Escape de la barra.
 
-export interface DisclosureNav {
+export interface DisclosureNav<S extends string = NavItem['section']> {
   /** Módulo con el panel abierto, o null. */
-  openSection: NavItem['section'] | null;
+  openSection: S | null;
   /** Abre el módulo, o lo cierra si ya estaba abierto. */
-  toggle: (section: NavItem['section']) => void;
+  toggle: (section: S) => void;
   close: () => void;
   /** Va en el contenedor <nav>: delimita el "fuera" del click-outside. */
   navRef: React.RefObject<HTMLElement>;
   /** id del trigger de un módulo; el refoco tras Escape depende de él. */
-  triggerId: (section: NavItem['section']) => string;
-  panelId: (section: NavItem['section']) => string;
+  triggerId: (section: S) => string;
+  panelId: (section: S) => string;
 }
 
-export function useDisclosureNav(idPrefix: string): DisclosureNav {
+export function useDisclosureNav<S extends string = NavItem['section']>(
+  idPrefix: string,
+  /** Paneles que viven fuera de `navRef` (portal a <body>): pulsar dentro de ellos no cierra. */
+  extraRefs: ReadonlyArray<React.RefObject<HTMLElement | null>> = [],
+): DisclosureNav<S> {
   const { pathname } = useLocation();
   const navRef = useRef<HTMLElement>(null);
-  const [openSection, setOpenSection] = useState<NavItem['section'] | null>(null);
+  const extraRefsRef = useRef(extraRefs);
+  extraRefsRef.current = extraRefs;
+  const [openSection, setOpenSection] = useState<S | null>(null);
 
   const triggerId = useCallback(
-    (section: NavItem['section']) => `${idPrefix}-trigger-${section}`,
+    (section: S) => `${idPrefix}-trigger-${section}`,
     [idPrefix],
   );
   const panelId = useCallback(
-    (section: NavItem['section']) => `${idPrefix}-panel-${section}`,
+    (section: S) => `${idPrefix}-panel-${section}`,
     [idPrefix],
   );
 
   const close = useCallback(() => setOpenSection(null), []);
-  const toggle = useCallback((section: NavItem['section']) => {
+  const toggle = useCallback((section: S) => {
     setOpenSection((prev) => (prev === section ? null : section));
   }, []);
 
@@ -53,7 +59,8 @@ export function useDisclosureNav(idPrefix: string): DisclosureNav {
   useEffect(() => {
     if (!openSection) return;
     const onPointerDown = (e: PointerEvent) => {
-      if (!navRef.current?.contains(e.target as Node)) setOpenSection(null);
+      const t = e.target as Node;
+      if (!navRef.current?.contains(t) && !extraRefsRef.current.some((r) => r.current?.contains(t))) setOpenSection(null);
     };
     window.addEventListener('pointerdown', onPointerDown);
     return () => window.removeEventListener('pointerdown', onPointerDown);

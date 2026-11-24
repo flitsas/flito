@@ -126,7 +126,7 @@ function Tabla({ filas, verPropietario, verDetalle, puedeNovedad, onDetalle, onN
               <FlitTr key={f.tramiteId}>
                 <td className="px-4 py-2">
                   <div className="text-sm font-medium tabular-nums">{f.placa ?? '—'}</div>
-                  <div className="text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.idFlit}</div>
+                  <div className="text-xs tabular-nums" style={{ color: 'var(--color-text-tertiary)' }}>{f.idFlit}</div>
                 </td>
                 {verPropietario && <td className="px-4 py-2 text-sm">{f.propietario ?? '—'}</td>}
                 <td className="px-4 py-2 text-sm">{f.companiaNombre ?? f.companiaNit ?? '—'}</td>
@@ -134,7 +134,7 @@ function Tabla({ filas, verPropietario, verDetalle, puedeNovedad, onDetalle, onN
                 <td className="px-4 py-2 text-sm tabular-nums">{f.numeroLt ?? '—'}</td>
                 <td className="px-4 py-2">
                   <StatusChip tone={TONO_SIMPLE[f.estadoSimple]}>{f.estadoSimpleLabel}</StatusChip>
-                  {f.motivo && <div className="mt-1 text-xs" style={{ color: 'var(--flit-danger-text)' }}>{f.motivo}</div>}
+                  {f.motivo && <div className="mt-1 text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>{f.motivo}</div>}
                 </td>
                 <td className="px-4 py-2">
                   <div className="flex flex-wrap gap-1">
@@ -158,15 +158,15 @@ function Tarjetas({ filas, verPropietario, verDetalle, puedeNovedad, onDetalle, 
         const placa = f.placa ?? f.idFlit;
         return (
           <li key={f.tramiteId}>
-            <article className="rounded-xl border bg-flit-card p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
+            <article className="rounded-xl border bg-flit-card p-3" style={{ borderColor: 'var(--color-border)' }}>
               <div className="flex items-start justify-between gap-2">
-                <span className="font-semibold tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>{f.placa ?? '—'}</span>
+                <span className="font-semibold tabular-nums" style={{ color: 'var(--color-text-primary)' }}>{f.placa ?? '—'}</span>
                 <StatusChip tone={TONO_SIMPLE[f.estadoSimple]}>{f.estadoSimpleLabel}</StatusChip>
               </div>
-              <div className="mt-1 text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{f.idFlit} · {f.numeroLt ?? '—'}</div>
-              <div className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{f.companiaNombre ?? f.companiaNit ?? '—'}</div>
-              {verPropietario && f.propietario && <div className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{f.propietario}</div>}
-              {f.motivo && <div className="mt-1 text-xs" style={{ color: 'var(--flit-danger-text)' }}>{f.motivo}</div>}
+              <div className="mt-1 text-xs tabular-nums" style={{ color: 'var(--color-text-tertiary)' }}>{f.idFlit} · {f.numeroLt ?? '—'}</div>
+              <div className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{f.companiaNombre ?? f.companiaNit ?? '—'}</div>
+              {verPropietario && f.propietario && <div className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{f.propietario}</div>}
+              {f.motivo && <div className="mt-1 text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>{f.motivo}</div>}
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                 {verDetalle && <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} aria-label={`Detalle de ${placa}`} onClick={() => onDetalle(f)}>Detalle</button>}
                 {hayNovedad(f, puedeNovedad) && <BotonTarjetaPeligro aria={`Novedad de ${placa}`} onClick={() => onNovedad(f.docId!)}>Novedad</BotonTarjetaPeligro>}

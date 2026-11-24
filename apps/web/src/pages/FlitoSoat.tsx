@@ -6,7 +6,6 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { CircleAlert, Lock, Plus, RotateCw, Upload } from 'lucide-react';
 import {
   ANS_OPERATIVO, EstadoSoat, type FiltroVigenciaCola, type SolicitudIncompletaFila,
 } from '@operaciones/shared-types';
@@ -24,11 +23,11 @@ import { AvisoSoportesZip, ZIP_SOAT, useDescargaZip } from '../components/flito/
 import { useDescargaComprobante } from '../components/flito/DescargarComprobanteSoat';
 import useDebounce from '../lib/useDebounce';
 import { conEnlace, vacioConEnlace } from '../lib/copyEnlace';
-import {
-  FlitCard, FlitEmpty, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary,
-} from '../components/flit/flitPageKit';
+import { FlitCard, FlitEmpty } from '../components/flit/flitPageKit';
+import GradientButton, { claseBoton } from '../components/flit/GradientButton';
+import { Icono } from '../components/flit/kit/Icono';
 import { toastError, toastOk } from '../components/flit/ToastFlito';
-// Las piezas de la cola viven en `components/flito/soat/` desde la HU #12819 (techo de 800 líneas).
+// Las piezas de la cola viven en `components/flito/soat/` desde la HU 12819 (techo de 800 líneas).
 import {
   ESTADOS_ADMIN, ESTADOS_CLIENTE, ESTADOS_GESTOR, esPastillaIncompleta,
   type ColaSoat, type FacetasSoat, type FiltroEstadoSoat,
@@ -41,7 +40,7 @@ import DetalleIncompletaSoat from '../components/flito/soat/DetalleIncompletaSoa
 import useIncompletasSoat from '../components/flito/soat/useIncompletasSoat';
 import useReintentoRunt, { FUNCION_REINTENTAR_RUNT } from '../components/flito/soat/useReintentoRunt';
 
-/** Vacíos literales de las pastillas nuevas (UX §4, HU #12997). */
+/** Vacíos literales de las pastillas nuevas (UX §4, HU 12997). */
 const VACIO_INCOMPLETAS = {
   incompleta: 'No hay solicitudes por validar. Aquí quedan las que esperan al RUNT, la factura de venta o los datos del propietario.',
   descartada: 'No hay solicitudes descartadas. Aquí quedan, sin borrarse, las que el RUNT no dejó continuar.',
@@ -49,16 +48,19 @@ const VACIO_INCOMPLETAS = {
 
 /** Acciones de cabecera: a ancho completo por debajo de `sm`, la primaria primero (§14). */
 const ACCION_CABECERA = 'w-full justify-center sm:w-auto';
+/** Cabecera del módulo (UI Kit 2026): ícono del mapa FLITO y miga del grupo del dock. */
+const ICONO_SOAT = 'flito-soat';
+const MIGA_SOAT = [{ etiqueta: 'Impuestos y SOAT' }];
 
 export default function FlitoSoat() {
   const { user, hasFuncion, funciones, tipoEnlace } = useAuth();
-  // HU #12170: modos de UI derivados de funciones del catálogo, no de `role ===`.
+  // HU 12170: modos de UI derivados de funciones del catálogo, no de `role ===`.
   const esOperaciones = hasFuncion('soat.solicitud.enviar');
   const esGestor = hasFuncion('soat.comprobante.cargar') && !esOperaciones;
   const soloLectura = hasFuncion('soat.cola.ver') && !hasFuncion('soat.comprobante.cargar') && !esOperaciones;
   // Canal cliente: tiene radicar y no envía a gestor (admin tiene ambas → operaciones).
   const esCliente = hasFuncion('soat.solicitud.crear') && !esOperaciones;
-  // La capacidad de radicar (HU #11914). Sale de `/auth/me`, así que resuelve ANTES que la cola y el
+  // La capacidad de radicar (HU 11914). Sale de `/auth/me`, así que resuelve ANTES que la cola y el
   // botón no parpadea de «puedo» a «no puedo». No es la frontera: los dos endpoints del canal la
   // vuelven a comprobar y responden 403.
   const puedeSolicitar = puedeSolicitarSoat(user);
@@ -67,17 +69,17 @@ export default function FlitoSoat() {
   const sinFuncionesPantalla = funciones !== null
     && !hasFuncion('soat.cola.ver') && !hasFuncion('soat.solicitud.crear');
 
-  // HU #12997: las solicitudes aparcadas porque el RUNT no respondió. Al gestor NUNCA, aunque su rol
+  // HU 12997: las solicitudes aparcadas porque el RUNT no respondió. Al gestor NUNCA, aunque su rol
   // traiga la función: las incompletas no le llegan y su cola no cambia (UX §3.2) — ni pastillas ni
   // una sola petición a `buscar`.
   const conIncompletas = hasFuncion('soat.incompletas.buscar') && !esGestor;
   const puedeVerIncompleta = hasFuncion('soat.incompleta.ver');
-  // HU #12998: sin la función el botón no se pinta (ni en la fila ni en el detalle).
+  // HU 12998: sin la función el botón no se pinta (ni en la fila ni en el detalle).
   const puedeReintentar = hasFuncion(FUNCION_REINTENTAR_RUNT);
-  // HU #14137: completar una pendiente de la carga masiva (factura, propietario, crear) = la función del alta.
+  // HU 14137: completar una pendiente de la carga masiva (factura, propietario, crear) = la función del alta.
   const puedeCompletar = hasFuncion('soat.solicitud.crear');
-  // HU #12872 (AC4): cada acción del detalle por la función de su endpoint, una por una.
-  // HU #13452: el catálogo de proveedores vive en parametrización, cerrada a todo enlace (#12875).
+  // HU 12872 (AC4): cada acción del detalle por la función de su endpoint, una por una.
+  // HU 13452: el catálogo de proveedores vive en parametrización, cerrada a todo enlace (12875).
   // Enviar, cambiar o devolver al proveedor eligen de ese catálogo y son operación interna: con
   // enlace no se pintan y el catálogo no se pide. `null` = «aún no se sabe»: tampoco se pide.
   const sinEnlace = tipoEnlace === 'ninguno';
@@ -86,7 +88,7 @@ export default function FlitoSoat() {
     Object.entries(FUNCION_ACCION_SOAT).map(([accion, codigo]) => [accion, hasFuncion(codigo)]),
   ) as unknown as PermisosDetalleSoat;
   if (!sinEnlace) { puedeDetalle.cambiarProveedor = false; puedeDetalle.devolver = false; }
-  // HU #14342: los tres selectores ofrecen solo activos que prestan SOAT.
+  // HU 14342: los tres selectores ofrecen solo activos que prestan SOAT.
   const proveedores = useProveedoresSelector('soat', puedeEnviarProveedor || puedeDetalle.cambiarProveedor || puedeDetalle.devolver);
   // Con las pastillas nuevas el orden es el del Cliente también para Operaciones (UX §3.2).
   const estadosDisponibles = esGestor ? ESTADOS_GESTOR : esCliente || conIncompletas ? ESTADOS_CLIENTE : ESTADOS_ADMIN;
@@ -126,7 +128,7 @@ export default function FlitoSoat() {
   // Al gestor no se le ofrece: su frontera ya excluye lo de Operaciones, así que «operaciones» le
   // daría siempre vacío y «proveedor» sería redundante.
   const [gestionSel, setGestionSel] = useState<'' | 'operaciones' | 'proveedor'>('');
-  // Vigencia frente al RUNT (HU #12097). Excluyentes por construcción —un `select`, no tres
+  // Vigencia frente al RUNT (HU 12097). Excluyentes por construcción —un `select`, no tres
   // casillas—, que es lo que hace verdadero el «cada uno devuelve exactamente su conjunto» del AC2:
   // «vencido Y sin registro» no lo define ningún AC. `vigente` no se ofrece: nadie barre la cola
   // buscando lo que está bien.
@@ -134,7 +136,7 @@ export default function FlitoSoat() {
   const [preset, setPreset] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
-  // Respaldo de foco del detalle (HU #11915). Validar o rechazar cierra el modal y refresca la cola,
+  // Respaldo de foco del detalle (HU 11915). Validar o rechazar cierra el modal y refresca la cola,
   // y la fila SALE de la vista cuando el admin está filtrando justo por «Pendiente de revisión»: el
   // botón «Ver» que abrió el modal deja de existir y `useFocusTrap` no tiene a dónde devolver el
   // foco. Apunta al grupo de pastillas, que es donde ese trabajo continúa.
@@ -202,7 +204,7 @@ export default function FlitoSoat() {
   };
 
   /**
-   * HU #12997, retrabajo: la vista rápida es una COMBINACIÓN de filtros, no un estado propio. Elegir
+   * HU 12997, retrabajo: la vista rápida es una COMBINACIÓN de filtros, no un estado propio. Elegir
    * otra pastilla la apaga (antes «Listos para enviar» seguía resaltada en «Por validar»,
    * «Solicitado» o «Descartadas»), y solo se pinta puesta mientras la combinación siga vigente
    * —si se desmarca «Solo sin gestión», «Sin gestión» deja de estarlo—. Así el resaltado sale del
@@ -250,7 +252,7 @@ export default function FlitoSoat() {
     api.get<FacetasSoat>('/flito/soat/facetas').then(setFacetas).catch(() => setFacetas(null));
   }, []);
 
-  // Llegada desde el modal del AC4 con «Ver la solicitud» (HU #11914). El uuid viaja en el ESTADO de
+  // Llegada desde el modal del AC4 con «Ver la solicitud» (HU 11914). El uuid viaja en el ESTADO de
   // navegación y NO en la URL: el detalle de esta cola es un modal y no tiene dirección propia, y
   // meter identificadores en el query sería el primer paso para meter también la placa. Si esa fila
   // no está en la página cargada no se abre nada y el Cliente aterriza en su cola, que es un destino
@@ -276,11 +278,11 @@ export default function FlitoSoat() {
    * conversión se hace aquí, en el único sitio donde se sabe qué espera el otro lado. En la QUERY de
    * la cola no hace falta: allí todo es texto.
    */
-  // Bug #12642: la casilla del Excel ampliado. Estado de la PÁGINA y no del hook, porque es parte
+  // Bug 12642: la casilla del Excel ampliado. Estado de la PÁGINA y no del hook, porque es parte
   // del cuerpo que se manda, igual que cualquier otro filtro. La función es aparte de la del
   // export: quien puede descargar el archivo del gestor no necesariamente puede ver el pago.
   const puedeExportarPago = hasFuncion('soat.excel.exportar_pago');
-  // HU #13452: «Incluir datos de pago y trazabilidad» es de uso interno («Solo para Operaciones»): con
+  // HU 13452: «Incluir datos de pago y trazabilidad» es de uso interno («Solo para Operaciones»): con
   // enlace no se ofrece aunque el rol tenga la función marcada.
   const ofrecerExportarPago = puedeExportarPago && sinEnlace;
   const [incluirPago, setIncluirPago] = useState(false);
@@ -301,7 +303,7 @@ export default function FlitoSoat() {
     // El `.xlsx` no gana columnas en esta HU, pero SÍ tiene que traer las mismas filas: el archivo
     // es «lo que estoy viendo», que es el contrato escrito de esta función.
     ...(vigenciaSel ? { vigencia: vigenciaSel } : {}),
-    // Bug #12642: la clave viaja SOLO marcada —y solo si se tiene la función, que es lo que pinta la
+    // Bug 12642: la clave viaja SOLO marcada —y solo si se tiene la función, que es lo que pinta la
     // casilla—: ausente, el cuerpo es el mismo de siempre. Sin la función no hay forma de marcarla.
     ...(ofrecerExportarPago && incluirPago ? { incluirPago: true } : {}),
   };
@@ -310,17 +312,17 @@ export default function FlitoSoat() {
   // Quién puede exportar: la MISMA guarda de la carga masiva, sin predicado nuevo. Deja fuera al
   // auditor (AC6) y al cliente, que además tendría otro archivo —el backend le recorta de cada fila
   // el proveedor, quién despachó y lo que FLITO pagó—: eso sería otra HU, no una condición más.
-  // En «Por validar»/«Descartadas» no se pinta: el Excel es de SOAT y no cambia (HU #12997), así
+  // En «Por validar»/«Descartadas» no se pinta: el Excel es de SOAT y no cambia (HU 12997), así
   // que ahí no sería «lo que estoy viendo».
-  // HU #12872 (AC3): cada botón por la función de SU endpoint (`POST /export` exige
+  // HU 12872 (AC3): cada botón por la función de SU endpoint (`POST /export` exige
   // `soat.excel.exportar`; `POST /facturas`, `soat.masiva.cargar`), no por el «modo» de la pantalla.
   const puedeExportar = hasFuncion('soat.excel.exportar') && !vistaIncompletas;
   const puedeCargaMasiva = hasFuncion('soat.masiva.cargar');
-  // Quién DESCARGA SOPORTES: la función que exige el POST del ZIP (HU #12815), no el rol. La casilla
+  // Quién DESCARGA SOPORTES: la función que exige el POST del ZIP (HU 12815), no el rol. La casilla
   // sirve también para «Enviar al gestor»: sin ninguna de las dos, no hay columna (AC7).
   const puedeDescargar = hasFuncion('soat.soportes.descargar');
   const conCasillas = puedeDescargar || esOperaciones;
-  // Descarga INDIVIDUAL (HU #12816): un solo hook para la fila y el detalle, mismo candado y toast.
+  // Descarga INDIVIDUAL (HU 12816): un solo hook para la fila y el detalle, mismo candado y toast.
   const descargaComprobante = useDescargaComprobante();
   // El hook se llama SIEMPRE (regla de los hooks); quien decide si la acción existe es el render.
   const descargaZip = useDescargaZip(ZIP_SOAT);
@@ -337,7 +339,7 @@ export default function FlitoSoat() {
   const lista = (vistaIncompletas || !!data) && (!incActivo || !!incompletas.resp);
   const hayFilas = filas.length + incFilas.length > 0;
   /**
-   * Qué filas se pueden MARCAR: **todas las visibles** (HU #11910, AC1). Antes eran solo las
+   * Qué filas se pueden MARCAR: **todas las visibles** (HU 11910, AC1). Antes eran solo las
    * Pendiente, porque la casilla existía para una sola acción; ahora existe también para llevarse
    * los soportes, y un Pagado es justo la fila que tiene la evidencia que alguien va a buscar.
    */
@@ -361,7 +363,7 @@ export default function FlitoSoat() {
   const detalle = filas.find((f) => f.id === detalleId) ?? null;
   const refrescar = () => setRecarga((n) => n + 1);
 
-  // Reintento de la consulta al RUNT (HU #12998, UX §3.3). Al terminar desde la fila, el foco vuelve
+  // Reintento de la consulta al RUNT (HU 12998, UX §3.3). Al terminar desde la fila, el foco vuelve
   // a «Ver» de esa fila cuando la cola ya se releyó, o a las pastillas si la fila salió de la vista.
   const { enVuelo, reintentar } = useReintentoRunt({ esCliente, onResuelto: refrescar });
   const focoTrasReintento = useRef<{ id: string; previo: unknown } | null>(null);
@@ -390,14 +392,35 @@ export default function FlitoSoat() {
     const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n;
   });
 
+  // Acciones de la cabecera: la carga masiva (primaria del día) y, solo cliente, «Solicitar SOAT».
+  const primariaCabecera = (
+    <>
+      {/* HU 12872 (AC3): la carga masiva por la función de SU endpoint (POST /facturas). */}
+      {puedeCargaMasiva && (
+        <GradientButton className={ACCION_CABECERA} onClick={() => setCargaMasiva(true)}>
+          <Icono nombre="nube-subir" size={16} className="shrink-0" />
+          Cargar comprobantes de SOAT (masivo)
+        </GradientButton>
+      )}
+      {/* La ÚNICA acción primaria que el Cliente tiene en todo el producto (HU 11914): un `<Link>` con
+          aspecto de botón (puede abrirse en otra pestaña) y no se pinta si la compañía no tiene el canal. */}
+      {esCliente && puedeSolicitar && (
+        <Link to="/flito/soat/solicitud" className={claseBoton('primary', 'md', ACCION_CABECERA)}>
+          <Icono nombre="mas" size={16} className="shrink-0" />
+          Solicitar SOAT
+        </Link>
+      )}
+    </>
+  );
+
   return (
     <div className="space-y-4">
       {sinFuncionesPantalla ? (
         <>
-          <PageHeaderCard title="SOAT" />
+          <PageHeaderCard title="SOAT" icono={ICONO_SOAT} miga={MIGA_SOAT} />
           <FlitCard>
-            <p className="flex items-start gap-2 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
-              <Lock size={18} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: 'var(--flit-text-muted)' }} />
+            <p className="flex items-start gap-2 text-sm text-[color:var(--color-text-primary)]">
+              <Icono nombre="candado" size={18} className="mt-0.5 shrink-0 text-[color:var(--color-text-tertiary)]" />
               Su usuario no tiene ninguna función habilitada en esta pantalla. Si cree que debería operar aquí, pida a un administrador que revise el cuadro de su rol.
             </p>
           </FlitCard>
@@ -406,42 +429,27 @@ export default function FlitoSoat() {
       <>
       <PageHeaderCard
         title="SOAT"
+        icono={ICONO_SOAT}
+        miga={MIGA_SOAT}
         // El subtítulo de siempre es vocabulario de Operaciones y le habla al Cliente de un proceso que
-        // él no ejecuta: se ramifica para él. El de Operaciones perdió en la HU #12819 la regla de
+        // él no ejecuta: se ramifica para él. El de Operaciones perdió en la HU 12819 la regla de
         // negocio (RN-01/RN-03), que no es un título: dice qué es la cola, no cómo se valida.
         subtitle={esCliente
           ? 'Sus solicitudes de SOAT y las pólizas de su compañía.'
           : 'Cola de adquisición del SOAT: de Pendiente a Pagado.'}
         actions={(
-          <>
-            {/* HU #12872 (AC3): la carga masiva por la función de SU endpoint (POST /facturas). */}
-            {puedeCargaMasiva && (
-              <button type="button" className={`${flitBtnPrimary} ${ACCION_CABECERA}`} style={flitBtnPrimaryStyle} onClick={() => setCargaMasiva(true)}>
-                <Upload size={16} aria-hidden="true" className="shrink-0" />
-                Cargar comprobantes de SOAT (masivo)
-              </button>
-            )}
-            {/* La ÚNICA acción primaria que el Cliente tiene en todo el producto (HU #11914).
-                Es un `<Link>` con aspecto de botón y no un `onClick`: tiene que poder abrirse en
-                otra pestaña y salir en el historial. Y no se pinta si la compañía no tiene el canal:
-                ofrecer un botón que abre una pantalla que explica que no se puede es justo el patrón
-                que el AC5 pide evitar. */}
-            {esCliente && puedeSolicitar && (
-              <Link to="/flito/soat/solicitud" className={`${flitBtnPrimary} ${ACCION_CABECERA}`} style={flitBtnPrimaryStyle}>
-                <Plus size={16} aria-hidden="true" className="shrink-0" />
-                Solicitar SOAT
-              </Link>
-            )}
-            {/* Secundario y después del primario: la acción del día de esta cola es cargar comprobantes de SOAT,
-                no descargar. Al auditor NO se le pinta deshabilitado — no se pinta. */}
-            {puedeExportar && (
+          // Primaria y secundaria en UNA fila alineada a la derecha (sm+); la nota y la casilla del export van
+          // debajo de su botón. Bajo sm, todo apilado a ancho completo.
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:items-start sm:justify-end">
+            {puedeExportar ? (
               <BotonExportarCola
+                antes={primariaCabecera}
                 ocupado={exportacion.ocupado}
                 onExportar={exportacion.exportar}
                 incluirPago={ofrecerExportarPago ? { marcado: incluirPago, onCambio: setIncluirPago } : undefined}
               />
-            )}
-          </>
+            ) : primariaCabecera}
+          </div>
         )}
       />
 
@@ -480,29 +488,29 @@ export default function FlitoSoat() {
         soloEstancado={soloEstancado} setSoloEstancado={setSoloEstancado}
         hayFiltros={hayFiltros} limpiarFiltros={limpiarFiltros} />
 
-      {/* Estado 2 de los cuatro. Hasta la HU #11914 la banda no traía salida: el único camino era
+      {/* Estado 2 de los cuatro. Hasta la HU 11914 la banda no traía salida: el único camino era
           recargar la página, y para un rol EXTERNO eso es un callejón. El botón reusa el `refrescar`
           que ya existía y no inventa nada. */}
-      {/* HU #12819: solo errores de CARGA de la cola (el envío ya no llega aquí: es un toast) y con
+      {/* HU 12819: solo errores de CARGA de la cola (el envío ya no llega aquí: es un toast) y con
           copy propio — nunca el mensaje crudo del API. */}
       {errorVista && (
-        <FlitCard>
-          <div className="flex items-start gap-3">
-            <CircleAlert size={18} aria-hidden="true" className="mt-0.5 shrink-0" style={{ color: 'var(--flit-danger-text)' }} />
-            <div className="space-y-3">
+        // Aviso de página del kit (`.kit-alerta`, tono danger). El `role="alert"` sigue solo en el texto:
+        // el botón de reintento no es parte de lo que se anuncia.
+        <div className="kit-alerta" data-tono="danger" data-kit="alerta">
+          <img src="/kit/aviso-error.svg" alt="" aria-hidden="true" className="kit-alerta__icono" />
+            <div className="min-w-0 flex-1 space-y-3">
               <div role="alert" className="space-y-1 text-sm">
-                <p style={{ color: 'var(--flit-danger-text)' }}>
+                <p className="text-[color:var(--kit-rojo-texto)]">
                   {esCliente ? 'No pudimos cargar sus solicitudes.' : 'No se pudo cargar la cola de SOAT. Revisa tu conexión e intenta de nuevo.'}
                 </p>
-                {esCliente && <p style={{ color: 'var(--flit-text-secondary)' }}>Intente de nuevo en un momento.</p>}
+                {esCliente && <p className="text-[color:var(--color-text-secondary)]">Intente de nuevo en un momento.</p>}
               </div>
-              <button type="button" className={flitBtnSecondary} onClick={refrescar}>
-                <RotateCw size={16} aria-hidden="true" className="shrink-0" />
+              <GradientButton variant="secondary" size="sm" onClick={refrescar}>
+                <Icono nombre="reintento" size={16} className="shrink-0" />
                 Reintentar
-              </button>
+              </GradientButton>
             </div>
-          </div>
-        </FlitCard>
+        </div>
       )}
 
       {/* Estado 1 — cargando. Antes la pantalla se veía vacía un instante y el vacío decía «no hay
@@ -523,11 +531,11 @@ export default function FlitoSoat() {
       )}
 
       {/* La barra de la selección va JUSTO encima de la tabla y pegada arriba mientras se marcan
-          filas (HU #12819, §6): antes quedaba sobre el aviso ZIP, lejos de las casillas, y en una
+          filas (HU 12819, §6): antes quedaba sobre el aviso ZIP, lejos de las casillas, y en una
           tabla larga sus acciones se iban de la vista. El `top` salta la barra superior del shell,
           que también es pegajosa: con `top-2` quedaría debajo de ella. */}
       {conCasillas && seleccion.size > 0 && (
-        <div className="sticky top-[calc(var(--flit-topbar-height)+0.5rem)] z-20">
+        <div className="sticky top-[calc(var(--kit-alto-barra)+0.5rem)] z-20">
           <BarraEnvioSoat marcadas={seleccion.size} enviables={enviables.map((f) => f.id)} descargables={descargables}
             puedeEnviar={puedeEnviarProveedor} puedeDescargar={puedeDescargar} proveedores={proveedores} zip={descargaZip}
             onQuitar={() => setSeleccion(new Set())}
@@ -541,13 +549,12 @@ export default function FlitoSoat() {
       )}
 
       {lista && !errorVista && !hayFilas && (
-        <FlitCard>
           <FlitEmpty>
             {hayFiltros || texto.trim()
               ? 'Ningún SOAT coincide con los filtros.'
               : vistaIncompletas ? VACIO_INCOMPLETAS[estado]
-              // El vacío sin filtros se ramifica por rol (HU #11914). El texto de Operaciones manda
-              // a «Sincroniza desde el Tablero», un sitio al que la HU #11913 le quitó el acceso al
+              // El vacío sin filtros se ramifica por rol (HU 11914). El texto de Operaciones manda
+              // a «Sincroniza desde el Tablero», un sitio al que la HU 11913 le quitó el acceso al
               // Cliente a propósito: era la PRIMERA frase que leía el primer usuario del rol nuevo y
               // le mandaba a una pantalla que para él no existe. El de Operaciones no se toca.
               : esCliente
@@ -557,10 +564,10 @@ export default function FlitoSoat() {
                     {puedeSolicitar && (
                       <p className="mt-2">
                         Solicite el primero con el VIN del vehículo, o con la placa si es una renovación.
-                        {/* Secundario desde la HU #12819: la primaria ya está en la cabecera. */}
+                        {/* Secundario desde la HU 12819: la primaria ya está en la cabecera. */}
                         <span className="mt-3 block">
-                          <Link to="/flito/soat/solicitud" className={flitBtnSecondary}>
-                            <Plus size={16} aria-hidden="true" className="shrink-0" />
+                          <Link to="/flito/soat/solicitud" className={claseBoton('secondary')}>
+                            <Icono nombre="mas" size={16} className="shrink-0" />
                             Solicitar SOAT
                           </Link>
                         </span>
@@ -568,8 +575,8 @@ export default function FlitoSoat() {
                     )}
                   </>
                 )
-                // HU #12819: el gestor no sincroniza el Tablero (no es suyo) y el auditor no trae nada.
-                // HU #13452: con enlace el vacío dice de quién son los SOAT, sin mandar a sincronizar.
+                // HU 12819: el gestor no sincroniza el Tablero (no es suyo) y el auditor no trae nada.
+                // HU 13452: con enlace el vacío dice de quién son los SOAT, sin mandar a sincronizar.
                 : vacioConEnlace('SOAT', tipoEnlace) ?? (esGestor
                   ? 'No tienes SOAT en esta vista. Aparecerán aquí cuando Operaciones te los envíe.'
                   : soloLectura
@@ -579,7 +586,6 @@ export default function FlitoSoat() {
               <p className="mt-1">{esCliente || conEnlace(tipoEnlace) ? 'Quite algún filtro o use «Limpiar filtros».' : 'Quita algún filtro o usa «Limpiar filtros».'}</p>
             )}
           </FlitEmpty>
-        </FlitCard>
       )}
 
       {lista && !errorVista && pagina && hayFilas && (

@@ -1,6 +1,7 @@
 import { forwardRef, type KeyboardEvent, type ReactNode } from 'react';
-import { X } from 'lucide-react';
-import { DR_FLIT_ASSETS } from './drFlitAssets';
+import { Icono } from '../flit/kit/Icono';
+import { Cargador } from '../flit/Cargador';
+import GradientButton from '../flit/GradientButton';
 
 // Marco del panel de Dr. Flit (HU #13764). Va EAGER en el chunk del Layout junto al botón: así la
 // cabecera, «Cerrar» y los estados de carga y error del contenido están disponibles desde el
@@ -39,33 +40,28 @@ const DrFlitMarco = forwardRef<HTMLHeadingElement, DrFlitMarcoProps>(function Dr
       onKeyDown={onKeyDown}
       className={[
         'fixed inset-x-0 bottom-0 top-[var(--flit-topbar-height)] z-20 flex min-w-0 flex-col',
-        'border-t border-flit-soft bg-flit-card text-flit-ink shadow-[var(--flit-shadow-modal)]',
-        'lg:left-auto lg:right-6 lg:top-[calc(var(--flit-topbar-height)+1rem)] lg:bottom-[6rem] lg:w-[25rem]',
-        'lg:rounded-flit-lg lg:border',
+        // Menú flotante del kit: superficie elevada, borde 1 px, radio 9 y la sombra del kit.
+        'overflow-hidden border-t border-[color:var(--color-border)] bg-[var(--color-surface-elevated)] text-flit-ink shadow-[var(--kit-sombra)]',
+        // ≥lg: entre la barra y el botón flotante, que queda sobre el dock (alto dock + 1rem + 56 px + 0,75rem).
+        'lg:left-auto lg:right-6 lg:top-[calc(var(--flit-topbar-height)+1rem)] lg:bottom-[calc(var(--kit-alto-dock)+1.75rem+3.5rem)] lg:w-[25rem]',
+        'lg:rounded-[9px] lg:border',
         // `hidden` del atributo debe ganarle a `flex`.
         '[&[hidden]]:hidden',
       ].join(' ')}
     >
-      <header className="flex flex-wrap items-start justify-between gap-2 sm:flex-nowrap border-b border-flit-soft px-4 py-3">
+      <header className="dock__cabeza mb-0 shrink-0 flex-wrap justify-between gap-2 sm:flex-nowrap">
         <div className="flex min-w-0 items-center gap-3 sm:flex-1">
-          <img
-            src={DR_FLIT_ASSETS.header}
-            alt=""
-            aria-hidden="true"
-            width={40}
-            height={40}
-            className="h-10 w-10 shrink-0 rounded-full object-cover"
-          />
+          <span className="kico" aria-hidden="true"><Icono nombre="asistente" /></span>
           <div className="min-w-0">
             <h2
               ref={tituloRef}
               id={DRFLIT_TITULO_ID}
               tabIndex={-1}
-              className="flit-focus rounded-md text-base font-semibold text-flit-ink"
+              className="flit-focus-light rounded-md text-base font-semibold text-inherit"
             >
               Dr. Flit
             </h2>
-            <p className="text-xs text-flit-secondary">Le respondo con la Ayuda FLITO.</p>
+            <p className="text-xs opacity-85">Le respondo con la Ayuda FLITO.</p>
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -75,9 +71,9 @@ const DrFlitMarco = forwardRef<HTMLHeadingElement, DrFlitMarcoProps>(function Dr
             aria-label="Cerrar"
             title="Cerrar"
             onClick={onCerrar}
-            className="flit-focus inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-flit-secondary transition-colors hover:bg-[var(--flit-bg-hover)] hover:text-flit-ink lg:h-8 lg:w-8"
+            className="flit-focus-light inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-inherit transition-colors hover:bg-[color-mix(in_srgb,var(--kit-tinta-fija)_30%,transparent)] lg:h-9 lg:w-9"
           >
-            <X size={18} aria-hidden="true" />
+            <Icono nombre="cerrar" size={18} />
           </button>
         </div>
       </header>
@@ -91,8 +87,8 @@ export default DrFlitMarco;
 /** Estado de carga del contenido (Suspense fallback). */
 export function DrFlitCargando() {
   return (
-    <div className="flex-1 px-4 py-4">
-      <p role="status" className="text-sm text-flit-secondary">Abriendo Dr. Flit…</p>
+    <div className="flex flex-1 items-center justify-center px-4 py-4">
+      <Cargador texto="Abriendo Dr. Flit…" />
     </div>
   );
 }
@@ -101,16 +97,15 @@ export function DrFlitCargando() {
 export function DrFlitErrorCarga({ onReintentar }: { onReintentar: () => void }) {
   return (
     <div className="flex-1 px-4 py-4">
-      <div role="status" className="rounded-flit-lg border border-flit-soft bg-flit-app p-4 text-sm">
-        <p className="font-semibold text-[color:var(--flit-danger-ink)]">No se pudo abrir Dr. Flit.</p>
+      <div role="status" className="rounded-[9px] border border-[color:var(--color-border)] bg-[var(--color-surface)] p-4 text-sm">
+        <p className="flex items-start gap-2 font-semibold text-[color:var(--kit-rojo-texto)]">
+          <Icono nombre="alerta" size={16} className="mt-0.5 shrink-0" />
+          No se pudo abrir Dr. Flit.
+        </p>
         <p className="mt-1 text-flit-ink">Revise su conexión e intente de nuevo.</p>
-        <button
-          type="button"
-          onClick={onReintentar}
-          className="flit-focus mt-3 inline-flex h-10 items-center gap-2 rounded-[999px] border bg-flit-card px-5 text-sm font-medium transition-colors hover:bg-[var(--flit-bg-hover)]"
-        >
+        <GradientButton type="button" variant="secondary" size="sm" onClick={onReintentar} className="mt-3">
           Reintentar
-        </button>
+        </GradientButton>
       </div>
     </div>
   );

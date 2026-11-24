@@ -1,4 +1,4 @@
-// «Reintentar consulta» de una solicitud aparcada porque el RUNT no respondió (HU #12998, UX §3.3).
+// «Reintentar consulta» de una solicitud aparcada porque el RUNT no respondió (HU 12998, UX §3.3).
 //
 // Un solo hook para la fila y el detalle: el estado «en vuelo» es el mismo (la fila de una solicitud
 // que se consulta desde el detalle también queda ocupada) y el toast sale una sola vez por acción.

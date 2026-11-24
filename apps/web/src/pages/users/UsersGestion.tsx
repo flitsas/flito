@@ -22,7 +22,8 @@ import { FlitPillGroup, flitPillBtn, flitPillBtnClase } from '../../components/f
 import { useOrganismosParametrizados, useProveedoresAsignables } from './AtaduraFields';
 import { useCompanias } from './CompaniaField';
 import { formatErrors } from './UserFormShared';
-import type { ResumenUsuarios, RolOpcion, User, VistaBajas } from './types';
+import { MIGA_USUARIOS, type ResumenUsuarios, type RolOpcion, type User, type VistaBajas } from './types';
+import PestanasAdministracion from './PestanasAdministracion';
 import type { CatalogoFuncionesEstado } from './PermissionsPicker';
 import UsersTable from './UsersTable';
 import UsersToolbar from './UsersToolbar';
@@ -38,9 +39,11 @@ const SECCIONES: { valor: Seccion; etiqueta: string; tituloPanel: string }[] = [
   { valor: 'historial', etiqueta: 'Historial', tituloPanel: 'Historial de cambios' },
 ];
 
-export default function UsersGestion({ puedeExportar }: {
+export default function UsersGestion({ puedeExportar, verRoles }: {
   /** Quién ve la descarga. Se decide en `Users.tsx`, junto a `puedeGestionar`, con una sola definición. */
   puedeExportar: boolean;
+  /** Rediseño 2026: pestaña de enlace «Roles y permisos» (la decide `Users.tsx` con `hasPage`). */
+  verRoles: boolean;
 }) {
   const { user: me } = useAuth();
   const companias = useCompanias();
@@ -201,17 +204,21 @@ export default function UsersGestion({ puedeExportar }: {
 
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
-      {/* La primaria viaja con la lista: en «Historial» nadie viene a crear a nadie, y un gradiente
+      {/* La primaria viaja con la lista: en «Historial» nadie viene a crear a nadie, y una primaria
           sin trabajo detrás sería una primaria falsa (ficha UX §2). */}
       <PageHeaderCard
         title="Gestión de usuarios"
         subtitle="Equipo y accesos del sistema"
+        icono="flito-usuarios"
+        miga={MIGA_USUARIOS}
         actions={seccion === 'usuarios' ? (
           <GradientButton type="button" onClick={() => setShowCreate(true)}>
             Nuevo usuario
           </GradientButton>
         ) : undefined}
       />
+
+      <PestanasAdministracion verRoles={verRoles} />
 
       {/* Patrón de pestañas de `SiigoParametrizacion.tsx`: `tablist` con nombre, `tab` con
           `aria-selected`, `tabIndex` itinerante, flechas ←/→ e Inicio/Fin, y `aria-controls` SOLO
@@ -259,7 +266,7 @@ export default function UsersGestion({ puedeExportar }: {
           ref={tituloPanel}
           tabIndex={-1}
           className="flit-focus -my-5 block h-5 w-fit rounded px-1 text-sm font-semibold leading-5 opacity-0 focus:opacity-100"
-          style={{ color: 'var(--flit-text-primary)' }}
+          style={{ color: 'var(--color-text-primary)' }}
         >
           {activa.tituloPanel}
         </h2>

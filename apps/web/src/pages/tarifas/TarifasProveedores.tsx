@@ -14,7 +14,7 @@ import PageHeaderCard from '../../components/flit/PageHeaderCard';
 import FlitSelect from '../../components/flit/FlitSelect';
 import { NOTA_INACTIVO, opcionesConEstado } from '../../components/flit/opcionesConEstado';
 import {
-  flitInp, FlitCard, FlitEmpty, FlitPillButton, FlitPillGroup, flitBtnSecondary, flitBtnSecondaryStyle,
+  flitInp, FlitCard, FlitEmpty, FlitPillButton, FlitPillGroup, flitBtnSecondary,
 } from '../../components/flit/flitPageKit';
 import CostosProveedor, { AvisoTonal } from './CostosProveedor';
 import HistorialCostosProveedor, { type FiltroHistorialProveedor } from './HistorialCostosProveedor';
@@ -30,7 +30,7 @@ export function SelectorModo({ modo, antesDeSalir }: { modo: 'clientes' | 'prove
   };
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <span aria-hidden="true" className="text-sm font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Ver tarifas de</span>
+      <span aria-hidden="true" className="text-sm font-semibold" style={{ color: 'var(--color-text-secondary)' }}>Ver tarifas de</span>
       <FlitPillGroup label="Ver tarifas de">
         <FlitPillButton active={modo === 'clientes'} pressed={modo === 'clientes'} onClick={() => ir('clientes')}>Clientes</FlitPillButton>
         <FlitPillButton active={modo === 'proveedores'} pressed={modo === 'proveedores'} onClick={() => ir('proveedores')}>Proveedores</FlitPillButton>
@@ -40,11 +40,11 @@ export function SelectorModo({ modo, antesDeSalir }: { modo: 'clientes' | 'prove
 }
 
 const barra = (ancho: string, key: number) => (
-  <div key={key} className={`h-5 ${ancho} animate-pulse rounded`} style={{ background: 'var(--flit-bg-table-header)' }} />
+  <div key={key} className={`kit-esqueleto h-5 ${ancho}`} />
 );
 
 const IrAClientes = () => (
-  <Link to="/clients" className={`${flitBtnSecondary} mt-4`} style={flitBtnSecondaryStyle}>Ir a Clientes y proveedores</Link>
+  <Link to="/clients" className={`${flitBtnSecondary} mt-4`}>Ir a Clientes y proveedores</Link>
 );
 
 export default function TarifasProveedores() {
@@ -138,14 +138,14 @@ export default function TarifasProveedores() {
 
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
-      <PageHeaderCard title="Tarifas" subtitle={SUBTITULO} />
+      <PageHeaderCard title="Tarifas" subtitle={SUBTITULO} icono="flito-tarifas" miga={[{ etiqueta: 'Logística', to: '/flito/logistica' }]} />
       <SelectorModo modo="proveedores" antesDeSalir={puedeSalir} />
       <p className="sr-only" role="status">{anuncio}</p>
 
       {errorLista ? (
         <FlitCard className="mx-auto w-full max-w-xl">
           <AvisoTonal tono="activo" rol="alert" icono="!"
-            accion={<button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={cargarLista}>Reintentar</button>}>
+            accion={<button type="button" className={flitBtnSecondary} onClick={cargarLista}>Reintentar</button>}>
             <p className="font-semibold">No se pudo cargar la lista de proveedores.</p>
             <p className="mt-0.5">Revisa tu conexión y vuelve a intentarlo.</p>
           </AvisoTonal>
@@ -157,15 +157,15 @@ export default function TarifasProveedores() {
         </div>
       ) : lista.length === 0 && !proveedorId ? (
         <FlitEmpty>
-          <p style={{ color: 'var(--flit-text-primary)' }}>No hay proveedores activos.</p>
+          <p style={{ color: 'var(--color-text-primary)' }}>No hay proveedores activos.</p>
           <p className="mt-1">Activa un proveedor en Clientes y proveedores; cuando esté activo, aquí se le fijan sus valores.</p>
           <IrAClientes />
         </FlitEmpty>
       ) : (
         <div className="grid min-w-0 gap-5 lg:grid-cols-[300px_1fr] lg:gap-6">
-          <aside className="min-w-0 lg:sticky lg:top-[calc(var(--flit-topbar-height)_+_var(--flit-navbar-height))] lg:self-start">
+          <aside className="min-w-0 lg:sticky lg:top-[calc(var(--kit-alto-barra))] lg:self-start">
             <FlitCard className="space-y-3">
-              <h2 className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>Proveedores ({lista.length})</h2>
+              <h2 className="text-sm font-bold" style={{ color: 'var(--color-action)' }}>Proveedores ({lista.length})</h2>
               <input type="search" className={flitInp} value={busqueda} placeholder="Buscar proveedor…" aria-label="Buscar proveedor"
                 onChange={(e) => setBusqueda(e.target.value)} />
 
@@ -191,9 +191,9 @@ export default function TarifasProveedores() {
               <div className="hidden lg:block">
                 {visibles.length === 0 && !elegidoFuera ? (
                   <FlitEmpty>
-                    <p style={{ color: 'var(--flit-text-primary)' }}>Ningún proveedor se llama así.</p>
+                    <p style={{ color: 'var(--color-text-primary)' }}>Ningún proveedor se llama así.</p>
                     <p className="mt-1">Prueba con otra parte del nombre.</p>
-                    <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle} onClick={() => setBusqueda('')}>Limpiar búsqueda</button>
+                    <button type="button" className={`${flitBtnSecondary} mt-3`} onClick={() => setBusqueda('')}>Limpiar búsqueda</button>
                   </FlitEmpty>
                 ) : (
                   <ul className="max-h-[60vh] space-y-0.5 overflow-y-auto" aria-label="Proveedores">
@@ -202,13 +202,13 @@ export default function TarifasProveedores() {
                       return (
                         <li key={p.id}>
                           <button type="button" aria-current={actual ? 'true' : undefined} onClick={() => elegir(p.id)}
-                            className="flit-focus flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-[var(--flit-bg-hover)]"
+                            className="flit-focus flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-[var(--kit-hover)]"
                             style={{
-                              background: actual ? 'var(--flit-bg-table-header)' : undefined,
-                              color: p.activo ? 'var(--flit-text-primary)' : 'var(--flit-text-secondary)', fontWeight: actual ? 600 : 400,
+                              background: actual ? 'color-mix(in srgb, var(--kit-azul) 10%, transparent)' : undefined,
+                              color: p.activo ? 'var(--color-text-primary)' : 'var(--color-text-secondary)', fontWeight: actual ? 600 : 400,
                             }}>
                             <span className="min-w-0 truncate">{p.nombre}</span>
-                            {!p.activo && <span className="shrink-0 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>{NOTA_INACTIVO}</span>}
+                            {!p.activo && <span className="shrink-0 text-xs font-semibold" style={{ color: 'var(--color-text-secondary)' }}>{NOTA_INACTIVO}</span>}
                           </button>
                         </li>
                       );
@@ -222,7 +222,7 @@ export default function TarifasProveedores() {
           <section className="min-w-0 space-y-5" aria-label="Valores del proveedor">
             {proveedorId === null ? (
               <FlitCard>
-                <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+                <p className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                   Elige un proveedor de la lista para ver y fijar sus valores.
                 </p>
               </FlitCard>
@@ -274,17 +274,17 @@ function PanelProveedor({ nombre, vista, cargando, refrescando, error, onReinten
   onEdicionCambia: (c: ConceptoCostoProveedor | null) => void;
 }) {
   const reintentar = (
-    <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onReintentar}>Reintentar</button>
+    <button type="button" className={flitBtnSecondary} onClick={onReintentar}>Reintentar</button>
   );
   return (
     <FlitCard>
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="break-words text-base font-bold" style={{ color: 'var(--flit-text-primary)' }}>{nombre}</h2>
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>Lo que este proveedor le cobra a FLITO. Valores en pesos, sin IVA.</p>
+          <h2 className="break-words text-base font-bold" style={{ color: 'var(--color-text-primary)' }}>{nombre}</h2>
+          <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Lo que este proveedor le cobra a FLITO. Valores en pesos, sin IVA.</p>
         </div>
         {vista && vista.capacidades.verHistorial && vista.filas.length > 0 && (
-          <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} style={flitBtnSecondaryStyle} onClick={onHistorialProveedor}>
+          <button type="button" className={`${flitBtnSecondary} w-full justify-center sm:w-auto`} onClick={onHistorialProveedor}>
             Historial del proveedor
           </button>
         )}
@@ -293,7 +293,7 @@ function PanelProveedor({ nombre, vista, cargando, refrescando, error, onReinten
       {error && !vista ? (
         error.status === 404 ? (
           <AvisoTonal tono="activo" rol="alert" icono="!"
-            accion={<Link to={PAGINA_PROVEEDORES} replace className={flitBtnSecondary} style={flitBtnSecondaryStyle}>Ver la lista</Link>}>
+            accion={<Link to={PAGINA_PROVEEDORES} replace className={flitBtnSecondary}>Ver la lista</Link>}>
             <p className="font-semibold">Ese proveedor ya no existe.</p>
           </AvisoTonal>
         ) : (
@@ -308,7 +308,7 @@ function PanelProveedor({ nombre, vista, cargando, refrescando, error, onReinten
         </div>
       ) : vista.filas.length === 0 ? (
         <FlitEmpty>
-          <p style={{ color: 'var(--flit-text-primary)' }}>{vista.proveedor.nombre} no tiene servicios asignados.</p>
+          <p style={{ color: 'var(--color-text-primary)' }}>{vista.proveedor.nombre} no tiene servicios asignados.</p>
           <p className="mt-1">Asígnale logística o SOAT en su ficha de Clientes y proveedores para fijarle valores.</p>
           <IrAClientes />
         </FlitEmpty>

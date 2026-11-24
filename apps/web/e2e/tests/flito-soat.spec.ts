@@ -87,11 +87,11 @@ async function mock(page: import('@playwright/test').Page) {
 }
 
 /**
- * HU #12819: los filtros secundarios de la cola SOAT viven en el panel plegable «Más filtros».
+ * HU #12819: los filtros secundarios de la cola SOAT viven en el panel plegable «Filtros».
  * Idempotente: si ya está abierto no lo cierra.
  */
 async function abrirMasFiltrosSoat(page: import('@playwright/test').Page) {
-  const boton = page.getByRole('button', { name: /^Más filtros/ });
+  const boton = page.getByRole('button', { name: /^Filtros/ });
   // Primero que la cola haya pintado (tabla o vacío): durante la carga inicial la pantalla se
   // vuelve a montar (sesión y permisos) y un panel abierto antes se cerraría con ella.
   await expect(page.getByRole('region', { name: 'Pólizas SOAT' }).or(page.getByText(/Ningún SOAT coincide|No hay SOAT|No tienes SOAT|Todavía no hay/))).toBeVisible();
@@ -175,7 +175,7 @@ test.describe('FLITO — Portal SOAT', () => {
     await page.getByRole('button', { name: '30 días' }).click();
     await expect.poll(() => urlsPedidas.at(-1) ?? '').toContain('solicitadoDesde=');
     expect(urlsPedidas.at(-1)).toContain('solicitadoHasta=');
-    // HU #12819: en el panel «Más filtros» los rangos van apilados y el calendario abierto tapa al
+    // HU #12819: en el panel «Filtros» los rangos van apilados y el calendario abierto tapa al
     // de abajo; se cierra, que es lo que hace cualquiera al terminar de elegir.
     await rango('Solicitado').click();
 
@@ -1113,7 +1113,7 @@ test.describe('FLITO — SOAT · vigencia frente al RUNT (HU #12097)', () => {
     await expect(page.getByRole('row').filter({ hasText: 'CLI007' })).toBeVisible();
     // HU #12819: con el panel ABIERTO, o el «no está» se cumpliría solo por estar plegado.
     await abrirMasFiltrosSoat(page);
-    await expect(page.getByRole('group', { name: 'Más filtros' })).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Filtros' })).toBeVisible();
     await expect(page.getByLabel('Vigencia')).toHaveCount(0);
     await expect(page.getByText('Sin verificar')).toHaveCount(0);
     await expect(page.getByText('No se pudo consultar')).toHaveCount(0);
@@ -1200,17 +1200,23 @@ test.describe('HU #12819 — los botones del kit reaccionan al puntero (§9)', (
 
     const primaria = page.getByRole('button', { name: 'Cargar comprobantes de SOAT (masivo)' });
     const secundaria = page.getByRole('row').filter({ hasText: 'ABC123' }).getByRole('button', { name: 'Ver', exact: true });
-    await expect(primaria).toHaveAttribute('class', /hover:shadow-\[inset_0_0_0_999px_var\(--flit-veil-press-hover\)\]/);
-    await expect(secundaria).toHaveAttribute('class', /hover:bg-\[var\(--flit-bg-hover\)\]/);
+    // UI Kit 2026 (S0): la variante se lee del marcador estable `data-variante`, no de la clase.
+    await expect(primaria).toHaveAttribute('data-variante', 'primario');
 
-    // Y la clase no es decorativa: al pasar el puntero el estilo calculado CAMBIA.
-    const sombra = () => primaria.evaluate((el) => getComputedStyle(el).boxShadow);
-    const fondo = () => secundaria.evaluate((el) => getComputedStyle(el).backgroundColor);
-    const [sombraReposo, fondoReposo] = [await sombra(), await fondo()];
+    // Y el hover no es decorativo: al pasar el puntero el estilo calculado CAMBIA (fondo, filtro o
+    // sombra: el kit decide cuál; el test exige que alguno se pinte).
+    const pintura = (el: Element) => {
+      const c = getComputedStyle(el);
+      return `${c.backgroundColor}|${c.backgroundImage}|${c.filter}|${c.boxShadow}`;
+    };
+    const estiloPrimaria = () => primaria.evaluate(pintura);
+    const estiloSecundaria = () => secundaria.evaluate(pintura);
+    await page.mouse.move(0, 0);
+    const [primariaReposo, secundariaReposo] = [await estiloPrimaria(), await estiloSecundaria()];
     await primaria.hover();
-    await expect.poll(sombra).not.toBe(sombraReposo);
+    await expect.poll(estiloPrimaria).not.toBe(primariaReposo);
     await secundaria.hover();
-    await expect.poll(fondo).not.toBe(fondoReposo);
+    await expect.poll(estiloSecundaria).not.toBe(secundariaReposo);
   });
 });
 
@@ -1259,5 +1265,62 @@ test.describe('FLITO — SOAT: listas de apoyo por enlace (HU #13452)', () => {
     await expect(modal.getByRole('button', { name: 'Devolver al proveedor' })).toHaveCount(0);
     await expect(page.getByText(/permis|403/i)).toHaveCount(0);
     expect(pedidas).toEqual([]);
+  });
+});
+
+// Épica #14560 — patrón unificado de cola (`docs/ux/flito-soat-impuestos-patron-unificado.md` §10).
+test.describe('FLITO — SOAT · patrón unificado de cola (Épica #14560)', () => {
+  // Ronda 2: la vista rápida es un chip que se apaga con un segundo clic (la misma pieza que Impuestos).
+  test('un segundo clic en «Listos para enviar» la quita: sin estado= y vuelve la cola entera', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/soat');
+    const tabla = page.getByRole('region', { name: 'Pólizas SOAT' });
+    await expect(tabla.getByText('PAG777')).toBeVisible();
+    const vista = page.getByRole('button', { name: 'Listos para enviar', exact: true });
+
+    await vista.click();
+    await expect(vista).toHaveAttribute('aria-pressed', 'true');
+    await expect.poll(() => urlsPedidas.at(-1)).toContain('estado=pendiente');
+    await expect(tabla.getByText('PAG777')).toHaveCount(0);
+    await expect(tabla.getByText('ABC123')).toBeVisible();
+
+    const n = urlsPedidas.length;
+    await vista.click();
+    await expect(vista).toHaveAttribute('aria-pressed', 'false');
+    await expect.poll(() => urlsPedidas.length).toBeGreaterThan(n);
+    await expect.poll(() => urlsPedidas.at(-1)).not.toContain('estado=');
+    await expect(tabla.getByText('PAG777')).toBeVisible();
+    await expect(tabla.getByText('XYZ789')).toBeVisible();
+  });
+
+  test('§10.2 · Estado es la columna que sigue a Vehículo, la primera de datos', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/soat');
+    const tabla = page.getByRole('region', { name: 'Pólizas SOAT' });
+    await expect(tabla.getByRole('columnheader', { name: 'Estado' })).toBeVisible();
+    // Por `textContent`: el `innerText` vendría en mayúsculas por CSS.
+    const h = await tabla.getByRole('columnheader').evaluateAll((ths) => ths.map((t) => t.textContent?.trim() ?? ''));
+    expect(h.filter(Boolean).slice(0, 2)).toEqual(['Vehículo', 'Estado']);
+    expect(h.indexOf('Estado')).toBe(h.indexOf('Vehículo') + 1);
+  });
+
+  test('§10.7 · por debajo de 900 px la cola es de tarjetas, con rótulo por celda y sin scroll horizontal', async ({ page }) => {
+    await page.setViewportSize({ width: 800, height: 900 });
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/soat');
+    const tabla = page.getByRole('region', { name: 'Pólizas SOAT' });
+    await expect(tabla).toHaveAttribute('data-modo', 'tarjetas');
+    const estado = tabla.locator('td[data-etiqueta="Estado"]').first();
+    await expect(estado).toBeVisible();
+    // La tarjeta pinta el rótulo con `td::before { content: attr(data-etiqueta) }`: se mide que esté puesto.
+    const celda = await estado.evaluate((td) => ({
+      display: getComputedStyle(td).display, rotulo: getComputedStyle(td, '::before').content,
+    }));
+    expect(celda.display).not.toBe('table-cell');
+    expect(celda.rotulo).toBe('"Estado"');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   });
 });

@@ -15,7 +15,7 @@
 //   · el borrador vive en la modal: cerrar sin guardar lo descarta y al reabrir se ven los valores vigentes.
 //     Los errores del guardado van en `role="alert"` dentro de la modal (no en toast) y conservan lo escrito.
 
-import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { LIMITES_PARAMETROS_LECTURA_FLIT1 } from '@operaciones/shared-types';
 import type { EstadoLecturaFlit1, ParametrosLecturaFlit1, ParametrosLecturaFlit1Input } from '@operaciones/shared-types';
 import { ApiError, api } from '../../../lib/api';
@@ -31,12 +31,13 @@ const CADA_MS = 2 * 60 * 1000;
 const fmtClaveDia = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit' });
 const hoyBogota = () => fmtClaveDia.format(new Date());
 
-const MUTED = { color: 'var(--flit-text-muted)' } as const;
-const VALOR = { color: 'var(--flit-text-secondary)' } as const;
-const PELIGRO = { color: 'var(--flit-danger-text)' } as const;
-const HUECO = { background: 'var(--flit-bg-hover)' } as const;
-const AVISO = 'break-words rounded-lg px-3 py-2.5 text-sm';
-const ESTILO_AVISO = { border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-card)', color: 'var(--flit-text-primary)' } as const;
+const MUTED = { color: 'var(--color-text-tertiary)' } as const;
+const VALOR = { color: 'var(--color-text-secondary)' } as const;
+const PELIGRO = { color: 'var(--kit-rojo-texto)' } as const;
+// Aviso en página del kit (`.kit-alerta`, sin data-tono: el color va en `--c`).
+const AVISO = 'kit-alerta flex-col gap-1 break-words text-sm';
+const ESTILO_AVISO = { '--c': 'var(--kit-azul)' } as CSSProperties;
+const ESTILO_ALERTA = { '--c': 'var(--kit-rojo)' } as CSSProperties;
 
 /** «hoy a las 3:24 p. m.» / «el 14 oct. 2026 a las 3:24 p. m.». */
 const hoyOEl = (m: Momento) => (m.dia ? `el ${m.dia} a las ${m.hora}` : `hoy a las ${m.hora}`);
@@ -45,7 +46,7 @@ export function Reintentar({ onClick, etiqueta }: { onClick: () => void; etiquet
   return (
     <button type="button" onClick={onClick} aria-label={etiqueta}
       className="flit-focus rounded font-semibold underline-offset-2 transition-colors hover:underline"
-      style={{ color: 'var(--flit-blue-text)' }}>
+      style={{ color: 'var(--color-action)' }}>
       Reintentar
     </button>
   );
@@ -146,7 +147,7 @@ export function LineaLecturaFlit1({ uso, apagada }: { uso: UsoEstadoLectura; apa
       </p>
     );
   }
-  const hueco = <span aria-hidden="true" className="mt-1 block h-3 w-28 animate-pulse rounded" style={HUECO} />;
+  const hueco = <span aria-hidden="true" data-kit="esqueleto" className="kit-esqueleto mt-1 block h-3 w-28" />;
   let ultima: ReactNode = hueco;
   let notas: ReactNode = null;
   if (e.fase === 'listo') {
@@ -337,7 +338,7 @@ export function useParametrosFlit1(alGuardar: () => void): UsoParametrosFlit1 {
 
 function Etiqueta({ c }: { c: Campo }) {
   return (
-    <label htmlFor={idCampo(c)} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+    <label htmlFor={idCampo(c)} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
       {ETIQUETA[c]}
     </label>
   );
@@ -362,11 +363,11 @@ function CuerpoParametrosFlit1({ uso }: { uso: UsoParametrosFlit1 }) {
         <Intro />
         {CAMPOS.map((c) => (
           <div key={c} className="min-w-0">
-            <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{ETIQUETA[c]}</span>
-            <span aria-hidden="true" className="block h-10 w-full animate-pulse rounded-[10px]" style={HUECO} />
+            <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>{ETIQUETA[c]}</span>
+            <span aria-hidden="true" data-kit="esqueleto" className="kit-esqueleto block h-10 w-full" />
           </div>
         ))}
-        <div className="flex justify-end"><span aria-hidden="true" className="block h-10 w-full animate-pulse rounded-[999px] sm:w-40" style={HUECO} /></div>
+        <div className="flex justify-end"><span aria-hidden="true" data-kit="esqueleto" className="kit-esqueleto block h-10 w-full sm:w-40" /></div>
       </div>
     );
   }
@@ -427,7 +428,7 @@ function CuerpoParametrosFlit1({ uso }: { uso: UsoParametrosFlit1 }) {
         <p role="alert" className="text-sm" style={PELIGRO} data-testid="parametros-flit1-alerta">No se guardó: revisa los campos marcados.</p>
       )}
       {uso.fallo && (
-        <div role="alert" className={AVISO} style={ESTILO_AVISO} data-testid="parametros-flit1-fallo">
+        <div role="alert" className={AVISO} style={ESTILO_ALERTA} data-testid="parametros-flit1-fallo">
           {uso.fallo === 'permiso'
             ? <p style={PELIGRO}>No tienes permiso para cambiar los parámetros de lectura. Pídeselo a un administrador.</p>
             : (
@@ -440,7 +441,7 @@ function CuerpoParametrosFlit1({ uso }: { uso: UsoParametrosFlit1 }) {
       )}
       <div className="flex justify-end pt-1">
         <span id="flit1-param-sin-cambios" className="sr-only">Cambia un valor para guardar.</span>
-        <button type="button" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle}
+        <button type="button" className={`${flitBtnPrimary} w-full justify-center sm:w-auto`} style={flitBtnPrimaryStyle} data-variante="primario"
           aria-disabled={inactivo ? true : undefined} aria-busy={uso.guardando ? true : undefined}
           aria-describedby={!uso.sucio && !uso.guardando ? 'flit1-param-sin-cambios' : undefined}
           onClick={() => { if (!inactivo) uso.guardar(); }}>
@@ -472,7 +473,7 @@ export function ParametrosLecturaFlit1({ onGuardado, claseBoton = '' }: { onGuar
   const boton = useRef<HTMLButtonElement | null>(null);
   return (
     <>
-      <button ref={boton} type="button" className={`${flitBtnSecondary} ${claseBoton}`} style={flitBtnSecondaryStyle}
+      <button ref={boton} type="button" className={`${flitBtnSecondary} ${claseBoton}`} style={flitBtnSecondaryStyle} data-variante="secundario"
         onClick={() => setAbierto(true)} data-testid="boton-parametros-flit1">
         Parámetros de lectura
       </button>

@@ -6,6 +6,13 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import toast, { Toaster } from 'react-hot-toast';
+import LayoutPublico from '../components/flit/LayoutPublico';
+import InlineAlert from '../components/flit/InlineAlert';
+import GradientButton, { claseBoton } from '../components/flit/GradientButton';
+import { Cargador } from '../components/flit/Cargador';
+import { Fichas } from '../components/flit/Bloques';
+import { flitInp } from '../components/flit/flitPageKit';
+import { Icono, IconoModulo } from '../components/flit/kit/Icono';
 
 interface PortalView {
   rol: string;
@@ -105,50 +112,54 @@ export default function PublicTramitePortal() {
   };
 
   const Shell = ({ children }: { children: React.ReactNode }) => (
-    <div className="min-h-screen bg-[color:var(--flit-bg-app)] py-10 px-4">
+    <LayoutPublico ancho={640}>
       <Toaster position="top-center" />
-      <div className="mx-auto max-w-lg overflow-hidden rounded-2xl border bg-white shadow-[0_8px_24px_rgba(22,39,68,0.08)]" style={{ borderColor: 'var(--flit-border-input)' }}>
-        <div className="px-6 py-5" style={{ background: 'var(--flit-gradient-primary)' }}>
-          <p className="text-xs font-semibold uppercase tracking-wide text-white">FLIT · Portal del trámite</p>
-          <h1 className="mt-1 text-lg font-bold text-white">Completa tu parte del trámite</h1>
+      <section className="card seg">
+        <div className="seg__cab">
+          <IconoModulo clave="flito-tramites" disco size={48} className="shrink-0" />
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-tertiary)]">FLIT · Portal del trámite</p>
+            <h1 className="mt-1 text-xl font-bold text-[var(--color-action)]">Completa tu parte del trámite</h1>
+          </div>
         </div>
-        <div className="px-6 py-5">{children}</div>
-      </div>
-    </div>
+        <div>{children}</div>
+      </section>
+    </LayoutPublico>
   );
 
-  if (loading) return <Shell><p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</p></Shell>;
-  if (invalid || !view) return <Shell><p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>El enlace no es válido o ha expirado. Solicita uno nuevo al gestor del trámite.</p></Shell>;
-  if (terminado) return <Shell><p className="text-sm font-semibold" style={{ color: 'var(--flit-success)' }}>¡Gracias! Tu parte del trámite quedó registrada.</p></Shell>;
+  if (loading) return <Shell><Cargador texto="Cargando…" /></Shell>;
+  if (invalid || !view) return <Shell><div className="seg__bloque"><p className="text-sm text-[var(--color-text-secondary)]">El enlace no es válido o ha expirado. Solicita uno nuevo al gestor del trámite.</p></div></Shell>;
+  if (terminado) return <Shell><InlineAlert tono="ok"><span className="font-semibold">¡Gracias! Tu parte del trámite quedó registrada.</span></InlineAlert></Shell>;
 
   return (
     <Shell>
-      <div className="mb-4 grid grid-cols-2 gap-3">
-        <div><p className="text-[10px] uppercase" style={{ color: 'var(--flit-text-muted)' }}>Rol</p><p className="text-sm font-semibold capitalize" style={{ color: 'var(--flit-text-primary)' }}>{view.rol}</p></div>
-        <div><p className="text-[10px] uppercase" style={{ color: 'var(--flit-text-muted)' }}>Placa</p><p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{view.tramite.placa || '—'}</p></div>
-        <div className="col-span-2"><p className="text-[10px] uppercase" style={{ color: 'var(--flit-text-muted)' }}>Vehículo</p><p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>{[view.tramite.vehiculo?.marca, view.tramite.vehiculo?.linea].filter(Boolean).join(' ') || '—'}</p></div>
+      <div className="mb-4">
+        <Fichas items={[
+          { etiqueta: 'Rol', valor: <span className="font-semibold capitalize">{view.rol}</span> },
+          { etiqueta: 'Placa', valor: <span className="font-semibold">{view.tramite.placa || '—'}</span> },
+          { etiqueta: 'Vehículo', valor: [view.tramite.vehiculo?.marca, view.tramite.vehiculo?.linea].filter(Boolean).join(' ') || '—' },
+        ]} />
       </div>
 
       {!view.consentDado ? (
-        <div>
-          <p className="mb-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Tratamiento de datos personales (Ley 1581) · v{view.consentVersion}</p>
-          <p className="rounded-[10px] p-3 text-[12px] leading-relaxed" style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-text-secondary)' }}>{view.consentText}</p>
-          <button type="button" onClick={aceptar} disabled={accepting}
-            className="flit-focus mt-4 inline-flex h-11 w-full items-center justify-center rounded-[999px] px-5 text-sm font-semibold text-white disabled:opacity-60"
-            style={{ background: 'var(--flit-gradient-success)' }}>
+        <div className="seg__bloque">
+          <h2 className="mb-2 text-sm font-semibold text-[var(--color-text-secondary)]">Tratamiento de datos personales (Ley 1581) · v{view.consentVersion}</h2>
+          <p className="rounded-[9px] bg-[var(--color-surface)] p-3 text-xs leading-relaxed text-[var(--color-text-secondary)]">{view.consentText}</p>
+          <GradientButton type="button" variant="success" onClick={aceptar} disabled={accepting} className="mt-4 w-full">
             {accepting ? 'Registrando…' : 'Acepto el tratamiento de datos y continúo'}
-          </button>
+          </GradientButton>
         </div>
       ) : (
         <div>
-          <p className="mb-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Sube tus documentos</p>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <select value={tipo} onChange={(e) => setTipo(e.target.value)}
-              className="flit-focus rounded-[10px] border bg-white px-3 py-2.5 text-sm" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}>
+          <h2 className="mb-2 text-sm font-semibold text-[var(--color-text-secondary)]">Sube tus documentos</h2>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+            <select value={tipo} onChange={(e) => setTipo(e.target.value)} className={`${flitInp} sm:w-auto`}>
               {DOC_TIPOS.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
             </select>
-            <label className="flit-focus inline-flex flex-1 cursor-pointer items-center justify-center rounded-[10px] border px-4 py-2.5 text-sm font-semibold" style={{ borderColor: 'var(--flit-blue)', color: 'var(--flit-blue)' }}>
-              {uploading ? 'Subiendo…' : 'Elegir archivo'}
+            <label data-kit="carga" data-estado={uploading ? 'uploading' : 'idle'}
+              className={`carga kit-carga flex-1 cursor-pointer focus-within:outline focus-within:outline-2 focus-within:outline-[var(--kit-azul)]${uploading ? ' opacity-60' : ''}`}>
+              <Icono nombre={uploading ? 'girador' : 'nube-subir'} size={28} className={uploading ? 'animate-spin motion-reduce:animate-none' : ''} />
+              <span className="text-sm font-semibold text-[var(--color-action)]">{uploading ? 'Subiendo…' : 'Elegir archivo'}</span>
               <input type="file" accept="application/pdf,image/*" hidden disabled={uploading}
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) subir(f); e.target.value = ''; }} />
             </label>
@@ -157,8 +168,8 @@ export default function PublicTramitePortal() {
           {subidos.length > 0 && (
             <ul className="mt-3 space-y-1">
               {subidos.map((s, i) => (
-                <li key={i} className="flex items-center gap-2 text-xs" style={{ color: 'var(--flit-success)' }}>
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <li key={i} className="flex items-center gap-2 text-xs text-[var(--kit-verde-texto)]">
+                  <Icono nombre="check" size={16} />
                   {s}
                 </li>
               ))}
@@ -166,41 +177,36 @@ export default function PublicTramitePortal() {
           )}
 
           {firma && firma.estado !== 'firmada' && (
-            <div className="mt-5 rounded-[10px] border p-3" style={{ borderColor: 'var(--flit-blue)', background: 'rgba(79,116,201,0.06)' }}>
-              <p className="text-xs font-bold" style={{ color: 'var(--flit-blue-text)' }}>Firma del contrato de compraventa</p>
-              <p className="mt-1 text-[12px]" style={{ color: 'var(--flit-text-secondary)' }}>
+            <div className="barra-accion mt-5 !block">
+              <p className="text-xs font-bold text-[var(--color-action)]">Firma del contrato de compraventa</p>
+              <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
                 Tu firma electrónica es requerida para continuar (Ley 527 de 1999).
               </p>
               {firma.proveedor === 'mock' ? (
-                <button type="button" onClick={firmarMock} disabled={firmando}
-                  className="flit-focus mt-3 inline-flex h-11 w-full items-center justify-center rounded-[999px] px-5 text-sm font-semibold text-white disabled:opacity-60"
-                  style={{ background: 'var(--flit-gradient-success)' }}>
+                <GradientButton type="button" variant="success" onClick={firmarMock} disabled={firmando} className="mt-3 w-full">
                   {firmando ? 'Firmando…' : 'Firmar contrato (simulado)'}
-                </button>
+                </GradientButton>
               ) : firma.url ? (
-                <a href={firma.url} target="_blank" rel="noopener noreferrer"
-                  className="flit-focus mt-3 inline-flex h-11 w-full items-center justify-center rounded-[999px] px-5 text-sm font-semibold text-white"
-                  style={{ background: 'var(--flit-gradient-success)' }}>
+                <a href={firma.url} target="_blank" rel="noopener noreferrer" data-variante="confirmar"
+                  className={claseBoton('success', 'md', 'mt-3 w-full')}>
                   Ir a firmar el contrato
                 </a>
               ) : null}
             </div>
           )}
           {firma && firma.estado === 'firmada' && (
-            <p className="mt-5 flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-success)' }}>
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            <p className="mt-5 flex items-center gap-2 text-xs font-semibold text-[var(--kit-verde-texto)]">
+              <Icono nombre="check" size={16} />
               Contrato de compraventa firmado.
             </p>
           )}
 
-          <button type="button" onClick={finalizar}
-            className="flit-focus mt-4 inline-flex h-11 w-full items-center justify-center rounded-[999px] px-5 text-sm font-semibold text-white"
-            style={{ background: 'var(--flit-gradient-primary)' }}>
+          <GradientButton type="button" onClick={finalizar} className="mt-4 w-full">
             Finalizar
-          </button>
+          </GradientButton>
         </div>
       )}
-      <p className="mt-4 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>FLIT prepara y orquesta el trámite. La radicación oficial se realiza ante el organismo de tránsito.</p>
+      <p className="nota mt-4 text-[var(--color-text-tertiary)]">FLIT prepara y orquesta el trámite. La radicación oficial se realiza ante el organismo de tránsito.</p>
     </Shell>
   );
 }

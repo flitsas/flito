@@ -111,17 +111,26 @@ test.describe('HU #12997 · AC5 — pastillas y «Todos»', () => {
     expect(page.url()).not.toContain('1020304050');
   });
 
-  test('las pastillas envuelven a 375 px sin desbordar la pantalla', async ({ page }) => {
+  // Rediseño 2026 (docs/ux/rediseno-2026/responsive/defectos.md, V1 «Resuelto»): las tiras de píldoras ya
+  // NO envuelven; van en un renglón con scroll horizontal propio y desvanecido, y la caja no ensancha la página.
+  test('las pastillas van en una tira con scroll a 375 px sin desbordar la pantalla', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await loginAs(page, CLIENTE_CON_CANAL);
     await mockCola(page);
     await page.goto('/flito/soat');
-    await expect(pastilla(page, 'Descartadas')).toBeVisible();
-    // Las pastillas ocupan más de un renglón (envuelven) y ninguna se sale del viewport.
+    await expect(pastilla(page, 'Descartadas')).toBeAttached();
     const cajas = await page.getByRole('button', { name: /^(Todos|Por validar|Pendiente|Solicitado|Con novedad|Pagado|Descartadas)$/ })
-      .evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ top: r.top, right: r.right })));
-    expect(new Set(cajas.map((c) => Math.round(c.top))).size).toBeGreaterThan(1);
-    for (const c of cajas) expect(c.right).toBeLessThanOrEqual(375);
+      .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+    expect(new Set(cajas).size).toBe(1);
+    // La tira es su propio contenedor con scroll (overflow-x auto/scroll), cabe en el viewport y la página no crece.
+    const m = await pastilla(page, 'Descartadas').evaluate((el) => {
+      let n = el.parentElement;
+      while (n && !['auto', 'scroll'].includes(getComputedStyle(n).overflowX)) n = n.parentElement;
+      return { tira: !!n, derecha: n ? n.getBoundingClientRect().right : Infinity, pagina: document.documentElement.scrollWidth };
+    });
+    expect(m.tira).toBe(true);
+    expect(m.derecha).toBeLessThanOrEqual(375);
+    expect(m.pagina).toBeLessThanOrEqual(375);
   });
 
   test('proveedor (gestor): sin pastillas nuevas y sin una sola petición a buscar', async ({ page }) => {
@@ -298,18 +307,29 @@ test.describe('HU #12997 · retrabajo — la pastilla resaltada es la que filtra
     const pulsadas = grupoPastillas(page).locator('button[aria-pressed="true"]');
     await expect(pulsadas).toHaveCount(1);
     await expect(pulsadas).toHaveText(nombre);
-    const conCara = await grupoPastillas(page).locator('button').evaluateAll((bs) =>
-      bs.filter((b) => getComputedStyle(b).boxShadow !== 'none'
-        || getComputedStyle(b).backgroundColor !== 'rgba(0, 0, 0, 0)').map((b) => b.textContent?.trim()));
-    expect(conCara).toEqual([nombre]);
+    // UI Kit 2026 (S0): las pastillas en reposo ya tienen fondo propio, así que «con cara» ya no es
+    // «con fondo o sombra» sino «con una cara DISTINTA de la del resto». Se aparta el puntero para
+    // no medir el hover, y se reintenta mientras dura la transición de color.
+    await page.mouse.move(0, 0);
+    await expect.poll(() => grupoPastillas(page).locator('button').evaluateAll((bs) => {
+      const cara = (b: Element) => {
+        const c = getComputedStyle(b);
+        return `${c.backgroundColor}|${c.boxShadow}|${c.color}`;
+      };
+      const caras = bs.map(cara);
+      return bs.filter((_, i) => caras.filter((c) => c === caras[i]).length === 1).map((b) => b.textContent?.trim());
+    })).toEqual([nombre]);
   }
   const listos = (page: Page) => page.getByRole('button', { name: 'Listos para enviar' });
   // «Listos para enviar» apagada en `aria-pressed` Y en la cara: el mismo borde que «Sin gestión».
   async function vistaApagada(page: Page) {
     await expect(listos(page)).toHaveAttribute('aria-pressed', 'false');
-    const [a, b] = await Promise.all(['Listos para enviar', 'Sin gestión'].map((n) =>
-      page.getByRole('button', { name: n }).evaluate((el) => getComputedStyle(el).borderColor)));
-    expect(a).toBe(b);
+    // El chip tiene transition-colors: se espera a que termine antes de comparar.
+    await expect.poll(async () => {
+      const [a, b] = await Promise.all(['Listos para enviar', 'Sin gestión'].map((n) =>
+        page.getByRole('button', { name: n }).evaluate((el) => getComputedStyle(el).borderColor)));
+      return a === b;
+    }).toBe(true);
   }
 
   test('secuencia SOAT ↔ incompletas: solo la clicada queda pulsada y la vista rápida no se enciende sola', async ({ page }) => {

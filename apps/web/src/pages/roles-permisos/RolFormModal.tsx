@@ -14,7 +14,7 @@ import { type CrearRolInput, type EditarRolInput, type RolCatalogo, type TipoEnl
 import { ApiError, permisosApi } from '../../lib/api';
 import FlitModal from '../../components/flit/FlitModal';
 import GradientButton from '../../components/flit/GradientButton';
-import { flitBtnSecondary, flitBtnSecondaryStyle, flitInp } from '../../components/flit/flitPageKit';
+import { flitInp } from '../../components/flit/flitPageKit';
 import { AYUDA_ENLACE, ETIQUETA_ENLACE, LARGO_MAX_CODIGO, ORDEN_ENLACE, PATRON_CODIGO, derivarCodigo } from './modulos';
 
 type Props = {
@@ -23,7 +23,10 @@ type Props = {
 } & ({ modo: 'crear'; onListo: (rol: RolCatalogo) => void } | { modo: 'editar'; rol: RolCatalogo; onListo: (rol: RolCatalogo) => void });
 
 const CLASE_AYUDA = 'mt-1 text-xs';
-const ESTILO_AYUDA = { color: 'var(--flit-text-secondary)' } as const;
+const ESTILO_AYUDA = { color: 'var(--color-text-secondary)' } as const;
+const ESTILO_ERROR = { color: 'var(--kit-rojo-texto)' } as const;
+const CLASE_ROTULO = 'mb-1 block text-sm font-semibold';
+const ESTILO_ROTULO = { color: 'var(--color-text-primary)' } as const;
 /** HU #12876: copy pulido; el error crudo del API no se enseña. */
 const ERROR_GUARDAR = 'No se pudo guardar el rol. Inténtalo de nuevo; si se repite, recarga la página.';
 
@@ -105,10 +108,10 @@ export default function RolFormModal(props: Props) {
   };
 
   return (
-    <FlitModal title={original ? `Editar el rol ${original.nombre}` : 'Nuevo rol'} onClose={onClose} restoreFocusRef={restoreFocusRef}>
+    <FlitModal title={original ? `Editar el rol ${original.nombre}` : 'Nuevo rol'} onClose={onClose} restoreFocusRef={restoreFocusRef} icono={original ? 'lapiz' : 'rol'}>
       <form onSubmit={enviar} noValidate className="flex flex-col gap-4">
         <div>
-          <label htmlFor="rol-nombre" className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Nombre del rol</label>
+          <label htmlFor="rol-nombre" className={CLASE_ROTULO} style={ESTILO_ROTULO}>Nombre del rol</label>
           <input
             id="rol-nombre"
             ref={refNombre}
@@ -123,15 +126,15 @@ export default function RolFormModal(props: Props) {
             Es lo que se lee en la lista de roles y en el formulario de usuario.
             {!original && (
               <span className="mt-1 block">
-                Código: <code style={{ color: 'var(--flit-text-primary)' }}>{codigo || '—'}</code>. Se genera del nombre y no se puede cambiar después.
+                Código: <code style={ESTILO_ROTULO}>{codigo || '—'}</code>. Se genera del nombre y no se puede cambiar después.
               </span>
             )}
           </p>
-          {errorNombre && <p id="rol-nombre-error" role="alert" className={CLASE_AYUDA} style={{ color: 'var(--flit-danger-ink)' }}>{errorNombre}</p>}
+          {errorNombre && <p id="rol-nombre-error" role="alert" className={CLASE_AYUDA} style={ESTILO_ERROR}>{errorNombre}</p>}
         </div>
 
         <div>
-          <label htmlFor="rol-descripcion" className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Descripción</label>
+          <label htmlFor="rol-descripcion" className={CLASE_ROTULO} style={ESTILO_ROTULO}>Descripción</label>
           <textarea
             id="rol-descripcion"
             ref={refDescripcion}
@@ -144,11 +147,11 @@ export default function RolFormModal(props: Props) {
             onChange={(e) => setDescripcion(e.target.value)}
           />
           <p id="rol-descripcion-ayuda" className={CLASE_AYUDA} style={ESTILO_AYUDA}>Una frase que diga qué hace este rol. Se lee en la cabecera del cuadro.</p>
-          {errorDescripcion && <p id="rol-descripcion-error" role="alert" className={CLASE_AYUDA} style={{ color: 'var(--flit-danger-ink)' }}>{errorDescripcion}</p>}
+          {errorDescripcion && <p id="rol-descripcion-error" role="alert" className={CLASE_AYUDA} style={ESTILO_ERROR}>{errorDescripcion}</p>}
         </div>
 
         <fieldset role="radiogroup" aria-labelledby="rol-enlace-legend" aria-describedby={`rol-enlace-ayuda${cambiaEnlace ? ' rol-enlace-bloqueo' : ''}`}>
-          <legend id="rol-enlace-legend" className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Enlace</legend>
+          <legend id="rol-enlace-legend" className={CLASE_ROTULO} style={ESTILO_ROTULO}>Enlace</legend>
           <p id="rol-enlace-ayuda" className="mb-2 text-xs" style={ESTILO_AYUDA}>
             Decide qué datos ven las personas con este rol. La compañía, el proveedor o las secretarías de cada una se eligen en Usuarios.
           </p>
@@ -158,20 +161,20 @@ export default function RolFormModal(props: Props) {
               return (
                 <label
                   key={v}
-                  className="flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 transition-colors hover:bg-[var(--flit-bg-hover)]"
+                  className="flex cursor-pointer items-start gap-2 rounded-[9px] px-2 py-1.5 transition-colors hover:bg-[var(--kit-hover)]"
                 >
                   <input
                     type="radio"
                     name="rol-enlace"
                     value={v}
-                    className="flit-focus mt-1 shrink-0"
+                    className="flit-focus mt-1 shrink-0 accent-[var(--color-action)]"
                     checked={elegido}
                     aria-labelledby={`rol-enlace-${v}-nombre`}
                     aria-describedby={`rol-enlace-${v}-ayuda`}
                     onChange={() => setTipoEnlace(v)}
                   />
                   <span className="min-w-0">
-                    <span id={`rol-enlace-${v}-nombre`} className={`block text-sm${elegido ? ' font-semibold' : ''}`} style={{ color: 'var(--flit-text-primary)' }}>{ETIQUETA_ENLACE[v]}</span>
+                    <span id={`rol-enlace-${v}-nombre`} className={`block text-sm${elegido ? ' font-semibold' : ''}`} style={ESTILO_ROTULO}>{ETIQUETA_ENLACE[v]}</span>
                     <span id={`rol-enlace-${v}-ayuda`} className="mt-0.5 block text-xs" style={ESTILO_AYUDA}>{AYUDA_ENLACE[v]}</span>
                   </span>
                 </label>
@@ -179,7 +182,7 @@ export default function RolFormModal(props: Props) {
             })}
           </div>
           {cambiaEnlace && (
-            <p id="rol-enlace-bloqueo" className={CLASE_AYUDA} style={{ color: 'var(--flit-warning-ink)' }}>
+            <p id="rol-enlace-bloqueo" className={CLASE_AYUDA} style={{ color: 'var(--kit-naranja-texto)' }}>
               {usuarios === 1 ? '1 usuario ya tiene' : `${usuarios} usuarios ya tienen`} este rol: FLITO no deja cambiar el enlace mientras alguien lo tenga. Cámbiales el rol en Usuarios y vuelve aquí.
             </p>
           )}
@@ -188,8 +191,8 @@ export default function RolFormModal(props: Props) {
         {original && (
           <div>
             <label className="flex items-start gap-2">
-              <input type="checkbox" className="flit-focus mt-1" checked={activo} aria-describedby="rol-activo-ayuda" onChange={(e) => setActivo(e.target.checked)} />
-              <span className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>Se puede asignar a usuarios nuevos</span>
+              <input type="checkbox" className="flit-focus mt-1 accent-[var(--color-action)]" checked={activo} aria-describedby="rol-activo-ayuda" onChange={(e) => setActivo(e.target.checked)} />
+              <span className="text-sm" style={ESTILO_ROTULO}>Se puede asignar a usuarios nuevos</span>
             </label>
             <p id="rol-activo-ayuda" className={CLASE_AYUDA} style={ESTILO_AYUDA}>
               Si lo desmarcas, este rol deja de ofrecerse al crear o editar usuarios. Quien ya lo tiene sigue entrando y trabajando igual.
@@ -197,10 +200,10 @@ export default function RolFormModal(props: Props) {
           </div>
         )}
 
-        {errorServidor && <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{errorServidor}</p>}
+        {errorServidor && <p role="alert" className="text-sm" style={ESTILO_ERROR}>{errorServidor}</p>}
 
-        <div className="flex justify-end gap-2 pt-2">
-          <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose} disabled={enviando}>Cancelar</button>
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
+          <GradientButton type="button" variant="secondary" onClick={onClose} disabled={enviando}>Cancelar</GradientButton>
           <GradientButton type="submit" disabled={enviando}>{original ? 'Guardar cambios' : 'Crear rol'}</GradientButton>
         </div>
       </form>

@@ -109,6 +109,10 @@ async function mock(page: import('@playwright/test').Page, fuente: () => readonl
   });
 }
 
+/** UI Kit 2026: los filtros de la cola viven en el panel que abre «Filtros» (`PanelFiltros`). */
+const abrirFiltros = (page: import('@playwright/test').Page) =>
+  page.getByRole('button', { name: /^Filtros/ }).click();
+
 test.describe('FLITO — Impuestos', () => {
   test('operaciones lista, filtra y abre detalle', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
@@ -189,6 +193,7 @@ test.describe('FLITO — Impuestos', () => {
     await page.goto('/flito/impuestos');
     await expect(page.getByText('ABC123')).toBeVisible();
 
+    await abrirFiltros(page);
     await page.getByLabel('Gestiona').selectOption('operaciones');
     await expect(page.getByText('OPS001')).toBeVisible();
     await expect(page.getByText('ABC123')).toHaveCount(0);
@@ -258,7 +263,10 @@ test.describe('FLITO — Impuestos', () => {
     });
 
     await page.goto('/flito/impuestos');
+    await abrirFiltros(page);
     await page.getByLabel('Gestiona').selectOption('operaciones');
+    // Épica #14560 (ronda 2): el panel filtra en vivo, sin «Aplicar»; se pliega con su mismo botón.
+    await page.getByRole('button', { name: /^Filtros/ }).click();
     await page.getByRole('row').filter({ hasText: 'OPS001' }).getByRole('button', { name: 'Ver' }).click();
     const modal = page.getByRole('dialog');
     await modal.getByRole('button', { name: 'Devolver al gestor' }).click();
@@ -305,7 +313,11 @@ test.describe('FLITO — Impuestos', () => {
 
     await page.goto('/flito/impuestos');
     await expect(page.getByRole('button', { name: 'Gestionar en Operaciones' })).toHaveCount(0);
+    // Con el panel de filtros ABIERTO: cerrado, el select no existiría para nadie y el aserto no diría nada.
+    await abrirFiltros(page);
     await expect(page.getByLabel('Gestiona')).toHaveCount(0);
+    // Épica #14560 (ronda 2): el panel filtra en vivo, sin «Aplicar»; se pliega con su mismo botón.
+    await page.getByRole('button', { name: /^Filtros/ }).click();
 
     await page.getByRole('button', { name: 'Ver' }).first().click();
     const modal = page.getByRole('dialog');
@@ -482,7 +494,7 @@ test.describe('FLITO — Impuestos · certificación RUNT', () => {
     await expect(page.getByText('Certificado', { exact: true })).toHaveCount(1);
   });
 
-  test('la acción vive bajo el trámite y ya no hay columna Certificación', async ({ page }) => {
+  test('la acción vive en la celda de Estado y ya no hay columna Certificación', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockCert(page);
 
@@ -492,13 +504,18 @@ test.describe('FLITO — Impuestos · certificación RUNT', () => {
     // gastaba ancho en todas las demás para decir «—».
     await expect(page.getByRole('columnheader', { name: 'Certificación' })).toHaveCount(0);
 
-    // Botón y chip pasan a la celda del trámite. Se comprueba por contenido de la celda y no por su
-    // posición: el índice de columna baila con la casilla de selección, que solo sale cuando hay
-    // filas seleccionables.
-    const celdaDelTramite = page.getByRole('cell').filter({ hasText: 'FLIT-1002' });
-    await expect(celdaDelTramite.getByRole('button', { name: 'Certificar' })).toBeVisible();
-    await expect(page.getByRole('cell').filter({ hasText: 'FLIT-1003' })
-      .getByRole('button', { name: 'Descargar certificado en PDF' })).toBeVisible();
+    // Épica #14560 (§3.3): botón y chip viven en la celda de Estado (señales de la misma intención),
+    // no bajo el N.º de trámite. Se comprueba por contenido de la celda y no por su posición: el
+    // índice de columna baila con la casilla de selección, que solo sale con el permiso.
+    const celdaDelBoton = (id: string, boton: string) => page.getByRole('row').filter({ hasText: id })
+      .getByRole('cell').filter({ has: page.getByRole('button', { name: boton }) });
+    const certificar = celdaDelBoton('FLIT-1002', 'Certificar');
+    await expect(certificar).toHaveCount(1);
+    await expect(certificar).toContainText('Solicitado');
+    await expect(certificar).not.toContainText('FLIT-1002');
+    const descargar = celdaDelBoton('FLIT-1003', 'Descargar certificado en PDF');
+    await expect(descargar).toHaveCount(1);
+    await expect(descargar).not.toContainText('FLIT-1003');
   });
 
   test('AC2 — al certificar, la fila pasa a Certificado sin recargar', async ({ page }) => {
@@ -791,7 +808,7 @@ test.describe('FLITO — Impuestos · certificación masiva', () => {
     await expect(page.getByRole('dialog')).toBeVisible();
     const antes = pedidas;
 
-    await page.getByRole('button', { name: 'Listo' }).click();
+    await page.getByRole('button', { name: 'Listo', exact: true }).click();
 
     await expect(page.getByText('1 seleccionado(s)')).toHaveCount(0);
     await expect.poll(() => pedidas).toBeGreaterThan(antes);
@@ -861,7 +878,7 @@ test.describe('FLITO — Impuestos · certificación masiva', () => {
     expect(certificados[0]).toEqual({ ids: ['s0'] });
 
     // Cerrar el resultado vacía la selección (`onListo`), así que se vuelve a marcar para la otra.
-    await page.getByRole('button', { name: 'Listo' }).click();
+    await page.getByRole('button', { name: 'Listo', exact: true }).click();
     await expect(page.getByText('2 seleccionado(s)')).toHaveCount(0);
     await page.getByLabel('Seleccionar ABC123').check();
     await page.getByLabel('Seleccionar SOL000').check();
@@ -1044,6 +1061,7 @@ test.describe('FLITO — Impuestos · fases del recibo (HU #12592)', () => {
     await expect(page.getByText('ABC123')).toBeVisible();
     await expect(page.getByText(/^6 impuestos/).first()).toBeVisible();
 
+    await abrirFiltros(page);
     const casilla = page.getByRole('checkbox', { name: 'Liquidado, pendiente de pago' });
     await casilla.check();
     await expect(page.getByText('ABC123')).toHaveCount(0);
@@ -1516,7 +1534,9 @@ test.describe('FLITO — Impuestos · ficha de ayuda (HU #12592, AC7)', () => {
     // HU #12615 (AC5, TC-13): la ficha dice qué subir, las carpetas reales y la categoría nueva, y
     // ya no describe el proceso. *Mutante:* dejar el paso 6 anterior → cae por «5 en 5» y
     // «computador» presentes y «Fase no coincide» ausente.
-    expect(md).not.toMatch(/5 en 5|computador|comprimido|tanda/i);
+    // «(en computador)» es legítimo: lo trae el paso de **Certificar sin trámite** (vista previa de la factura,
+    // ya en develop), no el proceso viejo del paso 6. Se excluye esa frase y el resto de la prohibición sigue.
+    expect(md.replace(/\(en computador\)/g, '')).not.toMatch(/5 en 5|computador|comprimido|tanda/i);
     expect(md).toMatch(/\*\*150 archivos sueltos\*\*/);
     expect(md).toMatch(/\*\*300 dentro de un ZIP\*\*/);
     expect(md).toMatch(/\*\*liquidaciones_originales\*\* o \*\*sin marca\*\* es Liquidación/);
@@ -1525,12 +1545,86 @@ test.describe('FLITO — Impuestos · ficha de ayuda (HU #12592, AC7)', () => {
     expect(md).toMatch(/\*\*Sin asociar\*\* y \*\*Fase no coincide\*\*/);
     expect(md).toMatch(/\*\*Fase no coincide\*\* significa que el sello del documento contradice la fase elegida/);
     expect(md).toMatch(/\*\*no se guardaron\*\*; vuelva a subirlos/);
-    // Sigue en plantilla: 6 secciones, forma «usted», sin tabla ni captura ni endpoint.
+    // Sigue en plantilla: 6 secciones, forma «usted», sin tabla ni endpoint. Desde la HU #13707 las capturas con
+    // datos demo están permitidas: toda imagen es local a su carpeta y lleva alt.
     for (const h of ['Qué es', 'Para quién', 'Cómo se entra', 'Pasos', 'Estados', 'Qué no hace']) expect(md).toContain(`## ${h}`);
     expect(md).toMatch(/\busted\b/i);
     expect(md).not.toMatch(/\btú\b/);
-    expect(md).not.toMatch(/!\[[^\]]*\]\(/);
+    for (const [, alt, ruta] of md.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)) {
+      expect(alt.trim().length, ruta).toBeGreaterThan(0);
+      expect(ruta).toMatch(/^\.\/flito_impuestos\/[\w-]+\.(png|svg)$/);
+    }
     expect(md).not.toMatch(/\/api\//);
     expect(md).not.toMatch(/\|[-:]+\|/);
+  });
+});
+
+// Épica #14560 — patrón unificado de cola y detalle (`docs/ux/flito-soat-impuestos-patron-unificado.md` §10).
+test.describe('FLITO — Impuestos · patrón unificado de cola y detalle (Épica #14560)', () => {
+  /** Rótulos de la cabecera por `textContent` (el `innerText` vendría en mayúsculas por CSS). */
+  const rotulos = (page: import('@playwright/test').Page) => page.getByRole('table', { name: 'Cola de impuestos' })
+    .getByRole('columnheader').evaluateAll((ths) => ths.map((t) => t.textContent?.trim() ?? ''));
+
+  test('§10.2 · Estado es la columna que sigue a Vehículo, la primera de datos', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page);
+    await page.goto('/flito/impuestos');
+    await expect(page.getByRole('columnheader', { name: 'Estado' })).toBeVisible();
+    const h = await rotulos(page);
+    // La casilla de selección no tiene texto: se descarta y Vehículo · Estado abren la tabla.
+    expect(h.filter(Boolean).slice(0, 2)).toEqual(['Vehículo', 'Estado']);
+    expect(h.indexOf('Estado')).toBe(h.indexOf('Vehículo') + 1);
+  });
+
+  test('§10.3 · «Fechas» y «Liquidado» salen de la tabla y el dato sigue en el detalle', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page, () => IMPUESTOS.map((x, i) => (i === 0 ? {
+      ...x, fechaCreacion: '2026-03-28T12:00:00Z', fechaAprobacion: '2026-03-30T12:00:00Z', valorLiquidado: 120000, valorPagado: 130000,
+    } : x)));
+    await page.goto('/flito/impuestos');
+    await expect(page.getByRole('columnheader', { name: 'Estado' })).toBeVisible();
+    const h = await rotulos(page);
+    expect(h).not.toContain('Fechas');
+    expect(h).not.toContain('Liquidado');
+    expect(h).toContain('Valor');
+    // Una sola columna de dinero: con pagado, la fila muestra el pagado y no el liquidado.
+    const fila = page.getByRole('row').filter({ hasText: 'ABC123' });
+    await expect(fila).toContainText('130.000');
+    await expect(fila).not.toContainText('120.000');
+
+    await fila.getByRole('button', { name: 'Ver' }).click();
+    const detalle = page.getByRole('dialog', { name: 'Impuesto · ABC123' });
+    const ficha = (rotulo: string) => detalle.locator('[data-kit="fichas"] > div')
+      .filter({ has: page.locator('dt', { hasText: new RegExp(`^${rotulo}$`) }) }).locator('dd');
+    await expect(ficha('Trámite creado')).not.toHaveText('—');
+    await expect(ficha('Trámite aprobado')).not.toHaveText(/^(—|Sin aprobar)$/);
+    await expect(ficha('Valor liquidado')).toContainText('120.000');
+    await expect(ficha('Valor pagado')).toContainText('130.000');
+  });
+
+  /** `true` si `a` va antes que `b` en el documento. */
+  const antes = async (a: import('@playwright/test').Locator, b: import('@playwright/test').Locator) =>
+    a.evaluate((x, y) => !!(y && x.compareDocumentPosition(y) & Node.DOCUMENT_POSITION_FOLLOWING), await b.elementHandle());
+
+  test('§10.4 · el motivo de la novedad va arriba, antes del comprobante', async ({ page }) => {
+    await loginAs(page, OPERACIONES_USER);
+    await mock(page, () => IMPUESTOS.map((x, i) => (i === 0
+      ? { ...x, estado: 'con_novedad', motivoRechazo: 'La factura no corresponde al VIN.' } : x)));
+    const detalle = await abrirDetalle(page, 'ABC123');
+    const motivo = detalle.getByRole('alert').filter({ hasText: 'La factura no corresponde al VIN.' });
+    await expect(motivo).toBeVisible();
+    const comprobante = detalle.getByRole('group', { name: 'Acciones del comprobante' });
+    await expect(comprobante).toBeVisible();
+    expect(await antes(motivo, comprobante)).toBe(true);
+  });
+
+  test('§10.4 · el aviso de solo lectura va arriba, antes del comprobante', async ({ page }) => {
+    await loginAs(page, AUDITOR_USER);
+    await mock(page);
+    const detalle = await abrirDetalle(page, 'OPS001');
+    const aviso = detalle.getByRole('status').filter({ hasText: 'Solo lectura' });
+    await expect(aviso).toBeVisible();
+    const comprobante = detalle.getByRole('group', { name: 'Acciones del comprobante' });
+    expect(await antes(aviso, comprobante)).toBe(true);
   });
 });

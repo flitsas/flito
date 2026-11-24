@@ -2,8 +2,11 @@ import { useEffect, useState, useCallback, FormEvent } from 'react';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../../lib/api';
 import { useEscape } from '../../lib/hooks';
+import { Icono } from '../flit/kit/Icono';
 import FlitModal from '../flit/FlitModal';
-import { Field, Th, inputCls, TableCard, Tr, btnPrimary, btnPrimaryStyle, btnSecondary, btnSecondaryStyle } from './shared';
+import GradientButton from '../flit/GradientButton';
+import DataTable from '../flit/DataTable';
+import { flitInp, FlitField } from '../flit/flitPageKit';
 
 interface Measurement {
   id: number; vehicleId: number; fecha: string;
@@ -24,32 +27,32 @@ export default function MeasurementsPanel({ vehicleId, tipoMedicion, canCreate }
   return (
     <div>
       {canCreate && (
-        <div className="mb-3 flex justify-end">
-          <button type="button" onClick={() => setShowCreate(true)} className={btnPrimary} style={btnPrimaryStyle}>Nueva medición</button>
+        <div className="mb-3 flex flex-wrap justify-end gap-2">
+          <GradientButton type="button" onClick={() => setShowCreate(true)}><Icono nombre="mas" size={18} />Nueva medición</GradientButton>
         </div>
       )}
-      <TableCard>
-        <table className="w-full text-sm">
-          <thead><tr>
-            <Th>Fecha</Th><Th>Odómetro</Th><Th>Horómetro</Th><Th>Fuente</Th><Th>Nota</Th>
-          </tr></thead>
-          <tbody>
-            {meas.length === 0 && <tr><td colSpan={5} className="py-8 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin mediciones</td></tr>}
-            {meas.map((m) => (
-              <Tr key={m.id}>
-                <td className="px-4 py-2.5" style={{ color: 'var(--flit-text-secondary)' }}>{m.fecha}</td>
-                <td className="px-4 py-2.5 tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{m.odometro ?? '—'}</td>
-                <td className="px-4 py-2.5 tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{m.horometro ?? '—'}</td>
-                <td className="px-4 py-2.5 capitalize" style={{ color: 'var(--flit-text-muted)' }}>{m.fuente}</td>
-                <td className="px-4 py-2.5" style={{ color: 'var(--flit-text-muted)' }}>
-                  {m.nota || ''}
-                  {m.excedioPromedio && <span className="ml-2 text-[11px] font-semibold" style={{ color: 'var(--flit-warning)' }}>excedió promedio</span>}
-                </td>
-              </Tr>
-            ))}
-          </tbody>
-        </table>
-      </TableCard>
+      <DataTable<Measurement>
+        ariaLabel="Mediciones del vehículo"
+        filas={meas}
+        getKey={(m) => String(m.id)}
+        status={meas.length === 0 ? 'empty' : 'ready'}
+        emptyMessage="Sin mediciones"
+        columnas={[
+          { key: 'fecha', header: 'Fecha', render: (m) => m.fecha },
+          { key: 'odometro', header: 'Odómetro', render: (m) => <span className="tabular-nums">{m.odometro ?? '—'}</span> },
+          { key: 'horometro', header: 'Horómetro', render: (m) => <span className="tabular-nums">{m.horometro ?? '—'}</span> },
+          { key: 'fuente', header: 'Fuente', render: (m) => <span className="capitalize text-[color:var(--color-text-tertiary)]">{m.fuente}</span> },
+          {
+            key: 'nota', header: 'Nota',
+            render: (m) => (
+              <span className="text-[color:var(--color-text-tertiary)]">
+                {m.nota || ''}
+                {m.excedioPromedio && <span className="ml-2 text-xs font-semibold text-[color:var(--kit-naranja-texto)]">excedió promedio</span>}
+              </span>
+            ),
+          },
+        ]}
+      />
       {showCreate && (
         <MeasurementForm
           vehicleId={vehicleId} tipoMedicion={tipoMedicion}
@@ -86,20 +89,20 @@ function MeasurementForm({ vehicleId, tipoMedicion, onClose, onSaved }: { vehicl
   };
 
   return (
-    <FlitModal title="Nueva medición" onClose={onClose}>
-      <form onSubmit={submit} className="px-6 pb-6 space-y-3">
+    <FlitModal title="Nueva medición" onClose={onClose} icono="medidor">
+      <form onSubmit={submit} className="space-y-3">
           {(tipoMedicion === 'km' || tipoMedicion === 'ambos' || !tipoMedicion) && (
-            <Field label="Odómetro (km)"><input type="number" value={odometro} onChange={(e) => setOdometro(e.target.value)} className={inputCls} /></Field>
+            <FlitField label="Odómetro (km)"><input type="number" value={odometro} onChange={(e) => setOdometro(e.target.value)} className={flitInp} /></FlitField>
           )}
           {(tipoMedicion === 'horas' || tipoMedicion === 'ambos') && (
-            <Field label="Horómetro (h)"><input type="number" value={horometro} onChange={(e) => setHorometro(e.target.value)} className={inputCls} /></Field>
+            <FlitField label="Horómetro (h)"><input type="number" value={horometro} onChange={(e) => setHorometro(e.target.value)} className={flitInp} /></FlitField>
           )}
-          <Field label="Nota"><input value={nota} onChange={(e) => setNota(e.target.value)} maxLength={500} className={inputCls} /></Field>
-        <div className="flex justify-end gap-2 border-t pt-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <button type="button" onClick={onClose} className={btnSecondary} style={btnSecondaryStyle}>Cancelar</button>
-          <button type="submit" disabled={submitting} className={btnPrimary} style={btnPrimaryStyle}>
+          <FlitField label="Nota"><input value={nota} onChange={(e) => setNota(e.target.value)} maxLength={500} className={flitInp} /></FlitField>
+        <div className="flex flex-wrap justify-end gap-2 border-t border-[color:var(--color-border)] pt-4">
+          <GradientButton type="button" variant="secondary" onClick={onClose}>Cancelar</GradientButton>
+          <GradientButton type="submit" disabled={submitting}>
             {submitting ? 'Guardando…' : 'Registrar'}
-          </button>
+          </GradientButton>
         </div>
       </form>
     </FlitModal>

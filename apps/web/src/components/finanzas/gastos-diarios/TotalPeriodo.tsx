@@ -15,10 +15,10 @@ function Linea({ rotulo, valor, fuerte, describedBy, title }: {
   return (
     <div className="flex items-baseline justify-between gap-4">
       <dt className={fuerte ? 'text-sm font-semibold' : 'text-sm'} aria-describedby={describedBy} title={title}
-        style={{ color: fuerte ? 'var(--flit-text-primary)' : 'var(--flit-text-secondary)' }}>
+        style={{ color: fuerte ? 'var(--color-text-primary)' : 'var(--color-text-secondary)' }}>
         {rotulo}
       </dt>
-      <dd className={`tabular-nums ${fuerte ? 'text-xl font-bold' : 'text-sm'}`} style={{ color: 'var(--flit-text-primary)' }}>
+      <dd className={`tabular-nums ${fuerte ? 'text-2xl font-bold' : 'text-sm'}`} style={{ color: fuerte ? 'var(--color-action)' : 'var(--color-text-primary)' }}>
         <Monto v={Number(valor)} />
       </dd>
     </div>
@@ -31,7 +31,7 @@ export default function TotalPeriodo({ datos }: { datos: TotalPeriodoDatos }) {
       <FlitCard>
         <div className="grid gap-4 md:grid-cols-2">
           <div className="max-w-md">
-            <h2 id={ID_TITULO} className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>
+            <h2 id={ID_TITULO} className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
               Total del periodo
             </h2>
             <dl className="mt-2 space-y-1">
@@ -40,10 +40,10 @@ export default function TotalPeriodo({ datos }: { datos: TotalPeriodoDatos }) {
               <Linea rotulo={ROTULOS_TOTAL.total} valor={datos.total} fuerte />
             </dl>
             {datos.hayOcultas && (
-              <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{ROTULOS_TOTAL.incluyeTodas}</p>
+              <p className="mt-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>{ROTULOS_TOTAL.incluyeTodas}</p>
             )}
           </div>
-          <p id={ID_NOTA_GMF} className="text-xs md:self-center" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p id={ID_NOTA_GMF} className="text-xs md:self-center" style={{ color: 'var(--color-text-secondary)' }}>
             El GMF es un estimado. {ROTULOS_TOTAL.notaGmf} El banco lo causa por movimiento, no por trámite; puede diferir.
           </p>
         </div>

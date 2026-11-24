@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../lib/api';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import FlitModal from '../components/flit/FlitModal';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import { flitInp } from '../components/flit/flitPageKit';
 
 type Tipo = 'interna' | 'externa' | 'supert' | 'onac';
 type Estado = 'planificada' | 'en_curso' | 'cerrada';
@@ -25,9 +26,9 @@ const SEV_TONE: Record<Severidad, ChipTone> = {
   observacion: 'active', no_conformidad_menor: 'warning', no_conformidad_mayor: 'warning', critico: 'danger',
 };
 
-const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
-const cancelBtn = 'flit-focus inline-flex h-10 items-center rounded-[999px] border bg-white px-4 text-sm font-medium';
+const inputCls = flitInp;
+const MIGA = [{ etiqueta: 'Cumplimiento' }, { etiqueta: 'PESV', to: '/pesv' }];
+const TEXTO_TENUE = 'text-[color:var(--color-text-tertiary)]';
 
 export default function PesvAuditorias() {
   const [items, setItems] = useState<Auditoria[]>([]);
@@ -75,39 +76,28 @@ export default function PesvAuditorias() {
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard
         title="Auditorías PESV"
+        icono="flito-pesv"
+        miga={MIGA}
         subtitle="Programa anual con hallazgos por severidad · Paso 22 · Res. 40595/2022"
         actions={<GradientButton type="button" onClick={() => setShowCreate(true)}>Nueva auditoría</GradientButton>}
       />
 
-      <div className="overflow-hidden bg-white" style={CARD}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr>
-              <Th>Año</Th><Th>Tipo</Th><Th>Alcance</Th><Th>Planificada</Th><Th>Estado</Th><Th>Acción</Th>
-            </tr></thead>
-            <tbody>
-              {items.length === 0 && <tr><td colSpan={6} className="py-10 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin auditorías</td></tr>}
-              {items.map((a) => (
-                <tr key={a.id} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                  <td className="px-4 py-3 font-mono text-sm" style={{ color: 'var(--flit-text-primary)' }}>{a.anio}</td>
-                  <td className="px-4 py-3 text-xs uppercase tracking-wider" style={{ color: 'var(--flit-text-secondary)' }}>{a.tipo}</td>
-                  <td className="max-w-md truncate px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }} title={a.alcance}>{a.alcance}</td>
-                  <td className="px-4 py-3 font-mono text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{a.fechaPlanificada}</td>
-                  <td className="px-4 py-3"><EstadoPill v={a.estado} /></td>
-                  <td className="px-4 py-3"><button onClick={() => openDetail(a.id)} className="flit-focus inline-flex h-8 items-center rounded-[999px] px-3 text-xs font-semibold text-white" style={{ background: 'var(--flit-gradient-primary)' }}>Ver</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <section className="card p-0">
+        <DataTable<Auditoria>
+          ariaLabel="Auditorías PESV"
+          columnas={COLUMNAS(openDetail)}
+          filas={items}
+          getKey={(a) => String(a.id)}
+          emptyMessage="Sin auditorías"
+        />
+      </section>
 
       {selected && <DetailPanel detail={selected} onUpdate={() => openDetail(selected.id)} onCerrar={() => cerrar(selected.id)} onClose={() => setSelected(null)} />}
 
       {showCreate && (
         <FlitModal title="Nueva auditoría" onClose={() => setShowCreate(false)}>
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <input type="number" value={form.anio} onChange={(e) => setForm({ ...form, anio: parseInt(e.target.value) })} className={inputCls} placeholder="Año" />
               <select value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value as Tipo })} className={inputCls}>
                 {TIPOS.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -116,8 +106,8 @@ export default function PesvAuditorias() {
             <input type="date" value={form.fechaPlanificada} onChange={(e) => setForm({ ...form, fechaPlanificada: e.target.value })} className={inputCls} />
             <textarea placeholder="Alcance (≥10 chars)" value={form.alcance} onChange={(e) => setForm({ ...form, alcance: e.target.value })} rows={4} className={inputCls} />
           </div>
-          <div className="mt-6 flex justify-end gap-2">
-            <button onClick={() => setShowCreate(false)} className={cancelBtn} style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>Cancelar</button>
+          <div className="mt-6 flex flex-wrap justify-end gap-2">
+            <GradientButton type="button" variant="secondary" onClick={() => setShowCreate(false)}>Cancelar</GradientButton>
             <GradientButton type="button" onClick={create}>Crear</GradientButton>
           </div>
         </FlitModal>
@@ -157,41 +147,41 @@ function DetailPanel({ detail, onUpdate, onCerrar, onClose }: { detail: Detail; 
   };
 
   return (
-    <section className="bg-white p-6" style={CARD}>
-      <div className="mb-5 flex items-start justify-between">
-        <div>
-          <h2 className="text-base font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Auditoría {detail.anio} · {detail.tipo}</h2>
-          <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{detail.alcance}</p>
+    <section className="card">
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold text-[color:var(--color-text-primary)]">Auditoría {detail.anio} · {detail.tipo}</h2>
+          <p className="mt-1 text-xs text-[color:var(--color-text-secondary)]">{detail.alcance}</p>
         </div>
         <div className="flex items-center gap-2">
           {detail.estado !== 'cerrada' && (
-            <button onClick={onCerrar} className="flit-focus inline-flex h-9 items-center rounded-[999px] px-3 text-xs font-semibold text-white" style={{ background: 'var(--flit-gradient-success)' }}>Cerrar auditoría</button>
+            <GradientButton type="button" variant="success" size="sm" onClick={onCerrar}>Cerrar auditoría</GradientButton>
           )}
-          <button onClick={onClose} className="flit-focus text-2xl leading-none" style={{ color: 'var(--flit-text-muted)' }} aria-label="Cerrar">×</button>
+          <button type="button" onClick={onClose} className={`flit-focus inline-grid h-9 w-9 place-items-center rounded-full text-2xl leading-none transition-colors hover:bg-[var(--kit-hover)] hover:text-[color:var(--color-action)] ${TEXTO_TENUE}`} aria-label="Cerrar">×</button>
         </div>
       </div>
 
-      <div className="mb-3 mt-6 flex items-center justify-between">
-        <h3 className="text-sm font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Hallazgos ({detail.hallazgos.length})</h3>
+      <div className="mb-3 mt-6 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-[color:var(--color-text-secondary)]">Hallazgos ({detail.hallazgos.length})</h3>
         {detail.estado !== 'cerrada' && (
-          <button onClick={() => setShowH(true)} className="flit-focus inline-flex h-8 items-center rounded-[999px] px-3 text-xs font-semibold text-white" style={{ background: 'var(--flit-gradient-primary)' }}>Agregar hallazgo</button>
+          <GradientButton type="button" size="sm" onClick={() => setShowH(true)}>Agregar hallazgo</GradientButton>
         )}
       </div>
-      {detail.hallazgos.length === 0 && <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Sin hallazgos registrados</p>}
+      {detail.hallazgos.length === 0 && <p className={`text-xs ${TEXTO_TENUE}`}>Sin hallazgos registrados</p>}
       {detail.hallazgos.map((h) => (
-        <div key={h.id} className="mb-2 rounded-[12px] p-4" style={{ border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-app)' }}>
-          <div className="flex items-start justify-between">
-            <div className="flex-1">
+        <div key={h.id} className="mb-2 rounded-[9px] border border-[color:var(--color-border)] bg-[var(--color-surface)] p-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
               <StatusChip tone={SEV_TONE[h.severidad]}>{h.severidad.replace(/_/g, ' ')}</StatusChip>
-              {h.pasoPesv && <span className="ml-2 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>Paso {h.pasoPesv}</span>}
-              {h.fechaLimite && <span className="ml-2 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>Límite {h.fechaLimite}</span>}
-              <p className="mt-2 text-sm" style={{ color: 'var(--flit-text-primary)' }}>{h.descripcion}</p>
-              {h.cierreObservaciones && <p className="mt-1 text-[11px]" style={{ color: 'var(--flit-success)' }}>Cerrado: {h.cierreObservaciones}</p>}
+              {h.pasoPesv && <span className={`ml-2 text-[11px] ${TEXTO_TENUE}`}>Paso {h.pasoPesv}</span>}
+              {h.fechaLimite && <span className={`ml-2 text-[11px] ${TEXTO_TENUE}`}>Límite {h.fechaLimite}</span>}
+              <p className="mt-2 text-sm text-[color:var(--color-text-primary)]">{h.descripcion}</p>
+              {h.cierreObservaciones && <p className="mt-1 text-[11px] text-[color:var(--kit-verde-texto)]">Cerrado: {h.cierreObservaciones}</p>}
             </div>
             {h.estado === 'abierto' && (
-              <button onClick={() => closeHallazgo(h.id)} className="flit-focus ml-3 inline-flex h-7 items-center rounded-[999px] px-2 text-[10px] font-semibold text-white" style={{ background: 'var(--flit-gradient-success)' }}>Cerrar</button>
+              <GradientButton type="button" variant="success" size="sm" onClick={() => closeHallazgo(h.id)}>Cerrar</GradientButton>
             )}
-            {h.estado === 'cerrado' && <div className="ml-3"><StatusChip tone="success">cerrado</StatusChip></div>}
+            {h.estado === 'cerrado' && <div><StatusChip tone="success">cerrado</StatusChip></div>}
           </div>
         </div>
       ))}
@@ -202,14 +192,14 @@ function DetailPanel({ detail, onUpdate, onCerrar, onClose }: { detail: Detail; 
             <select value={hForm.severidad} onChange={(e) => setHForm({ ...hForm, severidad: e.target.value as Severidad })} className={inputCls}>
               {SEVERIDADES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
             </select>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <input type="number" min="1" max="24" placeholder="Paso 1-24 (opt)" value={hForm.pasoPesv} onChange={(e) => setHForm({ ...hForm, pasoPesv: e.target.value })} className={inputCls} />
               <input type="date" placeholder="Fecha límite" value={hForm.fechaLimite} onChange={(e) => setHForm({ ...hForm, fechaLimite: e.target.value })} className={inputCls} />
             </div>
             <textarea placeholder="Descripción del hallazgo (≥10 chars)" value={hForm.descripcion} onChange={(e) => setHForm({ ...hForm, descripcion: e.target.value })} rows={4} className={inputCls} />
           </div>
-          <div className="mt-6 flex justify-end gap-2">
-            <button onClick={() => setShowH(false)} className={cancelBtn} style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>Cancelar</button>
+          <div className="mt-6 flex flex-wrap justify-end gap-2">
+            <GradientButton type="button" variant="secondary" onClick={() => setShowH(false)}>Cancelar</GradientButton>
             <GradientButton type="button" onClick={addHallazgo}>Agregar</GradientButton>
           </div>
         </FlitModal>
@@ -218,7 +208,16 @@ function DetailPanel({ detail, onUpdate, onCerrar, onClose }: { detail: Detail; 
   );
 }
 
-function Th({ children }: { children: ReactNode }) { return <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>{children}</th>; }
+function COLUMNAS(onVer: (id: number) => void): ColumnaTabla<Auditoria>[] {
+  return [
+    { key: 'anio', header: 'Año', render: (a) => <span className="font-mono text-sm text-[color:var(--color-text-primary)]">{a.anio}</span> },
+    { key: 'tipo', header: 'Tipo', render: (a) => <span className="text-xs uppercase tracking-wider text-[color:var(--color-text-secondary)]">{a.tipo}</span> },
+    { key: 'alcance', header: 'Alcance', render: (a) => <span className="block max-w-md truncate text-xs text-[color:var(--color-text-secondary)]" title={a.alcance}>{a.alcance}</span> },
+    { key: 'planificada', header: 'Planificada', render: (a) => <span className="font-mono text-xs text-[color:var(--color-text-secondary)]">{a.fechaPlanificada}</span> },
+    { key: 'estado', header: 'Estado', render: (a) => <EstadoPill v={a.estado} /> },
+    { key: 'accion', header: 'Acción', acciones: true, render: (a) => <GradientButton type="button" variant="secondary" size="sm" onClick={() => onVer(a.id)}>Ver</GradientButton> },
+  ];
+}
 
 function EstadoPill({ v }: { v: Estado }) {
   const tone: Record<Estado, ChipTone> = { planificada: 'active', en_curso: 'warning', cerrada: 'success' };

@@ -1,7 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
 import toast from 'react-hot-toast';
-import { flitInp, FlitCard, FlitTable, FlitTh, FlitTr } from './flit/flitPageKit';
+import { flitInp, FlitCard } from './flit/flitPageKit';
+import GradientButton, { claseBoton } from './flit/GradientButton';
+import StatusChip from './flit/StatusChip';
+import DataTable, { type ColumnaTabla } from './flit/DataTable';
+import Placa from './flit/Placa';
+import { Girador } from './flit/Cargador';
+import { Icono } from './flit/kit/Icono';
 
 interface BatchResult {
   vin: string; plate: string | null; ownerName: string | null;
@@ -231,164 +237,160 @@ export default function BatchValidator({ onSendToRequests }: Props) {
     try { return new Date(d).toLocaleDateString('es-CO'); } catch { return d; }
   };
 
+  const filasResultado = results.map((r, i) => ({ r, i }));
+  const columnasResultado: ColumnaTabla<{ r: BatchResult; i: number }>[] = [
+    { key: 'vin', header: 'VIN', render: ({ r }) => <span className="font-mono text-xs text-[color:var(--color-text-secondary)]">{r.vin}</span> },
+    { key: 'placa', header: 'Placa', render: ({ r }) => (r.plate ? <Placa placa={r.plate} /> : <span className="text-[color:var(--color-text-tertiary)]">—</span>) },
+    { key: 'propietario', header: 'Propietario', render: ({ r }) => <span className="block max-w-[150px] truncate text-xs">{r.ownerName || '—'}</span> },
+    { key: 'vehiculo', header: 'Vehículo', render: ({ r }) => <span className="text-xs">{r.model || '—'}</span> },
+    {
+      key: 'soat', header: 'SOAT', render: ({ r }) => (r.hasSoat
+        ? <StatusChip tone="success">Comprado</StatusChip>
+        : r.runtOk ? <StatusChip tone="danger">Sin SOAT</StatusChip> : <StatusChip tone="warning">Error</StatusChip>),
+    },
+    { key: 'aseguradora', header: 'Aseguradora', render: ({ r }) => <span className="text-xs">{r.soatInsurer || '—'}</span> },
+    { key: 'vencimiento', header: 'Vencimiento', render: ({ r }) => <span className="text-xs">{fmtDate(r.soatExpiry)}</span> },
+    { key: 'estado', header: 'Estado', render: ({ r }) => <span className="text-xs text-[color:var(--color-text-tertiary)]">{r.error || r.soatStatus || '—'}</span> },
+  ];
+
   return (
     <div>
-      <div className="bg-white rounded-xl border border-[color:var(--flit-border-soft)] p-5 mb-4 shadow-[var(--flit-shadow-card)]">
-        <h3 className="text-sm font-semibold flit-tone-primary mb-3">Consulta individual por VIN</h3>
-        <div className="flex gap-2">
-          <input value={singleVin} onChange={(e) => setSingleVin(e.target.value.toUpperCase())}
-            placeholder="Ingresa el VIN del vehículo..."
-            className={`${inputCls} font-mono`} />
-          <button onClick={handleSingleVerify} disabled={singleLoading}
-            className="flit-focus inline-flex h-10 flex-shrink-0 items-center rounded-[999px] px-5 text-sm font-semibold text-white disabled:opacity-50" style={{ background: 'var(--flit-gradient-primary)' }}>
+      <FlitCard className="mb-4">
+        <h3 className="mb-3 text-sm font-semibold text-[color:var(--color-text-primary)]">Consulta individual por VIN</h3>
+        <div className="flex flex-wrap gap-2">
+          <label className="min-w-0 flex-1 basis-[14rem]">
+            <span className="sr-only">VIN del vehículo</span>
+            <input value={singleVin} onChange={(e) => setSingleVin(e.target.value.toUpperCase())}
+              placeholder="Ingresa el VIN del vehículo..."
+              className={`${inputCls} font-mono`} />
+          </label>
+          <GradientButton type="button" onClick={handleSingleVerify} disabled={singleLoading} ocupado={singleLoading} className="shrink-0">
             {singleLoading ? 'Consultando...' : 'Consultar RUNT'}
-          </button>
+          </GradientButton>
         </div>
         {singleResult && (() => {
           const v = singleResult.veh || {};
           const s = singleResult.soat;
           const lastSol = singleResult.solicitudes?.[0];
-          const wrapTone = s ? 'border-[color:var(--flit-success)]/30' : 'border-[color:var(--flit-warning)]/30';
-          const headTone = s ? 'flit-success-bg' : 'flit-warning-bg';
           return (
-            <div className={`mt-3 rounded-xl border overflow-hidden ${wrapTone}`}>
-              <div className={`p-4 ${headTone}`}>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-1.5 text-xs">
-                  <div><span className="flit-tone-muted">Placa: </span><span className="font-semibold flit-tone-primary text-sm">{v.placa || '—'}</span></div>
-                  <div><span className="flit-tone-muted">Marca / Línea: </span><span className="font-medium flit-tone-primary">{v.marca || '—'} {v.linea || ''}</span></div>
-                  <div><span className="flit-tone-muted">Modelo: </span><span className="font-medium flit-tone-primary">{v.modelo || '—'}</span></div>
-                  <div><span className="flit-tone-muted">Clase: </span><span className="font-medium flit-tone-primary">{v.claseVehiculo || v.clase || '—'}</span></div>
-                  <div><span className="flit-tone-muted">Estado vehículo: </span><span className="font-medium flit-tone-primary">{v.estadoAutomotor || '—'}</span></div>
-                  <div><span className="flit-tone-muted">Servicio: </span><span className="font-medium flit-tone-primary">{v.tipoServicio || '—'}</span></div>
-                  <div><span className="flit-tone-muted">Color: </span><span className="font-medium flit-tone-primary">{v.color || '—'}</span></div>
-                  <div><span className="flit-tone-muted">Combustible: </span><span className="font-medium flit-tone-primary">{v.tipoCombustible || '—'}</span></div>
+            <div className={`mt-3 overflow-hidden rounded-[9px] border ${s ? 'border-[color:var(--kit-verde)]' : 'border-[color:var(--kit-naranja)]'}`}>
+              <div className="p-4">
+                {v.placa && <div className="mb-3"><Placa placa={v.placa} /></div>}
+                <div className="grid grid-cols-1 gap-x-4 gap-y-1.5 text-xs min-[380px]:grid-cols-2 lg:grid-cols-4">
+                  <Dato etiqueta="Placa" valor={v.placa || '—'} fuerte />
+                  <Dato etiqueta="Marca / Línea" valor={`${v.marca || '—'} ${v.linea || ''}`} />
+                  <Dato etiqueta="Modelo" valor={v.modelo || '—'} />
+                  <Dato etiqueta="Clase" valor={v.claseVehiculo || v.clase || '—'} />
+                  <Dato etiqueta="Estado vehículo" valor={v.estadoAutomotor || '—'} />
+                  <Dato etiqueta="Servicio" valor={v.tipoServicio || '—'} />
+                  <Dato etiqueta="Color" valor={v.color || '—'} />
+                  <Dato etiqueta="Combustible" valor={v.tipoCombustible || '—'} />
                 </div>
                 {lastSol && (
-                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1 text-xs mt-2 pt-2 border-t border-[color:var(--flit-border-soft)]/50">
-                    <div><span className="flit-tone-muted">Secretaría: </span><span className="font-medium flit-tone-primary">{lastSol.entidad || '—'}</span></div>
-                    <div><span className="flit-tone-muted">Estado trámite: </span><span className="font-medium flit-tone-primary">{lastSol.estado || '—'}</span></div>
-                    <div><span className="flit-tone-muted">Trámite: </span><span className="font-medium text-[11px] flit-tone-primary">{lastSol.tramitesRealizados || '—'}</span></div>
+                  <div className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 border-t border-[color:var(--color-border)] pt-2 text-xs min-[380px]:grid-cols-2 lg:grid-cols-3">
+                    <Dato etiqueta="Secretaría" valor={lastSol.entidad || '—'} />
+                    <Dato etiqueta="Estado trámite" valor={lastSol.estado || '—'} />
+                    <Dato etiqueta="Trámite" valor={lastSol.tramitesRealizados || '—'} />
                   </div>
                 )}
                 {singleResult.tipoDocPropietario && (
-                  <div className="text-xs mt-2 pt-2 border-t border-[color:var(--flit-border-soft)]/50">
-                    <span className="flit-tone-muted">Tipo doc. propietario: </span><span className="font-medium flit-tone-primary">{singleResult.tipoDocPropietario}</span>
+                  <div className="mt-2 border-t border-[color:var(--color-border)] pt-2 text-xs">
+                    <Dato etiqueta="Tipo doc. propietario" valor={singleResult.tipoDocPropietario} />
                   </div>
                 )}
               </div>
               {s ? (
-                <div className="p-4 flit-success-bg border-t border-[color:var(--flit-success)]/20">
-                  <p className="text-[10px] font-semibold text-[color:var(--flit-success)] uppercase tracking-[0.3em] mb-1.5">SOAT</p>
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
-                    <div><span className="flit-tone-muted">Aseguradora: </span><span className="font-medium text-[color:var(--flit-success)]">{s.razonSocialAsegur || '—'}</span></div>
-                    <div><span className="flit-tone-muted">Póliza: </span><span className="font-medium text-[color:var(--flit-success)]">{s.numSoat || '—'}</span></div>
-                    <div><span className="flit-tone-muted">Inicio: </span><span className="font-medium flit-tone-primary">{fmtDate(s.fechaInicioPoliza)}</span></div>
-                    <div><span className="flit-tone-muted">Vence: </span><span className="font-medium flit-tone-primary">{fmtDate(s.fechaVencimSoat)}</span></div>
+                <div className="border-t border-[color:var(--kit-verde)] bg-[color:color-mix(in_srgb,var(--kit-verde)_10%,transparent)] p-4">
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.3em] text-[color:var(--kit-verde-texto)]">SOAT</p>
+                  <div className="grid grid-cols-1 gap-2 text-xs min-[380px]:grid-cols-2 lg:grid-cols-4">
+                    <Dato etiqueta="Aseguradora" valor={s.razonSocialAsegur || '—'} />
+                    <Dato etiqueta="Póliza" valor={s.numSoat || '—'} />
+                    <Dato etiqueta="Inicio" valor={fmtDate(s.fechaInicioPoliza)} />
+                    <Dato etiqueta="Vence" valor={fmtDate(s.fechaVencimSoat)} />
                   </div>
-                  <button onClick={() => handleRegisterPurchased(singleVin, v, s)}
-                    className="mt-3 inline-flex items-center h-9 px-4 rounded-xl bg-[color:var(--flit-success)] text-[color:var(--flit-success)]-foreground hover:opacity-90 transition-opacity text-xs font-medium">
+                  <GradientButton type="button" variant="success" size="sm" className="mt-3" onClick={() => handleRegisterPurchased(singleVin, v, s)}>
                     Registrar como comprado
-                  </button>
+                  </GradientButton>
                 </div>
               ) : (
-                <div className="p-4 flit-warning-bg border-t border-[color:var(--flit-warning)]/20">
-                  <p className="text-[11px] text-[color:var(--flit-warning)] font-medium">Sin SOAT registrado en RUNT</p>
+                <div className="border-t border-[color:var(--kit-naranja)] p-4">
+                  <StatusChip tone="warning">Sin SOAT registrado en RUNT</StatusChip>
                 </div>
               )}
             </div>
           );
         })()}
-      </div>
+      </FlitCard>
 
       {purchased.length > 0 && (
-        <div className="bg-white rounded-xl border border-[color:var(--flit-border-soft)] p-5 mb-4 shadow-[var(--flit-shadow-card)]">
-          <h3 className="text-sm font-semibold flit-tone-primary mb-1">Comprados pendientes de verificación RUNT</h3>
-          <p className="text-xs flit-tone-muted mb-3">{purchased.length} SOAT comprados — verifica que aparezcan en RUNT</p>
+        <FlitCard className="mb-4">
+          <h3 className="mb-1 text-sm font-semibold text-[color:var(--color-text-primary)]">Comprados pendientes de verificación RUNT</h3>
+          <p className="mb-3 text-xs text-[color:var(--color-text-tertiary)]">{purchased.length} SOAT comprados — verifica que aparezcan en RUNT</p>
           <div className="space-y-2">
             {purchased.map((r) => {
               const vd = verifiedData[r.id];
               const failed = failedIds.has(r.id);
               const isTransitioning = transitioning === r.id;
-              const wrapCls = isTransitioning
-                ? 'flit-success-bg border-[color:var(--flit-success)]/40'
-                : vd
-                  ? 'flit-success-bg border-[color:var(--flit-success)]/30'
-                  : failed
-                    ? 'flit-warning-bg border-[color:var(--flit-warning)]/30'
-                    : 'flit-warning-bg border-[color:var(--flit-warning)]/20';
+              const borde = isTransitioning || vd ? 'border-[color:var(--kit-verde)]' : failed ? 'border-[color:var(--kit-naranja)]' : 'border-[color:var(--color-border)]';
               return (
-                <div key={r.id} className={`p-3 rounded-xl border transition-all ${wrapCls}`}>
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold flit-tone-primary">{r.plate || '—'}</span>
-                        <span className="text-xs flit-tone-muted">{r.ownerName || ''}</span>
+                <div key={r.id} className={`rounded-[9px] border p-3 transition-colors ${borde}`}>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {r.plate ? <Placa placa={r.plate} /> : <span className="text-sm font-semibold text-[color:var(--color-text-primary)]">—</span>}
+                        <span className="text-xs text-[color:var(--color-text-tertiary)]">{r.ownerName || ''}</span>
                       </div>
                       {isTransitioning && (
-                        <p className="text-[11px] text-[color:var(--flit-success)] font-medium mt-1">Verificado — movido a Gestión de compras</p>
+                        <p className="mt-1 text-[11px] font-medium text-[color:var(--kit-verde-texto)]">Verificado — movido a Gestión de compras</p>
                       )}
                       {!isTransitioning && vd && (
-                        <div className="grid grid-cols-4 gap-2 mt-1.5 text-[11px]">
-                          <div><span className="flit-tone-muted">Póliza: </span><span className="font-medium flit-tone-primary">{vd.numSoat || '—'}</span></div>
-                          <div><span className="flit-tone-muted">Aseguradora: </span><span className="font-medium flit-tone-primary">{vd.razonSocialAsegur || '—'}</span></div>
-                          <div><span className="flit-tone-muted">Inicio: </span><span className="font-medium flit-tone-primary">{vd.fechaInicioPoliza ? fmtDate(vd.fechaInicioPoliza) : '—'}</span></div>
-                          <div><span className="flit-tone-muted">Vence: </span><span className="font-medium flit-tone-primary">{vd.fechaVencimSoat ? fmtDate(vd.fechaVencimSoat) : '—'}</span></div>
+                        <div className="mt-1.5 grid grid-cols-1 gap-2 text-[11px] min-[380px]:grid-cols-2 md:grid-cols-4">
+                          <Dato etiqueta="Póliza" valor={vd.numSoat || '—'} />
+                          <Dato etiqueta="Aseguradora" valor={vd.razonSocialAsegur || '—'} />
+                          <Dato etiqueta="Inicio" valor={vd.fechaInicioPoliza ? fmtDate(vd.fechaInicioPoliza) : '—'} />
+                          <Dato etiqueta="Vence" valor={vd.fechaVencimSoat ? fmtDate(vd.fechaVencimSoat) : '—'} />
                         </div>
                       )}
-                      {failed && <p className="text-[11px] text-[color:var(--flit-warning)] mt-1">RUNT aún no indexa este SOAT o hay un traspaso en sincronización. Normal dentro de 24-72h hábiles — reintenta más tarde.</p>}
+                      {failed && <p className="mt-1 text-[11px] text-[color:var(--kit-naranja-texto)]">RUNT aún no indexa este SOAT o hay un traspaso en sincronización. Normal dentro de 24-72h hábiles — reintenta más tarde.</p>}
                     </div>
-                    {isTransitioning ? (
-                      <span className="inline-flex items-center gap-1 h-9 px-3 rounded-xl text-xs font-medium bg-[color:var(--flit-success)] text-[color:var(--flit-success)]-foreground flex-shrink-0">
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-                        Verificado
-                      </span>
-                    ) : vd ? (
-                      <span className="inline-flex items-center gap-1 h-9 px-3 rounded-xl text-xs font-medium bg-[color:var(--flit-success)] text-[color:var(--flit-success)]-foreground flex-shrink-0">
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-                        Verificado
-                      </span>
+                    {isTransitioning || vd ? (
+                      <StatusChip tone="success" icono={<Icono nombre="check" size={14} />}>Verificado</StatusChip>
                     ) : (
-                      <button onClick={() => verifyOne(r)} disabled={verifyingId === r.id}
-                        className="flit-focus inline-flex h-9 flex-shrink-0 items-center rounded-[999px] px-4 text-xs font-semibold text-white disabled:opacity-50" style={{ background: 'var(--flit-gradient-primary)' }}>
+                      <GradientButton type="button" size="sm" onClick={() => verifyOne(r)} disabled={verifyingId === r.id} ocupado={verifyingId === r.id} className="shrink-0">
                         {verifyingId === r.id ? 'Consultando...' : 'Verificar RUNT'}
-                      </button>
+                      </GradientButton>
                     )}
                   </div>
                 </div>
               );
             })}
           </div>
-        </div>
+        </FlitCard>
       )}
 
-      <div className="bg-white rounded-xl border border-[color:var(--flit-border-soft)] p-5 mb-4 shadow-[var(--flit-shadow-card)]">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <h3 className="text-sm font-semibold flit-tone-primary">Validación masiva SOAT</h3>
-            <p className="text-xs flit-tone-muted mt-1">Sube el Excel de matrículas. El sistema consulta el RUNT por cada VIN y verifica si tiene SOAT.</p>
+      <FlitCard className="mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-[color:var(--color-text-primary)]">Validación masiva SOAT</h3>
+            <p className="mt-1 text-xs text-[color:var(--color-text-tertiary)]">Sube el Excel de matrículas. El sistema consulta el RUNT por cada VIN y verifica si tiene SOAT.</p>
           </div>
-          <label className={`flit-focus inline-flex h-10 cursor-pointer items-center gap-2 rounded-[999px] px-5 text-sm font-semibold text-white ${loading ? 'pointer-events-none opacity-50' : ''}`} style={{ background: 'var(--flit-gradient-primary)' }}>
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-            </svg>
+          <label className={`${claseBoton('primary')} cursor-pointer focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[var(--kit-azul)] ${loading ? 'pointer-events-none opacity-50' : ''}`} data-variante="primario">
+            <Icono nombre="archivo-subir" size={16} />
             {loading ? 'Procesando...' : 'Subir Excel de matrículas'}
             <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleUpload} disabled={loading} />
           </label>
         </div>
 
         {loading && (
-          <div className="mt-4 flex items-center gap-2 text-sm flit-tone-muted">
-            <svg className="animate-spin motion-reduce:animate-none h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
+          <div className="mt-4 flex items-center gap-2 text-sm text-[color:var(--color-text-tertiary)]" role="status">
+            <Girador />
             {progress}
           </div>
         )}
-      </div>
+      </FlitCard>
 
       {summary && (
-        <div className="grid grid-cols-4 gap-3 mb-4">
+        <div className="mb-4 grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 lg:grid-cols-4">
           <Stat label="Total procesados" value={summary.total} tone="accent" />
           <Stat label="Con SOAT" value={summary.withSoat} tone="success" />
           <Stat label="Sin SOAT" value={summary.withoutSoat} tone="danger" />
@@ -397,86 +399,51 @@ export default function BatchValidator({ onSendToRequests }: Props) {
       )}
 
       {summary && summary.withoutSoat > 0 && onSendToRequests && (
-        <div className="flit-danger-bg border border-[color:var(--flit-danger)]/30 rounded-xl p-4 mb-4 flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <p className="text-sm font-semibold text-[color:var(--flit-danger)]">{summary.withoutSoat} vehículos necesitan SOAT</p>
-            <p className="text-xs text-[color:var(--flit-danger)] opacity-80 mt-0.5">Envíalos a solicitudes para gestionar la compra con el proveedor</p>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-[9px] border border-[color:var(--kit-naranja)] bg-[color:color-mix(in_srgb,var(--kit-naranja)_10%,transparent)] p-4">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-[color:var(--kit-naranja-texto)]">{summary.withoutSoat} vehículos necesitan SOAT</p>
+            <p className="mt-0.5 text-xs text-[color:var(--color-text-secondary)]">Envíalos a solicitudes para gestionar la compra con el proveedor</p>
           </div>
-          <button onClick={() => onSendToRequests(results.filter((r) => !r.hasSoat && r.runtOk))}
-            className="inline-flex items-center gap-2 h-10 px-5 rounded-xl bg-danger text-[color:var(--flit-danger)]-foreground hover:opacity-90 transition-opacity text-sm font-medium flex-shrink-0">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-            </svg>
+          <GradientButton type="button" onClick={() => onSendToRequests(results.filter((r) => !r.hasSoat && r.runtOk))} className="shrink-0">
+            <Icono nombre="derecha" size={16} />
             Enviar a solicitudes
-          </button>
+          </GradientButton>
         </div>
       )}
 
       {results.length > 0 && (
-        <div className="bg-white rounded-xl border border-[color:var(--flit-border-soft)] overflow-hidden shadow-[var(--flit-shadow-card)]">
-          <div className="max-h-[60vh] overflow-auto">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0">
-                <tr>
-                  <Th>VIN</Th>
-                  <Th>Placa</Th>
-                  <Th>Propietario</Th>
-                  <Th>Vehículo</Th>
-                  <Th>SOAT</Th>
-                  <Th>Aseguradora</Th>
-                  <Th>Vencimiento</Th>
-                  <Th>Estado</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {results.map((r, i) => {
-                  const rowTone = r.hasSoat ? 'flit-success-bg/30' : r.runtOk ? 'flit-danger-bg/30' : 'flit-warning-bg/30';
-                  return (
-                    <tr key={i} className={`border-t border-[color:var(--flit-border-soft)] ${rowTone}`}>
-                      <td className="px-3 py-2 font-mono text-xs flit-tone-secondary">{r.vin}</td>
-                      <td className="px-3 py-2 font-semibold flit-tone-primary">{r.plate || '—'}</td>
-                      <td className="px-3 py-2 text-xs flit-tone-secondary truncate max-w-[150px]">{r.ownerName || '—'}</td>
-                      <td className="px-3 py-2 text-xs flit-tone-secondary">{r.model || '—'}</td>
-                      <td className="px-3 py-2">
-                        {r.hasSoat ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium flit-success-bg text-[color:var(--flit-success)]">
-                            <span className="w-1.5 h-1.5 rounded-full bg-[color:var(--flit-success)]" /> Comprado
-                          </span>
-                        ) : r.runtOk ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium flit-danger-bg text-[color:var(--flit-danger)]">
-                            <span className="w-1.5 h-1.5 rounded-full bg-danger" /> Sin SOAT
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium flit-warning-bg text-[color:var(--flit-warning)]">
-                            <span className="w-1.5 h-1.5 rounded-full bg-warning" /> Error
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-xs flit-tone-secondary">{r.soatInsurer || '—'}</td>
-                      <td className="px-3 py-2 text-xs flit-tone-secondary">{fmtDate(r.soatExpiry)}</td>
-                      <td className="px-3 py-2 text-xs flit-tone-muted">{r.error || r.soatStatus || '—'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <DataTable
+          ariaLabel="Resultados de la validación masiva SOAT"
+          columnas={columnasResultado}
+          filas={filasResultado}
+          getKey={({ i }) => String(i)}
+        />
       )}
     </div>
   );
 }
 
-function Th({ children }: { children: React.ReactNode }) {
-  return <th className="bg-[color:var(--flit-bg-app)] flit-tone-muted text-[10px] uppercase tracking-wide font-semibold py-2.5 px-3 text-left">{children}</th>;
+function Dato({ etiqueta, valor, fuerte }: { etiqueta: string; valor: string; fuerte?: boolean }) {
+  return (
+    <div className="min-w-0 break-words">
+      <span className="text-[color:var(--color-text-tertiary)]">{etiqueta}: </span>
+      <span className={`text-[color:var(--color-text-primary)] ${fuerte ? 'text-sm font-semibold' : 'font-medium'}`}>{valor}</span>
+    </div>
+  );
 }
 
-function Stat({ label, value, tone }: { label: string; value: number; tone: 'accent' | 'success' | 'danger' | 'warning' }) {
-  const color = tone === 'accent' ? 'var(--flit-blue)' : tone === 'success' ? '#16a34a' : tone === 'danger' ? '#dc2626' : '#d97706';
+const COLOR_STAT = {
+  accent: 'text-[color:var(--color-action)]',
+  success: 'text-[color:var(--kit-verde-texto)]',
+  danger: 'text-[color:var(--kit-rojo-texto)]',
+  warning: 'text-[color:var(--kit-naranja-texto)]',
+} as const;
+
+function Stat({ label, value, tone }: { label: string; value: number; tone: keyof typeof COLOR_STAT }) {
   return (
-    <div className="bg-white p-4" style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-[var(--flit-shadow-card)])' }}>
-      <p className="text-2xl font-semibold" style={{ color }}>{value}</p>
-      <p className="mt-0.5 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{label}</p>
+    <div className="rounded-[9px] border border-[color:var(--color-border)] bg-[var(--color-surface-elevated)] p-4">
+      <p className={`text-2xl font-semibold tabular-nums ${COLOR_STAT[tone]}`}>{value}</p>
+      <p className="mt-0.5 text-xs text-[color:var(--color-text-tertiary)]">{label}</p>
     </div>
   );
 }

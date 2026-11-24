@@ -74,17 +74,17 @@ export default function DialogoDescartar({ caso, onCerrar, onHecho, restoreFocus
       restoreFocusRef={restoreFocusRef}
     >
       <div className="flex flex-col gap-4">
-        <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
           Este caso deja de reintentarse. Se puede volver a poner en la cola más adelante, pero el
           registro de por qué se dio por perdido <strong>no se podrá editar ni borrar nunca</strong>.
         </p>
 
         <fieldset className="flex flex-col gap-2">
-          <legend className="mb-1 text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <legend className="mb-1 text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             Motivo (obligatorio)
           </legend>
           {SIIGO_BANDEJA_MOTIVOS_DESCARTE.map((m) => (
-            <label key={m} className="flex items-start gap-2 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+            <label key={m} className="flex items-start gap-2 text-sm" style={{ color: 'var(--color-text-primary)' }}>
               <input
                 type="radio"
                 name="motivo-descarte"
@@ -99,7 +99,7 @@ export default function DialogoDescartar({ caso, onCerrar, onHecho, restoreFocus
         </fieldset>
 
         <div>
-          <label htmlFor={idNota} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+          <label htmlFor={idNota} className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             Nota (opcional)
           </label>
           <textarea
@@ -112,7 +112,7 @@ export default function DialogoDescartar({ caso, onCerrar, onHecho, restoreFocus
             onChange={(e) => setNota(e.target.value)}
           />
           {/* El aviso va JUNTO al campo y antes del contador: se lee antes de escribir, no después. */}
-          <p id={idAvisoNota} className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p id={idAvisoNota} className="mt-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             <span aria-hidden="true">⚠ </span>
             No escribas nombres, cédulas, NIT, teléfonos ni correos: esta nota queda grabada para
             siempre y no se puede corregir. {nota.length}/{SIIGO_BANDEJA_NOTA_MAX}
@@ -120,7 +120,7 @@ export default function DialogoDescartar({ caso, onCerrar, onHecho, restoreFocus
         </div>
 
         {error && (
-          <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p>
+          <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>
         )}
 
         {/*
@@ -131,7 +131,7 @@ export default function DialogoDescartar({ caso, onCerrar, onHecho, restoreFocus
           en vez de esperar a un clic que el botón inhabilitado nunca va a recibir.
         */}
         <div className="flex flex-wrap items-center justify-end gap-3">
-          <span id={idExigencia} role="status" className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+          <span id={idExigencia} role="status" className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             {motivo
               ? 'Motivo elegido: ya se puede confirmar.'
               : 'Elige un motivo para poder confirmar.'}

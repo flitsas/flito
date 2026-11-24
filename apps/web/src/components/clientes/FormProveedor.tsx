@@ -21,10 +21,12 @@ import {
 import { toastOk } from '../flit/ToastFlito';
 import { api, ApiError } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
+import { Cargador } from '../flit/Cargador';
 import StatusChip from '../flit/StatusChip';
 import {
-  flitInp, FlitField, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
+  flitInp, FlitField,
 } from '../flit/flitPageKit';
+import { claseBoton } from '../flit/GradientButton';
 import { ErrorNit as ErrorCampo } from './nitDuplicado';
 import { RUTA_UNIFICADA, cargarDetalleProveedor, serviciosEnOrden, textoCompaniasAsignadas, textoUmbral } from './proveedoresDatos';
 
@@ -118,18 +120,18 @@ export default function FormProveedor({ idProveedor, nombre, soloLectura = false
   const cargando = !!idProveedor && detalle === null;
 
   return (
-    <FlitModal title={titulo} onClose={onClose} wide>
+    <FlitModal title={titulo} icono="empresas" onClose={onClose} wide>
       {cargando ? (
         errorCarga ? (
           <div className="flex flex-col gap-3">
-            <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>No pudimos cargar el proveedor.</p>
+            <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>No pudimos cargar el proveedor.</p>
             <div className="flex flex-wrap justify-end gap-2">
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>Cerrar</button>
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setIntento((n) => n + 1)}>Reintentar</button>
+              <button type="button" className={claseBoton('secondary')} data-variante="secundario" onClick={onClose}>Cerrar</button>
+              <button type="button" className={claseBoton('secondary')} data-variante="secundario" onClick={() => setIntento((n) => n + 1)}>Reintentar</button>
             </div>
           </div>
         ) : (
-          <p role="status" className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando proveedor…</p>
+          <Cargador texto="Cargando proveedor…" />
         )
       ) : (
         <CuerpoFormulario
@@ -347,7 +349,7 @@ function CuerpoFormulario({ detalle: d, soloLectura: ro, enfocarServicios, onRec
   return (
     <form className="space-y-3" noValidate onSubmit={(e) => { e.preventDefault(); if (!ro && !conflicto) void guardar(); }}>
       <fieldset className="min-w-0" aria-describedby={errorServicios ? idErrorServicios : undefined}>
-        <legend className="mb-1 text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Servicios que presta{ro ? '' : ' *'}</legend>
+        <legend className="mb-1 text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>Servicios que presta{ro ? '' : ' *'}</legend>
         {ro ? (
           <div className="flex flex-wrap gap-1">
             {servicios.map((s) => <StatusChip key={s} tone="neutral">{SERVICIO_PROVEEDOR_LABEL[s]}</StatusChip>)}
@@ -355,7 +357,7 @@ function CuerpoFormulario({ detalle: d, soloLectura: ro, enfocarServicios, onRec
         ) : (
           <div className="flex flex-wrap gap-2">
             {SERVICIOS_PROVEEDOR.map((s, i) => (
-              <label key={s} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-[var(--flit-bg-hover)]" style={{ color: 'var(--flit-text-primary)' }}>
+              <label key={s} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-[var(--kit-hover)]" style={{ color: 'var(--color-text-primary)' }}>
                 <input ref={i === 0 ? refPrimeraCasilla : undefined} type="checkbox" className="flit-focus" checked={servicios.includes(s)} onChange={() => alternar(s)} />
                 <span>{SERVICIO_PROVEEDOR_LABEL[s]}</span>
               </label>
@@ -365,9 +367,9 @@ function CuerpoFormulario({ detalle: d, soloLectura: ro, enfocarServicios, onRec
         {errorServicios && <ErrorCampo id={idErrorServicios}>{errorServicios}</ErrorCampo>}
       </fieldset>
 
-      {!ro && <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{NOTA_EMPRESA}</p>}
+      {!ro && <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{NOTA_EMPRESA}</p>}
       {!ro && pendiente && (
-        <p role="status" className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p role="status" className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           {exige
             ? 'Como editó los datos, complete todos los campos marcados con *.'
             : 'Faltan datos de esta empresa. Puede guardar otros cambios sin completarlos; si edita alguno de estos datos o agrega un servicio, se piden todos.'}
@@ -406,25 +408,25 @@ function CuerpoFormulario({ detalle: d, soloLectura: ro, enfocarServicios, onRec
         </>
       )}
 
-      {d && <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{textoCompaniasAsignadas(d)}</p>}
+      {d && <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{textoCompaniasAsignadas(d)}</p>}
 
       {conflicto && (
         <div role="alert" className="flex flex-wrap items-center gap-3">
-          <p className="text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>
+          <p className="text-sm font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>
             Otro usuario cambió este proveedor mientras usted editaba. Lo que escribió no se guardó. Al recargar verá los datos actuales y perderá lo que escribió.
           </p>
-          <button ref={refRecargar} type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={recargando} onClick={() => { void recargar(); }}>
+          <button ref={refRecargar} type="button" className={claseBoton('secondary')} data-variante="secundario" disabled={recargando} onClick={() => { void recargar(); }}>
             {recargando ? 'Recargando…' : 'Recargar datos'}
           </button>
-          {errorRecarga && <p className="text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>No pudimos recargar el proveedor. Inténtelo de nuevo.</p>}
+          {errorRecarga && <p className="text-sm font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>No pudimos recargar el proveedor. Inténtelo de nuevo.</p>}
         </div>
       )}
 
-      {error && <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>}
+      {error && <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>}
       <div className="flex flex-wrap justify-end gap-2">
-        <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>{ro ? 'Cerrar' : 'Cancelar'}</button>
+        <button type="button" className={claseBoton('secondary')} data-variante="secundario" onClick={onClose}>{ro ? 'Cerrar' : 'Cancelar'}</button>
         {!ro && (
-          <button type="submit" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled={guardando || conflicto}>
+          <button type="submit" className={claseBoton('primary')} data-variante="primario" disabled={guardando || conflicto}>
             {guardando ? 'Guardando…' : edicion ? 'Guardar cambios' : 'Crear proveedor'}
           </button>
         )}

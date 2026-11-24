@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
@@ -9,7 +9,12 @@ import { api, ApiError, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
-import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
+import StatusChip from '../components/flit/StatusChip';
+import Pestanas from '../components/flit/Pestanas';
+import InlineAlert from '../components/flit/InlineAlert';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import { Cargador } from '../components/flit/Cargador';
+import { BarraAccion } from '../components/flit/Bloques';
 import FlitModal from '../components/flit/FlitModal';
 import FlitOrganismoCombobox from '../components/flit/FlitOrganismoCombobox';
 import FlitSelect from '../components/flit/FlitSelect';
@@ -98,13 +103,10 @@ function placaValida(raw: string): boolean {
   return clean.length >= PLACA_MIN && clean.length <= PLACA_MAX;
 }
 
-// Input de placa FLIT: blanco, borde `--flit-border-input`, mayúsculas, mono bold.
+// Input de placa del kit (`.control`): mayúsculas, mono bold; inválido con borde naranja.
 function placaInputCls(invalid: boolean): string {
-  const base =
-    'flit-focus w-28 rounded-[10px] border bg-white px-3 py-2 text-center font-mono text-sm font-bold uppercase text-[color:var(--flit-text-primary)] outline-none transition-shadow';
-  return invalid
-    ? `${base} border-[color:var(--flit-danger)]`
-    : `${base} border-[color:var(--flit-border-input)]`;
+  const base = 'control !w-28 text-center mono text-sm font-bold uppercase';
+  return invalid ? `${base} !border-[var(--kit-naranja)]` : base;
 }
 
 export default function TransitoBandeja() {
@@ -287,8 +289,143 @@ export default function TransitoBandeja() {
   const v = (t: Tramite) => t.vehiculo || {};
   const c = (t: Tramite) => t.comprador || {};
 
+  // Columnas comunes de las tres tablas (molde #organismo › Trámites): ≤900 px cada fila es una tarjeta.
+  const columnas = (
+    ident: (t: Tramite) => ReactNode,
+    extra: ColumnaTabla<Tramite>[],
+  ): ColumnaTabla<Tramite>[] => [
+    {
+      key: 'tramite', header: 'Trámite', render: (t) => (
+        <div className="flex flex-col items-start gap-1.5">
+          <div className="flex flex-wrap items-center gap-2">{ident(t)}{showOrganismoBadge && <OrganismoBadge codigo={t.organismoCodigo} />}</div>
+          <button type="button" onClick={() => setExpedienteId(t.id)} className={ENLACE}>Ver expediente</button>
+        </div>
+      ),
+    },
+    { key: 'vehiculo', header: 'Vehículo', render: (t) => <VehiculoCelda t={t} v={v} /> },
+    { key: 'vin', header: 'VIN', render: (t) => <span className="mono font-medium">{t.vin || '—'}</span> },
+    { key: 'comprador', header: 'Comprador', render: (t) => <CompradorCelda comprador={c(t)} /> },
+    ...extra,
+  ];
+
+  const idMatricula = (t: Tramite) => (
+    <>
+      <span className="mono text-xs font-bold text-[var(--color-action)]">MI-{String(t.id).padStart(4, '0')}</span>
+      {t.estado === 'enviado_transito' && <StatusChip tone="warning">Enviado</StatusChip>}
+    </>
+  );
+
+  const colsPendientes = columnas(idMatricula, [
+    {
+      key: 'enviado', header: 'Enviado', soloEscritorio: false, render: (t) => (t.updatedAt && t.estado === 'enviado_transito' ? (
+        <span className="text-xs text-[var(--color-text-tertiary)]">
+          Enviado: {new Date(t.updatedAt).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
+        </span>
+      ) : null),
+    },
+    {
+      key: 'acciones', header: 'Acciones', acciones: true, align: 'right', render: (t) => (
+        <GradientButton type="button" size="sm" onClick={() => tomar(t.id)}>Tomar trámite</GradientButton>
+      ),
+    },
+  ]);
+
+  const colsMis = columnas(idMatricula, [
+    {
+      key: 'estado', header: 'Estado', render: (t) => (
+        <div className="flex flex-col items-start gap-1">
+          <StatusChip tone={t.estado === 'recibido_transito' ? 'active' : 'success'}>
+            {t.estado === 'recibido_transito' ? 'Recibido' : 'Placa preasignada'}
+          </StatusChip>
+          {t.placa && <span className="text-xs font-bold text-[var(--kit-verde-texto)]">Placa: {t.placa}</span>}
+        </div>
+      ),
+    },
+    {
+      key: 'acciones', header: 'Acciones', acciones: true, align: 'right', render: (t) => {
+        const recibido = t.estado === 'recibido_transito';
+        const rawPlaca = placaInput[t.id] || '';
+        const placaInvalid = rawPlaca.length > 0 && !placaValida(rawPlaca);
+        return (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {recibido && (
+              <div className="flex flex-col items-stretch gap-1 sm:items-end">
+                <div className="flex items-center gap-2">
+                  <input
+                    value={rawPlaca}
+                    onChange={e => setPlacaInput(prev => ({ ...prev, [t.id]: e.target.value.toUpperCase() }))}
+                    placeholder="ABC123"
+                    maxLength={PLACA_MAX}
+                    aria-invalid={placaInvalid}
+                    className={placaInputCls(placaInvalid)}
+                  />
+                  <GradientButton type="button" size="sm" variant="success" onClick={() => asignarPlaca(t.id)}>
+                    Asignar placa
+                  </GradientButton>
+                </div>
+                {placaInvalid && (
+                  <p className="text-xs font-medium text-[var(--kit-naranja-texto)]">Placa: 4–10 caracteres alfanuméricos</p>
+                )}
+              </div>
+            )}
+            {t.estado === 'placa_preasignada' && (
+              <GradientButton type="button" size="sm" onClick={() => confirmarPlaca(t.id)}>Confirmar y enviar</GradientButton>
+            )}
+            {canRechazarOt(t.estado) && (
+              <GradientButton type="button" size="sm" variant="alerta" onClick={() => setRechazarTramite(t)}>
+                Devolver con observación
+              </GradientButton>
+            )}
+          </div>
+        );
+      },
+    },
+  ]);
+
+  const colsTraspasos = columnas((t) => (
+    <>
+      <span className="mono text-xs font-bold text-[var(--color-action)]">{t.numeroRadicado || `TD-${String(t.id).padStart(5, '0')}`}</span>
+      {t.placa && <StatusChip tone="neutral">{t.placa}</StatusChip>}
+    </>
+  ), [
+    {
+      key: 'estado', header: 'Estado', render: (t) => (
+        <div className="flex flex-col items-start gap-1">
+          <StatusChip tone="active">{ESTADO_STT_LABEL[t.estado as TramiteEstadoStt] ?? t.estado}</StatusChip>
+          {t.updatedAt && (
+            <span className="text-xs text-[var(--color-text-tertiary)]">
+              Actualizado: {new Date(t.updatedAt).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'acciones', header: 'Acciones', acciones: true, align: 'right', render: (t) => {
+        const trans = transicionesDesde(t.estado);
+        return (
+          <div className="flex flex-col items-end gap-2">
+            {trans.length > 0 && (
+              <div className="flex flex-wrap justify-end gap-1.5">
+                {trans.map((e) => (
+                  <GradientButton key={e} type="button" size="sm" variant={DESTRUCTIVO.test(e) ? 'alerta' : 'secondary'} onClick={() => transicionarTraspaso(t.id, e)}>
+                    {ESTADO_STT_LABEL[e]}
+                  </GradientButton>
+                ))}
+              </div>
+            )}
+            <div className="flex flex-wrap justify-end gap-x-3 gap-y-1">
+              {isAdmin && <Link to={`/tramite/traspaso?id=${t.id}`} className={ENLACE}>Abrir wizard</Link>}
+              <Link to={`/transito/traspaso?id=${t.id}`} className={ENLACE}>Abrir expediente STT</Link>
+            </div>
+          </div>
+        );
+      },
+    },
+  ]);
+
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-5 lg:gap-6">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 lg:gap-6">
       <PageHeaderCard
         title={displayLabel ? `Bandeja de tránsito — ${displayLabel}` : 'Bandeja de tránsito'}
         subtitle={
@@ -298,54 +435,29 @@ export default function TransitoBandeja() {
               ? 'Vista global — todos los organismos'
               : 'Trámites pendientes de asignación de placa'
         }
+        icono={orgConfig?.logoUrl ? undefined : 'flito-transito'}
+        miga={[]}
         leading={
           orgConfig?.logoUrl ? (
-            <img
-              src={orgConfig.logoUrl}
-              alt=""
-              className="h-12 w-12 shrink-0 rounded-xl object-contain"
-              style={{ border: '1px solid var(--flit-border-soft)' }}
-            />
+            <img src={orgConfig.logoUrl} alt="" className="h-12 w-12 shrink-0 rounded-[9px] border border-[var(--color-border)] object-contain" />
           ) : undefined
         }
       />
 
-      <div
-        className="flex gap-2 rounded-xl border bg-white p-1.5"
-        style={{ borderColor: 'var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}
-        role="tablist"
-        aria-label="Tipo de bandeja"
-      >
-        {([
-          { id: 'matricula' as const, label: 'Matrícula inicial' },
-          { id: 'traspaso' as const, label: 'Traspasos STT' },
-        ]).map(({ id, label }) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={tab === id}
-            onClick={() => setTab(id)}
-            className="flit-focus flex-1 rounded-[10px] px-3 py-2 text-xs font-semibold transition-colors"
-            style={{
-              color: tab === id ? '#fff' : 'var(--flit-text-secondary)',
-              background: tab === id ? 'var(--flit-gradient-primary)' : 'transparent',
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Pestanas
+        etiqueta="Tipo de bandeja"
+        activa={tab}
+        onElegir={(id) => setTab(id as BandejaTab)}
+        pestanas={[
+          { id: 'matricula', etiqueta: 'Matrícula inicial' },
+          { id: 'traspaso', etiqueta: 'Traspasos STT' },
+        ]}
+      />
 
       {isAdmin && (
-        <div
-          className="flex flex-col gap-2 rounded-xl border bg-white p-4 sm:flex-row sm:items-end sm:gap-4"
-          style={{ borderColor: 'var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}
-        >
-          <div className="min-w-0 flex-1">
-            <label htmlFor="admin-transito-scope" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>
-              Filtrar por organismo
-            </label>
+        <div className="card flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-4">
+          <div className="campo min-w-0 flex-1">
+            <label htmlFor="admin-transito-scope">Filtrar por organismo</label>
             <FlitOrganismoCombobox
               id="admin-transito-scope"
               value={adminScope}
@@ -355,7 +467,7 @@ export default function TransitoBandeja() {
               aria-label="Filtrar bandeja por organismo de tránsito"
             />
           </div>
-          <p className="text-[11px] leading-relaxed sm:max-w-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <p className="nota leading-relaxed text-[var(--color-text-tertiary)] sm:max-w-xs">
             {adminScope
               ? 'Vista acotada a un municipio. Los usuarios tránsito solo ven su organismo asignado.'
               : 'Vista global. Cada tarjeta muestra el municipio destino.'}
@@ -364,41 +476,24 @@ export default function TransitoBandeja() {
       )}
 
       {!isAdmin && secretarias.status === 'cargando' && (
-        <div
-          className="rounded-xl border p-4 text-sm"
-          style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)', color: 'var(--flit-text-secondary)' }}
-          role="status"
-        >
-          Cargando sus secretarías de tránsito…
-        </div>
+        <InlineAlert tono="info">Cargando sus secretarías de tránsito…</InlineAlert>
       )}
 
       {!isAdmin && secretarias.status === 'error' && (
-        <div
-          className="flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between"
-          style={{ borderColor: 'var(--flit-danger)', background: 'var(--flit-bg-card)' }}
-          role="status"
-        >
-          <p className="text-sm font-medium" style={{ color: 'var(--flit-danger-ink)' }}>
+        <div className="kit-alerta flex-wrap" data-kit="alerta" data-tono="danger" role="status">
+          <img src="/kit/aviso-error.svg" alt="" aria-hidden="true" className="kit-alerta__icono" />
+          <p className="min-w-0 flex-1 text-sm font-medium">
             No pudimos cargar sus secretarías de tránsito. Reintente para ver la bandeja.
           </p>
-          <button
-            type="button"
-            onClick={() => { void cargarSecretarias(); }}
-            className="flit-focus h-10 shrink-0 rounded-[10px] border px-4 text-sm font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
-            style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}
-          >
+          <GradientButton type="button" size="sm" variant="secondary" onClick={() => { void cargarSecretarias(); }}>
             Reintentar secretarías
-          </button>
+          </GradientButton>
         </div>
       )}
 
       {enlace && enlace.length > 1 && (
-        <div
-          className="flex flex-col gap-2 rounded-xl border p-4 sm:flex-row sm:items-end sm:gap-4"
-          style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)', boxShadow: 'var(--flit-shadow-card)' }}
-        >
-          <div className="min-w-0 flex-1">
+        <div className="card flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-4">
+          <div className="min-w-0 flex-1 sm:max-w-sm">
             <FlitSelect
               label="Secretaría"
               value={secretaria}
@@ -411,186 +506,59 @@ export default function TransitoBandeja() {
       )}
 
       {scopeError && (
-        <div
-          className="rounded-xl border px-4 py-4 text-sm"
-          style={{ borderColor: 'var(--flit-danger)', background: 'rgba(220, 38, 38, 0.08)' }}
-          role="alert"
-        >
-          <p className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{scopeError}</p>
-          <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-            El administrador FLIT debe asignar su organismo en Usuarios y usted debe volver a iniciar sesión.
-          </p>
-        </div>
+        <InlineAlert tono="danger" titulo={scopeError}>
+          <p className="mt-1 text-xs">El administrador FLIT debe asignar su organismo en Usuarios y usted debe volver a iniciar sesión.</p>
+        </InlineAlert>
       )}
 
-      {loading && secretariasListas && (
-        <div className="py-16 text-center">
-          <div className="inline-block h-10 w-10 animate-spin rounded-full border-4 motion-reduce:animate-none"
-            style={{ borderColor: 'var(--flit-border-soft)', borderTopColor: 'var(--flit-blue)' }} />
-        </div>
-      )}
+      {loading && secretariasListas && <Cargador className="py-10" />}
 
       {!loading && !scopeError && tab === 'matricula' && (
         <>
-          <section>
-            <SectionTitle barColor="var(--flit-warning)" label={`Pendientes de recibir (${pendientes.length})`} />
+          <section className="flex flex-col gap-3">
+            <SectionTitle label={`Pendientes de recibir (${pendientes.length})`} />
             {pendientes.length > 0 && (
-              <div
-                className="mb-3 flex items-start gap-2 rounded-xl border px-4 py-3"
-                style={{ background: 'rgba(240, 90, 53, 0.10)', borderColor: 'var(--flit-warning)' }}
-                role="status"
-              >
-                <span className="mt-0.5 text-sm font-bold" style={{ color: 'var(--flit-warning)' }} aria-hidden>!</span>
-                <p className="text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>
-                  {pendientes.length === 1
-                    ? 'Hay 1 trámite esperando que lo tomes para asignar placa.'
-                    : `Hay ${pendientes.length} trámites esperando que los tomes para asignar placa.`}
-                </p>
-              </div>
+              <BarraAccion>
+                {pendientes.length === 1
+                  ? 'Hay 1 trámite esperando que lo tomes para asignar placa.'
+                  : `Hay ${pendientes.length} trámites esperando que los tomes para asignar placa.`}
+              </BarraAccion>
             )}
-            {pendientes.length === 0 ? (
-              <EmptyCard
-                text={organismo ? `Sin pendientes en ${organismo.ciudad}` : 'No hay trámites pendientes'}
-                hint={emptyPendientesHint}
-              />
-            ) : (
-              <div className="space-y-3">
-                {pendientes.map(t => (
-                  <Card key={t.id}>
-                    <TramiteBody t={t} v={v} c={c} showOrganismoBadge={showOrganismoBadge} onVerExpediente={() => setExpedienteId(t.id)} />
-                    <GradientButton type="button" onClick={() => tomar(t.id)} className="shrink-0 self-center sm:self-auto">
-                      Tomar trámite
-                    </GradientButton>
-                  </Card>
-                ))}
-              </div>
-            )}
+            <DataTable
+              ariaLabel="Pendientes de recibir"
+              columnas={colsPendientes}
+              filas={pendientes}
+              getKey={(t) => String(t.id)}
+              emptyMessage={organismo ? `Sin pendientes en ${organismo.ciudad}` : 'No hay trámites pendientes'}
+              emptyDetalle={emptyPendientesHint}
+            />
           </section>
 
-          <section>
-            <SectionTitle barColor="var(--flit-blue)" label={`Mis trámites (${misTramites.length})`} />
-            {misTramites.length === 0 ? (
-              <EmptyCard
-                text={organismo ? `Sin trámites asignados en ${organismo.ciudad}` : 'No tiene trámites asignados'}
-                hint={emptyMisHint}
-              />
-            ) : (
-              <div className="space-y-3">
-                {misTramites.map(t => {
-                  const recibido = t.estado === 'recibido_transito';
-                  const estadoTone: ChipTone = recibido ? 'active' : 'success';
-                  const estadoLabel = recibido ? 'Recibido' : 'Placa preasignada';
-                  const rawPlaca = placaInput[t.id] || '';
-                  const placaInvalid = rawPlaca.length > 0 && !placaValida(rawPlaca);
-                  return (
-                    <Card key={t.id}>
-                      <TramiteBody t={t} v={v} c={c} placaHighlight={t.placa} showOrganismoBadge={showOrganismoBadge} onVerExpediente={() => setExpedienteId(t.id)} />
-                      <div className="flex shrink-0 flex-col gap-2 sm:items-end">
-                        <StatusChip tone={estadoTone}>{estadoLabel}</StatusChip>
-
-                        {recibido && (
-                          <div className="flex flex-col items-stretch gap-1 sm:items-end">
-                            <div className="flex items-center gap-2">
-                              <input
-                                value={rawPlaca}
-                                onChange={e => setPlacaInput(prev => ({ ...prev, [t.id]: e.target.value.toUpperCase() }))}
-                                placeholder="ABC123"
-                                maxLength={PLACA_MAX}
-                                aria-invalid={placaInvalid}
-                                className={placaInputCls(placaInvalid)}
-                              />
-                              <GradientButton type="button" variant="success" onClick={() => asignarPlaca(t.id)}>
-                                Asignar placa
-                              </GradientButton>
-                            </div>
-                            {placaInvalid && (
-                              <p className="text-[11px] font-medium" style={{ color: 'var(--flit-danger)' }}>
-                                Placa: 4–10 caracteres alfanuméricos
-                              </p>
-                            )}
-                          </div>
-                        )}
-
-                        {t.estado === 'placa_preasignada' && (
-                          <GradientButton type="button" onClick={() => confirmarPlaca(t.id)} className="shrink-0">
-                            Confirmar y enviar
-                          </GradientButton>
-                        )}
-
-                        {canRechazarOt(t.estado) && (
-                          <button
-                            type="button"
-                            onClick={() => setRechazarTramite(t)}
-                            className="flit-focus inline-flex h-9 items-center rounded-[999px] border bg-white px-4 text-xs font-medium"
-                            style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
-                          >
-                            Devolver con observación
-                          </button>
-                        )}
-                      </div>
-                    </Card>
-                  );
-                })}
-              </div>
-            )}
+          <section className="flex flex-col gap-3">
+            <SectionTitle label={`Mis trámites (${misTramites.length})`} />
+            <DataTable
+              ariaLabel="Mis trámites"
+              columnas={colsMis}
+              filas={misTramites}
+              getKey={(t) => String(t.id)}
+              emptyMessage={organismo ? `Sin trámites asignados en ${organismo.ciudad}` : 'No tiene trámites asignados'}
+              emptyDetalle={emptyMisHint}
+            />
           </section>
         </>
       )}
 
       {!loading && !scopeError && tab === 'traspaso' && (
-        <section>
-          <SectionTitle barColor="var(--flit-blue)" label={`Traspasos activos (${traspasos.length})`} />
-          {traspasos.length === 0 ? (
-            <EmptyCard
-              text={organismo ? `Sin traspasos activos en ${organismo.ciudad}` : 'No hay traspasos STT activos'}
-              hint="Los traspasos radicados por el gestor aparecen aquí con su radicado TD- y estado STT."
-            />
-          ) : (
-            <div className="space-y-3">
-              {traspasos.map((t) => {
-                const trans = transicionesDesde(t.estado);
-                return (
-                  <Card key={t.id}>
-                    <TraspasoBody t={t} v={v} c={c} showOrganismoBadge={showOrganismoBadge} onVerExpediente={() => setExpedienteId(t.id)} />
-                    <div className="flex shrink-0 flex-col gap-2 sm:items-end">
-                      <StatusChip tone="active">{ESTADO_STT_LABEL[t.estado as TramiteEstadoStt] ?? t.estado}</StatusChip>
-                      {trans.length > 0 && (
-                        <div className="flex flex-wrap justify-end gap-1.5">
-                          {trans.map((e) => (
-                            <button
-                              key={e}
-                              type="button"
-                              onClick={() => transicionarTraspaso(t.id, e)}
-                              className="flit-focus rounded-[999px] px-2.5 py-1 text-[10px] font-semibold"
-                              style={{ color: 'var(--flit-blue)', background: 'rgba(79,116,201,0.12)' }}
-                            >
-                              {ESTADO_STT_LABEL[e]}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      {isAdmin && (
-                        <Link
-                          to={`/tramite/traspaso?id=${t.id}`}
-                          className="flit-focus text-[11px] font-semibold"
-                          style={{ color: 'var(--flit-blue)' }}
-                        >
-                          Abrir wizard
-                        </Link>
-                      )}
-                      <Link
-                        to={`/transito/traspaso?id=${t.id}`}
-                        className="flit-focus text-[11px] font-semibold"
-                        style={{ color: 'var(--flit-blue)' }}
-                      >
-                        Abrir expediente STT
-                      </Link>
-                    </div>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
+        <section className="flex flex-col gap-3">
+          <SectionTitle label={`Traspasos activos (${traspasos.length})`} />
+          <DataTable
+            ariaLabel="Traspasos activos"
+            columnas={colsTraspasos}
+            filas={traspasos}
+            getKey={(t) => String(t.id)}
+            emptyMessage={organismo ? `Sin traspasos activos en ${organismo.ciudad}` : 'No hay traspasos STT activos'}
+            emptyDetalle="Los traspasos radicados por el gestor aparecen aquí con su radicado TD- y estado STT."
+          />
         </section>
       )}
 
@@ -617,40 +585,12 @@ export default function TransitoBandeja() {
   );
 }
 
-function SectionTitle({ barColor, label }: { barColor: string; label: string }) {
-  return (
-    <div className="mb-3 flex items-center gap-2">
-      <span className="h-5 w-1.5 rounded-full" style={{ background: barColor }} />
-      <h3 className="text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: 'var(--flit-text-primary)' }}>{label}</h3>
-    </div>
-  );
-}
+const ENLACE = 'text-xs font-semibold text-[var(--color-action)] underline-offset-2 transition-colors hover:underline';
+// Transiciones STT que retroceden o cierran el trámite: botón naranja (destructivo) del kit.
+const DESTRUCTIVO = /rechaz|anul|cancel|devuel|revoc/i;
 
-function Card({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      className="flex flex-col gap-3 bg-white p-4 sm:flex-row sm:items-center"
-      style={{ borderRadius: 'var(--flit-radius-card)', boxShadow: 'var(--flit-shadow-card)', border: '1px solid var(--flit-border-soft)' }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function EmptyCard({ text, hint }: { text: string; hint?: string }) {
-  return (
-    <div
-      className="p-10 text-center"
-      style={{ borderRadius: 'var(--flit-radius-card)', border: '1px dashed var(--flit-border-input)', background: 'var(--flit-bg-card)' }}
-    >
-      <p className="text-sm font-medium" style={{ color: 'var(--flit-text-muted)' }}>{text}</p>
-      {hint && (
-        <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed" style={{ color: 'var(--flit-text-muted)' }}>
-          {hint}
-        </p>
-      )}
-    </div>
-  );
+function SectionTitle({ label }: { label: string }) {
+  return <h3 className="text-sm font-bold uppercase tracking-[0.03em] text-[var(--color-text-primary)]">{label}</h3>;
 }
 
 function OrganismoBadge({ codigo }: { codigo: string | null | undefined }) {
@@ -663,133 +603,16 @@ function OrganismoBadge({ codigo }: { codigo: string | null | undefined }) {
   );
 }
 
-function TramiteBody({
-  t,
-  v,
-  c,
-  placaHighlight,
-  showOrganismoBadge,
-  onVerExpediente,
-}: {
-  t: Tramite;
-  v: (t: Tramite) => { marca?: string; linea?: string; modelo?: string };
-  c: (t: Tramite) => { nombre?: string; documento?: string };
-  placaHighlight?: string | null;
-  showOrganismoBadge?: boolean;
-  onVerExpediente: () => void;
-}) {
-  const comprador = c(t);
-  return (
-    <div className="flex min-w-0 flex-1 flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-xs font-bold" style={{ color: 'var(--flit-blue)' }}>
-          MI-{String(t.id).padStart(4, '0')}
-        </span>
-        {t.estado === 'enviado_transito' && <StatusChip tone="warning">Enviado</StatusChip>}
-        {showOrganismoBadge && <OrganismoBadge codigo={t.organismoCodigo} />}
-      </div>
-      <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-        {[v(t).marca, v(t).linea, v(t).modelo].filter(Boolean).join(' ') || 'Vehículo sin datos'}
-      </p>
-      <dl className="grid gap-1 text-xs sm:grid-cols-2">
-        <div>
-          <dt className="font-semibold uppercase tracking-wide text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>VIN</dt>
-          <dd className="font-mono font-medium" style={{ color: 'var(--flit-text-primary)' }}>{t.vin || '—'}</dd>
-        </div>
-        {comprador.nombre && (
-          <div>
-            <dt className="font-semibold uppercase tracking-wide text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>Comprador</dt>
-            <dd style={{ color: 'var(--flit-text-primary)' }}>
-              {comprador.nombre}
-              {comprador.documento && (
-                <span className="ml-1 font-mono text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
-                  · {comprador.documento}
-                </span>
-              )}
-            </dd>
-          </div>
-        )}
-      </dl>
-      {placaHighlight && (
-        <p className="text-xs font-bold" style={{ color: 'var(--flit-success)' }}>
-          Placa: {placaHighlight}
-        </p>
-      )}
-      {t.updatedAt && t.estado === 'enviado_transito' && (
-        <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
-          Enviado: {new Date(t.updatedAt).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
-        </p>
-      )}
-      <button
-        type="button"
-        onClick={onVerExpediente}
-        className="flit-focus mt-0.5 self-start text-[11px] font-semibold"
-        style={{ color: 'var(--flit-blue)' }}
-      >
-        Ver expediente
-      </button>
-    </div>
-  );
+function VehiculoCelda({ t, v }: { t: Tramite; v: (t: Tramite) => { marca?: string; linea?: string; modelo?: string } }) {
+  return <span className="font-semibold">{[v(t).marca, v(t).linea, v(t).modelo].filter(Boolean).join(' ') || 'Vehículo sin datos'}</span>;
 }
 
-function TraspasoBody({
-  t,
-  v,
-  c,
-  showOrganismoBadge,
-  onVerExpediente,
-}: {
-  t: Tramite;
-  v: (t: Tramite) => { marca?: string; linea?: string; modelo?: string };
-  c: (t: Tramite) => { nombre?: string; documento?: string };
-  showOrganismoBadge?: boolean;
-  onVerExpediente: () => void;
-}) {
-  const comprador = c(t);
+function CompradorCelda({ comprador }: { comprador: { nombre?: string; documento?: string } }) {
+  if (!comprador.nombre) return <span className="text-[var(--color-text-tertiary)]">—</span>;
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-xs font-bold" style={{ color: 'var(--flit-blue)' }}>
-          {t.numeroRadicado || `TD-${String(t.id).padStart(5, '0')}`}
-        </span>
-        {t.placa && <StatusChip tone="neutral">{t.placa}</StatusChip>}
-        {showOrganismoBadge && <OrganismoBadge codigo={t.organismoCodigo} />}
-      </div>
-      <p className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-        {[v(t).marca, v(t).linea, v(t).modelo].filter(Boolean).join(' ') || 'Vehículo sin datos'}
-      </p>
-      <dl className="grid gap-1 text-xs sm:grid-cols-2">
-        <div>
-          <dt className="font-semibold uppercase tracking-wide text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>VIN</dt>
-          <dd className="font-mono font-medium" style={{ color: 'var(--flit-text-primary)' }}>{t.vin || '—'}</dd>
-        </div>
-        {comprador.nombre && (
-          <div>
-            <dt className="font-semibold uppercase tracking-wide text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>Comprador</dt>
-            <dd style={{ color: 'var(--flit-text-primary)' }}>
-              {comprador.nombre}
-              {comprador.documento && (
-                <span className="ml-1 font-mono text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
-                  · {comprador.documento}
-                </span>
-              )}
-            </dd>
-          </div>
-        )}
-      </dl>
-      {t.updatedAt && (
-        <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
-          Actualizado: {new Date(t.updatedAt).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
-        </p>
-      )}
-      <button
-        type="button"
-        onClick={onVerExpediente}
-        className="flit-focus mt-0.5 self-start text-[11px] font-semibold"
-        style={{ color: 'var(--flit-blue)' }}
-      >
-        Ver expediente
-      </button>
-    </div>
+    <span>
+      {comprador.nombre}
+      {comprador.documento && <span className="mono ml-1 text-xs text-[var(--color-text-tertiary)]">· {comprador.documento}</span>}
+    </span>
   );
 }

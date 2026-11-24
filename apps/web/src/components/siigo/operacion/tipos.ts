@@ -1,4 +1,4 @@
-// Bandeja de fallidos — tipos de la PANTALLA (HU #11345, Feature #11244).
+// Bandeja de fallidos — tipos de la PANTALLA (HU 11345, Feature 11244).
 //
 // Aquí solo vive lo que la pantalla inventa: los criterios de filtro y la identidad de una fila.
 // Todo lo que describe un caso —fuente, guía, estado nativo, descarte— llega de

@@ -65,7 +65,7 @@ export default function CeldaFacturacion({
         <StatusChip tone={TONO_CHIP_ESTADO[estado]}>{SIIGO_ESTADO_REPORTE_ETIQUETA[estado]}</StatusChip>
         {/* Un rechazo sin motivo consultado todavía se marca, para que no parezca sin causa. */}
         {ficha?.motivoPendiente && (
-          <span className="text-[10px]" style={{ color: 'var(--flit-text-muted)' }}
+          <span className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}
             title="El motivo aún no se ha podido consultar">?</span>
         )}
       </span>
@@ -73,7 +73,7 @@ export default function CeldaFacturacion({
       {/* Debajo y en pequeño: identifica el documento sin competir con el estado, que es lo que se
           lee al recorrer la columna de arriba abajo. */}
       {numero && (
-        <span className="text-[11px] tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>
+        <span className="text-[11px] tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>
           Factura {numero}
         </span>
       )}

@@ -1,4 +1,4 @@
-// FLITO — Comparendos: el estado del panel de detalle (HU #11562, Feature #11495 17b).
+// FLITO — Comparendos: el estado del panel de detalle (HU 11562, Feature 11495 17b).
 //
 // Una petición y un refresco que NO es una petición. Eso es todo lo que hace este archivo, y las
 // dos mitades importan por separado:
@@ -8,7 +8,7 @@
 //     para un dato que ya llegó).
 //   · **Refrescar tras gestionar** — el cuerpo del `PATCH` **es** un `ComparendoRegistroDetalle`
 //     completo, con su timeline ya actualizado dentro de la transacción que lo escribió (HU
-//     #11557). Se reemplaza el estado con él y no se vuelve a pedir nada. Un `GET` extra aquí no
+//     11557). Se reemplaza el estado con él y no se vuelve a pedir nada. Un `GET` extra aquí no
 //     sería «ser cuidadoso», sería el bug que la nota QA #53 de la spec nombra: el AC3 pide que la
 //     fila y el timeline cambien SIN que se vuelva a pedir la página.
 //
@@ -18,7 +18,7 @@
 // y qué otros eventos insertó una corrida de sync mientras el formulario estaba abierto— y las va a
 // adivinar mal el día que importe.
 //
-// El texto del servidor NO se pinta, igual que en el resto del módulo desde la #11559: el copy sale
+// El texto del servidor NO se pinta, igual que en el resto del módulo desde la 11559: el copy sale
 // del código de estado y, cuando lo hay, del `codigo` estable del cuerpo de error. Este panel se
 // pide por identificador, así que es justo donde un mensaje del backend tiene más probabilidad de
 // repetir el dato consultado. Aquí tampoco hay ningún `console.*`: el módulo trata datos personales

@@ -26,7 +26,8 @@ const DrFlitBoton = forwardRef<HTMLButtonElement, DrFlitBotonProps>(function DrF
       aria-label="Abrir Dr. Flit"
       title={abierto ? 'Cerrar Dr. Flit' : 'Abrir Dr. Flit'}
       aria-expanded={abierto}
-      aria-controls={panelId}
+      // Solo con el panel montado: cerrado, el id no existe (axe aria-valid-attr-value).
+      aria-controls={abierto ? panelId : undefined}
       onClick={onAlternar}
       className={[
         'flit-focus fixed bottom-[calc(1rem+env(safe-area-inset-bottom)+var(--flit-fab-offset,0px))] right-4 z-30',

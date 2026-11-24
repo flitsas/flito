@@ -172,8 +172,14 @@ export interface ExprCostosReporte { soat: SQL; logistica: SQL; sinConfigurar: S
 
 /** Las expresiones del reporte (página, exportación y filtro), con las reglas «gestiona» del reporte. */
 export function exprCostosProveedorReporte(g: GestionaSql): ExprCostosReporte {
-  const soat = selladoOVivo('soat', soatVivo(g));
-  const logistica = selladoOVivo('logistica', logisticaVivo(g));
+  return exprCostosDe(selladoOVivo('soat', soatVivo(g)), selladoOVivo('logistica', logisticaVivo(g)));
+}
+
+/**
+ * Las tres expresiones a partir de los dos conceptos ya resueltos: la expresión completa (reporte) o
+ * las columnas de una subconsulta que ya los calculó (`totalesCostosProveedorDe`, ver `sinJit`).
+ */
+export function exprCostosDe(soat: SQL, logistica: SQL): ExprCostosReporte {
   return {
     soat, logistica,
     // RN-CP-07 — solo filtra; no entra en `EXPR_BLOQUEADA` ni en `EXPR_INCOMPLETA`.
@@ -264,6 +270,24 @@ export function costosProveedorConsolidadoDe(r: Record<string, unknown> | undefi
 
 /** `db` o la `tx` de `liquidar()`: solo se usa `select`. */
 type Ejecutor = Pick<typeof db, 'select'>;
+
+/**
+ * Agregados del costo de proveedor SIN JIT de PostgreSQL (totales y consolidado del reporte).
+ *
+ * Medido en local (2026-11-18, PG 16, 8.625 trámites, sin filtro): de los ~17 s de los totales, ~14,7 s
+ * eran compilación JIT (1.567 funciones, «Optimization» + «Emission»); la ejecución en sí, ~0,5 s (el
+ * consolidado por mes, ~40-57 s con JIT y ~1,2 s sin él; mismas cifras, solo cambia el plan). Las
+ * subconsultas correlacionadas de SOAT y logística repetidas en cada `SUM` inflan el costo estimado
+ * (~12 M, muy por encima de `jit_optimize_above_cost`) y el planificador compila por adelantado algo
+ * que tarda más en compilar que en ejecutarse. `SET LOCAL` solo vale dentro de la transacción: no
+ * toca la sesión del pool ni ninguna otra consulta. Solo lecturas: la transacción no escribe.
+ */
+export function sinJit<T>(consulta: (ej: Ejecutor) => Promise<T>): Promise<T> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL jit = off`);
+    return consulta(tx);
+  });
+}
 
 const literal = (b: boolean): SQL => sql.raw(b ? 'true' : 'false');
 

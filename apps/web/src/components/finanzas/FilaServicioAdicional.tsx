@@ -16,9 +16,9 @@ import StatusChip from '../flit/StatusChip';
 import { flitBtnSecondarySm } from '../flit/flitPageKit';
 import { pesos } from './tiposReporteCostos';
 
-const SECUNDARIO = { color: 'var(--flit-text-secondary)' } as const;
+const SECUNDARIO = { color: 'var(--color-text-secondary)' } as const;
 /** La TINTA roja sobre el fondo de la tarjeta, no una superficie roja: así marca esta app lo delicado. */
-const PELIGRO = { color: 'var(--flit-warning-text)' } as const;
+const PELIGRO = { color: 'var(--kit-naranja-texto)' } as const;
 
 /** «Añadió Ana Pérez · 12 sep 2026, 9:14 a. m.»; sin nombre, solo la fecha (el usuario puede haberse ido). */
 function trazabilidad(item: TramiteServicioAdicional): string {
@@ -83,7 +83,7 @@ export default function FilaServicioAdicional({
         // `useEscape` escucha en `window` y el portal del modal cuelga de <body>: parar la
         // propagación aquí es lo que hace que Esc cancele la confirmación y NO cierre el panel (§9).
         onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancelar(); } }}>
-        <div className="rounded-lg border p-2" style={{ borderColor: 'var(--flit-border-input)' }}>
+        <div className="rounded-lg border p-2" style={{ borderColor: 'var(--color-border-control)' }}>
           <p className="text-sm">¿Quitar «{item.nombre}» ({pesos(item.valor)})?</p>
           <div className="mt-2 flex flex-wrap justify-end gap-2">
             <button type="button" ref={cancelarRef} className={flitBtnSecondarySm} disabled={enviando} onClick={onCancelar}>

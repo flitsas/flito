@@ -1,6 +1,6 @@
-// FLITO — Comparendos: la vista de Sincronización (HU #11635).
+// FLITO — Comparendos: la vista de Sincronización (HU 11635).
 //
-// La pestaña nació vacía en la HU #11633 porque era un DESTINO —el vacío del visor enlaza aquí y
+// La pestaña nació vacía en la HU 11633 porque era un DESTINO —el vacío del visor enlaza aquí y
 // `?vista=sincronizacion` tenía que llevar a algo— y explícitamente SIN un botón inhabilitado: un
 // control que no puede funcionar todavía es peor que su ausencia. Aquí es donde el botón aparece,
 // ya con algo detrás.
@@ -17,7 +17,7 @@
 //      de que la sincronización terminó.
 //   2. **La consola** (Región A de la spec de UX): disparo, progreso y errores accionables.
 //   3. **El resultado**, en su propia tarjeta y solo cuando hay uno confirmado.
-//   4. **El historial** (Región B, HU #11636), debajo del resultado: las corridas anteriores y el
+//   4. **El historial** (Región B, HU 11636), debajo del resultado: las corridas anteriores y el
 //      modal de detalle, que reutiliza `ResultadoSyncComparendos` para los contadores y los pasos.
 //
 // La consola y el historial se tocan en UN punto y en una sola dirección: `sync.resultado`. Cuando

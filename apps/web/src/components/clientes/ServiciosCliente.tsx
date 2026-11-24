@@ -20,10 +20,10 @@ import FlitModal from '../flit/FlitModal';
 import FlitSelect from '../flit/FlitSelect';
 import FlitSwitch from '../flit/FlitSwitch';
 import StatusChip from '../flit/StatusChip';
-import GradientButton from '../flit/GradientButton';
+import GradientButton, { claseBoton } from '../flit/GradientButton';
 import { opcionesConEstado } from '../flit/opcionesConEstado';
 import {
-  FlitPillGroup, FlitPillButton, flitBtnSecondary, flitBtnSecondaryStyle,
+  FlitPillGroup, FlitPillButton,
 } from '../flit/flitPageKit';
 import FichaFiscal from './FichaFiscal';
 import { useProveedoresSelector, type CatalogoSelector } from './proveedoresDatos';
@@ -111,7 +111,7 @@ export function ChipsServicios({ c, nombreProveedorLogistica, editaSinTramite, p
       <li>
         {sin && puedeAbrir ? (
           <button type="button" onClick={onAbrir} aria-label={`Logística de ${c.name}: sin proveedor. Elegir proveedor`}
-            className="flit-focus rounded-full transition-colors hover:bg-[var(--flit-bg-hover)]">
+            className="flit-focus rounded-full transition-colors hover:bg-[var(--kit-hover)]">
             <StatusChip tone="warning">{logistica}</StatusChip>
           </button>
         ) : <StatusChip tone={sin ? 'warning' : 'neutral'}>{logistica}</StatusChip>}
@@ -129,13 +129,13 @@ function FilaServicio({ titulo, etiqueta, checked, onToggle, disabled, children 
 }) {
   const id = useId();
   return (
-    <div className="border-b py-3 last:border-b-0" style={{ borderColor: 'var(--flit-border-soft)' }}>
+    <div className="border-b py-3 last:border-b-0" style={{ borderColor: 'var(--color-border)' }}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{titulo}</span>
+        <span className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>{titulo}</span>
         <span className="flex items-center gap-2">
-          <span id={id} className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>FLITO gestiona</span>
+          <span id={id} className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>FLITO gestiona</span>
           {disabled
-            ? <span className="px-2 text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>{checked ? 'Sí' : 'No'}</span>
+            ? <span className="px-2 text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>{checked ? 'Sí' : 'No'}</span>
             : <FlitSwitch checked={checked} onToggle={onToggle} etiqueta={etiqueta} />}
         </span>
       </div>
@@ -232,7 +232,7 @@ export function ModalCliente({ cliente, editaAutogestion, editaSinTramite, puede
   const sololectura = !editaAutogestion;
 
   return (
-    <FlitModal title={`Editar · ${cliente.name}`} onClose={onClose} wide>
+    <FlitModal title={`Editar · ${cliente.name}`} icono="empresas" onClose={onClose} wide>
       <div className="space-y-4">
         <FlitPillGroup>
           <FlitPillButton active={pestana === 'servicios'} pressed={pestana === 'servicios'} onClick={() => setPestana('servicios')}><span style={{ textTransform: 'none' }}>Datos y servicios</span></FlitPillButton>
@@ -247,8 +247,8 @@ export function ModalCliente({ cliente, editaAutogestion, editaSinTramite, puede
 
         {pestana === 'tarifas' && (
           <div className="space-y-3">
-            <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>Los valores negociados de {cliente.name} se administran en el configurador de tarifas.</p>
-            <Link to={`/flito/tarifas/${cliente.id}`} className={flitBtnSecondary} style={flitBtnSecondaryStyle}>Abrir tarifas</Link>
+            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Los valores negociados de {cliente.name} se administran en el configurador de tarifas.</p>
+            <Link to={`/flito/tarifas/${cliente.id}`} className={claseBoton('secondary')} data-variante="secundario">Abrir tarifas</Link>
           </div>
         )}
 
@@ -257,19 +257,18 @@ export function ModalCliente({ cliente, editaAutogestion, editaSinTramite, puede
             <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
               {datos.map(([k, v]) => (
                 <div key={k}>
-                  <dt className="text-[11px] font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>{k}</dt>
-                  <dd className="break-words text-sm" style={{ color: 'var(--flit-text-primary)' }}>{v}</dd>
+                  <dt className="text-[11px] font-semibold" style={{ color: 'var(--color-text-secondary)' }}>{k}</dt>
+                  <dd className="break-words text-sm" style={{ color: 'var(--color-text-primary)' }}>{v}</dd>
                 </div>
               ))}
             </dl>
 
             <section aria-labelledby={`${idAviso}-t`}>
-              <h3 id={`${idAviso}-t`} className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Servicios</h3>
+              <h3 id={`${idAviso}-t`} className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>Servicios</h3>
               <FilaServicio titulo="SOAT" etiqueta={`FLITO gestiona SOAT de ${cliente.name}`} checked={soat} onToggle={setSoat} disabled={sololectura}>
                 {editaSinTramite && (<>
                   {sinEfecto && (
-                    <p id={idAviso} className="rounded-lg px-3 py-2 text-sm font-semibold"
-                      style={{ background: 'var(--flit-chip-warning-bg)', color: 'var(--flit-warning-ink)' }}>
+                    <p id={idAviso} className="kit-alerta text-sm font-semibold" data-tono="warn">
                       {AVISO_PERMISO_SIN_EFECTO}
                     </p>
                   )}
@@ -295,10 +294,10 @@ export function ModalCliente({ cliente, editaAutogestion, editaSinTramite, puede
                     error={faltaProveedor && !logInutil ? LOG_REQUERIDO : null}
                   />
                 ) : (<>
-                  <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{LOG_AYUDA_APAGADA}</p>
+                  <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{LOG_AYUDA_APAGADA}</p>
                   {provLog && (
-                    <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-                      Proveedor conservado: <strong style={{ color: 'var(--flit-text-primary)' }}>{nombreLog ?? 'asignado'}</strong>.
+                    <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                      Proveedor conservado: <strong style={{ color: 'var(--color-text-primary)' }}>{nombreLog ?? 'asignado'}</strong>.
                       {' '}Mientras esté asignado, no se puede inactivar.
                     </p>
                   )}
@@ -307,10 +306,10 @@ export function ModalCliente({ cliente, editaAutogestion, editaSinTramite, puede
             </section>
 
             {errorServidor && (
-              <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--flit-danger-text)' }}>{errorServidor}</p>
+              <p role="alert" className="text-sm font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>{errorServidor}</p>
             )}
             <div className="flex flex-wrap justify-end gap-2">
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onClose}>
+              <button type="button" className={claseBoton('secondary')} data-variante="secundario" onClick={onClose}>
                 {sololectura ? 'Cerrar' : 'Cancelar'}
               </button>
               {!sololectura && (

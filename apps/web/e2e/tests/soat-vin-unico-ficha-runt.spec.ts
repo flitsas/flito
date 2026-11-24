@@ -192,7 +192,7 @@ test.describe('HU #12091 · AC1 — un solo campo en el bloque 1', () => {
       await expect(vehiculo.getByLabel(etiqueta), etiqueta).toHaveCount(0);
     }
     // La placa no se teclea en NINGÚN sitio de la pantalla: esa sí se fue entera.
-    await expect(page.getByLabel('Placa')).toHaveCount(0);
+    await expect(page.getByLabel(/^Placa/)).toHaveCount(0);
   });
 
   test('tipo y número se editan en el bloque 3, y el eco «se cambia en el bloque 1» desapareció', async ({ page }) => {
@@ -311,7 +311,8 @@ test.describe('HU #12091 · AC2 — el orden de la pantalla', () => {
     await expect(page.getByRole('heading', { level: 2 }))
       // HU #13363: el bloque 4 (opcional) va al final, después del propietario.
       // HU #12874: la compañía (fija o escogida) abre el formulario: alimenta la consulta del RUNT.
-      .toHaveText(['Compañía', 'Tipo de SOAT', '1 · Vehículo', '2 · Factura de venta', '3 · Propietario', '4 · Documentos adicionales (opcional)']);
+      // HU #14134 (develop): con Renovación, «Forma de cargar» (individual / en masa) va entre el tipo y el bloque 1.
+      .toHaveText(['Compañía', 'Tipo de SOAT', 'Forma de cargar', '1 · Vehículo', '2 · Factura de venta', '3 · Propietario', '4 · Documentos adicionales (opcional)']);
 
     // Y no hay asistente por pasos ni borrador: crear sigue siendo enviar.
     await expect(page.getByRole('button', { name: /Siguiente|Continuar|Guardar borrador/ })).toHaveCount(0);

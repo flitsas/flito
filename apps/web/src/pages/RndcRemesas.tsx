@@ -1,9 +1,12 @@
-import { useEffect, useState, useCallback, type ReactNode } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../lib/api';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import FiltroSegmentado from '../components/flit/FiltroSegmentado';
+import { flitBtnPrimary } from '../components/flit/flitPageKit';
 
 interface RemesaRow {
   id: number;
@@ -29,7 +32,6 @@ const ESTADO_TONE: Record<string, ChipTone> = {
   borrador: 'neutral', activa: 'active', cumplida: 'success', anulada: 'danger',
 };
 
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
 
 export default function RndcRemesas() {
   const [items, setItems] = useState<RemesaRow[]>([]);
@@ -53,64 +55,56 @@ export default function RndcRemesas() {
       <PageHeaderCard
         title="Remesas de carga"
         subtitle="RNDC · Documentos de despacho que se agrupan en manifiestos electrónicos"
+        icono="flito-rndc"
+        miga={[{ etiqueta: 'Cumplimiento' }, { etiqueta: 'RNDC', to: '/rndc' }]}
         actions={
-          <Link to="/rndc/remesas/nueva" className="flit-focus inline-flex items-center justify-center gap-2 rounded-[999px] px-6 text-sm font-semibold text-white" style={{ height: '44px', background: 'var(--flit-gradient-primary)', boxShadow: 'var(--flit-shadow-button)' }}>
+          <Link to="/rndc/remesas/nueva" className={flitBtnPrimary}>
             Nueva remesa
           </Link>
         }
       />
 
-      <div className="flex w-fit flex-wrap gap-2">
-        {ESTADOS.map((e) => {
-          const active = estado === e;
-          return (
-            <button key={e || 'todos'} onClick={() => setEstado(e)}
-              className="flit-focus rounded-[999px] px-3 py-1.5 text-xs font-semibold capitalize transition-colors"
-              style={active
-                ? { background: 'var(--flit-blue)', color: '#fff' }
-                : { background: '#fff', border: '1px solid var(--flit-border-soft)', color: 'var(--flit-text-muted)' }}>
-              {e || 'Todos'}
-            </button>
-          );
-        })}
+      <div className="[&_button]:capitalize">
+        <FiltroSegmentado
+          ariaLabel="Filtrar por estado"
+          opciones={ESTADOS.map((e) => ({ valor: e, etiqueta: e || 'Todos' }))}
+          valor={estado}
+          onCambio={setEstado}
+        />
       </div>
 
-      <div className="overflow-hidden bg-white" style={CARD}>
-        {loading && <div className="p-6 text-center text-xs" style={{ color: 'var(--flit-text-muted)' }}>Cargando...</div>}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr>
-              <Th>Número</Th><Th>Cliente</Th><Th>Ruta</Th><Th>Cantidad</Th><Th>Flete</Th><Th>Fecha</Th><Th>Estado</Th><Th>Manifiesto</Th>
-            </tr></thead>
-            <tbody>
-              {!loading && items.length === 0 && <tr><td colSpan={8} className="py-10 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin remesas</td></tr>}
-              {items.map((r) => (
-                <tr key={r.id} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                  <td className="px-4 py-3 text-xs">
-                    <Link to={`/rndc/remesas/${r.id}`} className="font-semibold hover:underline" style={{ color: 'var(--flit-text-primary)' }}>{r.numero}</Link>
-                    {r.consecutivoRndc && <span className="block text-[10px]" style={{ color: 'var(--flit-success)' }}>RNDC {r.consecutivoRndc}</span>}
-                  </td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{r.clientName ?? '—'}</td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{r.municipioOrigenDane} → {r.municipioDestinoDane}</td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{Number(r.cantidadCargada).toLocaleString('es-CO')}</td>
-                  <td className="px-4 py-3 text-xs font-medium" style={{ color: 'var(--flit-text-primary)' }}>$ {Number(r.valorFlete).toLocaleString('es-CO')}</td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{r.fechaCargue}</td>
-                  <td className="px-4 py-3"><StatusChip tone={ESTADO_TONE[r.estado] ?? 'neutral'}>{r.estado}</StatusChip></td>
-                  <td className="px-4 py-3 text-xs">
-                    {r.manifiestoId ? (
-                      <Link to={`/rndc/manifiestos/${r.manifiestoId}`} className="hover:underline" style={{ color: 'var(--flit-blue)' }}>#{r.manifiestoId}</Link>
-                    ) : <span style={{ color: 'var(--flit-text-muted)' }}>—</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DataTable
+        ariaLabel="Remesas de carga"
+        columnas={COLUMNAS}
+        filas={items}
+        getKey={(r) => String(r.id)}
+        status={loading ? 'loading' : undefined}
+        emptyMessage="Sin remesas"
+      />
     </div>
   );
 }
 
-function Th({ children }: { children: ReactNode }) {
-  return <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>{children}</th>;
-}
+const TXT2 = 'text-xs text-[color:var(--color-text-secondary)]';
+
+const COLUMNAS: ColumnaTabla<RemesaRow>[] = [
+  { key: 'numero', header: 'Número', render: (r) => (
+    <span className="text-xs">
+      <Link to={`/rndc/remesas/${r.id}`} className="font-semibold text-[color:var(--color-text-primary)] hover:underline">{r.numero}</Link>
+      {r.consecutivoRndc && <span className="block text-[0.75rem] text-[color:var(--kit-verde-texto)]">RNDC {r.consecutivoRndc}</span>}
+    </span>
+  ) },
+  { key: 'cliente', header: 'Cliente', render: (r) => <span className={TXT2}>{r.clientName ?? '—'}</span> },
+  { key: 'ruta', header: 'Ruta', render: (r) => <span className={TXT2}>{r.municipioOrigenDane} → {r.municipioDestinoDane}</span> },
+  { key: 'cantidad', header: 'Cantidad', render: (r) => <span className={TXT2}>{Number(r.cantidadCargada).toLocaleString('es-CO')}</span> },
+  { key: 'flete', header: 'Flete', render: (r) => <span className="text-xs font-medium text-[color:var(--color-text-primary)]">$ {Number(r.valorFlete).toLocaleString('es-CO')}</span> },
+  { key: 'fecha', header: 'Fecha', render: (r) => <span className={TXT2}>{r.fechaCargue}</span> },
+  { key: 'estado', header: 'Estado', render: (r) => <StatusChip tone={ESTADO_TONE[r.estado] ?? 'neutral'}>{r.estado}</StatusChip> },
+  { key: 'manifiesto', header: 'Manifiesto', render: (r) => (
+    <span className="text-xs">
+      {r.manifiestoId ? (
+        <Link to={`/rndc/manifiestos/${r.manifiestoId}`} className="text-[color:var(--color-action)] hover:underline">#{r.manifiestoId}</Link>
+      ) : <span className="text-[color:var(--color-text-tertiary)]">—</span>}
+    </span>
+  ) },
+];

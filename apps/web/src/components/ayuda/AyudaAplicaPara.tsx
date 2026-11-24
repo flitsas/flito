@@ -22,11 +22,10 @@ export default function AyudaAplicaPara({ entrada }: { entrada: EntradaAyuda }) 
   if (!texto) return null;
   return (
     <p
-      className="mt-6 break-words border-t pt-4 text-sm leading-6"
-      style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-text-secondary)' }}
+      className="mt-6 break-words border-t border-[color:var(--kit-linea)] pt-4 text-sm leading-6 text-[color:var(--color-text-secondary)]"
       data-testid="ayuda-aplica-para"
     >
-      <span className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Aplica para:</span> {texto}
+      <span className="font-semibold text-[color:var(--color-text-primary)]">Aplica para:</span> {texto}
     </p>
   );
 }

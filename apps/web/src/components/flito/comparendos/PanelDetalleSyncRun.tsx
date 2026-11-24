@@ -1,4 +1,4 @@
-// FLITO — Comparendos · Sincronización: el detalle de una corrida del historial (HU #11636, AC2).
+// FLITO — Comparendos · Sincronización: el detalle de una corrida del historial (HU 11636, AC2).
 //
 // El modal responde tres preguntas que la fila del historial deliberadamente no responde: **sobre
 // qué NIT** se corrió, **quién** la lanzó y **qué pasó en cada fuente**. La fila se queda en el
@@ -9,7 +9,7 @@
 // ── Lo que este archivo NO reimplementa ─────────────────────────────────────────────────────────
 //
 // Los contadores, los avisos y la tabla de pasos los pinta `ResultadoSyncComparendos`, que nació en
-// un archivo propio en la HU #11635 para esto. El detalle de una corrida es el detalle de una
+// un archivo propio en la HU 11635 para esto. El detalle de una corrida es el detalle de una
 // corrida, se mire recién lanzada o tres días después; una segunda copia aquí sería cómo se arregla
 // el redondeo de una duración en un sitio y no en el otro, o cómo la etiqueta «SIMIT» acaba
 // existiendo en una pantalla y no en la otra.
@@ -25,7 +25,7 @@
 //      refrescado mientras el modal estaba abierto (el desenlace de una corrida la refresca), así
 //      que el botón que lo abrió puede no existir ya: `.focus()` sobre un nodo desmontado no hace
 //      nada y el foco se quedaría en `<body>`. Mismo respaldo, y por el mismo motivo, que el panel
-//      de detalle del visor (HU #11562, nota QA #63).
+//      de detalle del visor (HU 11562, nota QA #63).
 //   3. **La cabecera lleva el instante COMPLETO** —«14 de ago de 2026, 15:02»—, no el corto de la
 //      tabla: aquí es una frase suelta, sin columna ordenada alrededor que dé el contexto del día
 //      (enmienda de UX, decisión 15).
@@ -68,7 +68,7 @@ interface ErrorDetalle {
  * un `let vigente` local no lo impide: descarta la respuesta de la primera pasada, pero la petición
  * ya salió. Aquí eso no es «una petición de más en desarrollo»: **cada `GET /sync/runs/:id` escribe
  * una fila de `pii_access_log`** (el `scope_nits` de la corrida y el `nit` de cada paso son datos
- * personales, HU #11511), así que abrir un modal dejaría dos accesos anotados donde hubo uno.
+ * personales, HU 11511), así que abrir un modal dejaría dos accesos anotados donde hubo uno.
  * Duplicar accesos a datos personales en la bitácora es peor que duplicar una petición: la bitácora
  * existe para poder responder «quién miró qué», y deja de servir en cuanto sus filas no se
  * corresponden con lo que la gente hizo.
@@ -138,11 +138,12 @@ export default function PanelDetalleSyncRun({ fila, onCerrar, respaldoFocoRef }:
     <FlitModal
       title={`Corrida · ${fechaHoraColombia(corrida.iniciadoEn)}`}
       onClose={onCerrar}
-      wide
+      lateral
+      icono="reintento"
       restoreFocusRef={respaldoFocoRef}
     >
       <div className="space-y-5">
-        <dl className="divide-y divide-[color:var(--flit-border-soft)]">
+        <dl className="divide-y divide-[color:var(--color-border)]">
           <Dato etiqueta="Iniciada por" valor={etiquetaIniciador(corrida.iniciadoPor)} />
           <Dato
             etiqueta="Alcance"
@@ -155,7 +156,7 @@ export default function PanelDetalleSyncRun({ fila, onCerrar, respaldoFocoRef }:
 
         {error && (
           <div className="space-y-3">
-            <p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error.texto}</p>
+            <p className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error.texto}</p>
             <div className="flex flex-wrap gap-2">
               {error.reintentable && (
                 <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={recargar}>
@@ -189,15 +190,15 @@ function Dato({ etiqueta, valor, ayuda }: { etiqueta: string; valor: ReactNode; 
   const ausente = valor === SIN_DATO;
   return (
     <div className="grid gap-0.5 py-1.5 sm:grid-cols-[11rem_1fr] sm:gap-3">
-      <dt className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+      <dt className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         {etiqueta}
         {ayuda && (
-          <span className="mt-0.5 block text-[11px] font-normal" style={{ color: 'var(--flit-text-muted)' }}>
+          <span className="mt-0.5 block text-[11px] font-normal" style={{ color: 'var(--color-text-tertiary)' }}>
             {ayuda}
           </span>
         )}
       </dt>
-      <dd className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+      <dd className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
         {ausente ? <>{SIN_DATO}<span className="sr-only">Sin dato</span></> : valor}
       </dd>
     </div>
@@ -224,7 +225,7 @@ function Alcance({ nits }: { nits: string[] }) {
           <li
             key={nit}
             className="rounded-[999px] border px-2 py-0.5 text-xs"
-            style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-text-primary)' }}
+            style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-primary)' }}
           >
             {nit}
           </li>
@@ -248,9 +249,9 @@ function EsqueletoDetalle() {
   return (
     <div aria-busy="true" className="space-y-2">
       <p className="sr-only">Cargando el detalle de la corrida…</p>
-      <div className="animate-pulse space-y-2 motion-reduce:animate-none">
+      <div className="space-y-2">
         {Array.from({ length: 6 }, (_, fila) => (
-          <div key={fila} className="h-9" style={{ background: 'var(--flit-border-soft)', borderRadius: 8 }} />
+          <div key={fila} className="kit-esqueleto h-9" />
         ))}
       </div>
     </div>

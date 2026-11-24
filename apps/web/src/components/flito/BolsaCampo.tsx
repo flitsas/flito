@@ -19,9 +19,9 @@ export default function Campo({ etiqueta, error, ayuda, children }: {
   return (
     <div>
       <FlitField label={etiqueta}>{children}</FlitField>
-      {ayuda && <p className="mt-1 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{ayuda}</p>}
+      {ayuda && <p className="mt-1 text-[11px]" style={{ color: 'var(--color-text-tertiary)' }}>{ayuda}</p>}
       {error && (
-        <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-danger)' }}>{error}</p>
+        <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--kit-rojo)' }}>{error}</p>
       )}
     </div>
   );

@@ -13,6 +13,10 @@
 //   AC7 — al volver a la pestaña, el menú deja de mostrar lo que se quitó.
 //
 //   npx playwright test e2e/tests/shell-menu-catalogo.spec.ts --reporter=line
+//
+// Shell del UI Kit 2026 (Épica #14560): el dock pinta las secciones del menú original (SECTION_ORDER) con los
+// nombres del catálogo, sin reagrupar ni isotipo; «Ayuda» es la última sección (las que no caben, en el «Más»). La cuenta (Perfil, Ayuda,
+// Cambiar contraseña, Cerrar sesión) vive en el menú de usuario.
 
 import type { Page } from '@playwright/test';
 import { ARBOL_PERMISOS, ELEMENTOS_PERMISOS } from '@operaciones/shared-types';
@@ -29,8 +33,14 @@ const nombreItem = (slug: string) => ARBOL_PERMISOS.find((n) => n.tipo === 'item
 const sinPerfil = (rol: string) => FUNCIONES_POR_ROL[rol].filter((f) => !(FUNCIONES_PERFIL as readonly string[]).includes(f));
 
 async function listo(page: Page) {
-  await expect(page.getByRole('button', { name: /Buscar o ir a secci/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Buscar o ir a sección/ })).toBeVisible();
 }
+
+/** Nombres visibles (el <strong>) de las entradas del menú de usuario, sin la línea de detalle. */
+const entradasCuenta = (menu: ReturnType<Page['getByRole']>) =>
+  menu.getByRole('menuitem').evaluateAll((els) => els
+    .filter((e) => (e as HTMLElement).offsetParent !== null)
+    .map((e) => (e.querySelector('strong')?.textContent ?? e.textContent ?? '').trim()));
 
 async function opcionesDeUsuario(page: Page) {
   await page.getByRole('button', { name: /Menú de usuario/ }).click();
@@ -38,7 +48,8 @@ async function opcionesDeUsuario(page: Page) {
 }
 
 test.describe('HU #13431 — menú con los nombres del catálogo', () => {
-  test.use({ viewport: { width: 1440, height: 900 } });
+  // 1920 px: caben todas las secciones con nombre; a 1440 las últimas pasan al «Más» (shell-menu-responsive).
+  test.use({ viewport: { width: 1920, height: 900 } });
 
   test('AC4 — las secciones y los ítems se rotulan con el catálogo (LAFT, no «Cumplimiento»)', async ({ page }) => {
     await loginAs(page, ADMIN_USER);
@@ -49,7 +60,11 @@ test.describe('HU #13431 — menú con los nombres del catálogo', () => {
     }
     await expect(nav(page).getByRole('button', { name: 'Cumplimiento', exact: true })).toHaveCount(0);
     // «General» con solo Tablero se pinta como enlace directo con el nombre del ítem.
-    await expect(nav(page).getByRole('link', { name: nombreItem('dashboard'), exact: true })).toBeVisible();
+    await expect(nav(page).getByRole('link', { name: nombreItem('dashboard'), exact: true })).toHaveAttribute('href', '/');
+    // Administración es sección del dock, no del menú de usuario.
+    const menu = await opcionesDeUsuario(page);
+    await expect(menu.locator('.menu-usuario__seccion')).toHaveCount(0);
+    await page.getByRole('button', { name: /Menú de usuario/ }).click();
 
     await nav(page).getByRole('button', { name: nombreElemento('gestion'), exact: true }).click();
     // El ítem lleva el nombre del catálogo, no el rótulo fijo anterior («Derechos de tránsito»).
@@ -65,15 +80,18 @@ test.describe('HU #13431 — menú con los nombres del catálogo', () => {
     await listo(page);
     await expect(nav(page).getByRole('link', { name: nombreItem('flito_bolsas'), exact: true })).toBeVisible();
     await expect(nav(page).getByRole('link', { name: nombreItem('flito_tarifas'), exact: true })).toHaveCount(0);
-    await expect(nav(page).getByRole('button', { name: nombreElemento('administracion'), exact: true })).toHaveCount(0);
-    await expect(nav(page).getByRole('button', { name: nombreElemento('gestion'), exact: true })).toHaveCount(0);
+    // Un solo ítem visible: ninguna sección desplegable, ni Tablero (no tiene `dashboard`), ni Administración.
+    await expect(nav(page).getByRole('button')).toHaveCount(0);
+    const menu = await opcionesDeUsuario(page);
+    await expect(menu.locator('.menu-usuario__seccion')).toHaveCount(0);
   });
 });
 
 test.describe('HU #13431 — AC1 · «Ayuda» derivada de los capítulos visibles', () => {
-  test.use({ viewport: { width: 1440, height: 900 } });
+  // 1920 px: caben todas las secciones con nombre; a 1440 las últimas pasan al «Más» (shell-menu-responsive).
+  test.use({ viewport: { width: 1920, height: 900 } });
 
-  test('con capítulos visibles: «Ayuda» es el último elemento, en barra y en ⌘K', async ({ page }) => {
+  test('con capítulos visibles: «Ayuda» es la última sección, en el dock y en ⌘K (y en el menú de usuario)', async ({ page }) => {
     // Financiera: rol sin enlace con capítulos de Finanzas (no admin, que lo ve todo).
     await loginAs(page, FINANCIERA_USER);
     await page.goto('/');
@@ -81,6 +99,10 @@ test.describe('HU #13431 — AC1 · «Ayuda» derivada de los capítulos visible
     const enlace = nav(page).getByRole('link', { name: 'Ayuda', exact: true });
     await expect(enlace).toHaveAttribute('href', '/flito/ayuda');
     await expect(nav(page).locator('a, button').last()).toHaveAccessibleName('Ayuda');
+    const menu = await opcionesDeUsuario(page);
+    await menu.getByRole('menuitem', { name: /^Ayuda/ }).click();
+    await expect(page).toHaveURL(/\/flito\/ayuda$/);
+    await listo(page);
 
     await page.keyboard.press('Control+k');
     const grupo = page.getByRole('group', { name: nombreElemento('ayuda') });
@@ -89,25 +111,36 @@ test.describe('HU #13431 — AC1 · «Ayuda» derivada de los capítulos visible
   });
 
   test('sin capítulos visibles: no hay «Ayuda» y la ruta directa es «sin acceso»', async ({ page }) => {
-    await loginAs(page, CONDUCTOR_USER);
+    // Desde las HU #13775 (ficha «Tablero de control», permiso `dashboard`) y #13914 (cada usuario ve las
+    // fichas de las pantallas que abre), el Conductor YA tiene un capítulo: `dashboard` le llega por los
+    // defaults de su rol. El caso «sin capítulos» exige un rol sin defaults (creado por el admin, HU #12169)
+    // con una sola página que no tiene ficha (`pesv`).
+    await loginAs(page, { ...CONDUCTOR_USER, role: 'e2e_sin_fichas', allowedPages: ['pesv'] });
     await page.goto('/');
     await expect(nav(page)).toBeVisible();
     await expect(page.getByRole('link', { name: 'Ayuda', exact: true })).toHaveCount(0);
+    const menu = await opcionesDeUsuario(page);
+    await expect(menu.getByRole('menuitem', { name: /^Ayuda/ })).toHaveCount(0);
+    await page.getByRole('button', { name: /Menú de usuario/ }).click();
     await page.keyboard.press('Control+k');
     await page.getByPlaceholder('Buscar o ir a…').fill('ayuda');
     await expect(page.getByRole('option', { name: /^Ayuda/ })).toHaveCount(0);
     await page.keyboard.press('Escape');
+    // El índice sin capítulos ya no es NoAccess (gate de App.tsx, igual en develop): es el vacío con su
+    // siguiente paso. La puerta sigue cerrada: ni enlace, ni ⌘K, ni capítulo que abrir.
     await page.goto('/flito/ayuda');
-    await expect(page.getByRole('heading', { name: /no tienes acceso a ayuda flito/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Su usuario aún no tiene módulos con ayuda' })).toBeVisible();
   });
 });
 
 test.describe('HU #13431 — AC2 · Perfil por «Ver mis datos»', () => {
-  test('con la función: «Perfil» encima de «Cerrar sesión»', async ({ page }) => {
+  test('con la función: «Perfil» (y «Cambiar contraseña») encima de «Cerrar sesión»', async ({ page }) => {
     await loginAs(page, CONDUCTOR_USER);
     await page.goto('/');
     const menu = await opcionesDeUsuario(page);
-    await expect(menu.getByRole('menuitem')).toHaveText(['Perfil', 'Cerrar sesión']);
+    // «Ayuda» puede ir entre medias según los capítulos visibles (AC1); aquí se mira el orden de la cuenta.
+    const cuenta = (await entradasCuenta(menu)).filter((e) => e !== 'Ayuda');
+    expect(cuenta).toEqual(['Perfil', 'Cambiar contraseña', 'Cerrar sesión']);
   });
 
   test('sin la función: solo «Cerrar sesión» y `/perfil` es «sin acceso» (aunque tenga la página)', async ({ page }) => {
@@ -116,8 +149,12 @@ test.describe('HU #13431 — AC2 · Perfil por «Ver mis datos»', () => {
     await page.route('**/api/auth/perfil', (r) => { pedidasPerfil += 1; return r.fulfill(json({})); });
     await page.goto('/');
     const menu = await opcionesDeUsuario(page);
-    await expect(menu.getByRole('menuitem')).toHaveText(['Cerrar sesión']);
-    await page.keyboard.press('Escape');
+    const entradas = await entradasCuenta(menu);
+    // Sin «Ver mis datos»: ni «Perfil» ni «Cambiar contraseña» (que lleva a /perfil); «Cerrar sesión» siempre, al final.
+    expect(entradas).not.toContain('Perfil');
+    expect(entradas).not.toContain('Cambiar contraseña');
+    expect(entradas.at(-1)).toBe('Cerrar sesión');
+    await page.getByRole('button', { name: /Menú de usuario/ }).click();
     await page.goto('/perfil');
     await expect(page.getByRole('heading', { level: 1, name: 'No tienes acceso a Perfil' })).toBeVisible();
     await expect(page.getByLabel('Contraseña actual')).toHaveCount(0);
@@ -159,12 +196,14 @@ test.describe('HU #13431 — AC6 · usuario enlazado a compañía', () => {
     await loginAs(page, CLIENTE_USER);
     await page.goto('/');
     await listo(page);
+    // Secciones que solo tienen módulos sin compañía, catálogos o configuración.
     for (const clave of ['finanzas', 'administracion', 'transito', 'pesv', 'laft', 'rndc', 'mantenimiento']) {
       await expect(nav(page).getByRole('button', { name: nombreElemento(clave), exact: true })).toHaveCount(0);
     }
     await expect(nav(page).getByRole('link', { name: nombreItem('flito_tarifas'), exact: true })).toHaveCount(0);
     const menu = await opcionesDeUsuario(page);
-    await expect(menu.getByRole('menuitem', { name: 'Perfil' })).toBeVisible();
+    await expect(menu.locator('.menu-usuario__seccion')).toHaveCount(0);
+    await expect(menu.getByRole('menuitem', { name: /^Perfil/ })).toBeVisible();
   });
 });
 
@@ -180,7 +219,7 @@ test.describe('HU #13431 — AC7 · el menú se refresca con la sesión abierta'
     });
     await page.goto('/');
     let menu = await opcionesDeUsuario(page);
-    await expect(menu.getByRole('menuitem', { name: 'Perfil' })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: /^Perfil/ })).toBeVisible();
     await page.getByRole('button', { name: /Menú de usuario/ }).click();
     await expect(menu).toHaveCount(0);
 
@@ -189,7 +228,7 @@ test.describe('HU #13431 — AC7 · el menú se refresca con la sesión abierta'
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
     await expect.poll(() => estado.mios).toBeGreaterThan(antes);
     menu = await opcionesDeUsuario(page);
-    await expect(menu.getByRole('menuitem', { name: 'Perfil' })).toHaveCount(0);
+    await expect(menu.getByRole('menuitem', { name: /^Perfil/ })).toHaveCount(0);
     await expect(menu.getByRole('menuitem', { name: 'Cerrar sesión' })).toBeVisible();
   });
 });

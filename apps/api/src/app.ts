@@ -36,6 +36,7 @@ import flitoLiquidacionRoutes from './modules/flito-liquidacion/flito-liquidacio
 import flitoRevisionesRoutes from './modules/flito-revisiones/flito-revisiones.routes.js';
 import flitoCompuertaRoutes from './modules/flito-compuerta/flito-compuerta.routes.js';
 import flitoTramitesRoutes from './modules/flito-tramites/flito-tramites.routes.js';
+import flitoVistasColumnasRoutes from './modules/flito-vistas-columnas/flito-vistas-columnas.routes.js';
 import flitoTableroRoutes from './modules/flito-tablero/flito-tablero.routes.js';
 import flitoDrFlitRoutes from './modules/flito-dr-flit/dr-flit.routes.js';
 import flitoBitacoraRoutes from './modules/flito-bitacora/flito-bitacora.routes.js';
@@ -294,6 +295,8 @@ export function createApp() {
   app.use('/api/flito/revisiones', flitoRevisionesRoutes);
   app.use('/api/flito/compuerta', flitoCompuertaRoutes);
   app.use('/api/flito/tramites', conAlcance('tramites', flitoTramitesRoutes));
+  // ADR-0045: vistas de columnas persistidas. Sin `conAlcance`: no son filas de enlace, son configuración por usuario.
+  app.use('/api/flito/vistas-columnas', flitoVistasColumnasRoutes);
   app.use('/api/flito/tablero', conAlcance('tablero', flitoTableroRoutes));
   // HU #13803 (Feature #13695) — Dr. Flit. SIN `conAlcance` a propósito (diseño F5 §D3): sus rutas son
   // de sesión (datos del propio usuario) y se declaran en `RUTAS_TRANSVERSALES`. HU #13941: sin exclusión por

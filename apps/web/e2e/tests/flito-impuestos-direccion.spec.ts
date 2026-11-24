@@ -272,14 +272,14 @@ test.describe('FLITO — Impuestos · aviso de direcciones sin confirmar en el E
 
       expect(cuerpos).toHaveLength(1);
       expect(cuerpos[0].incluirPago).toBe(true);
-      const banda = page.locator('[data-tono]');
+      const banda = page.locator('[data-tono]:not([data-flit-chip])');
       await expect(banda).toContainText(`Archivo descargado: ${NOMBRE}`);
       if (esperado) {
         await expect(banda).toHaveAttribute('data-tono', 'aviso');
         await expect(banda).toContainText(esperado);
         // Cerrable.
         await banda.getByRole('button', { name: 'Cerrar el aviso' }).click();
-        await expect(page.locator('[data-tono]')).toHaveCount(0);
+        await expect(page.locator('[data-tono]:not([data-flit-chip])')).toHaveCount(0);
       } else {
         await expect(banda).toHaveAttribute('data-tono', 'ok');
         await expect(banda).not.toContainText('dirección sin confirmar');

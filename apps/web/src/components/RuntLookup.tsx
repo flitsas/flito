@@ -3,6 +3,9 @@ import { api } from '../lib/api';
 import toast from 'react-hot-toast';
 import GradientButton from './flit/GradientButton';
 import { flitInp, FlitCard, flitPillWrap, flitPillBtn } from './flit/flitPageKit';
+import { Girador } from './flit/Cargador';
+import Placa from './flit/Placa';
+import { Icono } from './flit/kit/Icono';
 
 interface SoatRecord {
   razonSocialAsegur?: string; aseguradora?: string;
@@ -71,53 +74,57 @@ export default function RuntLookup({ onVehicleFound }: Props) {
 
   return (
     <FlitCard className="mb-4">
-      <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
+      <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-[color:var(--color-text-primary)]">
+        <Icono nombre="consulta" size={18} className="text-[color:var(--color-action)]" />
         Consulta RUNT
       </h3>
 
       <form onSubmit={handleSearch} className="flex flex-wrap items-end gap-2">
         <div className="inline-flex gap-1 rounded-[999px] p-1" style={flitPillWrap}>
-          <button type="button" onClick={() => setMode('vin')} className="flit-focus rounded-[999px] px-3 py-1.5 text-xs font-semibold transition-colors" style={flitPillBtn(mode === 'vin')}>VIN</button>
-          <button type="button" onClick={() => setMode('placa')} className="flit-focus rounded-[999px] px-3 py-1.5 text-xs font-semibold transition-colors" style={flitPillBtn(mode === 'placa')}>Placa</button>
+          <button type="button" onClick={() => setMode('vin')} className="flit-focus h-8 rounded-[999px] px-3 text-xs font-semibold transition-colors" style={flitPillBtn(mode === 'vin')}>VIN</button>
+          <button type="button" onClick={() => setMode('placa')} className="flit-focus h-8 rounded-[999px] px-3 text-xs font-semibold transition-colors" style={flitPillBtn(mode === 'placa')}>Placa</button>
         </div>
 
-        <input
-          value={value}
-          onChange={(e) => setValue(e.target.value.toUpperCase())}
-          placeholder={mode === 'vin' ? 'Número VIN...' : 'Placa (ej: ABC123)...'}
-          className={`min-w-[200px] flex-1 font-mono ${flitInp}`}
-          required
-        />
-
-        {mode === 'placa' && (
+        <label className="min-w-0 flex-1 basis-[12rem]">
+          <span className="sr-only">{mode === 'vin' ? 'Número VIN' : 'Placa'}</span>
           <input
-            value={documento}
-            onChange={(e) => setDocumento(e.target.value)}
-            placeholder="Documento del propietario"
-            className={`w-48 ${flitInp}`}
+            value={value}
+            onChange={(e) => setValue(e.target.value.toUpperCase())}
+            placeholder={mode === 'vin' ? 'Número VIN...' : 'Placa (ej: ABC123)...'}
+            className={`w-full font-mono ${flitInp}`}
             required
           />
+        </label>
+
+        {mode === 'placa' && (
+          <label className="min-w-0 basis-[12rem] grow sm:grow-0">
+            <span className="sr-only">Documento del propietario</span>
+            <input
+              value={documento}
+              onChange={(e) => setDocumento(e.target.value)}
+              placeholder="Documento del propietario"
+              className={`w-full ${flitInp}`}
+              required
+            />
+          </label>
         )}
 
-        <GradientButton type="submit" disabled={loading}>{loading ? 'Consultando...' : 'Consultar RUNT'}</GradientButton>
+        <GradientButton type="submit" disabled={loading} ocupado={loading}>{loading ? 'Consultando...' : 'Consultar RUNT'}</GradientButton>
       </form>
 
       {loading && (
-        <div className="mt-3 flex items-center gap-2 text-sm" style={{ color: 'var(--flit-text-muted)' }}>
-          <svg className="h-4 w-4 animate-spin motion-reduce:animate-none" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
+        <div className="mt-3 flex items-center gap-2 text-sm text-[color:var(--color-text-tertiary)]" role="status">
+          <Girador />
           Consultando RUNT...
         </div>
       )}
 
       {result && veh && (
-        <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+        <div className="mt-3 border-t border-[color:var(--color-border)] pt-3">
+          {(veh.placa || veh.noPlaca) && (
+            <div className="mb-3"><Placa placa={(veh.placa || veh.noPlaca) as string} /></div>
+          )}
+          <div className="grid grid-cols-1 gap-3 text-sm min-[380px]:grid-cols-2 md:grid-cols-4">
             <Field label="Placa" value={veh.placa || veh.noPlaca || '-'} bold />
             <Field label="VIN" value={veh.vin || veh.noVin || '-'} mono />
             <Field label="Marca / Línea" value={`${veh.marca || '-'} ${veh.linea || ''}`} />
@@ -129,14 +136,14 @@ export default function RuntLookup({ onVehicleFound }: Props) {
           </div>
 
           {soat && (
-            <div className="mt-3 rounded-[10px] p-3" style={{ background: 'var(--flit-bg-app)', border: '1px solid var(--flit-border-soft)' }}>
-              <p className="mb-1.5 text-xs font-semibold" style={{ color: 'var(--flit-blue)' }}>SOAT</p>
-              <div className="grid grid-cols-2 gap-2 text-xs md:grid-cols-5">
-                <div><span style={{ color: 'var(--flit-text-muted)' }}>Aseguradora: </span>{soat.razonSocialAsegur || soat.aseguradora || '-'}</div>
-                <div><span style={{ color: 'var(--flit-text-muted)' }}>Póliza: </span>{soat.numSoat || soat.noPoliza || '-'}</div>
-                <div><span style={{ color: 'var(--flit-text-muted)' }}>Inicio: </span>{soat.fechaInicioPoliza ? new Date(soat.fechaInicioPoliza).toLocaleDateString('es-CO') : (soat.fechaExpedicion ? new Date(soat.fechaExpedicion).toLocaleDateString('es-CO') : '-')}</div>
-                <div><span style={{ color: 'var(--flit-text-muted)' }}>Vencimiento: </span>{soat.fechaVencimSoat ? new Date(soat.fechaVencimSoat).toLocaleDateString('es-CO') : '-'}</div>
-                <div><span style={{ color: 'var(--flit-text-muted)' }}>Estado: </span>{soat.estadoSoat || soat.estado || '-'}</div>
+            <div className="mt-3 rounded-[9px] border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-3">
+              <p className="mb-1.5 text-xs font-semibold text-[color:var(--color-action)]">SOAT</p>
+              <div className="grid grid-cols-1 gap-2 text-xs text-[color:var(--color-text-primary)] min-[380px]:grid-cols-2 md:grid-cols-5">
+                <div><span className="text-[color:var(--color-text-tertiary)]">Aseguradora: </span>{soat.razonSocialAsegur || soat.aseguradora || '-'}</div>
+                <div><span className="text-[color:var(--color-text-tertiary)]">Póliza: </span>{soat.numSoat || soat.noPoliza || '-'}</div>
+                <div><span className="text-[color:var(--color-text-tertiary)]">Inicio: </span>{soat.fechaInicioPoliza ? new Date(soat.fechaInicioPoliza).toLocaleDateString('es-CO') : (soat.fechaExpedicion ? new Date(soat.fechaExpedicion).toLocaleDateString('es-CO') : '-')}</div>
+                <div><span className="text-[color:var(--color-text-tertiary)]">Vencimiento: </span>{soat.fechaVencimSoat ? new Date(soat.fechaVencimSoat).toLocaleDateString('es-CO') : '-'}</div>
+                <div><span className="text-[color:var(--color-text-tertiary)]">Estado: </span>{soat.estadoSoat || soat.estado || '-'}</div>
               </div>
             </div>
           )}
@@ -148,9 +155,9 @@ export default function RuntLookup({ onVehicleFound }: Props) {
 
 function Field({ label, value, bold, mono }: { label: string; value: string; bold?: boolean; mono?: boolean }) {
   return (
-    <div>
-      <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{label}</span>
-      <p className={`${bold ? 'font-semibold' : ''} ${mono ? 'font-mono text-xs' : ''}`} style={{ color: 'var(--flit-text-primary)' }}>{value}</p>
+    <div className="min-w-0">
+      <span className="text-xs text-[color:var(--color-text-tertiary)]">{label}</span>
+      <p className={`break-words text-[color:var(--color-text-primary)] ${bold ? 'font-semibold' : ''} ${mono ? 'font-mono text-xs' : ''}`}>{value}</p>
     </div>
   );
 }

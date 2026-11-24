@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ExternalLink, ImageOff } from 'lucide-react';
+import { Icono } from '../flit/kit/Icono';
 
 // Imagen de una ficha de Ayuda (Feature #13691 · HU #13707, diseño slim §6).
 // - `src` ya viene validado por el parser (`/ayuda/<clave>/<archivo>?v=<version>`): fuera del grafo de
@@ -18,14 +18,9 @@ export default function AyudaImagen({ alt, src, en }: { alt: string; src: string
     return (
       <Raiz
         data-testid="ayuda-imagen-rota"
-        className="flex items-start gap-2 rounded-lg px-3 py-2 text-sm"
-        style={{
-          background: 'var(--flit-bg-app)',
-          border: '1px dashed var(--flit-border-soft)',
-          color: 'var(--flit-text-secondary)',
-        }}
+        className="flex items-start gap-2 rounded-[9px] border border-dashed border-[color:var(--color-border)] bg-[color:var(--color-surface)] px-3 py-2 text-sm text-[color:var(--color-text-secondary)]"
       >
-        <ImageOff aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+        <Icono nombre="nube-sin" size={16} className="mt-0.5 shrink-0" />
         <span className="break-words">Imagen no disponible: {alt}</span>
       </Raiz>
     );
@@ -34,8 +29,7 @@ export default function AyudaImagen({ alt, src, en }: { alt: string; src: string
   return (
     <Raiz data-testid="ayuda-imagen" className="block w-full max-w-full space-y-1">
       <span
-        className="block aspect-[16/10] w-full overflow-hidden rounded-lg"
-        style={{ background: 'var(--flit-bg-app)', border: '1px solid var(--flit-border-soft)' }}
+        className="block aspect-[16/10] w-full overflow-hidden rounded-[9px] border border-[color:var(--color-border)] bg-[color:var(--color-surface)]"
       >
         <img
           src={src}
@@ -51,11 +45,10 @@ export default function AyudaImagen({ alt, src, en }: { alt: string; src: string
           href={src}
           target="_blank"
           rel="noopener noreferrer"
-          className="flit-focus inline-flex items-center gap-1 rounded-sm underline transition-colors hover:opacity-80"
-          style={{ color: 'var(--flit-blue-ink)' }}
+          className="flit-focus inline-flex items-center gap-1 rounded-sm underline transition-colors text-[color:var(--color-action)] hover:text-[color:var(--color-text-primary)]"
         >
           Ver en tamaño completo
-          <ExternalLink aria-hidden="true" className="h-3 w-3" />
+          <Icono nombre="externo" size={12} />
           <span className="sr-only"> (se abre en otra pestaña): {alt}</span>
         </a>
       </Pie>

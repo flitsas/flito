@@ -4,15 +4,15 @@ import { TRAMITE_TIPOLOGIAS, getJourney } from '@operaciones/shared-types';
 
 /** Acento visual por código (FLIT — sin iconos sólidos decorativos). */
 const TIPO_ACCENT: Record<string, string> = {
-  traspaso_standard: 'var(--flit-blue)',
-  sucesion: 'var(--flit-text-muted)',
-  remate: 'var(--flit-warning)',
-  flota_corporativa: 'var(--flit-cyan)',
-  importacion: 'var(--flit-cyan)',
+  traspaso_standard: 'var(--kit-azul)',
+  sucesion: 'var(--color-text-tertiary)',
+  remate: 'var(--kit-naranja)',
+  flota_corporativa: 'var(--kit-turquesa)',
+  importacion: 'var(--kit-turquesa)',
 };
 
 function TipoGlyph({ codigo }: { codigo: string }) {
-  const stroke = TIPO_ACCENT[codigo] ?? 'var(--flit-blue)';
+  const stroke = TIPO_ACCENT[codigo] ?? 'var(--kit-azul)';
   const common = { fill: 'none', viewBox: '0 0 24 24', stroke, strokeWidth: 1.6, className: 'h-5 w-5 shrink-0' };
   switch (codigo) {
     case 'remate':
@@ -60,7 +60,7 @@ export default function TipologiaSelectorCards({ selected, readOnly, onSelect }:
       {TRAMITE_TIPOLOGIAS.map((t) => {
         const isSelected = t.codigo === selected;
         const journey = getJourney(t.codigo);
-        const accent = TIPO_ACCENT[t.codigo] ?? 'var(--flit-blue)';
+        const accent = TIPO_ACCENT[t.codigo] ?? 'var(--kit-azul)';
         return (
           <button
             key={t.codigo}
@@ -69,28 +69,28 @@ export default function TipologiaSelectorCards({ selected, readOnly, onSelect }:
             aria-checked={isSelected}
             disabled={readOnly}
             onClick={() => onSelect(t.codigo)}
-            className="flit-focus flex items-start gap-3 rounded-[14px] border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+            className="flit-focus flex items-start gap-3 rounded-[9px] border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60"
             style={isSelected
-              ? { borderColor: accent, background: 'rgba(79,116,201,0.08)', boxShadow: '0 0 0 1px rgba(79,116,201,0.15)' }
-              : { borderColor: 'var(--flit-border-soft)', background: 'white' }}
+              ? { borderColor: accent, background: 'color-mix(in srgb, var(--kit-azul) 8%, transparent)' }
+              : { borderColor: 'var(--color-border)', background: 'var(--color-surface-elevated)' }}
           >
             <TipoGlyph codigo={t.codigo} />
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-bold" style={{ color: isSelected ? 'var(--flit-blue-text)' : 'var(--flit-text-primary)' }}>
+              <p className="text-xs font-bold" style={{ color: isSelected ? 'var(--color-action)' : 'var(--color-text-primary)' }}>
                 {t.nombre}
               </p>
-              <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug" style={{ color: 'var(--flit-text-muted)' }}>
+              <p className="mt-0.5 line-clamp-2 text-xs leading-snug" style={{ color: 'var(--color-text-tertiary)' }}>
                 {t.descripcion}
               </p>
               {journey && (
-                <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>
+                <p className="mt-1 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>
                   {journey.adquirente.label}
                   {!journey.vendedorRequerido ? ' · sin vendedor' : ''}
                 </p>
               )}
             </div>
             {isSelected && (
-              <span className="mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase" style={{ background: 'rgba(79,116,201,0.15)', color: 'var(--flit-blue)' }}>
+              <span className="mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-xs font-bold uppercase" style={{ background: 'color-mix(in srgb, var(--kit-azul) 15%, transparent)', color: 'var(--color-action)' }}>
                 Activo
               </span>
             )}

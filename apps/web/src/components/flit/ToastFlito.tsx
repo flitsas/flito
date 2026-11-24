@@ -13,7 +13,7 @@
 // Los nombres accesibles son los de siempre y los E2E los buscan literales: «Reintentar» y
 // «Cerrar aviso».
 import toast, { type Toast } from 'react-hot-toast';
-import { RotateCw, X } from 'lucide-react';
+import { Icono } from './kit/Icono';
 
 interface OpcionesToast {
   /** Id estable: un segundo toast con el mismo id SUSTITUYE al primero (un toast por acción). */
@@ -25,26 +25,20 @@ interface OpcionesToast {
 function ToastFlito({ t, texto, error, onReintentar }: {
   t: Toast; texto: string; error: boolean; onReintentar?: () => void;
 }) {
+  // Aviso del UI Kit 2026: borde y fondo semántico al 10 %, ícono aviso-*.svg de 30 px, cerrable.
   return (
-    <div role={error ? 'alert' : 'status'} className="flex max-w-sm items-start gap-3 rounded-lg border p-3 text-sm"
-      style={{ background: 'var(--flit-bg-card)', color: 'var(--flit-text-primary)', borderColor: 'var(--flit-border-soft)' }}>
-      <p className="flex-1 self-center whitespace-pre-line">{texto}</p>
-      <div className="flex shrink-0 items-center gap-1">
-        {onReintentar && (
-          <button type="button"
-            className="flit-focus inline-flex items-center gap-1.5 rounded px-2 py-1 font-semibold transition-colors hover:bg-[var(--flit-bg-hover)]"
-            style={{ color: 'var(--flit-blue-text)' }}
-            onClick={() => { toast.dismiss(t.id); onReintentar(); }}>
-            <RotateCw size={16} aria-hidden="true" className="shrink-0" />
-            Reintentar
-          </button>
-        )}
-        <button type="button" aria-label="Cerrar aviso" title="Cerrar aviso"
-          className="flit-focus grid h-7 w-7 place-items-center rounded transition-colors hover:bg-[var(--flit-bg-hover)]"
-          style={{ color: 'var(--flit-text-secondary)' }} onClick={() => toast.dismiss(t.id)}>
-          <X size={16} aria-hidden="true" />
+    <div role={error ? 'alert' : 'status'} className="kit-aviso" data-tono={error ? 'danger' : 'ok'} data-kit="aviso">
+      <img src={error ? '/kit/aviso-error.svg' : '/kit/aviso-ok.svg'} alt="" aria-hidden="true" className="kit-aviso__icono" />
+      <p className="kit-aviso__texto m-0 whitespace-pre-line">{texto}</p>
+      {onReintentar && (
+        <button type="button" className="btn ghost sm" onClick={() => { toast.dismiss(t.id); onReintentar(); }}>
+          <Icono nombre="reintento" size={16} />
+          Reintentar
         </button>
-      </div>
+      )}
+      <button type="button" aria-label="Cerrar aviso" title="Cerrar aviso" className="kit-aviso__cerrar" onClick={() => toast.dismiss(t.id)}>
+        <Icono nombre="cerrar" size={16} />
+      </button>
     </div>
   );
 }

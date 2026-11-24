@@ -5,6 +5,9 @@ import { api, errorMessage } from '../lib/api';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import StatusChip from '../components/flit/StatusChip';
+import KpiCard from '../components/flit/KpiCard';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import { Cargador } from '../components/flit/Cargador';
 
 interface Indicators {
   desde: string; hasta: string;
@@ -18,8 +21,17 @@ interface Indicators {
 
 type KpiTone = 'neutral' | 'success' | 'warning' | 'danger' | 'info';
 
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
-const dateInput = 'flit-focus rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-3 py-2 text-sm text-[color:var(--flit-text-primary)] outline-none transition-shadow';
+const ENLACE = 'flit-focus rounded-[4px] font-semibold text-[color:var(--color-text-primary)] transition-colors hover:text-[color:var(--color-action)] hover:underline';
+
+const COLUMNAS_CONDUCTORES: ColumnaTabla<Indicators['top_conductores_no_aptos'][number]>[] = [
+  { key: 'conductor', header: 'Conductor', etiqueta: 'Conductor', render: (c) => <Link to={`/pesv/conductores/${c.userId}`} className={ENLACE}>{c.name}</Link> },
+  { key: 'noAptos', header: 'No-aptos', etiqueta: 'No-aptos', render: (c) => <StatusChip tone="danger">{c.noAptos}</StatusChip> },
+];
+
+const COLUMNAS_VEHICULOS: ColumnaTabla<Indicators['top_vehiculos_no_aptos'][number]>[] = [
+  { key: 'vehiculo', header: 'Vehículo', etiqueta: 'Vehículo', render: (v) => <Link to={`/fleet/${v.vehicleId}`} className={ENLACE}>{v.plate || `#${v.vehicleId}`}</Link> },
+  { key: 'noAptos', header: 'No-aptos', etiqueta: 'No-aptos', render: (v) => <StatusChip tone="danger">{v.noAptos}</StatusChip> },
+];
 
 export default function OperationalIndicators() {
   const today = new Date().toISOString().slice(0, 10);
@@ -41,23 +53,25 @@ export default function OperationalIndicators() {
       <PageHeaderCard
         title="Indicadores operacionales PESV"
         subtitle="Inspecciones preoperacionales, alcoholimetría y simulacros"
+        icono="flito-pesv"
+        miga={[{ etiqueta: 'PESV', to: '/pesv' }]}
       />
 
-      <div className="flex flex-wrap items-end gap-3 bg-white p-4" style={CARD}>
-        <div>
-          <label className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Desde</label>
-          <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className={dateInput} />
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="campo w-full sm:w-44">
+          <label htmlFor="indicadores-desde">Desde</label>
+          <input id="indicadores-desde" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="control" />
         </div>
-        <div>
-          <label className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>Hasta</label>
-          <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className={dateInput} />
+        <div className="campo w-full sm:w-44">
+          <label htmlFor="indicadores-hasta">Hasta</label>
+          <input id="indicadores-hasta" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="control" />
         </div>
         <GradientButton type="button" onClick={load}>Actualizar</GradientButton>
       </div>
 
-      {!data ? <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</p> : (
+      {!data ? <Cargador texto="Cargando…" className="py-16" /> : (
         <>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 xl:grid-cols-4">
             <Kpi label="Inspecciones realizadas" value={String(data.inspecciones.realizadas)} hint={`de ${data.inspecciones.esperadas} esperadas`} tone="neutral" />
             <Kpi
               label="% inspecciones"
@@ -69,7 +83,7 @@ export default function OperationalIndicators() {
             <Kpi label="Conductores activos" value={String(data.conductores_activos)} hint="con es_conductor=true" tone="info" />
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <Kpi label="Pruebas alcoholimetría" value={String(data.alcoholimetria.total)} hint="en el período" tone="neutral" />
             <Kpi
               label="Positivos"
@@ -86,51 +100,23 @@ export default function OperationalIndicators() {
           </div>
 
           <Section title={`Top conductores con checklists no-apto (${data.top_conductores_no_aptos.length})`}>
-            {data.top_conductores_no_aptos.length === 0 ? (
-              <Empty msg="Sin checklists no-apto en el período" />
-            ) : (
-              <div className="overflow-hidden bg-white" style={CARD}>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead><tr>
-                      <Th>Conductor</Th><Th>No-aptos</Th>
-                    </tr></thead>
-                    <tbody>
-                      {data.top_conductores_no_aptos.map((c) => (
-                        <tr key={c.userId} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                          <td className="px-4 py-3"><Link to={`/pesv/conductores/${c.userId}`} className="font-semibold hover:underline" style={{ color: 'var(--flit-text-primary)' }}>{c.name}</Link></td>
-                          <td className="px-4 py-3"><StatusChip tone="danger">{c.noAptos}</StatusChip></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+            <DataTable
+              ariaLabel="Top conductores con checklists no-apto"
+              columnas={COLUMNAS_CONDUCTORES}
+              filas={data.top_conductores_no_aptos}
+              getKey={(c) => String(c.userId)}
+              emptyMessage="Sin checklists no-apto en el período"
+            />
           </Section>
 
           <Section title={`Top vehículos con checklists no-apto (${data.top_vehiculos_no_aptos.length})`}>
-            {data.top_vehiculos_no_aptos.length === 0 ? (
-              <Empty msg="Sin vehículos con checklists no-apto en el período" />
-            ) : (
-              <div className="overflow-hidden bg-white" style={CARD}>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead><tr>
-                      <Th>Vehículo</Th><Th>No-aptos</Th>
-                    </tr></thead>
-                    <tbody>
-                      {data.top_vehiculos_no_aptos.map((v) => (
-                        <tr key={v.vehicleId} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                          <td className="px-4 py-3"><Link to={`/fleet/${v.vehicleId}`} className="font-semibold hover:underline" style={{ color: 'var(--flit-text-primary)' }}>{v.plate || `#${v.vehicleId}`}</Link></td>
-                          <td className="px-4 py-3"><StatusChip tone="danger">{v.noAptos}</StatusChip></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+            <DataTable
+              ariaLabel="Top vehículos con checklists no-apto"
+              columnas={COLUMNAS_VEHICULOS}
+              filas={data.top_vehiculos_no_aptos}
+              getKey={(v) => String(v.vehicleId)}
+              emptyMessage="Sin vehículos con checklists no-apto en el período"
+            />
           </Section>
         </>
       )}
@@ -138,32 +124,11 @@ export default function OperationalIndicators() {
   );
 }
 
-const TONE_COLOR: Record<KpiTone, string> = {
-  neutral: 'var(--flit-text-primary)',
-  success: 'var(--flit-success)',
-  warning: 'var(--flit-warning)',
-  danger: 'var(--flit-danger)',
-  info: 'var(--flit-info)',
-};
-
+/** Los tonos de alerta (falla, meta pendiente) se marcan con la cifra naranja `pendiente` de la métrica del kit. */
 function Kpi({ label, value, hint, tone }: { label: string; value: string; hint: string; tone: KpiTone }) {
-  return (
-    <div className="bg-white p-5" style={CARD}>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.3em]" style={{ color: 'var(--flit-text-muted)' }}>{label}</p>
-      <p className="mt-2 text-3xl font-bold leading-none tabular-nums tracking-tight" style={{ color: TONE_COLOR[tone] }}>{value}</p>
-      <p className="mt-2 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{hint}</p>
-    </div>
-  );
+  return <KpiCard label={label} value={value} hint={hint} pendiente={tone === 'danger' || tone === 'warning'} />;
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
-  return <section className="flex flex-col gap-3"><h2 className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{title}</h2>{children}</section>;
-}
-
-function Th({ children }: { children?: ReactNode }) {
-  return <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>{children}</th>;
-}
-
-function Empty({ msg }: { msg: string }) {
-  return <div className="bg-white p-6 text-center text-sm" style={{ ...CARD, color: 'var(--flit-text-muted)' }}>{msg}</div>;
+  return <section className="flex flex-col gap-3"><h2 className="text-sm font-semibold text-[color:var(--color-text-primary)]">{title}</h2>{children}</section>;
 }

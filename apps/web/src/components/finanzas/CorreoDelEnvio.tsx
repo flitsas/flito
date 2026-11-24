@@ -210,12 +210,12 @@ export default function CorreoDelEnvio({ empresas, valor, onCambio, onSemilla }:
   };
 
   return (
-    <fieldset className="rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-input)' }}>
+    <fieldset className="rounded-lg border p-3" style={{ borderColor: 'var(--color-border-control)' }}>
       <legend className="px-1 text-xs font-semibold uppercase tracking-wide"
-        style={{ color: 'var(--flit-text-muted)' }}>Correo al cliente</legend>
+        style={{ color: 'var(--color-text-tertiary)' }}>Correo al cliente</legend>
 
       <label htmlFor="correo-enviar" className="flex items-center gap-2 text-sm"
-        style={{ color: 'var(--flit-text-secondary)' }}>
+        style={{ color: 'var(--color-text-secondary)' }}>
         <input
           id="correo-enviar"
           type="checkbox"
@@ -228,7 +228,7 @@ export default function CorreoDelEnvio({ empresas, valor, onCambio, onSemilla }:
       </label>
 
       {cargando && (
-        <p role="status" className="mt-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p role="status" className="mt-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
           Buscando a qué direcciones iría…
         </p>
       )}
@@ -237,11 +237,11 @@ export default function CorreoDelEnvio({ empresas, valor, onCambio, onSemilla }:
           elección por omisión sigue siendo válida porque no dependía de esta consulta. */}
       {!cargando && fallo !== null && (
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-          <span role="alert" style={{ color: 'var(--flit-warning-text)' }}>
+          <span role="alert" style={{ color: 'var(--kit-naranja-texto)' }}>
             No se pudo consultar a qué direcciones iría: {fallo}. La factura saldrá igual por correo
             a lo que diga la ficha de cada cliente al emitirse.
           </span>
-          <button type="button" className={flitBtnSecondarySm} style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
+          <button type="button" className={flitBtnSecondarySm} style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}
             onClick={() => setIntento((n) => n + 1)}>
             Reintentar
           </button>
@@ -250,7 +250,7 @@ export default function CorreoDelEnvio({ empresas, valor, onCambio, onSemilla }:
 
       {/* AC3 — fuera de producción se explica, no se esconde. */}
       {noProductivo && (
-        <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-primary)' }}>
+        <p className="mt-2 text-xs" style={{ color: 'var(--color-text-primary)' }}>
           En el ambiente <strong>{datos?.ambiente}</strong> la factura se crea en Siigo pero no sale
           ningún correo al cliente. El correo solo se manda desde producción.
         </p>
@@ -258,7 +258,7 @@ export default function CorreoDelEnvio({ empresas, valor, onCambio, onSemilla }:
 
       {/* AC5 — sin correo en la ficha no hay error: hay una casilla desmarcada y un motivo. */}
       {!noProductivo && sinNingunCorreo && (
-        <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-primary)' }}>
+        <p className="mt-2 text-xs" style={{ color: 'var(--color-text-primary)' }}>
           {conocidas.length === 1
             ? `La ficha de ${conocidas[0]?.nombre} no tiene ningún correo registrado.`
             : 'Ninguna de las fichas de estas empresas tiene un correo registrado.'}
@@ -269,7 +269,7 @@ export default function CorreoDelEnvio({ empresas, valor, onCambio, onSemilla }:
 
       {/* AC1 — a qué direcciones iría, tomadas de la ficha. */}
       {datos !== null && !sinNingunCorreo && !editable && (
-        <ul className="mt-2 space-y-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <ul className="mt-2 space-y-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
           {datos.fichas.map((f) => (
             <li key={f.clienteId}>
               <span className="font-semibold">{f.nombre}</span>:{' '}
@@ -282,7 +282,7 @@ export default function CorreoDelEnvio({ empresas, valor, onCambio, onSemilla }:
       )}
 
       {datos !== null && !editable && empresas.length > 1 && valor.enviar && (
-        <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="mt-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           Cada factura sale a las direcciones de su propia ficha. Para elegir direcciones concretas,
           envía una empresa a la vez.
         </p>
@@ -298,7 +298,7 @@ export default function CorreoDelEnvio({ empresas, valor, onCambio, onSemilla }:
               <div key={id} className="flex flex-wrap items-end gap-2">
                 <div className="min-w-[16rem] flex-1">
                   <label htmlFor={id} className="mb-1 block text-xs font-semibold"
-                    style={{ color: 'var(--flit-text-muted)' }}>
+                    style={{ color: 'var(--color-text-tertiary)' }}>
                     Dirección {i + 1}
                   </label>
                   <input
@@ -311,13 +311,13 @@ export default function CorreoDelEnvio({ empresas, valor, onCambio, onSemilla }:
                     onChange={(e) => cambiarDireccion(i, e.target.value)}
                   />
                   {invalido && (
-                    <p id={`${id}-error`} className="mt-1 text-xs" style={{ color: 'var(--flit-warning-text)' }}>
+                    <p id={`${id}-error`} className="mt-1 text-xs" style={{ color: 'var(--kit-naranja-texto)' }}>
                       No tiene formato de correo.
                     </p>
                   )}
                 </div>
                 <button type="button" className={flitBtnSecondarySm}
-                  style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
+                  style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}
                   onClick={() => onCambio({
                     ...valor, destinatarios: valor.destinatarios.filter((_, j) => j !== i),
                   })}>
@@ -328,13 +328,13 @@ export default function CorreoDelEnvio({ empresas, valor, onCambio, onSemilla }:
           })}
 
           <button type="button" className={flitBtnSecondarySm}
-            style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}
+            style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' }}
             disabled={valor.destinatarios.length >= SIIGO_ENVIO_MAX_DESTINATARIOS}
             onClick={() => onCambio({ ...valor, destinatarios: [...valor.destinatarios, ''] })}>
             Añadir dirección
           </button>
 
-          <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             {valor.destinatarios.length === 0
               ? 'Sin ninguna dirección no saldrá ningún correo; quedará el reenvío manual.'
               : `Salen de la ficha del cliente y se envía exactamente a las que dejes aquí. Siigo `
@@ -346,7 +346,7 @@ export default function CorreoDelEnvio({ empresas, valor, onCambio, onSemilla }:
       {/* AC6 — el problema se anuncia, no solo se pinta: `role="alert"` lo lee el lector de pantalla
           en cuanto aparece, y el botón de continuar queda bloqueado mientras esté. */}
       {problema !== null && (
-        <p role="alert" className="mt-2 text-xs font-semibold" style={{ color: 'var(--flit-warning-text)' }}>
+        <p role="alert" className="mt-2 text-xs font-semibold" style={{ color: 'var(--kit-naranja-texto)' }}>
           {problema}
         </p>
       )}

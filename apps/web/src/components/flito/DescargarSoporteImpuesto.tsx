@@ -16,7 +16,7 @@
 // acción, cerrable: nombra lo que el impuesto no tiene (404 `zip_sin_soportes`) y, si además se cortó
 // la red o hubo 5xx/429, ofrece «Reintentar» con los tipos que quedaron sin bajar. Nunca el error crudo.
 import { useCallback, useRef, useState } from 'react';
-import { Download } from 'lucide-react';
+import { Icono } from '../flit/kit/Icono';
 import { CODIGO_ZIP_SIN_SOPORTES, TipoSoporteZip } from '@operaciones/shared-types';
 import { ApiError, api } from '../../lib/api';
 import { flitBtnSecondarySm, flitBtnSecondaryStyle } from '../flit/flitPageKit';
@@ -171,9 +171,10 @@ export function BotonSoporteImpuestoFila(
       aria-disabled={ocupado || undefined}
       onClick={() => { if (!ocupado) descarga.abrir(fila); }}
       className={`${flitBtnSecondarySm} w-7 justify-center !px-0 ${ocupado ? 'cursor-progress opacity-60' : ''}`}
-      style={{ ...flitBtnSecondaryStyle, color: 'var(--flit-blue-text)' }}
+      // Mismo ícono y color que el botón de comprobante de la fila SOAT (Épica #14560, ronda 2).
+      style={{ ...flitBtnSecondaryStyle, color: 'var(--color-action)' }}
     >
-      <Download size={16} aria-hidden="true" className="shrink-0" />
+      <Icono nombre="nube-bajar" size={16} className="shrink-0" />
     </button>
   );
 }

@@ -200,7 +200,7 @@ const boton = (page: Page, nombre: string) => page.getByRole('button', { name: n
 
 const campoNumero = (page: Page) => page.getByLabel('N.º de comparendo');
 const campoNit = (page: Page) => page.getByLabel('NIT monitoreado');
-const campoPlaca = (page: Page) => page.getByLabel('Placa');
+const campoPlaca = (page: Page) => page.getByLabel(/^Placa/);
 
 test.describe('FLITO — Comparendos · visor (HU #11560)', () => {
   test.use({ viewport: { width: 1600, height: 900 } });
@@ -1438,6 +1438,8 @@ test.describe('FLITO — Comparendos · la affordance de desborde de FlitTable (
     await mockListado(page, { status: 200, body: PAGINA });
     await page.goto('/flito/comparendos');
     await expect(page.getByText(FILA.numeroComparendo)).toBeVisible();
+    // Rediseño 2026: Comparendos marca su raíz con data-ancho="completo" y el shell suelta su tope de 1680 px,
+    // así que la tabla usa todo el ancho de la ventana, como en develop.
 
     const medidas = await desborda(page);
     expect(medidas.desborda, `${medidas.scrollWidth} px de tabla en ${medidas.clientWidth} px`).toBe(false);

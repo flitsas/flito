@@ -7,9 +7,8 @@ import { MODALIDAD_ORGANISMO_LABEL, ModalidadOrganismo } from '@operaciones/shar
 import { api, errorMessage } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
 import StatusChip, { type ChipTone } from '../flit/StatusChip';
-import {
-  FlitField, flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../flit/flitPageKit';
+import { FlitField, flitInp } from '../flit/flitPageKit';
+import GradientButton from '../flit/GradientButton';
 
 export interface Organismo {
   codigo: string; nombre: string; alias: string | null; activo: boolean;
@@ -84,7 +83,7 @@ export function PanelGestionOrganismo({ organismo, editable, onCambio }: {
       <div className="space-y-4">
         {!editable && <p className="text-sm text-blue-800">Solo lectura · Auditoría observa la modalidad, no la modifica.</p>}
         <div className="space-y-2">
-          <p className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>Modalidad de gestión</p>
+          <p className="text-sm font-semibold" style={{ color: 'var(--color-action)' }}>Modalidad de gestión</p>
           <FlitField label="Modalidad">
             <select className={flitInp} value={modalidad} disabled={!editable} onChange={(e) => setModalidad(e.target.value as ModalidadOrganismo)}>
               {(Object.keys(MODALIDAD_ORGANISMO_LABEL) as ModalidadOrganismo[]).map((m) => (
@@ -96,38 +95,38 @@ export function PanelGestionOrganismo({ organismo, editable, onCambio }: {
             <textarea className={`${flitInp} min-h-[56px]`} value={motivo} disabled={!editable} onChange={(e) => setMotivo(e.target.value)} />
           </FlitField>
           {editable && (
-            <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+            <GradientButton
               disabled={guardando || modalidad === organismo.modalidadVigente || motivo.trim().length < 5} onClick={cambiarModalidad}>
               Cambiar modalidad
-            </button>
+            </GradientButton>
           )}
         </div>
 
-        <div className="space-y-2 border-t pt-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <p className="text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>Parámetros de OCR / ANS</p>
-          <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2 border-t pt-3" style={{ borderColor: 'var(--color-border)' }}>
+          <p className="text-sm font-semibold" style={{ color: 'var(--color-action)' }}>Parámetros de OCR / ANS</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FlitField label="Umbral OCR (0–1)"><input className={flitInp} type="number" step="0.01" min="0" max="1" value={umbral} disabled={!editable} onChange={(e) => setUmbral(e.target.value)} /></FlitField>
             <FlitField label="ANS pactado con el organismo (horas)"><input className={flitInp} type="number" min="1" value={sla} disabled={!editable} onChange={(e) => setSla(e.target.value)} /></FlitField>
           </div>
           <Interruptor label="Marcar diferencia de valor de impuestos (D-5)" checked={diferencia} onChange={editable ? setDiferencia : () => {}} />
-          <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             Al conciliar el recibo, si el valor pagado difiere del liquidado más allá de la tolerancia de la compañía, se marca para revisión (no bloquea el pago). Actívalo solo donde el valor liquidado sea de fuente fiable.
           </p>
           {/* La bolsa dejó de configurarse aquí: ya no es un interruptor por organismo, sino una
               bolsa que agrupa varias secretarías y varios conceptos. Se define en Finanzas → Bolsas. */}
-          {editable && <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={guardando} onClick={guardarParams}>Guardar parámetros</button>}
+          {editable && <GradientButton variant="secondary" disabled={guardando} onClick={guardarParams}>Guardar parámetros</GradientButton>}
         </div>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-sm text-[color:var(--kit-rojo-texto)]">{error}</p>}
 
-        <div className="border-t pt-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <p className="mb-1 text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>Historial de vigencias</p>
-          {vigencias.length === 0 ? <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Sin vigencias registradas.</p> : (
+        <div className="border-t pt-3" style={{ borderColor: 'var(--color-border)' }}>
+          <p className="mb-1 text-sm font-semibold" style={{ color: 'var(--color-action)' }}>Historial de vigencias</p>
+          {vigencias.length === 0 ? <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Sin vigencias registradas.</p> : (
             <ul className="space-y-1 text-xs">
               {vigencias.map((v) => (
                 <li key={v.id} className="flex flex-wrap items-center gap-2">
                   <StatusChip tone={MODALIDAD_TONO[v.modalidad]}>{MODALIDAD_ORGANISMO_LABEL[v.modalidad]}</StatusChip>
-                  <span style={{ color: 'var(--flit-text-muted)' }}>
+                  <span style={{ color: 'var(--color-text-tertiary)' }}>
                     {new Date(v.desde).toLocaleDateString('es-CO')} → {v.hasta ? new Date(v.hasta).toLocaleDateString('es-CO') : 'vigente'}
                     {v.actorNombre ? ` · ${v.actorNombre}` : ''}{v.motivo ? ` · ${v.motivo}` : ''}
                   </span>

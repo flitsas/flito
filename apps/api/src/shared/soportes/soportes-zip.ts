@@ -640,10 +640,12 @@ function anexar(archive: archiver.Archiver, stream: Readable, name: string): Pro
 export async function emitirZipSoportes(
   res: Response, entradas: EntradaZip[], ahora: Date = new Date(),
   aviso?: { incluidos: number; omitidos: number },
+  /** Nombre ya saneado por quien llama (ADR-0046: ZIP de un solo trámite); sin él, el sellado de siempre. */
+  nombreArchivo?: string,
 ): Promise<number> {
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('Content-Disposition', `attachment; filename="${nombreArchivoZipSoportes(ahora)}"`);
+  res.setHeader('Content-Disposition', `attachment; filename="${nombreArchivo ?? nombreArchivoZipSoportes(ahora)}"`);
 
   // ── Las cifras del aviso parcial ───────────────────────────────────────────────────────────────
   //
