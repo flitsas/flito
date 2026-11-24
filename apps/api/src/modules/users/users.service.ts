@@ -295,7 +295,7 @@ export interface CrearUsuarioInput {
    */
   transitoCodigo: string | null;
   companiaId: number | null;
-  /** HU #14341: se escribe solo esta; el trigger `users_proveedor_sync` llena la vieja si presta SOAT. Se exige atable en la transacción. */
+  /** HU #14341: la única pertenencia a proveedor (la columna vieja se eliminó en la 0314, HU #14355). Se exige atable en la transacción. */
   flitoProveedorId: string | null;
   /** Conjunto de organismos para tipo_enlace=organismos_transito; `[]` para el resto. */
   organismosCodigos: string[];

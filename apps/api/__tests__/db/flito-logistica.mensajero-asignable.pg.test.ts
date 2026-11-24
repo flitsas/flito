@@ -5,6 +5,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import type postgres from 'postgres';
 import * as schema from '../../src/db/schema.js';
 import { abrirBase, enTx, URL_BASE } from '../helpers/base-en-tx.js';
+import { proveedorLogistica } from '../helpers/proveedor-padre.js';
 
 const actual: { db: ReturnType<typeof drizzle<typeof schema>> | null } = { db: null };
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn() }));
@@ -46,8 +47,9 @@ async function conMundo(fn: (m: Mundo) => Promise<void>) {
   try {
     await enTx(sql, async (tx) => {
       actual.db = drizzle(Object.assign(tx, { options: sql.options }) as unknown as postgres.Sql, { schema });
-      const prov = async (nombre: string) => (await tx`INSERT INTO flito_proveedores_logistica (nombre, activo, nit, contacto, telefono)
-        VALUES (${`${nombre} ${sello()}`}, true, ${`9${sello()}`}, 'Ana', '3001112233') RETURNING id`)[0]!.id as string;
+      const prov = async (nombre: string) => proveedorLogistica(tx, {
+        nombre: `${nombre} ${sello()}`, nit: `9${sello()}`, contacto: 'Ana', telefono: '3001112233',
+      });
       const A = await prov('A'); const B = await prov('B');
       // Rol creado por el administrador en el panel (ADR-0015): enlace proveedor, con las funciones del mensajero.
       const rolProv = `hu14347_${sello()}`;

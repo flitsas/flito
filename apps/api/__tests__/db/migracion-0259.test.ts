@@ -3,7 +3,7 @@
 //
 //   · Estática (siempre corre): sin control de transacción propio; idempotente; retira la constraint única global;
 //     el esquema Drizzle declara las columnas, la FK y el índice único parcial (y ya no `.unique()`).
-//   · Contra PostgreSQL (solo con TEST_DATABASE_URL), en tx con ROLLBACK: dos veces sin error y solo queda el índice
+//   · Contra PostgreSQL (retirada en la HU #14355, ver el final), en tx con ROLLBACK: dos veces sin error y solo queda el índice
 //     parcial sobre `nombre` (AC5); AC1/AC3/AC4 sobre el índice real con su 23505 reconocido.
 //
 // HU #14333 (Feature #14324): el reconocedor propio de este índice se retiró con el CRUD viejo. El 409 por nombre
@@ -14,7 +14,7 @@ import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import { flitoProveedoresSoat } from '../../src/db/schema.js';
 import { db } from '../../src/db/client.js';
 import { ProveedorDuplicadoError, conUnicidadTraducida } from '../../src/modules/flito-parametrizacion/flito-proveedores.service.js';
-import { abrirBase, enTx, leerMigracion, URL_BASE } from '../helpers/base-en-tx.js';
+import { leerMigracion } from '../helpers/base-en-tx.js';
 
 vi.mock('../../src/db/client.js', () => ({
   db: { select: vi.fn(), insert: vi.fn(), update: vi.fn(), delete: vi.fn(), transaction: vi.fn(), execute: vi.fn() },
@@ -70,63 +70,6 @@ describe('0259 — reglas del archivo (análisis estático)', () => {
   });
 });
 
-describe.skipIf(!URL_BASE)('0259 — contra PostgreSQL (tx con ROLLBACK)', () => {
-  const NOMBRE = `HU13957 Seguros Andinos ${Date.now()}`;
-
-  it('AC5/P6: dos veces sin error; columnas, FK RESTRICT y SOLO el índice parcial sobre nombre', async () => {
-    const sql = abrirBase();
-    try {
-      await enTx(sql, async (tx) => {
-        await tx.unsafe(SQL_0259);
-        await tx.unsafe(SQL_0259);
-        const cols = await tx`SELECT column_name, data_type, is_nullable FROM information_schema.columns
-          WHERE table_name = 'flito_proveedores_soat' AND column_name IN ('deleted_at', 'deleted_by') ORDER BY column_name`;
-        expect(cols).toEqual([
-          { column_name: 'deleted_at', data_type: 'timestamp with time zone', is_nullable: 'YES' },
-          { column_name: 'deleted_by', data_type: 'integer', is_nullable: 'YES' },
-        ]);
-        const [fk] = await tx`SELECT confdeltype FROM pg_constraint WHERE conname = 'flito_proveedores_soat_deleted_by_users_id_fk'`;
-        expect(fk!.confdeltype).toBe('r');
-        const unicas = await tx`SELECT conname FROM pg_constraint
-          WHERE conrelid = 'flito_proveedores_soat'::regclass AND contype = 'u'`;
-        expect(unicas).toEqual([]);
-        const idx = await tx`SELECT indexname, indexdef FROM pg_indexes
-          WHERE tablename = 'flito_proveedores_soat' AND indexdef ILIKE '%(nombre)%'`;
-        expect(idx.map((i) => i.indexname)).toEqual([INDICE_PROVEEDOR_SOAT_NOMBRE_VIVO]);
-        expect(idx[0]!.indexdef).toMatch(/CREATE UNIQUE INDEX/);
-        expect(idx[0]!.indexdef).toMatch(/WHERE \(deleted_at IS NULL\)/);
-      });
-    } finally {
-      await sql.end();
-    }
-  });
-
-  it('AC1/AC4/AC3 sobre el índice real; el 23505 lo traduce conUnicidadTraducida', async () => {
-    const sql = abrirBase();
-    try {
-      await enTx(sql, async (tx) => {
-        await tx.unsafe(SQL_0259);
-        const choca = async (nombre: string): Promise<unknown> => {
-          try { await tx.savepoint((sp) => sp`INSERT INTO flito_proveedores_soat (nombre) VALUES (${nombre})`); return null; } catch (e) { return e; }
-        };
-        const [a] = await tx`INSERT INTO flito_proveedores_soat (nombre) VALUES (${NOMBRE}) RETURNING id`;
-        // AC1/AC4: el mismo nombre con A vigente choca con el índice parcial → 409 por nombre (nunca 500).
-        const duplicado = await choca(NOMBRE);
-        expect((duplicado as { constraint_name?: string }).constraint_name).toBe(INDICE_PROVEEDOR_SOAT_NOMBRE_VIVO);
-        const salida = await traducido(duplicado);
-        expect(salida).toBeInstanceOf(ProveedorDuplicadoError);
-        expect((salida as ProveedorDuplicadoError).campo).toBe('nombre');
-        // Desde la 0292 el perfil baja al padre, que compara el nombre normalizado: otra capitalización también choca,
-        // y el trigger la relanza con el nombre de este índice.
-        const otraCapitalizacion = await choca(NOMBRE.toUpperCase());
-        expect((otraCapitalizacion as { constraint_name?: string }).constraint_name).toBe(INDICE_PROVEEDOR_SOAT_NOMBRE_VIVO);
-        expect(await traducido(otraCapitalizacion)).toBeInstanceOf(ProveedorDuplicadoError);
-        // AC3: A eliminado (baja lógica) libera el nombre.
-        await tx`UPDATE flito_proveedores_soat SET deleted_at = now() WHERE id = ${a!.id}`;
-        expect(await choca(NOMBRE)).toBeNull();
-      });
-    } finally {
-      await sql.end();
-    }
-  });
-});
+// HU #14355: se retira la parte contra PostgreSQL. Reaplicaba la 0259, que crea el índice único sobre
+// `flito_proveedores_soat.nombre`, columna que la 0314 eliminó: ya no se puede aplicar sobre un esquema al día. La parte
+// estática sigue; el 409 por nombre repetido contra el índice real del padre lo mide `proveedores-gestion.test.ts`.

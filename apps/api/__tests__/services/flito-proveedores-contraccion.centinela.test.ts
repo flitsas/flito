@@ -4,7 +4,8 @@
 // del padre `flito_proveedores`, unido por el mismo UUID que el perfil; y la pertenencia de un usuario, de
 // `users.flito_proveedor_id`. Las columnas viejas de los perfiles y `users.flito_proveedor_soat_id` siguen existiendo y
 // se siguen ESCRIBIENDO (AC4: la imagen anterior se puede restaurar), pero nadie en `src/modules` ni en `src/scripts`
-// las lee. Este barrido lo vuelve una regla: una lectura nueva de cualquiera de ellas pone el test en rojo.
+// las lee. Este barrido lo vuelve una regla: una lectura nueva de cualquiera de ellas pone el test en rojo. (Desde la
+// 0314, HU #14355, esas columnas ya no existen en la BD; el barrido se conserva para que nadie las vuelva a nombrar.)
 //
 // Qué cuenta como lectura y por qué no hace falta lista blanca: las escrituras de AC4 (altas de perfil en
 // `crearProveedor` y `darPerfil`, `retirarPerfil`, las bajas de `eliminarProveedor`) escriben esas columnas como CLAVES
@@ -138,5 +139,64 @@ describe('HU #14673 — AC1/AC2: el código ya no declara las columnas viejas', 
     expect(db.select().from(users).toSQL().sql).not.toMatch(/flito_proveedor_soat_id/);
     // Logística tampoco nombra `estrategia`: su valor lo pone el DEFAULT de la BD.
     expect(db.insert(flitoProveedoresLogistica).values({ id: 'x' }).toSQL().sql).not.toMatch(/"estrategia"/);
+  });
+});
+
+// HU #14355 (F5 E2) — la 0314 retiró la sincronización y las columnas viejas. Desde entonces ningún archivo de `src/`
+// (código ni comentarios) nombra un trigger o una función retirada: quien la nombre está describiendo un mecanismo que
+// ya no existe. Y la comprobación previa manual lista exactamente lo que detiene la 0314.
+//
+// Mutantes que mata: volver a nombrar un trigger retirado en un comentario o en código de `src/`; cambiar una
+// comparación de la guarda de la 0314 sin cambiar la del preflight (o al revés).
+describe('HU #14355 — AC4: nada en src/ nombra la sincronización retirada; el preflight es la guarda de la 0314', () => {
+  const RETIRADOS = [
+    'perfil_crea_padre', 'perfil_a_padre', 'padre_a_perfil', 'perfil_borrado', 'perfil_espejo_baja',
+    'users_proveedor_sync', 'users_proveedor_sincroniza', 'flito_proveedor_restriccion_del_perfil',
+  ] as const;
+  const PATRON = new RegExp(`\\b(${RETIRADOS.join('|')})\\b`);
+  const todos = ficherosTs(RAIZ);
+
+  it('el barrido recorre todo src/ (no pasa en vacío) y el patrón no está muerto', () => {
+    expect(todos.length).toBeGreaterThan(ficherosTs(path.join(RAIZ, 'modules')).length);
+    expect(todos.some((f) => f.endsWith(path.join('db', 'schema', 'nucleo.ts')))).toBe(true);
+    for (const nombre of RETIRADOS) expect(PATRON.test(`el trigger \`${nombre}\` (0313)`), nombre).toBe(true);
+    expect(PATRON.test('users_ambito_trg y flito_proveedor_servicios_v siguen')).toBe(false);
+  });
+
+  it('ningún .ts de src/ nombra un trigger o una función retirada, tampoco en comentarios', () => {
+    const hallazgos: string[] = [];
+    for (const fichero of todos) {
+      readFileSync(fichero, 'utf8').split('\n').forEach((linea, i) => {
+        if (PATRON.test(linea)) hallazgos.push(`${path.relative(RAIZ, fichero)}:${i + 1}`);
+      });
+    }
+    expect(hallazgos).toEqual([]);
+  });
+
+  it('AC3: el bloque DIFERENCIAS del preflight es idéntico al de la guarda de la 0314', () => {
+    const bloque = (archivo: string) => {
+      const texto = readFileSync(path.join(RAIZ, 'db', archivo), 'utf8');
+      const a = texto.indexOf('-- >>> DIFERENCIAS');
+      const b = texto.indexOf('-- <<< DIFERENCIAS');
+      expect(a, archivo).toBeGreaterThanOrEqual(0);
+      expect(b, archivo).toBeGreaterThan(a);
+      return texto.slice(a, b);
+    };
+    const migracion = bloque(path.join('migrations', '0314_flito_proveedores_contraccion.sql'));
+    expect(bloque(path.join('manual', 'flito-proveedores-contraccion-preflight.sql'))).toBe(migracion);
+    expect(migracion).toMatch(/PERFIL DISTINTO/);
+    expect(migracion).toMatch(/USUARIO DISTINTO/);
+  });
+
+  it('AC3: el preflight es de solo lectura y no crea ni escribe nada', () => {
+    const sinComentarios = readFileSync(path.join(RAIZ, 'db', 'manual', 'flito-proveedores-contraccion-preflight.sql'), 'utf8')
+      .replace(/--[^\n]*/g, '');
+    expect(sinComentarios).toMatch(/set_config\('transaction_read_only', 'on', true\)/);
+    expect(sinComentarios).not.toMatch(/\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|TRUNCATE)\b/i);
+  });
+
+  it('el preflight de la 0292 se declara obsoleto tras la 0314 y remite al nuevo', () => {
+    const viejo = readFileSync(path.join(RAIZ, 'db', 'manual', 'flito-proveedores-preflight.sql'), 'utf8');
+    expect(viejo.split('\n').slice(0, 8).join('\n')).toMatch(/OBSOLETA TRAS LA 0314[\s\S]*flito-proveedores-contraccion-preflight\.sql/);
   });
 });

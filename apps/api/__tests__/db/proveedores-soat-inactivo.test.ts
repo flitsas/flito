@@ -10,7 +10,8 @@
 //   · AC6, la carrera, con DOS sesiones: tienen que verse, así que el proveedor y la compañía se CONFIRMAN con el
 //     prefijo `zz_prueba13959` y se borran en `afterAll` (y al arrancar, por si una corrida anterior murió).
 //     Limpieza manual: DELETE FROM clients WHERE name LIKE 'zz_prueba13959%';
-//                      DELETE FROM flito_proveedores_soat WHERE nombre LIKE 'zz_prueba13959%';
+//                      DELETE FROM flito_proveedores_soat WHERE id IN (SELECT id FROM flito_proveedores WHERE nombre LIKE 'zz_prueba13959%');
+//                      DELETE FROM flito_proveedores WHERE nombre LIKE 'zz_prueba13959%';
 //
 // ── La carrera ─────────────────────────────────────────────────────────────────────────────────────
 // A (la desactivación de la HU #13958, RN-PROV-2): `FOR UPDATE` sobre P → `activo = false` → espera a B (tope 400 ms)
@@ -25,6 +26,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { eq } from 'drizzle-orm';
 import * as schema from '../../src/db/schema.js';
 import { abrirBase, enTx, URL_BASE } from '../helpers/base-en-tx.js';
+import { proveedorSoat } from '../helpers/proveedor-padre.js';
 
 // `flito-soat-cliente.service` arrastra Redis por sus imports; aquí no hace falta.
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
@@ -44,9 +46,9 @@ async function conBase(fn: (tx: postgres.TransactionSql, d: ReturnType<typeof dr
   } finally { await sql.end(); }
 }
 
+// HU #14355: padre primero; el estado y la baja viven en el padre (el perfil eliminado también queda de baja).
 const proveedor = async (tx: postgres.TransactionSql, nombre: string, extra: { activo?: boolean; eliminado?: boolean } = {}) =>
-  (await tx`INSERT INTO flito_proveedores_soat (nombre, activo, deleted_at)
-    VALUES (${nombre}, ${extra.activo ?? true}, CASE WHEN ${extra.eliminado === true} THEN now() END) RETURNING id`)[0]!.id as string;
+  proveedorSoat(tx, { nombre, activo: extra.activo ?? true, deletedAt: extra.eliminado === true ? new Date() : null });
 
 describe.skipIf(!URL_BASE)('RN-PROV-5 — exigirProveedorSoatUsable y canal sin trámite (tx con ROLLBACK)', () => {
   it('AC1/AC2: inactivo → texto con el nombre; eliminado (aunque activo) o inexistente → «no existe o fue eliminado»', async () => {
@@ -72,7 +74,7 @@ describe.skipIf(!URL_BASE)('RN-PROV-5 — exigirProveedorSoatUsable y canal sin 
         VALUES ('Compania HU13959', true, ${p}) RETURNING id`;
       const ex = d as unknown as Parameters<typeof resolverDestinoCanalCliente>[0];
       expect(await resolverDestinoCanalCliente(ex, c!.id as number)).toMatchObject({ proveedorSoatId: p, gestionOperaciones: false });
-      await tx`UPDATE flito_proveedores_soat SET activo = false WHERE id = ${p}`;
+      await tx`UPDATE flito_proveedores SET activo = false WHERE id = ${p}`;
       expect(await resolverDestinoCanalCliente(ex, c!.id as number)).toMatchObject({ proveedorSoatId: null, gestionOperaciones: true });
     });
   });
@@ -102,13 +104,14 @@ describe.skipIf(!URL_BASE)('AC6 — desactivar P y fijarlo como gestor por defec
 
   async function limpiar(): Promise<void> {
     await sql`DELETE FROM clients WHERE name LIKE 'zz_prueba13959%'`;
-    await sql`DELETE FROM flito_proveedores_soat WHERE nombre LIKE 'zz_prueba13959%'`;
-    await sql`DELETE FROM flito_proveedores WHERE nombre LIKE 'zz_prueba13959%'`; // Desde la 0292, el perfil tiene padre.
+    // HU #14355: el perfil ya no tiene nombre; se borra por el id de su padre.
+    await sql`DELETE FROM flito_proveedores_soat WHERE id IN (SELECT id FROM flito_proveedores WHERE nombre LIKE 'zz_prueba13959%')`;
+    await sql`DELETE FROM flito_proveedores WHERE nombre LIKE 'zz_prueba13959%'`;
   }
 
   beforeAll(async () => {
     await limpiar();
-    p = (await sql`INSERT INTO flito_proveedores_soat (nombre) VALUES ('zz_prueba13959 P') RETURNING id`)[0]!.id as string;
+    p = await proveedorSoat(sql, { nombre: 'zz_prueba13959 P' });
     compania = (await sql`INSERT INTO clients (name) VALUES ('zz_prueba13959 Compania') RETURNING id`)[0]!.id as number;
   });
   afterAll(async () => { await limpiar(); await sql.end(); });
@@ -118,8 +121,8 @@ describe.skipIf(!URL_BASE)('AC6 — desactivar P y fijarlo como gestor por defec
     const bTermino = senal();
 
     const a = sql.begin(async (tx) => {
-      await tx`SELECT activo FROM flito_proveedores_soat WHERE id = ${p} AND deleted_at IS NULL FOR UPDATE`;
-      await tx`UPDATE flito_proveedores_soat SET activo = false WHERE id = ${p}`;
+      await tx`SELECT activo FROM flito_proveedores WHERE id = ${p} AND deleted_at IS NULL FOR UPDATE`;
+      await tx`UPDATE flito_proveedores SET activo = false WHERE id = ${p}`;
       aBloqueo.disparar();
       await bTermino.esperar(400); // con FOR SHARE, B está esperando el lock: se agota el tope y A confirma
     });
@@ -136,7 +139,7 @@ describe.skipIf(!URL_BASE)('AC6 — desactivar P y fijarlo como gestor por defec
     expect((rb as PromiseRejectedResult).reason).toBeInstanceOf(ProveedorSoatNoUsableError);
     expect((rb as PromiseRejectedResult).reason.message).toBe('El gestor zz_prueba13959 P está inactivo: elige otro gestor.');
 
-    const [prov] = await sql`SELECT activo FROM flito_proveedores_soat WHERE id = ${p}`;
+    const [prov] = await sql`SELECT activo FROM flito_proveedores WHERE id = ${p}`;
     const [cli] = await sql`SELECT flito_proveedor_soat_sin_tramite_id AS gestor FROM clients WHERE id = ${compania}`;
     expect(prov!.activo).toBe(false);
     expect(cli!.gestor).toBeNull();

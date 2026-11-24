@@ -21,6 +21,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { abrirBase, enTx, URL_BASE } from '../helpers/base-en-tx.js';
+import { proveedorLogistica, proveedorSoat } from '../helpers/proveedor-padre.js';
 
 const actual = vi.hoisted(() => ({ db: null as unknown }));
 vi.mock('../../src/db/client.js', () => ({
@@ -69,9 +70,8 @@ async function conMundo(fn: (m: Mundo) => Promise<void>) {
         tx, org, buscar,
         proveedor: async (o = {}) => {
           const nombre = o.nombre ?? `Prov ${sello()}`;
-          const [l] = await tx`INSERT INTO flito_proveedores_logistica (nombre, activo, nit) VALUES (${nombre}, true, ${`8${sello()}`}) RETURNING id`;
-          const id = l!.id as string;
-          if (o.soat) await tx`INSERT INTO flito_proveedores_soat (id, nombre, activo) VALUES (${id}, ${nombre}, true)`;
+          const id = await proveedorLogistica(tx, { nombre, nit: `8${sello()}` });
+          if (o.soat) await proveedorSoat(tx, { id, nombre });
           return id;
         },
         vigencia: async (p, concepto, valor, desde, hasta = null) => {

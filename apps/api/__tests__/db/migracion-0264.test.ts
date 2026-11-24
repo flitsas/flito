@@ -3,13 +3,13 @@
 //   · Estática (siempre corre): sin control de transacción propio (el runner la envuelve; por eso nada de
 //     CONCURRENTLY); solo `CREATE INDEX IF NOT EXISTS` sobre las dos columnas, completos (sin WHERE); el esquema
 //     Drizzle declara los mismos nombres para no tener drift.
-//   · Contra PostgreSQL (solo con TEST_DATABASE_URL), en tx con ROLLBACK: dos veces sin error (AC3), los índices
+//   · Contra PostgreSQL (retirada en la HU #14355, ver el final), en tx con ROLLBACK: dos veces sin error (AC3), los índices
 //     existen sobre la columna correcta y sin predicado (AC1/AC2), y la segunda aplicación no cambia su definición.
 import { describe, it, expect, vi } from 'vitest';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
 import { users, clients } from '../../src/db/schema.js';
-import { abrirBase, enTx, leerMigracion, URL_BASE } from '../helpers/base-en-tx.js';
+import { leerMigracion } from '../helpers/base-en-tx.js';
 
 vi.mock('../../src/db/client.js', () => ({
   db: { select: vi.fn(), insert: vi.fn(), update: vi.fn(), delete: vi.fn(), transaction: vi.fn(), execute: vi.fn() },
@@ -54,27 +54,6 @@ describe('0264 — reglas del archivo (análisis estático)', () => {
   });
 });
 
-describe.skipIf(!URL_BASE)('0264 — contra PostgreSQL (tx con ROLLBACK)', () => {
-  it('AC1/AC2/AC3: dos veces sin error; los índices existen, completos, y la segunda aplicación no los cambia', async () => {
-    const sql = abrirBase();
-    try {
-      await enTx(sql, async (tx) => {
-        const leer = async () => tx`SELECT indexname, tablename, indexdef FROM pg_indexes
-          WHERE schemaname = current_schema() AND indexname IN ${tx(Object.keys(INDICES))} ORDER BY indexname`;
-        await tx.unsafe(SQL_0264);
-        const primera = await leer();
-        await tx.unsafe(SQL_0264);
-        const segunda = await leer();
-        expect(primera.map((r) => r.indexname)).toEqual(Object.keys(INDICES).sort());
-        for (const r of primera) {
-          const def = INDICES[r.indexname as keyof typeof INDICES];
-          expect(r.tablename).toBe(def.tabla);
-          expect(r.indexdef).toMatch(new RegExp(`USING btree \\(${def.columna}\\)$`));
-        }
-        expect(segunda).toEqual(primera);
-      });
-    } finally {
-      await sql.end();
-    }
-  });
-});
+// HU #14355: se retira la parte contra PostgreSQL. Reaplicaba la 0264, cuyo `idx_users_flito_proveedor_soat` es sobre
+// `users.flito_proveedor_soat_id`, que la 0314 eliminó: ya no se puede aplicar sobre un esquema al día. La parte
+// estática sigue; la ausencia del índice la mide `migracion-0314.test.ts`.

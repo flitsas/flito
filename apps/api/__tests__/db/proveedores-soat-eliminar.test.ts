@@ -13,6 +13,7 @@ import postgres from 'postgres';
 import * as schema from '../../src/db/schema.js';
 import { abrirBase, borrarAdminDePrueba, enTx, sembrarAdminActivo, URL_BASE } from '../helpers/base-en-tx.js';
 import { testToken } from '../helpers/auth.js';
+import { proveedorSoat } from '../helpers/proveedor-padre.js';
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
 const actual: { db: Db | null; tx: postgres.TransactionSql | null; real: Db | null } = { db: null, tx: null, real: null };
@@ -63,8 +64,7 @@ const ACTOR = { userId: null, email: null, rol: null };
 
 /** P: inactivo, con lo que NO impide eliminarlo (SOAT pagado, compañía eliminada, usuarios). */
 async function sembrar(tx: postgres.TransactionSql) {
-  const proveedor = async (nombre: string, activo: boolean) =>
-    (await tx`INSERT INTO flito_proveedores_soat (nombre, activo) VALUES (${nombre}, ${activo}) RETURNING id`)[0]!.id as string;
+  const proveedor = async (nombre: string, activo: boolean) => proveedorSoat(tx, { nombre, activo }); // HU #14355: padre primero
   const p = await proveedor('Gestora HU13960', false);
   const otro = await proveedor('Otra HU13960', true);
   const cliente = async (name: string, prov: string | null, eliminado = false) =>
@@ -82,7 +82,7 @@ async function sembrar(tx: postgres.TransactionSql) {
   await soat(p, 'pagado'); // un pagado no está en curso
   const [rol] = await tx`SELECT codigo FROM permisos_roles ORDER BY (codigo = 'gestor_soat') DESC, codigo LIMIT 1`;
   const usuario = async (u: string, prov: string, extra: { active?: boolean; baja?: boolean } = {}) =>
-    (await tx`INSERT INTO users (username, name, password_hash, role, flito_proveedor_soat_id, active, deleted_at)
+    (await tx`INSERT INTO users (username, name, password_hash, role, flito_proveedor_id, active, deleted_at)
       VALUES (${'hu13960_' + u}, 'X', 'h', ${rol!.codigo}, ${prov}, ${extra.active ?? true}, CASE WHEN ${extra.baja === true} THEN now() END)
       RETURNING id`)[0]!.id as number;
   // AC1: G y H activos (pierden el acceso); B dado de baja antes (activo, se queda como está); J de otro proveedor.
@@ -135,20 +135,20 @@ describe.skipIf(!URL_BASE)('eliminarProveedor — contra PostgreSQL (tx con ROLL
       const [hist] = await tx`SELECT count(*)::int AS n FROM permisos_auditoria
         WHERE usuario_afectado_id IN (${f.g}, ${f.h}) AND campo = 'active'`;
       expect(hist!.n).toBe(2);
-      // Ya eliminado → 404 (el nombre queda libre por el índice parcial de la 0259).
+      // Ya eliminado → 404 (el nombre queda libre por el índice parcial del padre).
       await expect(eliminarProveedor(f.p, ACTOR)).rejects.toBeInstanceOf(ProveedorNoEncontradoError);
-      await tx`INSERT INTO flito_proveedores_soat (nombre) VALUES ('Gestora HU13960')`;
+      await proveedorSoat(tx, { nombre: 'Gestora HU13960' });
     });
   });
 
   it('AC2/AC3/AC4: condiciones en orden; el rechazo no escribe nada', async () => {
     await conBase(async (tx, f) => {
-      await tx`UPDATE flito_proveedores_soat SET activo = true WHERE id = ${f.p}`;
+      await tx`UPDATE flito_proveedores SET activo = true WHERE id = ${f.p}`;
       for (let i = 0; i < 4; i++) await f.soat(f.p, i % 2 ? 'solicitado' : 'pendiente');
       await f.cliente('Beta HU13960', f.p);
       await f.cliente('Alfa HU13960', f.p);
       expect(await motivo(f.p)).toBe('Primero debe desactivarlo.');
-      await tx`UPDATE flito_proveedores_soat SET activo = false WHERE id = ${f.p}`;
+      await tx`UPDATE flito_proveedores SET activo = false WHERE id = ${f.p}`;
       expect(await motivo(f.p)).toBe('Tiene 4 SOAT en curso.');
       await tx`UPDATE flito_soat SET estado = 'pagado'::flito_soat_estado WHERE proveedor_soat_id = ${f.p}`;
       expect(await motivo(f.p)).toBe('Es el proveedor de SOAT sin trámite de 2 compañías (Alfa HU13960, Beta HU13960).');
@@ -192,7 +192,7 @@ describe.skipIf(!URL_BASE)('eliminarProveedor — contra PostgreSQL (tx con ROLL
       const [b] = await tx`SELECT deleted_at IS NOT NULL AS baja FROM users WHERE id = ${f.b}`;
       expect(b!.baja).toBe(true);
       // Reasignado a un proveedor vigente → se activa.
-      await tx`UPDATE users SET flito_proveedor_soat_id = ${f.otro} WHERE id = ${f.g}`;
+      await tx`UPDATE users SET flito_proveedor_id = ${f.otro} WHERE id = ${f.g}`;
       expect((await cambiarActivo(f.g, ACTOR))?.active).toBe(true);
     });
   });
@@ -202,8 +202,7 @@ describe.skipIf(!URL_BASE)('eliminarProveedor — AC9: dos DELETE concurrentes (
   it('uno elimina; el otro, que esperaba el bloqueo, recibe «Otro administrador ya cambió su estado»', async () => {
     const sql = postgres(URL_BASE!, { max: 4, onnotice: () => {} });
     const nombre = `HU13960 concurrencia ${Date.now()}`;
-    const [fila] = await sql`INSERT INTO flito_proveedores_soat (nombre, activo) VALUES (${nombre}, false) RETURNING id`;
-    const id = fila!.id as string;
+    const id = await proveedorSoat(sql, { nombre, activo: false });
     await sembrarAdminActivo(sql);
     try {
       actual.real = drizzle(sql, { schema });

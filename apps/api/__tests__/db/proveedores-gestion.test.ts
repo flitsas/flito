@@ -1,8 +1,9 @@
 // Feature #14324 (HU #14332, #14333, #14334, #14335) — gestión de proveedores contra PostgreSQL de verdad.
 //
-// Todo dentro de una transacción con ROLLBACK (`base-en-tx.ts`), con 0292, 0293 y 0313 aplicadas DENTRO: la base local compartida
-// puede no tenerlas. `db.transaction(fn)` abre un SAVEPOINT y lo revierte si `fn` lanza, para medir que un rechazo no deja
-// nada escrito. Las carreras necesitan dos conexiones: se saltan si la base no tiene la 0293 aplicada de verdad.
+// Todo dentro de una transacción con ROLLBACK (`base-en-tx.ts`), con la 0314 aplicada DENTRO (HU #14355): la base local
+// compartida puede no tenerla, y sobre una que ya la tiene no hace nada. `db.transaction(fn)` abre un SAVEPOINT y lo revierte
+// si `fn` lanza, para medir que un rechazo no deja nada escrito. Las carreras necesitan dos conexiones: se saltan si la base
+// no tiene la 0314 aplicada de verdad.
 // Sin TEST_DATABASE_URL se SALTA todo (el CI no levanta Postgres); las rutas se miden en `proveedores-gestion.routes.test.ts`.
 import { describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
@@ -13,6 +14,7 @@ import postgres from 'postgres';
 import * as schema from '../../src/db/schema.js';
 import { abrirBase, borrarAdminDePrueba, enTx, leerMigracion, sembrarAdminActivo, URL_BASE } from '../helpers/base-en-tx.js';
 import { testToken } from '../helpers/auth.js';
+import { proveedorLogistica, proveedorSoat } from '../helpers/proveedor-padre.js';
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
 type Tx = postgres.TransactionSql;
@@ -74,11 +76,9 @@ async function conBase(fn: (tx: Tx) => Promise<void>) {
   const sql = abrirBase();
   try {
     await enTx(sql, async (tx) => {
-      await tx.unsafe(leerMigracion('0292_flito_proveedores_padre.sql'));
-      await tx.unsafe(leerMigracion('0293_flito_proveedores_logistica_unicidad_viva.sql'));
-      // HU #14673: el código ya no escribe el espejo del perfil; lo llenan los triggers de la 0313, que se reaplica
-      // después de la 0292 porque esta reescribe `perfil_crea_padre` con su cuerpo original.
-      await tx.unsafe(leerMigracion('0313_flito_proveedores_perfil_espejo.sql'));
+      // HU #14355: el esquema contraído (sin espejo ni sincronización). Ya no se reaplican 0292, 0293 ni 0313: leen y
+      // crean las columnas viejas de los perfiles que la 0314 eliminó.
+      await tx.unsafe(leerMigracion('0314_flito_proveedores_contraccion.sql'));
       await sembrarAdminActivo(tx);
       actual.tx = tx;
       actual.db = drizzle(Object.assign(tx, { options: sql.options }) as unknown as postgres.Sql, { schema });
@@ -133,25 +133,16 @@ const usuario = async (tx: Tx, proveedor: string) => {
 const padre = async (tx: Tx, id: string) => (await tx`SELECT * FROM flito_proveedores WHERE id = ${id}`)[0]!;
 const perfilLog = async (tx: Tx, id: string) => (await tx`SELECT * FROM flito_proveedores_logistica WHERE id = ${id}`)[0];
 const perfilSoat = async (tx: Tx, id: string) => (await tx`SELECT * FROM flito_proveedores_soat WHERE id = ${id}`)[0];
+/** HU #14355: desde la 0314 el perfil ya no guarda nombre, estado, datos generales ni (logística) estrategia. */
+const SIN_DATOS_GENERALES = ['nombre', 'activo', 'nit', 'telefono', 'contacto', 'correo', 'direccion', 'ciudad'] as const;
+const sinDatosGenerales = (perfil: Record<string, unknown> | undefined) => {
+  expect(perfil).toBeDefined();
+  for (const c of SIN_DATOS_GENERALES) expect(perfil, c).not.toHaveProperty(c);
+};
 const conteoAud = async (tx: Tx, id: string) => Number((await tx`SELECT count(*)::int AS n FROM flito_proveedores_auditoria WHERE proveedor_id = ${id}`)[0]!.n);
 
-describe.skipIf(!URL_BASE)('0293 — unicidad entre vigentes', () => {
-  it('quita la restricción con cualquiera de sus dos nombres, es idempotente y sus índices solo cuentan a los vigentes', async () => {
-    await conBase(async (tx) => {
-      const unicidad = async () => (await tx`SELECT conname FROM pg_constraint WHERE conrelid = 'flito_proveedores_logistica'::regclass AND contype = 'u'`).map((f) => f.conname);
-      expect(await unicidad()).toEqual([]);
-      await tx`ALTER TABLE flito_proveedores_logistica ADD CONSTRAINT flito_proveedores_logistica_nombre_key UNIQUE (nombre)`;
-      await tx.unsafe(leerMigracion('0293_flito_proveedores_logistica_unicidad_viva.sql'));
-      expect(await unicidad()).toEqual([]);
-      await tx`ALTER TABLE flito_proveedores_logistica ADD CONSTRAINT flito_proveedores_logistica_nombre_unique UNIQUE (nombre)`;
-      await tx.unsafe(leerMigracion('0293_flito_proveedores_logistica_unicidad_viva.sql'));
-      expect(await unicidad()).toEqual([]);
-
-      const [viva] = await tx`SELECT count(*)::int AS n FROM pg_indexes WHERE indexname IN ('uq_flito_proveedores_logistica_nombre_vivo', 'uq_flito_proveedores_logistica_nit') AND indexdef LIKE '%deleted_at IS NULL%'`;
-      expect(viva!.n).toBe(2);
-    });
-  });
-});
+// HU #14355: se retira «0293 — unicidad entre vigentes». Reaplicaba la 0293, cuyos índices son sobre `nombre` y `nit` del
+// perfil de logística, que la 0314 eliminó. La unicidad entre vigentes la da ahora solo el padre (AC5 de la #14332, abajo).
 
 describe.skipIf(!URL_BASE)('HU #14332 — crear, editar y listar', () => {
   it('AC1: una identidad con un perfil por servicio; los datos de SOAT quedan solo en su perfil', async () => {
@@ -160,8 +151,11 @@ describe.skipIf(!URL_BASE)('HU #14332 — crear, editar y listar', () => {
       expect(ambos.servicios).toEqual(['soat', 'logistica']);
       expect(ambos.datosCompletos).toBe(true);
       const log = await perfilLog(tx, ambos.id);
-      expect(log).toMatchObject({ nit: expect.any(String), telefono: '3001234567', contacto: 'Ana Ruiz', deleted_at: null });
+      expect(log).toMatchObject({ deleted_at: null });
+      sinDatosGenerales(log); // HU #14355: los datos generales viven solo en el padre
+      expect(log).not.toHaveProperty('estrategia');
       expect(log).not.toHaveProperty('umbral_ocr');
+      expect(await padre(tx, ambos.id)).toMatchObject({ nit: expect.any(String), telefono: '3001234567', contacto: 'Ana Ruiz' });
       expect(await perfilSoat(tx, ambos.id)).toMatchObject({ estrategia: 'portal', sla_horas: 24 });
       expect(await padre(tx, ambos.id)).not.toHaveProperty('umbral_ocr');
 
@@ -246,8 +240,7 @@ describe.skipIf(!URL_BASE)('HU #14332 — crear, editar y listar', () => {
 
   it('AC6: un proveedor migrado edita solo SOAT sin que se le exijan datos generales (el bloque completo se mide en routes)', async () => {
     await conBase(async (tx) => {
-      const [fila] = await tx`INSERT INTO flito_proveedores_soat (nombre) VALUES ('Migrado HU14324') RETURNING id`;
-      const id = fila!.id as string;
+      const id = await proveedorSoat(tx, { nombre: 'Migrado HU14324' }); // HU #14355: padre primero
       const [item] = (await listarProveedores({})).filter((p: { id: string }) => p.id === id);
       expect(item.datosCompletos).toBe(false);
       const editado = await editarProveedor(id, { versionEsperada: item.version, soat: { umbralOcr: 0.65 } }, ACTOR);
@@ -400,8 +393,7 @@ describe.skipIf(!URL_BASE)('HU #14333 — agregar y quitar servicios', () => {
 
   it('agregar un servicio cuenta como editar: exige los datos generales, incluido el NIT, y los acepta en la misma petición', async () => {
     await conBase(async (tx) => {
-      const [fila] = await tx`INSERT INTO flito_proveedores_soat (nombre) VALUES ('Antiguo HU14324') RETURNING id`;
-      const id = fila!.id as string;
+      const id = await proveedorSoat(tx, { nombre: 'Antiguo HU14324' }); // HU #14355: padre primero
       const version = (await padre(tx, id)).version as number;
       const e = await rechazo(editarProveedor(id, { versionEsperada: version, servicios: ['soat', 'logistica'] }, ACTOR));
       expect(e).toBeInstanceOf(GeneralesIncompletosError);
@@ -411,7 +403,8 @@ describe.skipIf(!URL_BASE)('HU #14333 — agregar y quitar servicios', () => {
       const g = generales({ nombre: 'Antiguo HU14324' });
       const r = await editarProveedor(id, { versionEsperada: version, generales: g, servicios: ['soat', 'logistica'] }, ACTOR);
       expect(r.servicios).toEqual(['soat', 'logistica']);
-      expect(await perfilLog(tx, id)).toMatchObject({ nit: g.nit, telefono: g.telefono });
+      expect(await perfilLog(tx, id)).toMatchObject({ deleted_at: null });
+      expect(await padre(tx, id)).toMatchObject({ nit: g.nit, telefono: g.telefono });
     });
   });
 
@@ -434,14 +427,16 @@ describe.skipIf(!URL_BASE)('HU #14333 — agregar y quitar servicios', () => {
 
         const log = await perfilLog(tx, p.id);
         const soat = await perfilSoat(tx, p.id);
+        // HU #14355: el perfil solo dice si presta el servicio; los datos ya se compararon arriba en el padre.
         if (a === 'logistica') {
-          expect(log).toMatchObject({ deleted_at: null, nit: p.nit, telefono: '3001234567', contacto: 'Ana Ruiz', nombre: p.nombre });
+          expect(log).toMatchObject({ deleted_at: null });
           expect(soat!.deleted_at).not.toBeNull();
         } else {
-          expect(soat).toMatchObject({ deleted_at: null, nombre: p.nombre });
-          expect(log).toMatchObject({ nit: null, telefono: null, contacto: null });
+          expect(soat).toMatchObject({ deleted_at: null });
           expect(log!.deleted_at).not.toBeNull();
         }
+        sinDatosGenerales(log);
+        sinDatosGenerales(soat);
         const aud = await tx`SELECT accion, valor_antes, valor_despues FROM flito_proveedores_auditoria WHERE proveedor_id = ${p.id} AND campo = 'servicio' AND accion <> 'crear' ORDER BY created_at, accion`;
         expect(aud).toEqual(expect.arrayContaining([
           { accion: 'servicio_quitado', valor_antes: de, valor_despues: null },
@@ -469,14 +464,15 @@ describe.skipIf(!URL_BASE)('HU #14333 — agregar y quitar servicios', () => {
         const g = generales({ nombre: `Renombrado ${++n}`, telefono: '3119998877', contacto: 'Otra Persona' });
         const r = await editarProveedor(p.id, { versionEsperada: sinLog.version, generales: g, servicios: ['logistica'] }, ACTOR);
         expect(r.servicios).toEqual(['logistica']);
-        expect(await perfilLog(tx, p.id)).toMatchObject({ deleted_at: null, nombre: g.nombre, nit: g.nit, telefono: '3119998877', contacto: 'Otra Persona' });
+        expect(await perfilLog(tx, p.id)).toMatchObject({ deleted_at: null });
+        expect(await padre(tx, p.id)).toMatchObject({ nombre: g.nombre, nit: g.nit, telefono: '3119998877', contacto: 'Otra Persona' });
 
         const q = await padre(tx, p.id);
         const g2 = generales({ nombre: `Renombrado ${++n}`, nit: g.nit, telefono: '3220001122' });
         await editarProveedor(p.id, { versionEsperada: q.version as number, generales: g2, servicios: ['soat'] }, ACTOR);
-        expect(await perfilSoat(tx, p.id)).toMatchObject({ deleted_at: null, nombre: g2.nombre, estrategia: 'portal', sla_horas: 24 });
-        expect(await perfilLog(tx, p.id)).toMatchObject({ nit: null, telefono: null, contacto: null });
-        expect(await padre(tx, p.id)).toMatchObject({ deleted_at: null, telefono: '3220001122', nit: g.nit });
+        expect(await perfilSoat(tx, p.id)).toMatchObject({ deleted_at: null, estrategia: 'portal', sla_horas: 24 });
+        expect((await perfilLog(tx, p.id))!.deleted_at).not.toBeNull();
+        expect(await padre(tx, p.id)).toMatchObject({ deleted_at: null, nombre: g2.nombre, telefono: '3220001122', nit: g.nit });
       });
     });
   });
@@ -502,9 +498,10 @@ describe.skipIf(!URL_BASE)('HU #14333 — agregar y quitar servicios', () => {
       expect(log!.deleted_at).not.toBeNull();
       const r = await editarProveedor(a.id, { versionEsperada: sinLog.version, servicios: ['soat', 'logistica'] }, ACTOR);
       expect(r.servicios).toEqual(['soat', 'logistica']);
-      const filas = await tx`SELECT deleted_at, nit, telefono, contacto FROM flito_proveedores_logistica WHERE id = ${a.id}`;
+      const filas = await tx`SELECT deleted_at FROM flito_proveedores_logistica WHERE id = ${a.id}`;
       expect(filas).toHaveLength(1);
-      expect(filas[0]).toMatchObject({ deleted_at: null, nit: a.nit, telefono: '3001234567', contacto: 'Ana Ruiz' });
+      expect(filas[0]).toMatchObject({ deleted_at: null });
+      expect(await padre(tx, a.id)).toMatchObject({ nit: a.nit, telefono: '3001234567', contacto: 'Ana Ruiz' });
     });
   });
 
@@ -590,18 +587,16 @@ describe.skipIf(!URL_BASE)('HU #14333 — agregar y quitar servicios', () => {
     });
   });
 
-  it('un perfil de Logística retirado no recibe datos personales al editar el padre, y no se los pasa', async () => {
+  // HU #14355: el perfil ya no tiene columnas de datos personales; lo que queda por medir es que el padre los conserva.
+  it('un perfil de Logística retirado no guarda datos personales; el padre los conserva y los edita', async () => {
     await conBase(async (tx) => {
       const a = await crearCon(['soat', 'logistica']);
       const sin = await quitarServicio(a.id, 'logistica', ACTOR);
-      expect(await perfilLog(tx, a.id)).toMatchObject({ nit: null, telefono: null, contacto: null });
+      sinDatosGenerales(await perfilLog(tx, a.id));
       expect(await padre(tx, a.id)).toMatchObject({ nit: a.nit, telefono: '3001234567', contacto: 'Ana Ruiz' });
 
       const g = generales({ nit: a.nit!, nombre: a.nombre, telefono: '3119998877', contacto: 'Otra Persona' });
       await editarProveedor(a.id, { versionEsperada: sin.version, generales: g }, ACTOR);
-      expect(await perfilLog(tx, a.id)).toMatchObject({ nit: null, telefono: null, contacto: null });
-
-      await tx`UPDATE flito_proveedores_logistica SET telefono = '3000000000' WHERE id = ${a.id}`;
       expect((await padre(tx, a.id)).telefono).toBe('3119998877');
     });
   });
@@ -650,7 +645,7 @@ describe.skipIf(!URL_BASE)('HU #14334 — inactivar y eliminar', () => {
       expect(r.item.activo).toBe(false);
       expect(r.usuariosInvalidados).toEqual([u]);
       expect((await tx`SELECT session_invalidated_at IS NOT NULL AS i, active FROM users WHERE id = ${u}`)[0]).toEqual({ i: true, active: true });
-      expect((await perfilSoat(tx, s.id))!.activo).toBe(false);
+      expect((await padre(tx, s.id)).activo).toBe(false); // HU #14355: el estado vive solo en el padre
     });
   });
 
@@ -690,7 +685,7 @@ describe.skipIf(!URL_BASE)('HU #14334 — inactivar y eliminar', () => {
       expect(p.deleted_at).not.toBeNull();
       expect(p).toMatchObject({ nit: null, telefono: null, correo: null, direccion: null, contacto: null, nombre: a.nombre });
       expect(p.version).toBeGreaterThan(item.version);
-      expect(await perfilLog(tx, a.id)).toMatchObject({ nit: null, telefono: null, contacto: null });
+      sinDatosGenerales(await perfilLog(tx, a.id));
       expect((await perfilLog(tx, a.id))!.deleted_at).not.toBeNull();
       expect((await perfilSoat(tx, a.id))!.deleted_at).not.toBeNull();
       expect((await tx`SELECT active, session_invalidated_at IS NOT NULL AS i FROM users WHERE id = ${u}`)[0]).toEqual({ active: false, i: true });
@@ -698,12 +693,14 @@ describe.skipIf(!URL_BASE)('HU #14334 — inactivar y eliminar', () => {
     });
   });
 
-  it('una escritura sobre un perfil de baja no le devuelve datos personales al padre eliminado', async () => {
+  // HU #14355: sin columnas ni trigger que suba datos del perfil al padre, una escritura sobre el perfil de baja ya no
+  // puede devolverle datos personales; basta con que el perfil no los tenga y el padre eliminado quede vacío.
+  it('un proveedor eliminado no conserva datos personales ni en el padre ni en el perfil', async () => {
     await conBase(async (tx) => {
       const l = await crearCon(['logistica']);
       await cambiarEstadoProveedor(l.id, { activo: false, versionEsperada: l.version }, ACTOR);
       await eliminarProveedor(l.id, ACTOR);
-      await tx`UPDATE flito_proveedores_logistica SET telefono = '3000000000', nit = '900777777' WHERE id = ${l.id}`;
+      sinDatosGenerales(await perfilLog(tx, l.id));
       expect(await padre(tx, l.id)).toMatchObject({ telefono: null, nit: null });
     });
   });
@@ -797,8 +794,7 @@ describe.skipIf(!URL_BASE)('HU #14335 — auditoría', () => {
     await conBase(async (tx) => {
       for (const [telefono, mascara] of [['4441234', '*****34'], ['31055512', '******12'], ['12345', '***45'], ['Tel. 444 12 34', '*****34'], ['sin numero', '']] as const) {
         const nombre = `Migrado tel HU14324 ${++n}`;
-        const [fila] = await tx`INSERT INTO flito_proveedores_logistica (nombre, telefono) VALUES (${nombre}, ${telefono}) RETURNING id`;
-        const id = fila!.id as string;
+        const id = await proveedorLogistica(tx, { nombre, telefono }); // HU #14355: padre primero
         const { version } = await padre(tx, id);
         await editarProveedor(id, { versionEsperada: version as number, generales: generales({ nombre }) }, ACTOR);
         const [f] = await tx`SELECT valor_antes, valor_despues FROM flito_proveedores_auditoria WHERE proveedor_id = ${id} AND campo = 'telefono'`;
@@ -855,13 +851,13 @@ describe.skipIf(!URL_BASE)('HU #14335 — auditoría', () => {
   });
 });
 
-/** Las carreras necesitan conexiones reales: solo donde la 0293 está aplicada de verdad. Limpia lo que confirma. */
+/** Las carreras necesitan conexiones reales: solo donde la 0314 está aplicada de verdad (HU #14355). Limpia lo que confirma. */
 async function conConexionesReales(fn: (sql: postgres.Sql) => Promise<void>, limpiar: (sql: postgres.Sql) => Promise<void>, ctx: { skip: () => void }) {
   const sql = postgres(URL_BASE!, { max: 4, onnotice: () => {} });
   try {
     const [f] = await sql`SELECT to_regclass('flito_proveedores') IS NOT NULL AS hay,
-      EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'uq_flito_proveedores_logistica_nombre_vivo') AS tiene_0290`;
-    if (!f!.hay || !f!.tiene_0290) { ctx.skip(); return; }
+      NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'flito_proveedores_logistica' AND column_name = 'nombre') AS tiene_0314`;
+    if (!f!.hay || !f!.tiene_0314) { ctx.skip(); return; }
     await sembrarAdminActivo(sql);
     actual.real = drizzle(sql, { schema });
     await fn(sql);
@@ -951,7 +947,7 @@ describe.skipIf(!URL_BASE)('carreras (conexiones reales)', () => {
         let tomado!: () => void;
         const asignacionTomada = new Promise<void>((r) => { tomado = r; });
         const asignar = sql.begin(async (tx) => {
-          await tx`SELECT activo FROM flito_proveedores_logistica WHERE id = ${p.id} AND deleted_at IS NULL FOR SHARE`;
+          await tx`SELECT id FROM flito_proveedores_logistica WHERE id = ${p.id} AND deleted_at IS NULL FOR SHARE`;
           await tx`UPDATE clients SET flito_proveedor_logistica_id = ${p.id} WHERE id = ${c}`;
           tomado();
           await liberar;
@@ -1017,10 +1013,10 @@ describe.skipIf(!URL_BASE)('carreras (conexiones reales)', () => {
         let continuar!: () => void;
         const seguir = new Promise<void>((r) => { continuar = r; });
         const asignacion = sql.begin(async (tx) => {
-          await tx`SELECT activo FROM flito_proveedores_soat WHERE id = ${p.id} FOR SHARE`;
+          await tx`SELECT id FROM flito_proveedores_soat WHERE id = ${p.id} FOR SHARE`;
           tomado();
           await seguir;
-          await tx`SELECT activo FROM flito_proveedores_logistica WHERE id = ${p.id} FOR SHARE`;
+          await tx`SELECT id FROM flito_proveedores_logistica WHERE id = ${p.id} FOR SHARE`;
         });
         await soatTomado;
         const escritura = escribir(p);

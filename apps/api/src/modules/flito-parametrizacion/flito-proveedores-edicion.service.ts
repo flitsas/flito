@@ -90,9 +90,8 @@ export async function editarProveedor(id: string, datos: EditarProveedorBody, ac
       .where(eq(flitoProveedores.id, id)).returning();
     if (padre === undefined) throw new ProveedorNoEncontradoError();
 
-    // Primero se da y después se retira: si el proveedor se quedara sin perfil vigente aunque sea un instante, el trigger
-    // `perfil_a_padre` lo daría de baja. `padre` es la fila ya guardada: el perfil entrante copia de él su espejo en la BD
-    // (`perfil_crea_padre` y `perfil_espejo_baja`, 0313), y el código ya no escribe esas columnas (HU #14673).
+    // Primero se da y después se retira: el proveedor nunca queda sin perfil vigente, ni siquiera un instante. Los datos
+    // generales viven solo en el padre `padre`, ya guardado (HU #14673; los triggers de espejo se retiraron en la 0314, HU #14355).
     for (const s of agregados) await darPerfil(tx, padre, s, s === 'soat' ? soatNuevo : undefined);
     for (const s of quitados) await retirarPerfil(tx, id, s, actor.userId, ahora);
     if (Object.keys(setSoat).length > 0) {

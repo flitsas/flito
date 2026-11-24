@@ -110,8 +110,8 @@ export async function exigirServicioQuitable(tx: TxProveedor, id: string, servic
 }
 
 /**
- * RN-PSERV-4. Baja lógica del perfil, sin tocar el padre: la 0293 impide que este UPDATE le suba los datos vaciados. El
- * vaciado de NIT, contacto y teléfono del perfil de Logística lo hace `perfil_espejo_baja` (0313, HU #14673).
+ * RN-PSERV-4. Baja lógica del perfil, sin tocar el padre. Desde la 0314 (HU #14355) el perfil de Logística ya no tiene
+ * NIT, contacto ni teléfono que vaciar: esos datos viven solo en el padre.
  */
 export async function retirarPerfil(tx: TxProveedor, id: string, servicio: ServicioProveedor, actorId: number | null, ahora: Date): Promise<void> {
   if (servicio === 'soat') {
@@ -122,8 +122,8 @@ export async function retirarPerfil(tx: TxProveedor, id: string, servicio: Servi
 }
 
 /**
- * RN-PSERV-4. Reactiva el perfil de baja o crea el que nunca existió. El padre ya está guardado: el espejo de sus datos
- * generales lo copian `perfil_espejo_baja` al reactivar y `perfil_crea_padre` al crear (0313, HU #14673).
+ * RN-PSERV-4. Reactiva el perfil de baja o crea el que nunca existió. El padre ya está guardado y es la única copia de
+ * sus datos generales (HU #14673 y #14355).
  */
 export async function darPerfil(tx: TxProveedor, padre: FilaProveedor, servicio: ServicioProveedor, soat: ProveedorSoatBody | undefined): Promise<void> {
   if (servicio === 'soat') {

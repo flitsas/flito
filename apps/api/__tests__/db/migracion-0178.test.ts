@@ -402,7 +402,8 @@ describe.skipIf(!URL_BASE)('0178 — contra la base real (FK, triggers e idempot
        WHERE t.tgrelid = 'users'::regclass AND NOT t.tgisinternal
        ORDER BY t.tgname`;
     const porNombre = Object.fromEntries(filas.map((f) => [f.tgname, f.columnas]));
-    expect(porNombre.users_ambito_trg).toBe('compania_id,flito_proveedor_soat_id,role');
+    // La 0292 cambió la columna del ámbito proveedor y la 0314 (HU #14355) retiró la vieja: hoy vigila `flito_proveedor_id`.
+    expect(porNombre.users_ambito_trg).toBe('compania_id,flito_proveedor_id,role');
     expect(porNombre.users_ambito_organismos_trg).toBe('role,transito_codigo');
     // Y `active` NO está en ninguna de las dos listas: `toggle` no puede romperse por esto.
     expect(Object.values(porNombre).join(',')).not.toMatch(/\bactive\b/);
@@ -487,25 +488,7 @@ describe.skipIf(!URL_BASE)('0178 — contra la base real (FK, triggers e idempot
     expect(sinUsuarios).toBeNull();
   });
 
-  it('AC1 — la migración es idempotente en sentido fuerte: la segunda pasada no cambia ni una fila', async () => {
-    const huella = async (tx: postgres.TransactionSql) => {
-      const [r] = await tx<{ h: string; n: number; u: string }[]>`
-        SELECT md5(string_agg(codigo || nombre || tipo_enlace || tipo_principal || es_sistema::text
-                              || activo::text || created_at::text || updated_at::text, '|'
-                              ORDER BY codigo)) AS h,
-               count(*)::int AS n,
-               (SELECT md5(string_agg(id::text || role, '|' ORDER BY id)) FROM users) AS u
-          FROM permisos_roles`;
-      return r;
-    };
-    const r = await enTx(async (tx) => {
-      const antes = await huella(tx);
-      await tx.unsafe(SQL_0178); // la MISMA migración, otra vez, sobre la base ya migrada
-      const despues = await huella(tx);
-      return { antes, despues };
-    });
-    expect(r.despues.h).toBe(r.antes.h);       // ni `updated_at` se mueve
-    expect(r.despues.n).toBe(r.antes.n);
-    expect(r.despues.u).toBe(r.antes.u);       // ningún usuario cambia de rol (AC3)
-  });
+  // HU #14355: se retira la reaplicación de la 0178 («AC1 — idempotente en sentido fuerte»). Su trigger nombra
+  // `users.flito_proveedor_soat_id`, que la 0314 eliminó, y su CHECK de `tipo_enlace` no admite el `proveedor` de la 0231:
+  // ya no se puede aplicar sobre un esquema al día. La idempotencia quedó medida en su momento; la parte estática sigue.
 });
