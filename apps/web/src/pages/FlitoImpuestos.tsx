@@ -575,6 +575,9 @@ export default function FlitoImpuestos() {
           puedeCargarComprobante={hasFuncion('impuestos.recibos.cargar')}
           puedeReemplazarComprobante={hasFuncion('impuestos.recibos.reemplazar')}
           puedeCorregirDireccion={hasFuncion('impuestos.tramite.corregir_direccion')}
+          // HU #14664: mismo permiso que «Reintentar validación» (`puedeReintentar`, línea arriba) —
+          // no se duplica la constante.
+          puedeCorregirFactura={puedeReintentar}
           onClose={() => setDetalleId(null)} onCambio={() => { setDetalleId(null); refrescar(); }}
           onTraspaso={refrescar} accionReintento={reintento(detalle, false)} sinPermisoReintento={!puedeReintentar} />
       )}

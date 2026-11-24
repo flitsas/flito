@@ -202,7 +202,8 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     // HU #13836: `POST /buscar` de flito-tramites (Dr. Flit) reutiliza `tramites.cola.ver` del listado (sin función nueva ni siembra).
     // HU #13837: `POST /buscar` de flito-soat (Dr. Flit) reutiliza `soat.cola.ver` de la cola (sin función nueva ni siembra).
     // HU #13838: `POST /buscar` de flito-impuestos y de flito-derechos (Dr. Flit) reutilizan `impuestos.cola.ver` y `derechos.cola.ver`.
-    // Certificar sin trámite: las nueve rutas de la pantalla piden `impuestos.certificacion_directa.gestionar`. La acción la absorbe.
+    // Certificar sin trámite: las doce rutas de la pantalla piden `impuestos.certificacion_directa.gestionar`. La acción la absorbe.
+    // HU #14665: +3 (eliminar, eliminar en lote y el ZIP de certificados; reutilizan la misma función).
     // HU #14142: `POST /consultar-vehiculo` (ingreso manual de la LT) reutiliza `logistica.documento.escanear` de `/escanear` (sin función nueva).
     // HU #13958: el impacto y el cambio de estado de un proveedor SOAT piden la misma `parametrizacion.proveedores.estado`
     // (gemelo de `clients.clientes.estado`).
@@ -212,13 +213,15 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     // HU #14110: confirmar la recogida y sus dos consultas piden la misma `logistica.recogida.confirmar`. HU #14147: +1 (pendientes-firma), cuatro rutas con la misma función.
     // HU #14115: despachar/entregar/devolver el viaje reutilizan `logistica.actas.*` de las rutas de acta.
     // HU #14125: `POST /traslados/buscar` reutiliza `logistica.consola.ver` del GET de la consola (la placa va en el cuerpo).
+    // HU #14664: corregir/reintentar documento de factura reutilizan `impuestos.tramite.certificar` del certificar (sin función nueva ni migración).
     expect(compartidosFlito.sort()).toEqual([
       ['bolsas.bolsa.inactivar', 2], ['bolsas.bolsa.ver', 3], ['bolsas.cierre.crear', 2], ['bolsas.cierres.ver', 2],
       ['bolsas.documentos.cargar', 3], ['bolsas.documentos.ver', 4],
       ['bolsas.movimientos.ver', 2], ['bolsas.recarga.registrar', 2],
       ['bolsas.transito.inactivar', 2],
       ['derechos.cola.ver', 2],
-      ['impuestos.certificacion_directa.gestionar', 9], ['impuestos.cola.ver', 2],
+      ['impuestos.certificacion_directa.gestionar', 12], ['impuestos.cola.ver', 2],
+      ['impuestos.tramite.certificar', 3],
       ['logistica.actas.despachar', 3], ['logistica.actas.devolver', 2], ['logistica.actas.entregar', 2], // HU #14353: +GET /actas/:id/mensajeros
       ['logistica.consola.ver', 3], // HU #14351: +POST /buscar
       ['logistica.documento.escanear', 2], ['logistica.documento.resolver_tramite', 3],

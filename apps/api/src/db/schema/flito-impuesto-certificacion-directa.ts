@@ -30,7 +30,11 @@ export const ESTADOS_CERTIFICACION_DIRECTA = [
 ] as const;
 export type EstadoCertificacionDirecta = (typeof ESTADOS_CERTIFICACION_DIRECTA)[number];
 
-/** Cómo se consultó el RUNT: con documento, por placa y documento; sin él, solo por VIN. */
+/**
+ * Cómo se consultó el RUNT. Desde la HU #14665 siempre es `'vin'`: la consulta nueva ya no viaja con
+ * placa+documento. `'placa_documento'` sigue existiendo solo para los snapshots congelados de
+ * certificados emitidos entre el Bug #14406 y la HU #14665 (no se migran).
+ */
 export type ModalidadConsultaRunt = 'placa_documento' | 'vin';
 
 /** Lo que se congela al certificar, para rearmar el PDF sin volver al RUNT. */
@@ -43,9 +47,14 @@ export interface SnapshotCertificacionDirecta {
 
 export const flitoImpuestoCertificacionDirecta = pgTable('flito_impuesto_certificacion_directa', {
   id: uuid('id').primaryKey().defaultRandom(),
-  organismoCodigo: varchar('organismo_codigo', { length: 5 }).notNull().references(() => organismosTransitoConfig.codigo),
-  placa: varchar('placa', { length: 10 }).notNull(),
-  placaNorm: varchar('placa_norm', { length: 10 }).notNull(),
+  /**
+   * Opcional desde la HU #14665 (segundo lote): la Épica #14163 nunca lo pidió en el formulario y no
+   * participa en la consulta RUNT; solo era una línea informativa del certificado. La FK se mantiene.
+   */
+  organismoCodigo: varchar('organismo_codigo', { length: 5 }).references(() => organismosTransitoConfig.codigo),
+  /** Opcional desde la HU #14665: la consulta RUNT ya no depende de la placa, solo del VIN. */
+  placa: varchar('placa', { length: 10 }),
+  placaNorm: varchar('placa_norm', { length: 10 }),
   documentoPropietario: varchar('documento_propietario', { length: 30 }),
   /** Valor del formulario (`TIPOS_DOCUMENTO_RUNT`), no el código RUNT. Null sin documento y en registros anteriores al Bug #14406. */
   tipoDocumentoPropietario: varchar('tipo_documento_propietario', { length: 5 }),

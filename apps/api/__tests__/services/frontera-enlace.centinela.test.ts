@@ -275,6 +275,8 @@ function rutasAbiertas(): { ruta: string; cerrada: boolean; decision: Decision }
 const RUTAS_13426: [string, Decision][] = [
   ['POST /api/flito/impuestos/:id/reanalizar',                                 'filtra'],
   ['PATCH /api/flito/impuestos/:id/direccion',                                 'filtra'],
+  ['PATCH /api/flito/impuestos/:id/documento-factura',                        'filtra'], // HU #14664
+  ['POST /api/flito/impuestos/:id/documento-factura/reintentar',              'filtra'], // HU #14664
   ['POST /api/flito/impuestos/certificados/zip',                               'filtra'],
   ['GET /api/flito/impuestos/certificacion-directa/catalogo',                   'filtra'],
   ['POST /api/flito/impuestos/certificacion-directa/extraer',                   'filtra'],
@@ -285,6 +287,9 @@ const RUTAS_13426: [string, Decision][] = [
   ['POST /api/flito/impuestos/certificacion-directa/:id/consultar',             'filtra'],
   ['GET /api/flito/impuestos/certificacion-directa/:id',                        'filtra'],
   ['PATCH /api/flito/impuestos/certificacion-directa/:id',                      'filtra'],
+  ['DELETE /api/flito/impuestos/certificacion-directa/:id',                     'filtra'],
+  ['POST /api/flito/impuestos/certificacion-directa/eliminar-lote',             'filtra'],
+  ['POST /api/flito/impuestos/certificacion-directa/certificados/zip',          'filtra'],
   ['POST /api/flito/impuestos/:id/recibos',                                    'filtra'],
   ['POST /api/flito/impuestos/:id/recibos/reemplazar-pago',                    'filtra'],
   ['POST /api/flito/impuestos/:id/soportes/pdf',                               'filtra'], // Bug #14532: misma frontera que el ZIP

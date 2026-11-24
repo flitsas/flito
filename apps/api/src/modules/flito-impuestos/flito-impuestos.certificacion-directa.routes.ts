@@ -12,11 +12,16 @@ import { makeStore, userOrIpKey } from '../../shared/middleware/rateLimiter.js';
 import { loggerFor } from '../../shared/logger.js';
 import { ImpuestoError, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { construirCertificadoDirectoPdf } from './certificado-directo-pdf.js';
+import { generarPdfsCertificacionDirecta, planificarZipCertificacionDirecta } from './certificacion-directa-zip.js';
+import { ZipError } from '../../shared/soportes/soportes-zip.js';
+import { emitirZipCertificados, ZipSinCertificadosError } from './certificados-zip.js';
 import { registrarAccesoImpuesto } from './flito-impuestos.pii.js';
 import {
   actualizarCertificacionDirecta, bytesFacturaCertificacionDirecta, catalogoCertificacionDirecta,
   consultarRuntCertificacionDirecta, crearCertificacionDirecta, datosCertificadoDirecto,
-  detalleCertificacionDirecta, FALTA_TIPO_DOCUMENTO, listarCertificacionDirecta, sugerirDesdeFactura,
+  detalleCertificacionDirecta, eliminarCertificacionDirecta, eliminarCertificacionDirectaLote,
+  FALTA_TIPO_DOCUMENTO, filasCertificacionDirectaPorIds, listarCertificacionDirecta,
+  organismosAliasPorCodigos, sugerirDesdeFactura,
 } from './flito-impuestos.certificacion-directa.service.js';
 
 type Contexto = (user: NonNullable<Request['user']>) => Promise<ImpuestoCtx>;
@@ -52,12 +57,27 @@ const subidaLimiter = rateLimit({
   message: { error: 'Demasiadas solicitudes. Espera un minuto.' },
 });
 
+/** Eliminar en lote y descargar el ZIP son operaciones de varios registros a la vez (AC7/AC8): comparten bolsa. */
+const loteLimiter = rateLimit({
+  windowMs: 60_000, max: 10, standardHeaders: true, legacyHeaders: false,
+  keyGenerator: userOrIpKey('imp-cert-directa-lote:'), store: makeStore('rl:imp-cert-directa-lote:'),
+  message: { error: 'Demasiadas solicitudes. Espera un minuto.' },
+});
+
+/** Cuerpo `{ ids: string[] }` de las dos operaciones en lote (AC7/AC8). Sin `.max()` indulgente: 100 es el tope real. */
+const idsLoteSchema = z.object({
+  ids: z.array(z.string().guid()).min(1).max(100),
+}).strict();
+
 /** Llega por multipart: ausente, vacío o solo espacios es «no diligenciado» y se guarda null. */
 const opcional = (max: number) => z.string().trim().max(max).optional().transform((v) => v || null);
 
 const datosSchema = z.object({
-  organismoCodigo: z.string().trim().min(1).max(5),
-  placa: z.string().trim().min(1).max(10),
+  // Opcional desde la HU #14665 (segundo lote): la Épica #14163 nunca lo pidió en el formulario y no
+  // participa en la consulta RUNT (siempre por VIN).
+  organismoCodigo: opcional(5),
+  // Opcional desde la HU #14665: la consulta RUNT ya no depende de la placa, solo del VIN.
+  placa: opcional(10),
   documentoPropietario: opcional(30),
   tipoDocumentoPropietario: z.string().trim().optional().transform((v) => v || null)
     .pipe(z.enum(TIPOS_DOCUMENTO_RUNT).nullable()),
@@ -100,6 +120,19 @@ function fallar(res: Response, e: unknown): void {
   res.status(500).json({ error: 'No se pudo completar la operación' });
 }
 
+/** Igual que `fallar`, con los errores propios del ZIP (mismo patrón que `flito-impuestos.certificados.routes.ts`). */
+function fallarZip(res: Response, e: unknown): void {
+  if (res.headersSent) throw e;
+  if (e instanceof ZipSinCertificadosError) { res.status(e.status).json({ error: e.message, codigo: e.codigo, omitidos: e.omitidos }); return; }
+  if (e instanceof ZipError) { res.status(e.status).json({ error: e.message, codigo: e.codigo }); return; }
+  fallar(res, e);
+}
+
+/** Base del nombre de archivo para descargas individuales: la placa si hay, el VIN si no (HU #14665). */
+function baseNombreArchivo(placa: string | null, vin: string): string {
+  return (placa || vin).replace(/[^A-Za-z0-9]/g, '');
+}
+
 export default function certificacionDirectaRouter(_ctx: Contexto): Router {
   const router = Router();
   router.use(authMiddleware);
@@ -129,8 +162,8 @@ export default function certificacionDirectaRouter(_ctx: Contexto): Router {
 
   router.get('/certificacion-directa/:id/factura', exigirFuncion('impuestos.certificacion_directa.gestionar'), async (req, res) => {
     try {
-      const { bytes, placa } = await bytesFacturaCertificacionDirecta(req.params.id, req);
-      const nombre = `factura-${placa.replace(/[^A-Za-z0-9]/g, '')}.pdf`;
+      const { bytes, placa, vin } = await bytesFacturaCertificacionDirecta(req.params.id, req);
+      const nombre = `factura-${baseNombreArchivo(placa, vin)}.pdf`;
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
       res.send(bytes);
@@ -153,7 +186,7 @@ export default function certificacionDirectaRouter(_ctx: Contexto): Router {
         accion: 'export', impuestoId: fila.id, filas: 1, archivo: 'certificado_runt',
         campos: ['placa', 'vin', 'documento_propietario', 'nombre_propietario'],
       });
-      const nombre = `certificado-runt-${fila.placa.replace(/[^A-Za-z0-9]/g, '')}.pdf`;
+      const nombre = `certificado-runt-${baseNombreArchivo(fila.placa, fila.vin)}.pdf`;
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
       res.send(pdf);
@@ -184,6 +217,58 @@ export default function certificacionDirectaRouter(_ctx: Contexto): Router {
     try {
       res.json(await actualizarCertificacionDirecta(req.params.id, parsed.data, archivoDe(req.file)));
     } catch (e) { fallar(res, e); }
+  });
+
+  // HU #14665 (AC6): eliminar un registro no certificado.
+  router.delete('/certificacion-directa/:id', exigirFuncion('impuestos.certificacion_directa.gestionar'), async (req, res) => {
+    try {
+      await eliminarCertificacionDirecta(req.params.id, req);
+      res.status(204).end();
+    } catch (e) { fallar(res, e); }
+  });
+
+  // HU #14665 (AC7): eliminar en lote; lo certificado se omite, no tumba el lote.
+  router.post('/certificacion-directa/eliminar-lote', exigirFuncion('impuestos.certificacion_directa.gestionar'), loteLimiter, async (req, res) => {
+    const parsed = idsLoteSchema.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+    try {
+      res.json(await eliminarCertificacionDirectaLote(parsed.data.ids, req));
+    } catch (e) { fallar(res, e); }
+  });
+
+  /**
+   * HU #14665 (AC8): descarga masiva de certificados RUNT, equivalente de
+   * `flito-impuestos.certificados.routes.ts` (HU #13205) para este módulo. POST, así que no choca con
+   * el patrón `GET /:id` ni con `GET /:id/certificado` aunque el orden de registro cambiara.
+   * 400 cuerpo · 403 sin función · 409 ninguno certificado (con `omitidos`) · 429 frecuencia.
+   */
+  router.post('/certificacion-directa/certificados/zip', exigirFuncion('impuestos.certificacion_directa.gestionar'), loteLimiter, async (req, res) => {
+    const parsed = idsLoteSchema.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+    try {
+      const filas = await filasCertificacionDirectaPorIds(parsed.data.ids);
+      const organismos = await organismosAliasPorCodigos(
+        filas.map((f) => f.organismoCodigo).filter((c): c is string => c !== null),
+      );
+      const { incluidos, omitidos } = planificarZipCertificacionDirecta(parsed.data.ids, filas, organismos);
+
+      if (incluidos.length === 0) {
+        // El 409 publica placas/VIN de certificaciones visibles: también es una lectura de datos personales.
+        await registrarAccesoImpuesto(req, {
+          accion: 'export', resultado: 'todos_omitidos', filas: 0, campos: ['placa', 'vin'],
+        });
+        throw new ZipSinCertificadosError(omitidos);
+      }
+
+      const ahora = new Date();
+      const pdfs = await generarPdfsCertificacionDirecta(incluidos, req.user!.username, ahora);
+
+      await registrarAccesoImpuesto(req, {
+        accion: 'export', filas: incluidos.length,
+        campos: ['placa', 'vin', 'documento_propietario', 'nombre_propietario'],
+      });
+      await emitirZipCertificados(res, pdfs, omitidos, ahora);
+    } catch (e) { fallarZip(res, e); }
   });
 
   return router;

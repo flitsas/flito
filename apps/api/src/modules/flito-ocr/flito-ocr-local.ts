@@ -105,6 +105,12 @@ const RE_MONTO = /\$?\s*(?:\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{1,2})?|\d{4,})/;
 const RE_FECHA = /\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4}\b/; // ISO, dd/mm/yyyy y dd.mm.yyyy
 const RE_FECHA_G = new RegExp(RE_FECHA.source, 'g');
 const RE_ANIO = /\b(?:19|20)\d{2}\b/;
+// HU #14663 (AC6): etiqueta estricta de EMISIÓN — nunca se usa con unico()/fechas[0]: una fecha
+// suelta sin esta etiqueta exacta no es de fiar (varias fechas candidatas, ambigüedad día/mes).
+const RE_ETIQUETA_FECHA_EMISION = /FECHA\s*(?:DE\s*)?EMISI[OÓ]N/;
+// HU #14663 (AC5/AC6): único ancla segura sin la lógica de "fila del producto" que usa el parser
+// determinístico (avaluoDesdeFactura); por eso este caso nunca reporta 'alta'.
+const RE_ETIQUETA_SUBTOTAL_GRAVABLE = /SUBTOTAL\s*BASE\s*GRAVABLE/;
 const ASEGURADORAS = [
   'LA PREVISORA', 'SEGUROS DEL ESTADO', 'AXA COLPATRIA', 'SEGUROS BOLIVAR', 'LA EQUIDAD',
   'MUNDIAL DE SEGUROS', 'SURA', 'MAPFRE', 'ALLIANZ', 'SOLIDARIA', 'PREVISORA', 'BOLIVAR',
@@ -179,8 +185,14 @@ function extraerCampo(campo: string, c: Ctx): CampoCrudo {
     case 'vigenciaHasta':   return crudo(fechas[2] ?? null, fechas.length >= 3 ? 'alta' : null);
     case 'fechaPago':
       return crudo(ventana(lineas, /(FECHA DE PAGO|FECHA PAGO|FECHA LIMITE PAGO|PAGADO EL)/, RE_FECHA, 3) ?? fechas[0] ?? null, 'alta');
-    case 'fechaFactura':
-      return crudo(ventana(lineas, /(FECHA (DE )?FACTURA|FECHA DE VENTA)/, RE_FECHA, 3), 'alta');
+    case 'fechaFactura': {
+      const v = ventana(lineas, RE_ETIQUETA_FECHA_EMISION, RE_FECHA, 2);
+      return crudo(v, v ? 'media' : null); // nunca 'alta': el local no confirma el orden día/mes
+    }
+    case 'avaluoComercial': {
+      const v = ventana(lineas, RE_ETIQUETA_SUBTOTAL_GRAVABLE, RE_MONTO, 2);
+      return crudo(v, v ? 'media' : null); // nunca 'alta': sin filas no se confirma que es del vehículo
+    }
     case 'anioGravable':
       return crudo(ventana(lineas, /(A[NÑ]O GRAVABLE|VIGENCIA FISCAL|GRAVABLE|FRACCION A[NÑ]O)/, RE_ANIO, 3), 'alta');
     default:

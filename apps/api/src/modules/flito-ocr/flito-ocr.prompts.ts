@@ -151,7 +151,13 @@ Devuelve EXCLUSIVAMENTE este JSON:
 // nombre, documento ni teléfono (minimización, Ley 1581)— con las mismas reglas de «no inventar».
 // HU #14293: también número, fecha de emisión y avalúo. No reutiliza `valorVehiculo` del canal SOAT,
 // que pide entero y admite el total con confianza media.
-export const PROMPT_FACTURA_VENTA_VEHICULO = `Extrae los datos del VEHÍCULO de esta FACTURA DE VENTA de un vehículo (emitida por un concesionario) colombiana.
+// HU #14665: la certificación sin trámite deja de exigir la placa y extrae el PROPIETARIO (comprador)
+// desde esta misma factura, para no reteclearlo. Los cinco campos y sus reglas son un calco EXACTO de
+// los del comprador en `PROMPT_FACTURA_VENTA` (persona natural vs. jurídica, "el comprador NO es el
+// emisor..."): dos reglas distintas para el mismo dato en el mismo documento solo producirían lecturas
+// que se contradicen entre los dos canales. El correo y el teléfono SIGUEN sin pedirse (minimización,
+// Ley 1581): esta certificación no los usa.
+export const PROMPT_FACTURA_VENTA_VEHICULO = `Extrae los datos del VEHÍCULO y del COMPRADOR de esta FACTURA DE VENTA de un vehículo (emitida por un concesionario) colombiana.
 
 Campos del VEHÍCULO:
 - vin: número de identificación del vehículo (VIN / chasis / serie), 17 caracteres. Transcribe EXACTO, sin normalizar.
@@ -162,8 +168,17 @@ Campos del VEHÍCULO:
 - cilindrada: la cilindrada en centímetros cúbicos. Solo dígitos.
 - clase: la clase del vehículo (ej. "AUTOMÓVIL", "CAMIONETA", "MOTOCICLETA").
 
-Campos de ubicación del COMPRADOR / ADQUIRIENTE:
-    * CRÍTICO: el comprador NO es el EMISOR de la factura (el concesionario, con el logo y el NIT grande arriba). NUNCA tomes la dirección del emisor. Si no distingues con seguridad el bloque del comprador, deja estos tres campos en null.
+Campos del COMPRADOR / ADQUIRIENTE:
+QUIÉN ES: la persona o empresa que COMPRA el vehículo. Búscala bajo las etiquetas "COMPRADOR", "ADQUIRIENTE", "CLIENTE", "SEÑOR(ES)" o "FACTURAR A".
+    * CRÍTICO: el comprador NO es el EMISOR de la factura. El emisor es el concesionario/vendedor: es el que lleva el logo, el encabezado y el NIT grande arriba, y a veces la firma o la resolución de facturación. NUNCA tomes los datos del emisor como los del comprador.
+    * Si no distingues con seguridad cuál de los dos bloques es el comprador, deja TODOS estos campos en null. Es preferible a copiar los del concesionario.
+- nombres: nombres de pila del comprador, cuando es una PERSONA NATURAL. null si el comprador es una empresa.
+- apellidos: apellidos del comprador, cuando es una PERSONA NATURAL. null si el comprador es una empresa.
+- razonSocial: nombre de la empresa compradora, cuando el comprador es una PERSONA JURÍDICA. null si el comprador es una persona natural.
+    * CRÍTICO (excluyentes): o devuelves nombres Y apellidos con razonSocial en null, o devuelves razonSocial con nombres Y apellidos en null. NUNCA los dos juegos a la vez. Si el documento del comprador es un NIT, es una empresa; si es una cédula, es una persona natural.
+- tipoDocumento: el tipo de documento del comprador. UNO de exactamente estos valores: CC, CE, TI, PAS, PPT, NIT, RC, PT.
+    * Si el documento no dice qué tipo es, responde null. NO lo deduzcas de que haya razón social ni de la longitud del número.
+- numeroDocumento: el número de documento del comprador (cédula o NIT), tal como aparece. NO tomes el NIT del concesionario emisor.
 - direccion: la dirección del comprador.
 - municipio: el municipio/ciudad del comprador.
 - departamento: el departamento del comprador.
@@ -171,13 +186,18 @@ Campos de ubicación del COMPRADOR / ADQUIRIENTE:
 Campos del DOCUMENTO:
 - numeroFactura: el consecutivo de la factura de venta, tal cual y con su prefijo. Si el prefijo y el consecutivo están impresos separados por un espacio, únelos sin separador ("FV99 1234" → "FV991234"). Lo mismo tras la etiqueta "No." ("No. ZZ 1234" → "ZZ1234"). Si la cabecera dice "N°", es el valor impreso, sin guion. Léelo del contenido del documento, NUNCA del nombre del archivo. NUNCA el número de resolución, la autorización DIAN ni la orden de compra.
 - fechaFactura: la fecha de EMISIÓN de la factura. En algunas plantillas viene como "Expedición" o como "Fecha" junto a "Fecha Vencimiento:". NUNCA la fecha de vencimiento, validación DIAN, recepción, generación, levante, declaración ni orden de compra. Si no identificas con seguridad la de emisión, devuelve null.
+    * AMBIGÜEDAD DE ORDEN DÍA/MES: la mayoría de emisores colombianos escriben día/mes/año, pero algunos (sistemas extranjeros) usan mes/día/año. Si el día de la fecha de emisión es 12 o menor, las dos lecturas (día/mes y mes/día) son fechas válidas y NO puedes saber cuál usó el emisor solo mirando los dígitos de ESE campo.
+    * Antes de responder confianza "alta" para una fecha con día ≤12, busca en el RESTO del documento una confirmación inequívoca del orden que usa ESTE emisor: (a) la misma fecha escrita con el mes en LETRAS en cualquier parte del documento, o (b) otra fecha del documento con día >12 (ahí el orden es forzoso) que demuestre la convención de este emisor.
+    * Si la fecha de emisión aparece impresa en el documento en dos órdenes de dígitos distintos para lo que parece el mismo dato, eso NO es una confirmación: es un emisor que mezcla convenciones y no puedes saber cuál de las dos es la correcta. En ese caso responde valor=null y confianza=null, aunque ambas lecturas sean fechas válidas.
+    * Si el día es 12 o menor y no encuentras ninguna confirmación de las anteriores, NUNCA respondas "alta": responde confianza "baja" (con tu mejor lectura) o null si ni siquiera confías un poco en el valor.
+    * Si el día de la fecha de emisión es 13 o mayor, el orden día/mes es el único posible: no hay ambigüedad y puedes responder "alta" con la confianza habitual.
 - avaluoComercial: el valor del vehículo ANTES de impuestos ("Subtotal Base gravable", "SUB TOTAL", "VALOR ANTES DE IMPUESTOS"), con sus decimales y tal como está impreso. Si la factura trae "Total Bruto", ese valor manda sobre "Subtotal" y "SUB TOTAL", tenga o no "Descuentos": "Total Bruto" NO es el total de la factura. NUNCA el total de la factura, NUNCA un valor con IVA, impuesto al consumo u otros cargos, NUNCA "Total a Pagar" ni la columna "Total" de la fila del producto. Si hay varios productos, es el de la fila del vehículo antes de impuestos y no "Total Bruto"; si no identificas esa fila con seguridad, devuelve null. Un valor impreso en 0 es "0"; si no aparece es null, no lo rellenes con 0.
 
-NO extraigas nombre, documento, correo ni teléfono de nadie.
+NO extraigas correo ni teléfono de nadie.
 Si un dato no aparece o no es legible, devuelve null. NO lo inventes ni lo deduzcas.
 
 Devuelve EXCLUSIVAMENTE este JSON:
-{"vin":{"valor":null,"confianza":null},"marca":{"valor":null,"confianza":null},"linea":{"valor":null,"confianza":null},"anioVehiculo":{"valor":null,"confianza":null},"color":{"valor":null,"confianza":null},"cilindrada":{"valor":null,"confianza":null},"clase":{"valor":null,"confianza":null},"direccion":{"valor":null,"confianza":null},"municipio":{"valor":null,"confianza":null},"departamento":{"valor":null,"confianza":null},"numeroFactura":{"valor":null,"confianza":null},"fechaFactura":{"valor":null,"confianza":null},"avaluoComercial":{"valor":null,"confianza":null}}`;
+{"vin":{"valor":null,"confianza":null},"marca":{"valor":null,"confianza":null},"linea":{"valor":null,"confianza":null},"anioVehiculo":{"valor":null,"confianza":null},"color":{"valor":null,"confianza":null},"cilindrada":{"valor":null,"confianza":null},"clase":{"valor":null,"confianza":null},"nombres":{"valor":null,"confianza":null},"apellidos":{"valor":null,"confianza":null},"razonSocial":{"valor":null,"confianza":null},"tipoDocumento":{"valor":null,"confianza":null},"numeroDocumento":{"valor":null,"confianza":null},"direccion":{"valor":null,"confianza":null},"municipio":{"valor":null,"confianza":null},"departamento":{"valor":null,"confianza":null},"numeroFactura":{"valor":null,"confianza":null},"fechaFactura":{"valor":null,"confianza":null},"avaluoComercial":{"valor":null,"confianza":null}}`;
 
 // ─────────────────────────── Derecho de tránsito (HU #10950) ─────────────────
 // Un solo prompt para TODOS los organismos. Funciona porque la extracción es semántica ("el total a

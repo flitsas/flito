@@ -224,6 +224,15 @@ export type CampoDireccionFacturaVenta =
   | typeof CampoFacturaVenta.DIRECCION | typeof CampoFacturaVenta.MUNICIPIO | typeof CampoFacturaVenta.DEPARTAMENTO;
 
 /**
+ * Identidad del propietario (comprador) que la lectura de Impuestos también persiste (HU #14665),
+ * mismos literales que el canal SOAT (`CampoFacturaVenta`). `nombres`/`apellidos` y `razonSocial`
+ * siguen siendo excluyentes (persona natural vs. jurídica), igual que en el canal SOAT.
+ */
+export type CampoPropietarioFacturaVenta =
+  | typeof CampoFacturaVenta.TIPO_DOCUMENTO | typeof CampoFacturaVenta.NUMERO_DOCUMENTO
+  | typeof CampoFacturaVenta.NOMBRES | typeof CampoFacturaVenta.APELLIDOS | typeof CampoFacturaVenta.RAZON_SOCIAL;
+
+/**
  * Datos del DOCUMENTO que la lectura de Impuestos guarda para el Excel de la cola (HU #14293). Se
  * muestran, no deciden: fuera del semáforo, de la comparación con el RUNT y de la bandeja.
  *
@@ -238,17 +247,26 @@ export const CampoDocumentoFacturaImpuesto = {
 
 export type CampoDocumentoFacturaImpuesto = (typeof CampoDocumentoFacturaImpuesto)[keyof typeof CampoDocumentoFacturaImpuesto];
 
-/** Las 13 claves de la extracción de Impuestos: 7 del vehículo + 3 de dirección + 3 del documento. */
+/**
+ * Las 18 claves de la extracción de Impuestos: 7 del vehículo + 3 de dirección + 3 del documento +
+ * 5 de identidad del propietario (HU #14665).
+ */
 export type CampoExtraccionFacturaImpuesto =
-  | CampoVehiculoFacturaVenta | CampoDireccionFacturaVenta | CampoDocumentoFacturaImpuesto;
+  | CampoVehiculoFacturaVenta | CampoDireccionFacturaVenta | CampoDocumentoFacturaImpuesto
+  | CampoPropietarioFacturaVenta;
 
 /** De dónde salió la extracción de la factura en el análisis post-envío de Impuestos (HU #12826). */
 export type FuenteExtraccionFactura = 'notas_finales' | 'ocr';
 
 /**
  * Lo que persiste `flito_impuestos.extraccion_factura_venta` (HU #12826): los 7 campos vehiculares,
- * los 3 de dirección del adquiriente y, desde la HU #14293, los 3 del documento: siempre las 13 claves
- * en una lectura nueva, más `fuente`. Una lectura anterior a esa HU trae solo las 10 primeras.
+ * los 3 de dirección del adquiriente y, desde la HU #14293, los 3 del documento — 13 claves, más
+ * `fuente`. Una lectura anterior a la HU #14293 trae solo las 10 primeras.
+ *
+ * Los 5 campos de identidad del propietario (HU #14665) SOLO los usa «Certificar sin trámite»
+ * (`sugerirDesdeFactura`); `extraccionCompleta` (análisis post-envío de Impuestos, HU #12826) no los
+ * copia a esta columna — ese flujo sigue sin persistir identidad del propietario, pese a que el tipo
+ * ahora admite 18 claves posibles.
  *
  * Tipo APARTE de `ExtraccionFacturaVenta` (canal SOAT): ninguno de los dos ve las claves del otro.
  * Quien lea el jsonb itera una lista de campos, nunca `Object.values`.
@@ -258,7 +276,29 @@ export type FuenteExtraccionFactura = 'notas_finales' | 'ocr';
  * contra el RUNT: es «no verificable», no «distinto».
  */
 export type ExtraccionFacturaVentaImpuestoCampos = Partial<Record<CampoExtraccionFacturaImpuesto, CampoExtraido>>;
-export type ExtraccionFacturaVentaImpuesto = ExtraccionFacturaVentaImpuestoCampos & { fuente?: FuenteExtraccionFactura };
+
+/** Tipo de movimiento manual sobre número/fecha/avalúo de la factura (HU #14664). */
+export const TipoCambioDocumentoFactura = { CORRECCION: 'correccion', REINTENTO: 'reintento' } as const;
+
+export type TipoCambioDocumentoFactura = (typeof TipoCambioDocumentoFactura)[keyof typeof TipoCambioDocumentoFactura];
+
+/**
+ * El ÚLTIMO movimiento manual sobre número/fecha/avalúo (HU #14664, AC5). Se SOBRESCRIBE en cada
+ * corrección o reintento — no hay historial de movimientos anteriores.
+ */
+export interface UltimoCambioDocumentoFactura {
+  tipo: TipoCambioDocumentoFactura;
+  usuarioId: string;
+  usuarioNombre: string;
+  en: string; // ISO
+  motivo: string;
+}
+
+export type ExtraccionFacturaVentaImpuesto = ExtraccionFacturaVentaImpuestoCampos & {
+  fuente?: FuenteExtraccionFactura;
+  /** HU #14664 (AC5): auditoría de la última corrección o reintento de número/fecha/avalúo. */
+  ultimoCambioDocumento?: UltimoCambioDocumentoFactura;
+};
 export type ExtraccionDerechoTramite = Partial<Record<CampoDerechoTramite, CampoExtraido>>;
 
 export const CAMPO_SOAT_LABEL: Record<CampoSoat, string> = {

@@ -334,14 +334,20 @@ describe('extraerReciboImpuesto — selloPagado (HU #12614, AC1)', () => {
 
 describe('extraerVehiculoFacturaVenta — número, fecha y avalúo (HU #14293)', () => {
   const vacios = Object.fromEntries(
-    ['vin', 'marca', 'linea', 'anioVehiculo', 'color', 'cilindrada', 'clase', 'direccion', 'municipio', 'departamento']
-      .map((c) => [c, { valor: null, confianza: null }]),
+    [
+      'vin', 'marca', 'linea', 'anioVehiculo', 'color', 'cilindrada', 'clase', 'direccion', 'municipio', 'departamento',
+      // Identidad del propietario (HU #14665): en escalación, igual que vin/marca/anioVehiculo abajo.
+      'tipoDocumento', 'numeroDocumento', 'nombres', 'apellidos', 'razonSocial',
+    ].map((c) => [c, { valor: null, confianza: null }]),
   );
-  /** VIN, año y marca en alta: sin escalación, una sola pasada. */
+  /** VIN, año, marca y los 5 campos del propietario en alta: sin escalación, una sola pasada. */
   const conDatos = (datos: Record<string, unknown>) => respuesta({
     ...vacios,
     vin: { valor: '9ABCD1234EF567890', confianza: 'alta' }, anioVehiculo: { valor: '2026', confianza: 'alta' },
-    marca: { valor: 'MARCAX', confianza: 'alta' }, ...datos,
+    marca: { valor: 'MARCAX', confianza: 'alta' },
+    tipoDocumento: { valor: null, confianza: 'alta' }, numeroDocumento: { valor: null, confianza: 'alta' },
+    nombres: { valor: null, confianza: 'alta' }, apellidos: { valor: null, confianza: 'alta' }, razonSocial: { valor: null, confianza: 'alta' },
+    ...datos,
   });
   const alta = (valor: unknown) => ({ valor, confianza: 'alta' });
 
@@ -381,16 +387,24 @@ describe('extraerVehiculoFacturaVenta — número, fecha y avalúo (HU #14293)',
     expect(anthropicMock).toHaveBeenCalledTimes(1);
   });
 
-  it('fallback local: no se le piden, quedan ausentes aunque el documento los traiga, y el resto sigue', async () => {
+  it('fallback local (HU #14663): SÍ se piden ahora y pasan por los normalizadores del parser, tope media', async () => {
     anthropicMock.mockResolvedValueOnce({ ok: false, status: 503, message: 'upstream down' });
-    textoDocumentoMock.mockResolvedValueOnce('FACTURA ZZ1234 FECHA DE VENTA 02/03/2030');
-    camposDesdeTextoMock.mockReturnValueOnce({ vin: { valor: '9ABCD1234EF567890', confianza: 'alta' } });
+    textoDocumentoMock.mockResolvedValueOnce('FACTURA ZZ1234 FECHA DE EMISION 02/03/2030');
+    camposDesdeTextoMock.mockReturnValueOnce({
+      vin: { valor: '9ABCD1234EF567890', confianza: 'alta' },
+      numeroFactura: { valor: 'ZZ1234', confianza: 'media' },
+      fechaFactura: { valor: '02/03/2030', confianza: 'media' },
+      avaluoComercial: { valor: '1,234,567.89', confianza: 'media' },
+    });
     const r = await extraerVehiculoFacturaVenta(doc());
     const pedidos = camposDesdeTextoMock.mock.calls[0][1] as string[];
     for (const c of ['numeroFactura', 'fechaFactura', 'avaluoComercial']) {
-      expect(pedidos, c).not.toContain(c);
-      expect(r[c as 'numeroFactura'], c).toEqual({ valor: null, confianza: 0, confiable: false });
+      expect(pedidos, c).toContain(c);
     }
+    // El motor local nunca reporta 'alta' para estos tres (AC6): 'media' nunca es `confiable` (umbral).
+    expect(r.numeroFactura).toMatchObject({ valor: 'ZZ1234', confiable: false });
+    expect(r.fechaFactura).toMatchObject({ valor: '2030-03-02', confiable: false });
+    expect(r.avaluoComercial).toMatchObject({ valor: '1234567.89', confiable: false });
     expect(pedidos).toContain('vin');
     expect(r.vin).toMatchObject({ valor: '9ABCD1234EF567890', confiable: true });
   });
@@ -421,7 +435,78 @@ describe('extraerVehiculoFacturaVenta — número, fecha y avalúo (HU #14293)',
     expect(p).toMatch(/avaluoComercial:[^\n]*impuesto al consumo/);
     expect(p).toMatch(/avaluoComercial:[^\n]*NUNCA "Total a Pagar" ni la columna "Total" de la fila del producto/);
     expect(p).toContain('"avaluoComercial":{"valor":null,"confianza":null}');
-    expect(p).toContain('NO extraigas nombre, documento, correo ni teléfono');
+    // HU #14665: ahora SÍ se piden nombre/documento del comprador; correo y teléfono siguen fuera.
+    expect(p).toContain('NO extraigas correo ni teléfono');
+    expect(p).not.toContain('NO extraigas nombre, documento, correo ni teléfono');
     expect(p).not.toContain('valorVehiculo');
+  });
+
+  it('el prompt advierte la ambigüedad día/mes de fechaFactura sin asumir un orden por defecto (HU #14663, AC1/AC2/AC4)', () => {
+    const p = PROMPT_FACTURA_VENTA_VEHICULO;
+    expect(p).toMatch(/fechaFactura:[\s\S]*AMBIGÜEDAD DE ORDEN DÍA\/MES/);
+    expect(p).toMatch(/día de la fecha de emisión es 12 o menor[\s\S]*NO puedes saber cuál usó el emisor/);
+    expect(p).toMatch(/mes en LETRAS en cualquier parte del documento/);
+    expect(p).toMatch(/dos órdenes de dígitos distintos[\s\S]*responde valor=null y confianza=null/);
+    expect(p).toMatch(/NUNCA respondas "alta": responde confianza "baja"/);
+    expect(p).toMatch(/día de la fecha de emisión es 13 o mayor, el orden día\/mes es el único posible/);
+  });
+});
+
+describe('extraerVehiculoFacturaVenta — identidad del propietario (HU #14665, AC5)', () => {
+  const alta = (valor: unknown = null) => ({ valor, confianza: 'alta' });
+  // Baseline: TODO en alta (vin/marca/anioVehiculo + los 5 del propietario), para que solo escale lo
+  // que cada test override explícitamente a algo distinto de 'alta'.
+  const vacios = Object.fromEntries(
+    [
+      'vin', 'marca', 'linea', 'anioVehiculo', 'color', 'cilindrada', 'clase', 'direccion', 'municipio', 'departamento',
+      'tipoDocumento', 'numeroDocumento', 'nombres', 'apellidos', 'razonSocial',
+    ].map((c) => [c, alta()]),
+  );
+  const conDatos = (datos: Record<string, unknown>) => respuesta({
+    ...vacios,
+    vin: alta('9ABCD1234EF567890'), anioVehiculo: alta('2026'), marca: alta('MARCAX'),
+    ...datos,
+  });
+
+  it('persona natural: tipo, documento, nombres y apellidos salen con los mismos normalizadores que extraerFacturaVenta', async () => {
+    anthropicMock.mockResolvedValueOnce(conDatos({
+      tipoDocumento: alta('cc'), numeroDocumento: alta('123.456.789'), nombres: alta(' Ana '), apellidos: alta(' Pérez '),
+    }));
+    const r = await extraerVehiculoFacturaVenta(doc());
+    expect(r.tipoDocumento).toMatchObject({ valor: 'CC', confiable: true });
+    expect(r.numeroDocumento).toMatchObject({ valor: '123456789', confiable: true });
+    expect(r.nombres).toMatchObject({ valor: 'Ana', confiable: true });
+    expect(r.apellidos).toMatchObject({ valor: 'Pérez', confiable: true });
+  });
+
+  it('persona jurídica: razón social con los mismos normalizadores', async () => {
+    anthropicMock.mockResolvedValueOnce(conDatos({
+      tipoDocumento: alta('NIT'), numeroDocumento: alta('900.123.456-7'), razonSocial: alta(' Empresa Prueba SAS '),
+    }));
+    const r = await extraerVehiculoFacturaVenta(doc());
+    expect(r.numeroDocumento).toMatchObject({ valor: '900123456-7', confiable: true });
+    expect(r.razonSocial).toMatchObject({ valor: 'Empresa Prueba SAS', confiable: true });
+  });
+
+  it('tipo de documento fuera del catálogo no se inventa: llega vacío', async () => {
+    anthropicMock.mockResolvedValueOnce(conDatos({ tipoDocumento: alta('CEDULA') }));
+    const r = await extraerVehiculoFacturaVenta(doc());
+    expect(r.tipoDocumento).toEqual({ valor: null, confianza: 0, confiable: false });
+  });
+
+  it('un dato dudoso de identidad SÍ escala a Sonnet (son los que decidan a nombre de quién queda la certificación)', async () => {
+    anthropicMock.mockResolvedValueOnce(conDatos({ nombres: { valor: 'Ana', confianza: 'baja' } }));
+    anthropicMock.mockResolvedValueOnce(conDatos({ nombres: alta('Ana') }));
+    const r = await extraerVehiculoFacturaVenta(doc());
+    expect(anthropicMock).toHaveBeenCalledTimes(2);
+    expect(r.nombres).toMatchObject({ valor: 'Ana', confiable: true });
+  });
+
+  it('el prompt pide los cinco campos del comprador con las mismas reglas que PROMPT_FACTURA_VENTA', () => {
+    const p = PROMPT_FACTURA_VENTA_VEHICULO;
+    expect(p).toContain('QUIÉN ES: la persona o empresa que COMPRA el vehículo');
+    expect(p).toMatch(/CRÍTICO \(excluyentes\): o devuelves nombres Y apellidos con razonSocial en null/);
+    expect(p).toContain('"nombres":{"valor":null,"confianza":null}');
+    expect(p).toContain('"tipoDocumento":{"valor":null,"confianza":null}');
   });
 });

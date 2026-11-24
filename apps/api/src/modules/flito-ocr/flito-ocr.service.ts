@@ -558,18 +558,35 @@ export async function extraerFacturaVenta(doc: DocumentoAAnalizar): Promise<Extr
  * persistan la misma forma.
  *
  * HU #14293: número, fecha de emisión y avalúo tienen también los normalizadores del parser, y no
- * escalan: se muestran, no deciden. El fallback local NO los lee: sus patrones de `numeroFactura` y
- * `fechaFactura` son los del canal SOAT, dan confianza alta y no distinguen la fecha de emisión de las
- * demás. Sin motor quedan ausentes.
+ * escalan: se muestran, no deciden.
+ *
+ * HU #14663: el fallback local SÍ los lee (`camposSinLecturaLocal = []`), con tope de confianza
+ * `'media'` —nunca `'alta'`: el motor local no confirma el orden día/mes de la fecha de emisión ni
+ * la fila del producto del avalúo— y solo con etiqueta explícita en el documento (`FECHA DE
+ * EMISIÓN`, `SUBTOTAL BASE GRAVABLE`); sin esa etiqueta el campo queda ausente en vez de tomar por
+ * accidente otra fecha u otro monto del documento.
+ *
+ * HU #14665: además los cinco campos de IDENTIDAD del propietario/comprador (`tipoDocumento`,
+ * `numeroDocumento`, `nombres`, `apellidos`, `razonSocial`), con los MISMOS normalizadores que usa
+ * `extraerFacturaVenta` para esos campos. Entran a `escalacion` por el mismo criterio que allí: son
+ * los que decidan a nombre de quién queda la certificación, y es donde el error caro de esta
+ * plantilla —confundir al comprador con el concesionario emisor— produce un valor plausible y
+ * equivocado. El fallback local no tiene patrón de identidad: sin motor esos cinco quedan ausentes.
  */
 export async function extraerVehiculoFacturaVenta(doc: DocumentoAAnalizar): Promise<ExtraccionFacturaVentaImpuestoCampos> {
   const campos = [
     CampoVehiculoFacturaVenta.VIN, CampoVehiculoFacturaVenta.MARCA, CampoVehiculoFacturaVenta.LINEA, CampoVehiculoFacturaVenta.ANIO_VEHICULO,
     CampoVehiculoFacturaVenta.COLOR, CampoVehiculoFacturaVenta.CILINDRADA, CampoVehiculoFacturaVenta.CLASE,
     CampoFacturaVenta.DIRECCION, CampoFacturaVenta.MUNICIPIO, CampoFacturaVenta.DEPARTAMENTO,
+    CampoFacturaVenta.TIPO_DOCUMENTO, CampoFacturaVenta.NUMERO_DOCUMENTO,
+    CampoFacturaVenta.NOMBRES, CampoFacturaVenta.APELLIDOS, CampoFacturaVenta.RAZON_SOCIAL,
     ...CAMPOS_DOCUMENTO_FACTURA,
   ] as const;
-  const escalacion = [CampoVehiculoFacturaVenta.VIN, CampoVehiculoFacturaVenta.ANIO_VEHICULO, CampoVehiculoFacturaVenta.MARCA];
+  const escalacion = [
+    CampoVehiculoFacturaVenta.VIN, CampoVehiculoFacturaVenta.ANIO_VEHICULO, CampoVehiculoFacturaVenta.MARCA,
+    CampoFacturaVenta.TIPO_DOCUMENTO, CampoFacturaVenta.NUMERO_DOCUMENTO,
+    CampoFacturaVenta.NOMBRES, CampoFacturaVenta.APELLIDOS, CampoFacturaVenta.RAZON_SOCIAL,
+  ];
   const r = await extraer('ocr_vehiculo_factura_venta', doc, PROMPT_FACTURA_VENTA_VEHICULO, campos, escalacion, {
     [CampoDocumentoFacturaImpuesto.NUMERO_FACTURA]: numeroFacturaN,
     [CampoDocumentoFacturaImpuesto.FECHA_FACTURA]: fechaFacturaN,
@@ -584,7 +601,13 @@ export async function extraerVehiculoFacturaVenta(doc: DocumentoAAnalizar): Prom
     [CampoFacturaVenta.DIRECCION]: textoTitularN(300),
     [CampoFacturaVenta.MUNICIPIO]: textoTitularN(100),
     [CampoFacturaVenta.DEPARTAMENTO]: textoTitularN(100),
-  }, CAMPOS_DOCUMENTO_FACTURA);
+    // Mismos normalizadores que `extraerFacturaVenta` para el titular (HU #14665).
+    [CampoFacturaVenta.TIPO_DOCUMENTO]: tipoDocumentoN,
+    [CampoFacturaVenta.NUMERO_DOCUMENTO]: numeroDocumentoN,
+    [CampoFacturaVenta.NOMBRES]: textoTitularN(200),
+    [CampoFacturaVenta.APELLIDOS]: textoTitularN(200),
+    [CampoFacturaVenta.RAZON_SOCIAL]: textoTitularN(200),
+  }, []);
   return r as ExtraccionFacturaVentaImpuestoCampos;
 }
 

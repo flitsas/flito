@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
+import JSZip from 'jszip';
 import { createKeyedDb } from '../helpers/keyed-db.js';
 import { testToken, neutralizarEnlaceDe } from '../helpers/auth.js';
 import { textoDelPdf } from '../helpers/texto-pdf.js';
@@ -112,7 +113,7 @@ beforeEach(() => {
 });
 
 describe('seguridad: token y función', () => {
-  const rutas: [string, 'get' | 'post' | 'patch', string][] = [
+  const rutas: [string, 'get' | 'post' | 'patch' | 'delete', string][] = [
     ['catálogo', 'get', '/catalogo'],
     ['extraer', 'post', '/extraer'],
     ['listado', 'get', ''],
@@ -122,6 +123,9 @@ describe('seguridad: token y función', () => {
     ['consultar', 'post', `/${ID}/consultar`],
     ['detalle', 'get', `/${ID}`],
     ['editar', 'patch', `/${ID}`],
+    ['eliminar', 'delete', `/${ID}`],
+    ['eliminar lote', 'post', '/eliminar-lote'],
+    ['certificados zip', 'post', '/certificados/zip'],
   ];
 
   it.each(rutas)('%s: sin token es 401', async (_n, m, p) => {
@@ -265,18 +269,93 @@ describe('POST crear', () => {
       expect(storage.upload).not.toHaveBeenCalled();
     });
 
-    it.each(['placa', 'vin'] as const)('%s sigue siendo obligatorio', async (campo) => {
-      const r = await crear({ ...datos, [campo]: '' });
+    it('el VIN sigue siendo obligatorio', async () => {
+      const r = await crear({ ...datos, vin: '' });
       expect(r.status).toBe(400);
       expect(storage.upload).not.toHaveBeenCalled();
     });
   });
 
-  it('sin organismo es 400 y no guarda la factura', async () => {
-    const { organismoCodigo: _o, ...sinOrg } = datos;
-    const r = await crear(sinOrg);
-    expect(r.status).toBe(400);
-    expect(storage.upload).not.toHaveBeenCalled();
+  describe('placa opcional (HU #14665: la consulta RUNT ya no depende de la placa)', () => {
+    it('sin placa: 201, guarda null y la respuesta la trae en null', async () => {
+      const valores: Record<string, unknown>[] = [];
+      kdb.insert.mockImplementation(() => {
+        const t: Record<string, unknown> = {};
+        t.values = (v: Record<string, unknown>) => { valores.push(v); return t; };
+        t.returning = () => Promise.resolve([filaBd({ placa: null, placaNorm: null })]);
+        return t;
+      });
+      const { placa: _p, ...sinPlaca } = datos;
+      const r = await crear(sinPlaca);
+      expect(r.status).toBe(201);
+      expect(valores[0]).toMatchObject({ placa: null, placaNorm: null });
+      expect(r.body.placa).toBeNull();
+      expect(storage.upload).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([['vacía', ''], ['con solo espacios', '   ']])('placa %s: guarda null, sin exigir longitud', async (_n, v) => {
+      const valores: Record<string, unknown>[] = [];
+      kdb.insert.mockImplementation(() => {
+        const t: Record<string, unknown> = {};
+        t.values = (v2: Record<string, unknown>) => { valores.push(v2); return t; };
+        t.returning = () => Promise.resolve([filaBd({ placa: null, placaNorm: null })]);
+        return t;
+      });
+      const r = await crear({ ...datos, placa: v });
+      expect(r.status).toBe(201);
+      expect(valores[0]).toMatchObject({ placa: null, placaNorm: null });
+    });
+
+    it('con placa diligenciada, sigue validando 5-10 caracteres tras normalizar', async () => {
+      const r = await crear({ ...datos, placa: 'ab' });
+      expect(r.status).toBe(400);
+      expect(r.body.error).toBe('La placa no es válida');
+      expect(storage.upload).not.toHaveBeenCalled();
+    });
+
+    it('sin placa, el duplicado se decide SOLO por VIN: una placa nula de otro registro no cuenta', async () => {
+      // Otro registro certificado, también sin placa y con un VIN distinto: el bug ingenuo (null === null)
+      // lo reportaría como "placa duplicada" aunque no tenga nada que ver con este.
+      kdb.when.select(FILA, [{ vin: 'OTROVIN00000', placa: null }]);
+      kdb.when.insert(FILA, [filaBd({ placa: null, placaNorm: null })]);
+      const { placa: _p, ...sinPlaca } = datos;
+      const r = await crear(sinPlaca);
+      expect(r.status).toBe(201);
+    });
+
+    it('sin placa, un VIN ya certificado SÍ sigue siendo 409', async () => {
+      kdb.when.select(FILA, [{ vin: '9ZZTEST0000000001', placa: null }]);
+      const { placa: _p, ...sinPlaca } = datos;
+      const r = await crear(sinPlaca);
+      expect(r.status).toBe(409);
+      expect(r.body.error).toBe('Ya existe una certificación para este VIN');
+    });
+  });
+
+  describe('organismo opcional (HU #14665, segundo lote: la Épica #14163 nunca lo pidió)', () => {
+    it('sin organismo: 201, guarda null, no consulta el catálogo y la respuesta trae organismoNombre null', async () => {
+      kdb.when.select(ORG, []); // si se consultara con código null, esto haría fallar con «no existe»
+      const valores: Record<string, unknown>[] = [];
+      kdb.insert.mockImplementation(() => {
+        const t: Record<string, unknown> = {};
+        t.values = (v: Record<string, unknown>) => { valores.push(v); return t; };
+        t.returning = () => Promise.resolve([filaBd({ organismoCodigo: null })]);
+        return t;
+      });
+      const { organismoCodigo: _o, ...sinOrg } = datos;
+      const r = await crear(sinOrg);
+      expect(r.status).toBe(201);
+      expect(valores[0]).toMatchObject({ organismoCodigo: null });
+      expect(r.body.organismoCodigo).toBeNull();
+      expect(r.body.organismoNombre).toBeNull();
+      expect(storage.upload).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([['vacío', ''], ['con solo espacios', '   ']])('organismo %s: guarda null', async (_n, v) => {
+      kdb.when.insert(FILA, [filaBd({ organismoCodigo: null })]);
+      const r = await crear({ ...datos, organismoCodigo: v });
+      expect(r.status).toBe(201);
+    });
   });
 
   it('organismo inexistente es 400', async () => {
@@ -355,8 +434,10 @@ describe('POST /extraer', () => {
     });
     const r = await extraer(PDF);
     expect(r.status).toBe(200);
+    // HU #14665: sin datos del propietario en la extracción, esos tres campos llegan vacíos.
     expect(r.body).toEqual({
-      vin: '9ZZTEST0000000001', marca: 'KIA', linea: 'K3', anio: '2024', color: 'BLANCO', cilindrada: '1598', aviso: null,
+      vin: '9ZZTEST0000000001', marca: 'KIA', linea: 'K3', anio: '2024', color: 'BLANCO', cilindrada: '1598',
+      tipoDocumentoPropietario: '', documentoPropietario: '', nombrePropietario: '', aviso: null,
     });
   });
 
@@ -383,6 +464,33 @@ describe('POST /extraer', () => {
     expect(r.status).toBe(400);
     expect(r.body.error).toBe('La factura de venta debe ser un PDF');
     expect(ocr.extraer).not.toHaveBeenCalled();
+  });
+
+  describe('identidad del propietario (HU #14665, AC5)', () => {
+    const c = (valor: string) => ({ valor, confianza: 0.99, confiable: true });
+
+    it('persona natural: compone el nombre con nombres + apellidos', async () => {
+      ocr.extraer.mockResolvedValue({
+        vin: c('9ZZTEST0000000001'), tipoDocumento: c('CC'), numeroDocumento: c('123456789'),
+        nombres: c('Ana'), apellidos: c('Prueba'), razonSocial: { valor: null, confianza: 0, confiable: false },
+      });
+      const r = await extraer(PDF);
+      expect(r.status).toBe(200);
+      expect(r.body.tipoDocumentoPropietario).toBe('CC');
+      expect(r.body.documentoPropietario).toBe('123456789');
+      expect(r.body.nombrePropietario).toBe('Ana Prueba');
+    });
+
+    it('persona jurídica: usa la razón social y no la compone con nombres/apellidos', async () => {
+      ocr.extraer.mockResolvedValue({
+        vin: c('9ZZTEST0000000001'), tipoDocumento: c('NIT'), numeroDocumento: c('900123456'),
+        nombres: { valor: null, confianza: 0, confiable: false }, apellidos: { valor: null, confianza: 0, confiable: false },
+        razonSocial: c('Empresa Prueba SAS'),
+      });
+      const r = await extraer(PDF);
+      expect(r.status).toBe(200);
+      expect(r.body.nombrePropietario).toBe('Empresa Prueba SAS');
+    });
   });
 });
 
@@ -465,6 +573,23 @@ describe('PATCH editar', () => {
     expect(sets[0]).toMatchObject({ documentoPropietario: null, tipoDocumentoPropietario: null });
   });
 
+  it('quitar el organismo (HU #14665, segundo lote): 200 y guarda null', async () => {
+    kdb.when.selectOnce(FILA, [filaBd()]).select(FILA, []);
+    const sets: Record<string, unknown>[] = [];
+    kdb.update.mockImplementation(() => {
+      const t: Record<string, unknown> = {};
+      t.set = (v: Record<string, unknown>) => { sets.push(v); return t; };
+      t.where = () => t;
+      t.returning = () => Promise.resolve([filaBd({ organismoCodigo: null })]);
+      return t;
+    });
+    const { organismoCodigo: _o, ...sinOrg } = datos;
+    const r = await editar(sinOrg);
+    expect(r.status).toBe(200);
+    expect(sets[0]).toMatchObject({ organismoCodigo: null });
+    expect(r.body.organismoNombre).toBeNull();
+  });
+
   it('documento sin tipo: 400 con el mensaje del campo y el registro no cambia', async () => {
     const { tipoDocumentoPropietario: _t, ...sinTipo } = datos;
     const r = await editar(sinTipo);
@@ -523,7 +648,7 @@ describe('POST /:id/consultar', () => {
     return sets;
   };
 
-  it('con documento consulta por placa y documento, sin VIN, y certifica cuando los seis campos coinciden', async () => {
+  it('consulta SIEMPRE por VIN aunque el registro tenga documento del propietario (HU #14665)', async () => {
     filaSinDuplicado();
     kdb.when.update(FILA, [filaBd({ estado: 'certificado', certificadoEn: new Date('2026-10-30T12:00:00Z'), certificadoPorNombre: 'gestor@flit.io' })]);
     runt.consultar.mockResolvedValue(runtOk());
@@ -532,12 +657,12 @@ describe('POST /:id/consultar', () => {
     expect(r.body.estado).toBe('certificado');
     expect(r.body.certificadoEn).toBe('2026-10-30T12:00:00.000Z');
     expect(runt.consultar).toHaveBeenCalledTimes(1);
-    expect(runt.consultar).toHaveBeenCalledWith('ABC123', undefined, '900123456', 'N');
+    expect(runt.consultar).toHaveBeenCalledWith(undefined, '9ZZTEST0000000001');
     expect(kdb.update).toHaveBeenCalledTimes(1);
   });
 
-  it('sin documento ni nombre consulta solo por VIN y certifica cuando los seis campos coinciden', async () => {
-    filaSinDuplicado({ documentoPropietario: null, nombrePropietario: null });
+  it('sin documento, nombre ni placa: también consulta por VIN y certifica cuando los seis campos coinciden', async () => {
+    filaSinDuplicado({ documentoPropietario: null, nombrePropietario: null, placa: null, placaNorm: null });
     const sets = capturarSets('certificado');
     runt.consultar.mockResolvedValue(runtOk());
     const r = await consultar();
@@ -547,51 +672,18 @@ describe('POST /:id/consultar', () => {
     expect(runt.consultar).toHaveBeenCalledWith(undefined, '9ZZTEST0000000001');
   });
 
-  it('nombre sin documento consulta solo por VIN: decide el documento', async () => {
-    filaSinDuplicado({ documentoPropietario: null });
-    capturarSets('certificado');
-    runt.consultar.mockResolvedValue(runtOk());
-    await consultar();
-    expect(runt.consultar).toHaveBeenCalledTimes(1);
-    expect(runt.consultar).toHaveBeenCalledWith(undefined, '9ZZTEST0000000001');
-  });
-
-  it('documento sin nombre consulta por placa y documento: decide el documento', async () => {
-    filaSinDuplicado({ nombrePropietario: null });
-    capturarSets('certificado');
-    runt.consultar.mockResolvedValue(runtOk());
-    await consultar();
-    expect(runt.consultar).toHaveBeenCalledWith('ABC123', undefined, '900123456', 'N');
-  });
-
-  it.each([
-    ['NIT', 'N'], ['CC', 'C'], ['CE', 'E'], ['TI', 'T'], ['PAS', 'P'], ['PPT', 'Y'], ['RC', 'R'], ['PT', 'PT'],
-  ])('tipo %s del formulario viaja al RUNT como el código %s', async (tipo, codigo) => {
-    filaSinDuplicado({ tipoDocumentoPropietario: tipo });
+  it('un registro sin tipo de documento ya NO bloquea la consulta (antes Bug #14406, ahora reemplazado)', async () => {
+    filaSinDuplicado({ tipoDocumentoPropietario: null });
     capturarSets('certificado');
     runt.consultar.mockResolvedValue(runtOk());
     const r = await consultar();
     expect(r.status).toBe(200);
     expect(runt.consultar).toHaveBeenCalledTimes(1);
-    expect(runt.consultar).toHaveBeenCalledWith('ABC123', undefined, '900123456', codigo);
+    expect(runt.consultar).toHaveBeenCalledWith(undefined, '9ZZTEST0000000001');
   });
 
-  it.each<[string, string | null]>([
-    ['sin tipo (anterior a esta corrección)', null],
-    ['con un tipo que no mapea al RUNT', 'XX'],
-  ])('registro con documento %s: 400 sin enviar nada al RUNT, sin escribir y sin auditar', async (_n, tipo) => {
-    vi.mocked(audit).mockClear();
-    filaSinDuplicado({ tipoDocumentoPropietario: tipo });
-    const r = await consultar();
-    expect(r.status).toBe(400);
-    expect(r.body.error).toBe('Falta el tipo de documento del propietario');
-    expect(runt.consultar).not.toHaveBeenCalled();
-    expect(kdb.update).not.toHaveBeenCalled();
-    expect(audit).not.toHaveBeenCalled();
-  });
-
-  it('registro anterior sin documento ni tipo: sigue consultando por VIN', async () => {
-    filaSinDuplicado({ documentoPropietario: null, tipoDocumentoPropietario: null });
+  it('un tipo de documento que no mapea al RUNT ya tampoco bloquea la consulta', async () => {
+    filaSinDuplicado({ tipoDocumentoPropietario: 'XX' });
     capturarSets('certificado');
     runt.consultar.mockResolvedValue(runtOk());
     const r = await consultar();
@@ -599,19 +691,19 @@ describe('POST /:id/consultar', () => {
     expect(runt.consultar).toHaveBeenCalledWith(undefined, '9ZZTEST0000000001');
   });
 
-  it('un registro ya duplicado responde 409 antes de exigir el tipo', async () => {
+  it('un registro ya duplicado responde 409 sin llamar al RUNT', async () => {
     kdb.when.selectOnce(FILA, [filaBd({ tipoDocumentoPropietario: null })]).select(FILA, [{ vin: '9ZZTEST0000000001', placa: 'OTRA99' }]);
     const r = await consultar();
     expect(r.status).toBe(409);
     expect(runt.consultar).not.toHaveBeenCalled();
   });
 
-  it('el snapshot congela la modalidad usada, porque el PDF se rearma al descargar', async () => {
+  it('el snapshot congela la modalidad usada: desde esta HU siempre "vin", con o sin documento', async () => {
     filaSinDuplicado();
     const conDoc = capturarSets('certificado');
     runt.consultar.mockResolvedValue(runtOk());
     await consultar();
-    expect(conDoc[0]!.snapshot).toMatchObject({ modalidadConsulta: 'placa_documento' });
+    expect(conDoc[0]!.snapshot).toMatchObject({ modalidadConsulta: 'vin' });
 
     filaSinDuplicado({ documentoPropietario: null });
     const sinDoc = capturarSets('certificado');
@@ -619,7 +711,7 @@ describe('POST /:id/consultar', () => {
     expect(sinDoc[0]!.snapshot).toMatchObject({ modalidadConsulta: 'vin' });
   });
 
-  it('rechazo del RUNT con documento: una sola llamada, no cae a VIN, queda sin_vehiculo y no certifica', async () => {
+  it('rechazo del RUNT: una sola llamada por VIN, queda sin_vehiculo y no certifica', async () => {
     filaSinDuplicado();
     const sets = capturarSets('sin_vehiculo');
     runt.consultar.mockResolvedValue({
@@ -629,13 +721,13 @@ describe('POST /:id/consultar', () => {
     expect(r.status).toBe(200);
     expect(r.body.estado).toBe('sin_vehiculo');
     expect(runt.consultar).toHaveBeenCalledTimes(1);
-    expect(runt.consultar).toHaveBeenCalledWith('ABC123', undefined, '900123456', 'N');
+    expect(runt.consultar).toHaveBeenCalledWith(undefined, '9ZZTEST0000000001');
     expect(sets[0]).toMatchObject({ estado: 'sin_vehiculo', comparacion: null });
     expect(sets[0]).not.toHaveProperty('snapshot');
     expect(sets[0]).not.toHaveProperty('certificadoEn');
   });
 
-  it('el RUNT no responde con documento: una sola llamada, no cae a VIN, queda sin_respuesta y no certifica', async () => {
+  it('el RUNT no responde: una sola llamada, queda sin_respuesta y no certifica', async () => {
     filaSinDuplicado();
     const sets = capturarSets('sin_respuesta');
     runt.consultar.mockResolvedValue({ ok: false, message: 'Timeout 90s' });
@@ -645,7 +737,7 @@ describe('POST /:id/consultar', () => {
     expect(sets[0]).not.toHaveProperty('snapshot');
   });
 
-  it('respuesta ok sin vehículo detrás (eco de la placa) con documento: sin_vehiculo, sin caer a VIN ni certificar', async () => {
+  it('respuesta ok sin vehículo detrás (eco de la placa): sin_vehiculo, no certifica', async () => {
     filaSinDuplicado();
     const sets = capturarSets('sin_vehiculo');
     runt.consultar.mockResolvedValue({ ok: true, data: { vehiculo: { placa: 'ABC123', marca: null, linea: null } } });
@@ -656,7 +748,7 @@ describe('POST /:id/consultar', () => {
     expect(sets[0]).not.toHaveProperty('snapshot');
   });
 
-  it('con documento, un VIN del RUNT distinto al diligenciado no certifica (sin_coincidencia)', async () => {
+  it('un VIN del RUNT distinto al diligenciado no certifica (sin_coincidencia)', async () => {
     filaSinDuplicado();
     const sets = capturarSets('sin_coincidencia');
     runt.consultar.mockResolvedValue(runtOk({ vin: 'OTROVIN0000000099' }));
@@ -755,6 +847,18 @@ describe('POST /:id/consultar', () => {
       expect(kdb.update).not.toHaveBeenCalled();
       expect(audit).not.toHaveBeenCalled();
     });
+
+    it('sin placa, una placa nula de OTRO registro no cuenta como duplicado (solo compara por VIN)', async () => {
+      kdb.when.selectOnce(FILA, [filaBd({ placa: null, placaNorm: null })])
+        .select(FILA, [{ vin: 'OTROVIN00000', placa: null }]); // 1.º cargar; luego «sin duplicado» real
+      kdb.when.update(FILA, [filaBd({ estado: 'certificado', placa: null, placaNorm: null })]);
+      runt.consultar.mockResolvedValue(runtOk());
+
+      const r = await consultar();
+
+      expect(r.status).toBe(200);
+      expect(r.body.estado).toBe('certificado');
+    });
   });
 
   it('índice único al certificar: 409 y no certifica', async () => {
@@ -772,13 +876,13 @@ describe('POST /:id/consultar', () => {
     const noEncontrado = { ok: false, message: 'No se encuentra información del vehículo' };
 
     it.each<[string, Record<string, unknown>, unknown, string, string]>([
-      ['con documento que certifica', conDocumento, runtOk(), 'placa_documento', 'certificado'],
-      ['con documento sin coincidencia', conDocumento, runtOk({ marca: 'MAZDA' }), 'placa_documento', 'sin_coincidencia'],
-      ['con documento sin vehículo', conDocumento, noEncontrado, 'placa_documento', 'sin_vehiculo'],
-      ['con documento sin respuesta', conDocumento, timeout, 'placa_documento', 'sin_respuesta'],
+      ['con documento que certifica', conDocumento, runtOk(), 'vin', 'certificado'],
+      ['con documento sin coincidencia', conDocumento, runtOk({ marca: 'MAZDA' }), 'vin', 'sin_coincidencia'],
+      ['con documento sin vehículo', conDocumento, noEncontrado, 'vin', 'sin_vehiculo'],
+      ['con documento sin respuesta', conDocumento, timeout, 'vin', 'sin_respuesta'],
       ['por VIN que certifica', porVin, runtOk(), 'vin', 'certificado'],
       ['por VIN sin respuesta', porVin, timeout, 'vin', 'sin_respuesta'],
-    ])('%s: audita modalidad y estado, sin datos del titular', async (_n, extra, respuestaRunt, modalidad, estado) => {
+    ])('%s: audita modalidad (siempre vin) y estado, sin datos del titular', async (_n, extra, respuestaRunt, modalidad, estado) => {
       vi.mocked(audit).mockClear();
       filaSinDuplicado(extra);
       const sets = capturarSets(estado);
@@ -923,6 +1027,192 @@ describe('GET listado, detalle, factura y certificado', () => {
     expect(t).toContain('Placa (dato de FLITO): ABC123');
     expect(t).toContain('Documento (dato de FLITO): 900123456');
     expect(t).not.toContain('Placa consultada');
+  });
+
+  describe('sin placa (HU #14665)', () => {
+    it('factura sin placa: el nombre del archivo se basa en el VIN', async () => {
+      kdb.when.select(FILA, [filaBd({ placa: null, placaNorm: null })]);
+      storage.stream.mockResolvedValue((async function* () { yield PDF; })());
+      const r = await request(await buildApp()).get(`${BASE}/${ID}/factura`).set('Authorization', await gestor()).buffer(true).parse((res, cb) => {
+        const partes: Buffer[] = []; res.on('data', (c: Buffer) => partes.push(c)); res.on('end', () => cb(null, Buffer.concat(partes)));
+      });
+      expect(r.status).toBe(200);
+      expect(r.headers['content-disposition']).toContain('factura-9ZZTEST0000000001.pdf');
+    });
+
+    it('certificado sin placa: nombre de archivo por VIN y sin línea de placa en el PDF', async () => {
+      const campos = ['vin', 'marca', 'linea', 'anio', 'color', 'cilindrada'].map((campo) => ({
+        campo, resultado: 'coincide', bloqueante: false, valorFactura: 'x', valorRunt: 'x',
+      }));
+      kdb.when.select(FILA, [filaBd({
+        estado: 'certificado', certificadoEn: new Date('2026-10-30T12:00:00Z'), certificadoPorNombre: 'gestor@flit.io',
+        placa: null, placaNorm: null,
+        snapshot: { campos, registroRunt: {}, modalidadConsulta: 'vin' },
+      })]);
+      const r = await request(await buildApp()).get(`${BASE}/${ID}/certificado`).set('Authorization', await gestor()).buffer(true).parse((res, cb) => {
+        const partes: Buffer[] = []; res.on('data', (c: Buffer) => partes.push(c)); res.on('end', () => cb(null, Buffer.concat(partes)));
+      });
+      expect(r.status).toBe(200);
+      expect(r.headers['content-disposition']).toContain('certificado-runt-9ZZTEST0000000001.pdf');
+      const t = await textoDelPdf(r.body as Buffer);
+      expect(t).not.toContain('Placa consultada');
+      expect(t).not.toContain('Placa (dato de FLITO)');
+      expect(t).toContain('VIN consultado: 9ZZTEST0000000001');
+    });
+  });
+});
+
+describe('DELETE /:id (HU #14665, AC6)', () => {
+  const eliminar = async (id = ID) => request(await buildApp()).delete(`${BASE}/${id}`).set('Authorization', await gestor());
+
+  it('registro no certificado: 204, borra la factura y audita la eliminación', async () => {
+    vi.mocked(audit).mockClear();
+    kdb.when.select(FILA, [filaBd({ estado: 'sin_coincidencia' })]);
+    const r = await eliminar();
+    expect(r.status).toBe(204);
+    expect(storage.remove).toHaveBeenCalledWith('impuesto-certificacion-directa/x/factura.pdf');
+    expect(audit).toHaveBeenCalledTimes(1);
+    const [, entrada] = vi.mocked(audit).mock.calls[0]!;
+    expect(entrada).toMatchObject({ action: 'delete', resource: 'flito_impuesto', resourceId: ID });
+    // El detalle nombra columnas del titular, nunca sus valores (regla 6/16 AGENTS.md).
+    for (const dato of ['ABC123', '900123456', '9ZZTEST0000000001', 'Empresa Prueba SAS']) {
+      expect(entrada.detail).not.toContain(dato);
+    }
+  });
+
+  it('registro certificado: 409, no borra el storage y no audita', async () => {
+    vi.mocked(audit).mockClear();
+    kdb.when.select(FILA, [filaBd({ estado: 'certificado' })]);
+    const r = await eliminar();
+    expect(r.status).toBe(409);
+    expect(r.body.error).toBe('Este registro ya está certificado');
+    expect(storage.remove).not.toHaveBeenCalled();
+    expect(audit).not.toHaveBeenCalled();
+  });
+
+  it('registro inexistente: 404', async () => {
+    kdb.when.select(FILA, []);
+    const r = await eliminar();
+    expect(r.status).toBe(404);
+  });
+});
+
+describe('POST /eliminar-lote (HU #14665, AC7)', () => {
+  const eliminarLote = async (ids: string[]) =>
+    request(await buildApp()).post(`${BASE}/eliminar-lote`).set('Authorization', await gestor()).send({ ids });
+
+  const ID2 = '71030cce-1a4c-4fb6-855d-fcc80aadc4ea';
+
+  it('dos registros no certificados: ambos eliminados, ninguno omitido', async () => {
+    kdb.when.select(FILA, [filaBd({ estado: 'radicado' })]);
+    const r = await eliminarLote([ID, ID2]);
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ eliminados: [ID, ID2], omitidos: [] });
+    expect(storage.remove).toHaveBeenCalledTimes(2);
+  });
+
+  it('uno certificado y otro no: el certificado se omite, el lote no se cae', async () => {
+    // El lote procesa los ids EN ORDEN (`for...of` con `await`): el 1.º `cargar` ve el certificado, el 2.º no.
+    kdb.when.selectOnce(FILA, [filaBd({ estado: 'certificado' })]).selectOnce(FILA, [filaBd({ estado: 'radicado' })]);
+    const r = await eliminarLote([ID, ID2]);
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ eliminados: [ID2], omitidos: [ID] });
+  });
+
+  it('cuerpo vacío es 400 y no toca nada', async () => {
+    const r = await eliminarLote([]);
+    expect(r.status).toBe(400);
+    expect(storage.remove).not.toHaveBeenCalled();
+  });
+
+  it('más de 100 ids es 400', async () => {
+    const r = await eliminarLote(Array.from({ length: 101 }, (_v, i) => `71030cce-1a4c-4fb6-855d-${String(i).padStart(12, '0')}`));
+    expect(r.status).toBe(400);
+  });
+});
+
+describe('POST /certificados/zip (HU #14665, AC8)', () => {
+  const ORG_CODE = '11001';
+  const ID2 = '71030cce-1a4c-4fb6-855d-fcc80aadc4ea';
+  // `.responseType('blob')`: la respuesta puede ser un ZIP binario o un JSON de error, y supertest
+  // necesita decidirlo antes de recibir el cuerpo (igual que `flito-impuestos.certificados-zip.routes.test.ts`).
+  const zip = async (ids: string[]) =>
+    request(await buildApp()).post(`${BASE}/certificados/zip`).set('Authorization', await gestor()).responseType('blob').send({ ids });
+  const json = (r: request.Response) => JSON.parse((r.body as Buffer).toString('utf8')) as Record<string, unknown>;
+
+  const filaCertificada = (extra: Record<string, unknown> = {}) => filaBd({
+    estado: 'certificado', certificadoEn: new Date('2026-10-30T12:00:00Z'), certificadoPorNombre: 'gestor@flit.io',
+    snapshot: {
+      campos: ['vin', 'marca', 'linea', 'anio', 'color', 'cilindrada'].map((campo) => ({
+        campo, resultado: 'coincide', bloqueante: false, valorFactura: 'x', valorRunt: 'x',
+      })),
+      registroRunt: {}, modalidadConsulta: 'vin',
+    },
+    ...extra,
+  });
+
+  it('ninguno certificado: 409 con los omitidos y sin ZIP', async () => {
+    kdb.when.select(FILA, [filaBd({ estado: 'radicado' })]);
+    const r = await zip([ID]);
+    expect(r.status).toBe(409);
+    expect(r.headers['content-type']).not.toContain('application/zip');
+    expect(json(r).omitidos).toEqual([{ identificador: ID, causa: 'sin_certificacion_vigente' }]);
+  });
+
+  it('con uno certificado: ZIP con un PDF nombrado por placa', async () => {
+    kdb.when.select(FILA, [filaCertificada()]);
+    kdb.when.select(ORG, [{ codigo: ORG_CODE, alias: 'Bogotá' }]);
+    const r = await zip([ID]);
+    expect(r.status).toBe(200);
+    expect(r.headers['content-type']).toContain('application/zip');
+    expect(r.headers['x-certificados-omitidos']).toBe('0');
+    const leido = await JSZip.loadAsync(r.body as Buffer);
+    expect(Object.keys(leido.files)).toEqual(['ABC123.pdf']);
+  });
+
+  it('con uno certificado sin placa: el PDF se nombra por el VIN', async () => {
+    kdb.when.select(FILA, [filaCertificada({ placa: null, placaNorm: null })]);
+    const r = await zip([ID]);
+    expect(r.status).toBe(200);
+    const leido = await JSZip.loadAsync(r.body as Buffer);
+    expect(Object.keys(leido.files)).toEqual(['9ZZTEST0000000001.pdf']);
+  });
+
+  it('con uno certificado sin organismo: el PDF no afirma un organismo (HU #14665, segundo lote)', async () => {
+    // Sin organismoCodigo no hay consulta a `organismos_transito_config` (lista vacía): si la
+    // resolución de `certificacion-directa-zip.ts` deja de mandar `null` y manda cualquier otro
+    // valor por defecto, el PDF terminaría afirmando un organismo que no existe.
+    kdb.when.select(FILA, [filaCertificada({ organismoCodigo: null })]);
+    const r = await zip([ID]);
+    expect(r.status).toBe(200);
+    const leido = await JSZip.loadAsync(r.body as Buffer);
+    const pdf = await leido.files['ABC123.pdf']!.async('nodebuffer');
+    const t = textoDelPdf(pdf);
+    expect(t).not.toContain('Organismo (dato de FLITO)');
+    expect(t).not.toContain('null');
+    expect(t).toContain('VIN consultado: 9ZZTEST0000000001');
+  });
+
+  it('un id no certificado junto a uno certificado: el ZIP trae solo el certificado y la cabecera cuenta 1', async () => {
+    kdb.when.selectOnce(FILA, [filaCertificada(), filaBd({ id: ID2, estado: 'radicado' })]);
+    const r = await zip([ID, ID2]);
+    expect(r.status).toBe(200);
+    expect(r.headers['x-certificados-omitidos']).toBe('1');
+  });
+
+  it('cuerpo vacío es 400', async () => {
+    const r = await zip([]);
+    expect(r.status).toBe(400);
+  });
+
+  it('registra el acceso PII con las columnas del titular antes de emitir el ZIP', async () => {
+    pii.registrar.mockClear();
+    kdb.when.select(FILA, [filaCertificada()]);
+    const r = await zip([ID]);
+    expect(r.status).toBe(200);
+    expect(pii.registrar).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      accion: 'export', filas: 1, campos: expect.arrayContaining(['placa', 'vin']),
+    }));
   });
 });
 
