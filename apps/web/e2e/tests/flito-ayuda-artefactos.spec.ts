@@ -370,7 +370,9 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     // Feature #14662/HU #14664: sección «Número, fecha y avalúo de la factura» (Corregir/Reintentar
     // lectura, por fuera del semáforo y la certificación) — sin capturas nuevas: la sección queda
     // fuera del encuadre de 05-detalle.png.
-    flito_impuestos: { version: '1.17', fecha: '2026-11-23', diagrama: 'ciclo-impuesto.svg', capturas: [
+    // HU #14665: «Certificar sin trámite» al patrón unificado (cabecera, embudo, búsqueda, columnas) — 1.18,
+    // sin capturas nuevas: la ficha no cita capturas de esa pestaña.
+    flito_impuestos: { version: '1.18', fecha: '2026-11-23', diagrama: 'ciclo-impuesto.svg', capturas: [
       '01-cola.png', '02-seleccion.png', '03-carga-masiva.png', '04-validacion-runt.png', '05-detalle.png'] },
     flito_derechos: { version: '1.5', fecha: '2026-11-17', diagrama: 'canastas-de-carga.svg', capturas: [
       '01-resultado-de-la-carga.png', '02-drive.png', '03-registrados.png'] },

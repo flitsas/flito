@@ -12,7 +12,7 @@ export interface FiltroActivo { id: string; etiqueta: string; quitar: () => void
 
 export default function BarraFiltrosCola<V extends VistaRapida>({
   embudo, refEmbudo, texto, setTexto, placeholder, ariaBuscar, panel, cuentaPanel, aplicados = [],
-  vistas, vista, onVista, hayFiltros, limpiarFiltros,
+  vistas, vista, onVista, hayFiltros, limpiarFiltros, pie,
 }: {
   /** El `EmbudoEstadoCola` del módulo. */
   embudo: ReactNode;
@@ -22,17 +22,21 @@ export default function BarraFiltrosCola<V extends VistaRapida>({
   placeholder: string;
   /** `aria-label` del buscador; por defecto, el placeholder. */
   ariaBuscar?: string;
-  /** Contenido del panel (los grupos Quién · Cuándo · Riesgo del módulo). */
-  panel: ReactNode;
+  /** Contenido del panel (los grupos Quién · Cuándo · Riesgo del módulo). Opcional (HU #14665): sin
+   *  panel no se pinta el botón «Filtros», que abriría un panel vacío. */
+  panel?: ReactNode;
   /** Cuántos filtros del panel están puestos: la burbuja del botón con el panel plegado. */
-  cuentaPanel: number;
+  cuentaPanel?: number;
   /** Chips de lo aplicado, con su ✕ (opcional). */
   aplicados?: FiltroActivo[];
   vistas: V[]; vista: string | null; onVista: (v: V) => void;
   hayFiltros: boolean; limpiarFiltros: () => void;
+  /** Nota al pie de la tarjeta (p. ej. el tope de filas cargadas). Opcional. */
+  pie?: ReactNode;
 }) {
   const [abierto, setAbierto] = useState(false);
   const idPanel = useId();
+  const tienePanel = panel !== undefined && panel !== null;
   return (
     <FlitCard>
       <div className="filtros" data-kit="filtros">
@@ -45,12 +49,14 @@ export default function BarraFiltrosCola<V extends VistaRapida>({
             <input className="control" type="search" placeholder={placeholder} aria-label={ariaBuscar ?? placeholder}
               value={texto} onChange={(e) => setTexto(e.target.value)} />
           </div>
-          <button type="button" className="btn secondary filtros__boton" aria-expanded={abierto} aria-controls={idPanel}
-            onClick={() => setAbierto((a) => !a)}>
-            <Icono nombre="filtro" size={20} />
-            <span className="filtros__texto">Filtros</span>
-            {cuentaPanel > 0 && <span className="filtros__cuenta" aria-label={`${cuentaPanel} activos`}>{cuentaPanel}</span>}
-          </button>
+          {tienePanel && (
+            <button type="button" className="btn secondary filtros__boton" aria-expanded={abierto} aria-controls={idPanel}
+              onClick={() => setAbierto((a) => !a)}>
+              <Icono nombre="filtro" size={20} />
+              <span className="filtros__texto">Filtros</span>
+              {!!cuentaPanel && cuentaPanel > 0 && <span className="filtros__cuenta" aria-label={`${cuentaPanel} activos`}>{cuentaPanel}</span>}
+            </button>
+          )}
           {(hayFiltros || !!texto) && (
             <button type="button" className="btn ghost" onClick={limpiarFiltros}>
               <Icono nombre="cerrar" size={16} />
@@ -85,12 +91,14 @@ export default function BarraFiltrosCola<V extends VistaRapida>({
           </div>
         )}
 
-        {abierto && (
+        {tienePanel && abierto && (
           <div id={idPanel} role="group" aria-label="Filtros"
             className="filtros__panel mt-3 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {panel}
           </div>
         )}
+
+        {pie}
       </div>
     </FlitCard>
   );
