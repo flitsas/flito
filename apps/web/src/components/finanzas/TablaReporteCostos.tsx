@@ -16,8 +16,9 @@ import { cloneElement, Fragment, type CSSProperties, type ReactElement, type Rea
 import { FlitTable, FlitTh, FlitTr } from '../flit/flitPageKit';
 import AccionesFilaReporteCostos from './AccionesFilaReporteCostos';
 import ColumnasReporteCostos, { useColumnasVisibles } from './ColumnasReporteCostos';
-import { GRUPOS, type Columna, type Contexto, type Grupo } from './definicionColumnasReporteCostos';
+import { GRUPOS, LINEA_FIJA, type Columna, type Contexto, type Grupo } from './definicionColumnasReporteCostos';
 import TotalesReporteCostos from './TotalesReporteCostos';
+import type { EstadoTotales } from './useTotalesReporteCostos';
 import type { FacturacionTramite } from './tiposFacturacion';
 import type { Fila, Reporte } from './tiposReporteCostos';
 import type { SiigoEstadoReporte } from '@operaciones/shared-types';
@@ -27,7 +28,7 @@ export type { Columna } from './definicionColumnasReporteCostos';
 /** Anchos de las fijas: el desplazamiento de cada una es la suma de las anteriores. */
 const ANCHO_CASILLA = '2.5rem';
 const ANCHO_TRAMITE = '7rem';
-const BORDE = '1px solid var(--flit-border-input)';
+const BORDE = '1px solid var(--color-border-control)';
 /** Fondo de tarjeta en las fijas: al desplazar, el contenido no se transparenta. */
 const FIJA = 'lg:sticky lg:z-10 bg-flit-card';
 
@@ -47,14 +48,14 @@ function decorar(el: ReactElement, c: Columna, inicioDeGrupo: boolean): ReactEle
     style.left = izquierda;
     if (c.id === 'tramite') { style.minWidth = ANCHO_TRAMITE; style.maxWidth = ANCHO_TRAMITE; }
   }
-  const className = `${d.props.className ?? ''} ${izquierda ? FIJA : ''} ${c.id === 'placa' ? 'lg:shadow-[inset_-1px_0_0_var(--flit-border-input)]' : ''}`;
+  const className = `${d.props.className ?? ''} ${izquierda ? FIJA : ''} ${c.id === 'placa' ? LINEA_FIJA : ''}`;
   return cloneElement(d, { className, style });
 }
 
 export default function TablaReporteCostos({
   data, cargando, puedeLiquidar, puedeReversar, puedeVerServicios, puedeAceptarDiferencia, enProceso, seleccion, onSeleccion, accionable,
   fichasFe, estadoFeDe, onAbrirDetalle, onLiquidar, onFacturar, onReversar, onSoportes, onServicios, onViajes, onAceptarDiferencia, accionEnvio,
-  onPrev, onNext, anunciar,
+  onPrev, onNext, anunciar, totales, onReintentarTotales,
 }: {
   /** `null` solo mientras carga la primera vez. */
   data: Reporte | null;
@@ -80,6 +81,8 @@ export default function TablaReporteCostos({
   onPrev: () => void; onNext: () => void;
   /** La región `role="status"` de la página: el cambio de columnas se anuncia por ahí. */
   anunciar: (texto: string) => void;
+  /** El pie, con su estado propio: llega aparte del listado (Épica #14560). */
+  totales: EstadoTotales; onReintentarTotales: () => void;
 }) {
   const { ids, visibles, alternar, restablecer } = useColumnasVisibles(anunciar);
   // Esqueleto solo sin filas que enseñar (primera carga, o un filtro que venía vacío). Al recargar
@@ -103,10 +106,10 @@ export default function TablaReporteCostos({
 
   const barra = (arriba: boolean) => (
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <span className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+      <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
         {cargando || !data
           ? <span role="status">Cargando trámites…</span>
-          : <><strong style={{ color: 'var(--flit-text-primary)' }}>{data.total.toLocaleString('es-CO')}</strong> trámites · página {data.page} de {totalPaginas}</>}
+          : <><strong style={{ color: 'var(--color-text-primary)' }}>{data.total.toLocaleString('es-CO')}</strong> trámites · página {data.page} de {totalPaginas}</>}
       </span>
       <div className="flex flex-wrap items-center gap-2">
         {arriba && <ColumnasReporteCostos ids={ids} onAlternar={alternar} onRestablecer={restablecer} />}
@@ -122,7 +125,7 @@ export default function TablaReporteCostos({
     <>
       <div className="mb-3">{barra(true)}</div>
       <div className="text-sm" style={varIzq} aria-busy={cargando || undefined}>
-        <FlitTable label="Reporte de costos, detalle">
+        <FlitTable matriz label="Reporte de costos, detalle">
           <thead>
             <tr>
               {puedeLiquidar && (
@@ -135,7 +138,7 @@ export default function TablaReporteCostos({
               )}
               {grupos.map((g) => (
                 <ThGrupo key={g.clave} scope={g.titulo ? 'colgroup' : undefined} colSpan={g.n} title={g.ayuda}
-                  className={g.clave === 'fija' ? 'lg:sticky lg:z-20 lg:shadow-[inset_-1px_0_0_var(--flit-border-input)]' : ''}
+                  className={g.clave === 'fija' ? `lg:sticky lg:z-20 ${LINEA_FIJA}` : ''}
                   style={g.clave === 'fija' ? { left: 'var(--rc-izq)' } : { borderLeft: BORDE }}>
                   {g.titulo}
                 </ThGrupo>
@@ -149,7 +152,7 @@ export default function TablaReporteCostos({
                 const izquierda = izquierdaDe(c.id);
                 return (
                   <FlitTh key={c.id} center={c.center} estrecha
-                    className={`whitespace-nowrap ${izquierda ? 'lg:sticky lg:z-20' : ''} ${c.id === 'placa' ? 'lg:shadow-[inset_-1px_0_0_var(--flit-border-input)]' : ''} ${inicio(i) && c.grupo !== 'fija' ? 'border-l border-[color:var(--flit-border-input)]' : ''} ${c.id === 'tramite' ? 'lg:left-[var(--rc-izq)]' : ''} ${c.id === 'placa' ? 'lg:left-[calc(var(--rc-izq)+7rem)]' : ''}`}>
+                    className={`whitespace-nowrap ${izquierda ? 'lg:sticky lg:z-20' : ''} ${c.id === 'placa' ? LINEA_FIJA : ''} ${inicio(i) && c.grupo !== 'fija' ? 'border-l border-[color:var(--color-border-control)]' : ''} ${c.id === 'tramite' ? 'lg:left-[var(--rc-izq)]' : ''} ${c.id === 'placa' ? 'lg:left-[calc(var(--rc-izq)+7rem)]' : ''}`}>
                     <span title={c.ayuda}>{c.titulo}</span>
                   </FlitTh>
                 );
@@ -158,10 +161,10 @@ export default function TablaReporteCostos({
           </thead>
           <tbody>
             {esqueleto && Array.from({ length: 8 }, (_, k) => (
-              <tr key={`esqueleto-${k}`} aria-hidden="true" className="border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
+              <tr key={`esqueleto-${k}`} aria-hidden="true" className="border-t" style={{ borderColor: 'var(--color-border)' }}>
                 {puedeLiquidar && <td className="px-3 py-3" />}
                 {visibles.map((c) => (
-                  <td key={c.id} className="px-3 py-3"><div className="h-3 w-16 rounded" style={{ background: 'var(--flit-bg-app)' }} /></td>
+                  <td key={c.id} className="px-3 py-3"><div className="kit-esqueleto h-3 w-16" /></td>
                 ))}
                 <td className="px-3 py-3" />
               </tr>
@@ -190,7 +193,7 @@ export default function TablaReporteCostos({
             ))}
           </tbody>
           {!esqueleto && data && (
-            <TotalesReporteCostos columnas={visibles} totales={data.totales} costos={data.totalesCostosProveedor} total={data.total} conCasilla={puedeLiquidar} />
+            <TotalesReporteCostos columnas={visibles} estado={totales} onReintentar={onReintentarTotales} total={data.total} conCasilla={puedeLiquidar} />
           )}
         </FlitTable>
       </div>
@@ -209,8 +212,8 @@ function ThGrupo({ children, scope, colSpan, rowSpan, title, className = '', sty
 }) {
   return (
     <th scope={scope} colSpan={colSpan} rowSpan={rowSpan} title={title}
-      className={`px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap ${className}`}
-      style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)', borderBottom: BORDE, ...style }}>
+      className={`px-3 py-2 text-left text-[13px] font-bold uppercase tracking-[.03em] whitespace-nowrap ${className}`}
+      style={{ background: 'var(--kit-linea)', color: 'var(--color-text-primary)', borderBottom: BORDE, ...style }}>
       {children}
     </th>
   );
@@ -220,8 +223,8 @@ function ThGrupo({ children, scope, colSpan, rowSpan, title, className = '', sty
 function Paginacion({ page, totalPaginas, deshabilitada, onPrev, onNext }: {
   page: number; totalPaginas: number; deshabilitada: boolean; onPrev: () => void; onNext: () => void;
 }) {
-  const btn = 'flit-focus inline-flex h-10 items-center rounded-[999px] border bg-flit-card px-4 text-sm font-semibold transition-colors hover:bg-[var(--flit-bg-hover)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-flit-card';
-  const estilo = { borderColor: 'var(--flit-border-input)', color: 'var(--flit-blue-text)' } as const;
+  const btn = 'flit-focus inline-flex h-10 items-center rounded-[999px] border bg-flit-card px-4 text-sm font-semibold transition-colors hover:bg-[var(--kit-hover)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-flit-card';
+  const estilo = { borderColor: 'var(--color-border-control)', color: 'var(--color-action)' } as const;
   return (
     <div className="flex gap-2">
       <button type="button" className={btn} style={estilo} disabled={deshabilitada || page <= 1} onClick={onPrev}>← Anterior</button>

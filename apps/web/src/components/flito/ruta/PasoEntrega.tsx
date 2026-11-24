@@ -1,7 +1,8 @@
 // FLITO Logística — paso de entrega con firma del receptor (HU #14116).
 // Sustituye el panel (como la recogida #14111). Cédula solo en el estado del componente y el body.
 import { useRef, useState } from 'react';
-import { ChevronLeft } from 'lucide-react';
+import { iconoComo } from '../../flit/kit/iconoComo';
+const ChevronLeft = iconoComo('izquierda');
 import { api, ApiError } from '../../../lib/api';
 import { obtenerUbicacion } from '../../../lib/geo';
 import { esRechazoDeAlcance } from '../../../lib/mensajesLogisticaHttp';
@@ -26,8 +27,8 @@ export interface ActaEntrega {
   trasladoId?: string | null;
 }
 
-const btnCampo = 'w-full rounded-xl px-4 py-3.5 text-base font-semibold text-white disabled:opacity-50';
-const btnCampoStyle = { background: 'var(--flit-gradient-primary)', minHeight: 48 } as const;
+const btnCampo = `${flitBtnPrimary} min-h-12 w-full text-base`;
+const btnCampoStyle = flitBtnPrimaryStyle;
 
 interface Props {
   acta: ActaEntrega;
@@ -141,39 +142,39 @@ function PasoEntregaCliente({ acta, onAtras, onListo }: Props) {
     <section className="space-y-4" aria-labelledby="entrega-titulo">
       <div className="flex items-center gap-2">
         <button type="button" onClick={onAtras} disabled={enviando}
-          className="flit-focus -ml-1 inline-flex items-center gap-1 rounded-lg px-2 py-2 text-sm font-medium transition-colors hover:bg-[var(--flit-bg-hover)] disabled:opacity-50"
-          style={{ color: 'var(--flit-text-secondary)', minHeight: 44 }}>
+          className="flit-focus -ml-1 inline-flex items-center gap-1 rounded-full px-3 py-2 text-sm font-medium transition-colors hover:bg-[var(--kit-hover)] disabled:opacity-50"
+          style={{ color: 'var(--color-text-secondary)', minHeight: 44 }}>
           <ChevronLeft size={18} aria-hidden="true" /> Entregas
         </button>
       </div>
       <div>
-        <h2 id="entrega-titulo" className="text-base font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+        <h2 id="entrega-titulo" className="text-lg font-bold" style={{ color: 'var(--color-action)' }}>
           {acta.companiaNombre ?? 'Empresa'}
         </h2>
         {acta.direccionEntrega && (
-          <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>{acta.direccionEntrega}</p>
+          <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>{acta.direccionEntrega}</p>
         )}
-        <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{total} LT · destino Cliente</p>
+        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{total} LT · destino Cliente</p>
       </div>
 
       <fieldset className="space-y-1" disabled={enviando}>
-        <legend className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>LT de este viaje</legend>
-        <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Marca las que NO entregas. Las demás quedan entregadas.</p>
+        <legend className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>LT de este viaje</legend>
+        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Marca las que NO entregas. Las demás quedan entregadas.</p>
         <ul className="mt-2 space-y-1">
           {acta.documentos.map((d) => {
             const placa = d.placa ?? d.idFlit;
             const marcada = devueltas.has(d.id);
             return (
               <li key={d.id}>
-                <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-[var(--flit-bg-hover)]">
+                <label className="flex min-h-[44px] cursor-pointer items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-[var(--kit-hover)]">
                   <input
                     type="checkbox"
                     checked={marcada}
                     onChange={() => toggle(d.id)}
                     className="h-5 w-5 shrink-0"
-                    style={{ accentColor: 'var(--flit-blue-text)' }}
+                    style={{ accentColor: 'var(--color-action)' }}
                   />
-                  <span className="text-sm tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>
+                  <span className="text-sm tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
                     {placa}{d.numeroLt ? ` · LT ${d.numeroLt}` : ''}
                     <span className="sr-only">. No se entregó {placa}</span>
                   </span>
@@ -182,42 +183,42 @@ function PasoEntregaCliente({ acta, onAtras, onListo }: Props) {
             );
           })}
         </ul>
-        <p role="status" aria-live="polite" className="pt-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p role="status" aria-live="polite" className="pt-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           {todasDevueltas
             ? `Para devolver las ${total} LT usa Devolver el viaje, no esta entrega.`
             : `Se entregarán ${nEnt} de ${total}.${nDev > 0 ? ` ${nDev} se marca${nDev === 1 ? '' : 'n'} como ${nDev === 1 ? 'devuelta' : 'devueltas'}.` : ''}`}
         </p>
       </fieldset>
 
-      <fieldset className="space-y-3 border-t pt-4" style={{ borderColor: 'var(--flit-border-soft)' }} disabled={enviando}>
+      <fieldset className="space-y-3 border-t pt-4" style={{ borderColor: 'var(--color-border)' }} disabled={enviando}>
         <FlitField label="Nombre de quien recibe">
           <input className={flitInp} value={nombre} autoComplete="off" aria-invalid={!!errNombre}
             aria-describedby={errNombre ? 'err-nombre-recibe' : undefined}
             onChange={(e) => setNombre(e.target.value)} />
         </FlitField>
-        {errNombre && <p id="err-nombre-recibe" className="text-xs" style={{ color: 'var(--flit-danger-text)' }}>{errNombre}</p>}
+        {errNombre && <p id="err-nombre-recibe" className="text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>{errNombre}</p>}
         <FlitField label="Cédula de quien recibe">
           <input className={`${flitInp} tabular-nums`} value={cedula} inputMode="numeric" autoComplete="off"
             aria-invalid={!!errCedula} aria-describedby={errCedula ? 'err-cedula-recibe' : undefined}
             onChange={(e) => setCedula(e.target.value.replace(/\D/g, '').slice(0, 12))} />
         </FlitField>
-        {errCedula && <p id="err-cedula-recibe" className="text-xs" style={{ color: 'var(--flit-danger-text)' }}>{errCedula}</p>}
+        {errCedula && <p id="err-cedula-recibe" className="text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>{errCedula}</p>}
         <div>
-          <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Firma de quien recibe</span>
+          <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>Firma de quien recibe</span>
           <div className={enviando ? 'pointer-events-none opacity-60' : ''}>
             <FirmaCanvas onChange={setFirma} label={firma ? 'Firma de quien recibe, capturada' : 'Firma de quien recibe, vacía'} />
           </div>
-          {errFirma && <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-text)' }}>{errFirma}</p>}
+          {errFirma && <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>{errFirma}</p>}
         </div>
-        <label className="block text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>
+        <label className="block text-sm font-semibold" style={{ color: 'var(--color-action)' }}>
           {foto ? 'Foto adjuntada (cambiar)' : 'Adjuntar foto (opcional)'}
           <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={onFoto} />
         </label>
       </fieldset>
 
-      <div className="sticky bottom-3 z-10 lg:bottom-24 space-y-2 rounded-xl p-1" style={{ background: 'var(--flit-bg-app)' }}>
+      <div className="sticky bottom-3 z-10 lg:bottom-24 space-y-2 rounded-xl p-1" style={{ background: 'var(--color-surface)' }}>
         {error && (
-          <div role="alert" className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-danger-text)', background: 'var(--flit-bg-card)' }}>
+          <div role="alert" className="rounded-[9px] border px-3 py-2 text-sm" style={{ borderColor: 'var(--color-border)', color: 'var(--kit-rojo-texto)', background: 'var(--color-surface-elevated)' }}>
             {error}
           </div>
         )}
@@ -296,7 +297,7 @@ export function DevolverViajeModal({ nombre, actaId, trasladoId, onClose, onList
           placeholder="Receptor ausente / rechazó / …" />
       </FlitField>
       {error && (
-        <p role="alert" className="mt-2 text-sm" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>
+        <p role="alert" className="mt-2 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>
       )}
       <div className="mt-4 flex flex-wrap justify-end gap-2">
         <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} disabled={busy} onClick={onClose}>Cancelar</button>

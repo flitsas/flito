@@ -33,18 +33,18 @@ const TIPO_LABEL: Record<string, string> = {
 };
 
 const TIPO_COLOR: Record<string, string> = {
-  creado: 'var(--flit-blue)',
-  documento_subido: 'var(--flit-blue)',
-  mandato_subido: 'var(--flit-blue)',
-  enviado_transito: 'var(--flit-cyan)',
-  recibido_transito: 'var(--flit-cyan)',
-  placa_asignada: 'var(--flit-success)',
-  rechazado_ot: 'var(--flit-danger)',
-  acceso_portal: 'var(--flit-warning)',
-  verify_token_generado: 'var(--flit-text-muted)',
+  creado: 'var(--kit-azul)',
+  documento_subido: 'var(--kit-azul)',
+  mandato_subido: 'var(--kit-azul)',
+  enviado_transito: 'var(--kit-turquesa)',
+  recibido_transito: 'var(--kit-turquesa)',
+  placa_asignada: 'var(--kit-verde)',
+  rechazado_ot: 'var(--kit-rojo)',
+  acceso_portal: 'var(--kit-naranja)',
+  verify_token_generado: 'var(--color-text-tertiary)',
 };
 
-const CARD = 'bg-white rounded-[18px] border border-[color:var(--flit-border-soft)] shadow-[0_8px_24px_rgba(22,39,68,0.08)] p-5';
+const CARD = 'bg-[var(--color-surface-elevated)] rounded-[9px] border border-[color:var(--color-border)] p-5';
 
 function fmt(iso: string): string {
   try { return new Date(iso).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' }); }
@@ -96,8 +96,8 @@ export default function ExpedienteTimeline({ tramiteId }: { tramiteId: number })
     <div className={`${CARD} mt-4`}>
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <h4 className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>Expediente</h4>
-          <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Trazabilidad cronológica e integridad (Res. 17145)</p>
+          <h4 className="text-sm font-bold" style={{ color: 'var(--color-action)' }}>Expediente</h4>
+          <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Trazabilidad cronológica e integridad (Res. 17145)</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -105,7 +105,7 @@ export default function ExpedienteTimeline({ tramiteId }: { tramiteId: number })
             onClick={descargarPdf}
             disabled={pdfLoading || loading}
             className="flit-focus rounded-[999px] px-3.5 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-            style={{ background: 'rgba(79,116,201,0.12)', color: 'var(--flit-blue)' }}
+            style={{ background: 'color-mix(in srgb, var(--kit-azul) 12%, transparent)', color: 'var(--color-action)' }}
           >
             {pdfLoading ? 'Generando…' : 'Descargar expediente PDF'}
           </button>
@@ -114,7 +114,7 @@ export default function ExpedienteTimeline({ tramiteId }: { tramiteId: number })
             onClick={generarQr}
             disabled={qrLoading}
             className="flit-focus rounded-[999px] border px-3.5 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-            style={{ borderColor: 'var(--flit-blue)', color: 'var(--flit-blue)' }}
+            style={{ borderColor: 'var(--kit-azul)', color: 'var(--color-action)' }}
           >
             {qrLoading ? 'Generando…' : 'Generar QR de verificación'}
           </button>
@@ -122,18 +122,18 @@ export default function ExpedienteTimeline({ tramiteId }: { tramiteId: number })
       </div>
 
       {qr && (
-        <div className="mb-4 flex flex-col items-start gap-3 rounded-[12px] p-3 sm:flex-row sm:items-center" style={{ background: 'var(--flit-bg-app)' }}>
-          <img src={qr.qrPng} alt="QR de verificación del expediente" width={120} height={120} className="rounded-[8px] bg-white p-1" />
+        <div className="mb-4 flex flex-col items-start gap-3 rounded-[9px] p-3 sm:flex-row sm:items-center" style={{ background: 'var(--color-surface)' }}>
+          <img src={qr.qrPng} alt="QR de verificación del expediente" width={120} height={120} className="rounded-[9px] bg-[var(--color-surface-elevated)] p-1" />
           <div className="min-w-0">
-            <p className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Verificación pública</p>
-            <p className="mt-0.5 break-all text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{qr.url}</p>
+            <p className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>Verificación pública</p>
+            <p className="mt-0.5 break-all text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{qr.url}</p>
             <div className="mt-2 flex flex-wrap gap-2">
               <button type="button" onClick={() => { navigator.clipboard?.writeText(qr.url); toast.success('Enlace copiado'); }}
-                className="flit-focus rounded-[999px] px-3 py-1 text-[11px] font-bold" style={{ background: 'rgba(79,116,201,0.12)', color: 'var(--flit-blue)' }}>
+                className="flit-focus rounded-[999px] px-3 py-1 text-xs font-bold" style={{ background: 'color-mix(in srgb, var(--kit-azul) 12%, transparent)', color: 'var(--color-action)' }}>
                 Copiar enlace
               </button>
               <a href={qr.qrPng} download={`expediente-${tramiteId}-qr.png`}
-                className="flit-focus rounded-[999px] px-3 py-1 text-[11px] font-bold" style={{ background: 'rgba(112,207,58,0.15)', color: 'var(--flit-success)' }}>
+                className="flit-focus rounded-[999px] px-3 py-1 text-xs font-bold" style={{ background: 'color-mix(in srgb, var(--kit-verde) 15%, transparent)', color: 'var(--kit-verde-texto)' }}>
                 Descargar PNG
               </a>
             </div>
@@ -142,20 +142,20 @@ export default function ExpedienteTimeline({ tramiteId }: { tramiteId: number })
       )}
 
       {loading ? (
-        <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Cargando expediente…</p>
+        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Cargando expediente…</p>
       ) : eventos.length === 0 ? (
-        <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Sin eventos registrados todavía.</p>
+        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Sin eventos registrados todavía.</p>
       ) : (
-        <ol className="relative space-y-3 border-l pl-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
+        <ol className="relative space-y-3 border-l pl-4" style={{ borderColor: 'var(--color-border)' }}>
           {eventos.map((e) => (
             <li key={e.id} className="relative">
-              <span className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full" style={{ background: TIPO_COLOR[e.tipo] || 'var(--flit-text-muted)' }} aria-hidden />
+              <span className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full" style={{ background: TIPO_COLOR[e.tipo] || 'var(--color-text-tertiary)' }} aria-hidden />
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{TIPO_LABEL[e.tipo] || e.tipo}</span>
-                {e.actorRole && <span className="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase" style={{ background: 'rgba(79,116,201,0.10)', color: 'var(--flit-blue)' }}>{e.actorRole}</span>}
+                <span className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>{TIPO_LABEL[e.tipo] || e.tipo}</span>
+                {e.actorRole && <span className="rounded px-1.5 py-0.5 text-xs font-bold uppercase" style={{ background: 'color-mix(in srgb, var(--kit-azul) 10%, transparent)', color: 'var(--color-action)' }}>{e.actorRole}</span>}
               </div>
-              <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{fmt(e.createdAt)}</p>
-              {e.docHash && <p className="mt-0.5 break-all font-mono text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>sha256: {e.docHash.slice(0, 24)}…</p>}
+              <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{fmt(e.createdAt)}</p>
+              {e.docHash && <p className="mt-0.5 break-all font-mono text-xs" style={{ color: 'var(--color-text-tertiary)' }}>sha256: {e.docHash.slice(0, 24)}…</p>}
             </li>
           ))}
         </ol>

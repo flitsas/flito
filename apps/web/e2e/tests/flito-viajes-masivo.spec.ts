@@ -41,7 +41,7 @@ async function abrir(page: Page) {
   await loginAs(page, OPERACIONES_USER);
   await mockBase(page);
   await page.goto('/flito/logistica');
-  await page.getByRole('button', { name: 'Viajes adicionales' }).click();
+  await page.getByRole('tab', { name: 'Viajes adicionales' }).click();
 }
 
 const pegar = async (page: Page, texto: string) => {
@@ -55,8 +55,8 @@ test.describe('FLITO — Logística · registro masivo de viajes adicionales', (
     await loginAs(page, AUDITOR_USER);
     await mockBase(page);
     await page.goto('/flito/logistica');
-    await expect(page.getByRole('button', { name: 'Trámites' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Viajes adicionales' })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: 'Trámites' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Viajes adicionales' })).toHaveCount(0);
   });
 
   test('estado vacío: contador 0/200, siguiente paso y sin primaria', async ({ page }) => {

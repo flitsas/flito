@@ -1,7 +1,7 @@
-// FLITO — Comparendos · Configuración: lo que comparten los bloques de parametrización (HU #11633).
+// FLITO — Comparendos · Configuración: lo que comparten los bloques de parametrización (HU 11633).
 //
 // La vista de Configuración es una pila de tarjetas independientes —NITs, municipios, y en la HU
-// #11634 causales y token—, y «independientes» es la palabra que manda: **cada bloque tiene sus
+// 11634 causales y token—, y «independientes» es la palabra que manda: **cada bloque tiene sus
 // CUATRO estados por su cuenta** (cargando, error con reintento, vacío, lleno). Un 500 del catálogo
 // de municipios no puede dejar en blanco la tabla de NITs que ya había cargado, porque el operador
 // leería eso como que perdió su parametrización.
@@ -25,7 +25,7 @@ import { FlitCard, FlitEmpty, flitBtnSecondary, flitBtnSecondaryStyle } from '..
 /**
  * Raíz del módulo en el API. Todo cuelga de aquí y nadie escribe la URL a mano.
  *
- * **Todo identificador que se interpole detrás va por `encodeURIComponent`** (HU #11652, AC3). Hoy
+ * **Todo identificador que se interpole detrás va por `encodeURIComponent`** (HU 11652, AC3). Hoy
  * los identificadores del módulo son UUID que emite el servidor, así que no hay nada explotable:
  * la regla se sostiene porque el día que uno de esos segmentos deje de ser un UUID —un `codigoFuente`
  * de municipio, un número de comparendo— un `/`, un `?` o un `#` sin codificar dejarían de ser parte
@@ -91,13 +91,13 @@ interface PropsBloque {
   /**
    * Acción principal del bloque. Va SIEMPRE en la cabecera; ver el comentario de `accion`.
    *
-   * `null` para el bloque que no tiene ninguna: el token (HU #11634) se guarda con un botón que vive
+   * `null` para el bloque que no tiene ninguna: el token (HU 11634) se guarda con un botón que vive
    * junto a su campo, y uno arriba, lejos del input, no tendría qué enviar.
    */
   accion: ReactNode;
   estado: EstadoBloque;
   hayItems: boolean;
-  /** Copy del estado de error. Propio, nunca el mensaje del servidor (decisión de la #11559). */
+  /** Copy del estado de error. Propio, nunca el mensaje del servidor (decisión de la 11559). */
   textoError: string;
   /** `aria-label` del esqueleto: «Cargando NITs monitoreados». */
   etiquetaCarga: string;
@@ -105,7 +105,7 @@ interface PropsBloque {
   filasCarga?: number;
   /**
    * Copy del estado vacío. `null` en el bloque que no lo tiene: el token sin configurar es su estado
-   * LLENO sin secreto (HU #11634), no un `FlitEmpty`, y ahí el formulario es justo lo que hace falta.
+   * LLENO sin secreto (HU 11634), no un `FlitEmpty`, y ahí el formulario es justo lo que hace falta.
    */
   vacio: ReactNode;
   onReintentar: () => void;
@@ -135,10 +135,10 @@ export function BloqueConfig({
       <FlitCard>
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 max-w-3xl">
-            <h2 id={idTitulo} className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+            <h2 id={idTitulo} className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
               {titulo}
             </h2>
-            <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{descripcion}</p>
+            <p className="mt-1 text-sm" style={{ color: 'var(--color-text-secondary)' }}>{descripcion}</p>
           </div>
           {accion}
         </div>
@@ -151,9 +151,9 @@ export function BloqueConfig({
           // `role="alert"` como en el visor: el bloque que falla tiene que anunciarse solo, porque
           // quien usa lector de pantalla no va a ir tarjeta por tarjeta comprobando cuál cargó.
           <div role="alert" className="flex flex-wrap items-center justify-between gap-3">
-            {/* `--flit-danger` es color de superficie: como texto de 14px sobre la tarjeta blanca se
-                queda en 4,19. La variante tinta (bug #11604) sube a 5,71 sin dejar de ser rojo. */}
-            <p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{textoError}</p>
+            {/* `--kit-rojo` es color de superficie: como texto de 14px sobre la tarjeta blanca se
+                queda en 4,19. La variante tinta (bug 11604) sube a 5,71 sin dejar de ser rojo. */}
+            <p className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{textoError}</p>
             <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={onReintentar}>
               Reintentar
             </button>
@@ -175,7 +175,7 @@ export function BloqueConfig({
  * bloque está cargando, y con cuatro bloques en la misma vista el nombre es lo único que distingue
  * cuál.
  *
- * `filas` existe porque no todos los bloques traen una tabla: el del token (HU #11634) son tres
+ * `filas` existe porque no todos los bloques traen una tabla: el del token (HU 11634) son tres
  * líneas de ficha, y cuatro barras encogiéndose a tres al llegar los datos es el salto de alto que
  * el esqueleto está para evitar. Se ajusta a lo que viene, no al revés.
  */
@@ -185,10 +185,10 @@ export function EsqueletoBloque({ etiqueta, filas = 4 }: { etiqueta: string; fil
       role="status"
       aria-busy="true"
       aria-label={etiqueta}
-      className="animate-pulse space-y-2 motion-reduce:animate-none"
+      className="space-y-2"
     >
       {Array.from({ length: filas }, (_, fila) => (
-        <div key={fila} className="h-9" style={{ background: 'var(--flit-border-soft)', borderRadius: 8 }} />
+        <div key={fila} className="kit-esqueleto h-9" />
       ))}
     </div>
   );
@@ -222,7 +222,7 @@ export function ChipEstadoConfig({ activo, genero = 'm' }: { activo: boolean; ge
  */
 export function ErrorFormulario({ children }: { children: ReactNode }) {
   return (
-    <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+    <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
       {children}
     </p>
   );

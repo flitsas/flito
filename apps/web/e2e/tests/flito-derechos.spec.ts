@@ -111,9 +111,11 @@ test.describe('FLITO — Derechos de tránsito', () => {
     // cargados; hasta ahora tenía que irse al reporte de costos para averiguarlo.
     await expect(page.getByText('Documentos de FLIT-1001')).toBeVisible();
     await expect(page.getByText('3 documento(s)')).toBeVisible();
-    await expect(page.getByRole('button', { name: /SOAT/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Impuesto/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Derecho de tránsito/ })).toBeVisible();
+    // Cada documento se ancla por su concepto + archivo para no confundirlo con otro botón de la
+    // pantalla o del dock que nombre SOAT o Impuesto.
+    await expect(page.getByRole('button', { name: /^SOAT soat\.pdf/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Impuesto impuesto\.pdf/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Derecho de tránsito derecho\.pdf/ })).toBeVisible();
   });
 
   test('la carga muestra el resultado clasificado por canasta', async ({ page }) => {
@@ -174,6 +176,8 @@ test.describe('FLITO — Derechos de tránsito', () => {
     });
 
     await page.goto('/flito/derechos');
+    // UI Kit 2026: los filtros viven en el panel que abre «Filtros».
+    await page.getByRole('button', { name: /^Filtros/ }).click();
     // El origen se rotula: en la tabla se veía el valor crudo de la columna.
     await page.locator('summary').filter({ hasText: 'Origen' }).click();
     await page.getByRole('checkbox', { name: 'Drive de la secretaría' }).check();
@@ -222,7 +226,7 @@ test.describe('FLITO — Derechos · Drive de la secretaría', () => {
     await mockDrive(page);
 
     await page.goto('/flito/derechos');
-    await page.getByRole('button', { name: /Drive · Medellín/ }).click();
+    await page.getByRole('tab', { name: /Drive · Medellín/ }).click();
 
     await expect(page.getByRole('cell', { name: 'FLIT 18-07-2026.pdf' })).toBeVisible();
     // El ya procesado se marca, pero se puede reprocesar: el organismo puede reemplazar el archivo.
@@ -235,7 +239,7 @@ test.describe('FLITO — Derechos · Drive de la secretaría', () => {
     await mockDrive(page);
 
     await page.goto('/flito/derechos');
-    await page.getByRole('button', { name: /Drive · Medellín/ }).click();
+    await page.getByRole('tab', { name: /Drive · Medellín/ }).click();
     // En una carpeta compartida la fecha sola no es accionable: hay que saber a quién preguntar.
     await expect(page.getByText('por carteraitsmedellin').first()).toBeVisible();
   });
@@ -245,7 +249,7 @@ test.describe('FLITO — Derechos · Drive de la secretaría', () => {
     await mockDrive(page);
 
     await page.goto('/flito/derechos');
-    await page.getByRole('button', { name: /Drive · Medellín/ }).click();
+    await page.getByRole('tab', { name: /Drive · Medellín/ }).click();
     await page.getByRole('button', { name: /Ver el registro/ }).click();
 
     // Es el motivo de que el registro exista: si el organismo borra un consolidado, queda constancia
@@ -274,7 +278,7 @@ test.describe('FLITO — Derechos · Drive de la secretaría', () => {
     });
 
     await page.goto('/flito/derechos');
-    await page.getByRole('button', { name: /Drive · Medellín/ }).click();
+    await page.getByRole('tab', { name: /Drive · Medellín/ }).click();
     await page.getByRole('row').filter({ hasText: 'FLIT 18-07-2026.pdf' }).getByRole('button', { name: 'Procesar' }).click();
 
     await expect.poll(() => pedido).toContain('f1');
@@ -291,11 +295,11 @@ test.describe('FLITO — Derechos · Drive de la secretaría', () => {
       route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'El Drive no está disponible' }) }));
 
     await page.goto('/flito/derechos');
-    await page.getByRole('button', { name: /Drive · Medellín/ }).click();
+    await page.getByRole('tab', { name: /Drive · Medellín/ }).click();
     await expect(page.getByText(/no está disponible/)).toBeVisible();
 
     // La otra pestaña sigue funcionando: un Drive caído no puede tumbar el listado de registrados.
-    await page.getByRole('button', { name: /Registrados/ }).click();
+    await page.getByRole('tab', { name: /Registrados/ }).click();
     await expect(page.getByRole('cell', { name: 'QTP701' })).toBeVisible();
   });
 });

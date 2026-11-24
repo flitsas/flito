@@ -1,4 +1,4 @@
-// FLITO — Comparendos · Configuración: bloque 4, token SIMIT (HU #11634, AC3 y AC4).
+// FLITO — Comparendos · Configuración: bloque 4, token SIMIT (HU 11634, AC3 y AC4).
 //
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 // EL TOKEN ES DE ESCRITURA Y NADA MÁS
@@ -33,7 +33,7 @@
 //      solo en la propiedad del nodo y no se serializa. **No lo vuelvas a hacer controlado**: TC30
 //      lo vigila.
 //   4. **Los errores del servidor no se pintan tal cual.** Se ramifica por `codigo` y por estado, y
-//      el copy es nuestro (misma postura que la #11559). Además de la razón de siempre —el mensaje
+//      el copy es nuestro (misma postura que la 11559). Además de la razón de siempre —el mensaje
 //      del API cambia—, aquí hay otra: cuanto menos se reproduzca de la respuesta, menos posibilidad
 //      hay de que un día se cuele en pantalla algo derivado de la credencial.
 // ══════════════════════════════════════════════════════════════════════════════════════════════
@@ -121,8 +121,8 @@ function mensajeDeGuardado(e: unknown): string {
 function Dato({ etiqueta, children }: { etiqueta: string; children: ReactNode }) {
   return (
     <div className="grid gap-0.5 py-1.5 sm:grid-cols-[13rem_1fr] sm:gap-3">
-      <dt className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{etiqueta}</dt>
-      <dd className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>{children}</dd>
+      <dt className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>{etiqueta}</dt>
+      <dd className="text-sm" style={{ color: 'var(--color-text-primary)' }}>{children}</dd>
     </div>
   );
 }
@@ -200,7 +200,7 @@ export default function TokenSimitComparendos() {
     >
       {meta && (
         <div className="space-y-5">
-          <dl className="max-w-3xl divide-y" style={{ borderColor: 'var(--flit-border-soft)' }}>
+          <dl className="max-w-3xl divide-y" style={{ borderColor: 'var(--color-border)' }}>
             <Dato etiqueta="Estado">
               {/* La etiqueta va DENTRO del chip: el punto de color es decorativo y `aria-hidden`, así
                   que sin texto el estado quedaría dicho solo por el color. */}
@@ -251,7 +251,7 @@ export default function TokenSimitComparendos() {
                 aria-describedby="token-simit-ayuda"
               />
             </FlitField>
-            <p id="token-simit-ayuda" className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p id="token-simit-ayuda" className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
               El valor se borra del campo en cuanto se guarda. No lo pegues en chats ni lo dejes en
               capturas de pantalla.
             </p>

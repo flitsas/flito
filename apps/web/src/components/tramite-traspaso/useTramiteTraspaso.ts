@@ -1,4 +1,4 @@
-// Estado, efectos y acciones del asistente de traspaso (HU #13988: extraído de pages/TramiteTraspaso.tsx).
+// Estado, efectos y acciones del asistente de traspaso (HU 13988: extraído de pages/TramiteTraspaso.tsx).
 // El orden de los hooks y de los efectos es el del componente original: no reordenar.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type FormEvent } from 'react';
@@ -33,7 +33,7 @@ export function useTramiteTraspaso() {
   const [params] = useSearchParams();
   const resumeId = params.get('id');
   const { hasFuncion } = useAuth();
-  // HU #12170: forzar continuidad = función del catálogo; bandeja de tránsito sin forzar = gestor OT.
+  // HU 12170: forzar continuidad = función del catálogo; bandeja de tránsito sin forzar = gestor OT.
   const isAdmin = hasFuncion('tramite.tramite.forzar_continuar');
   const isTransito = hasFuncion('transito.tramite.tomar') && !isAdmin;
 

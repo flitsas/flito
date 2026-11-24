@@ -3,7 +3,8 @@
 // estado de este componente: nunca en URL, consola, localStorage ni estado del router.
 
 import { useMemo, useRef, useState } from 'react';
-import { ChevronLeft } from 'lucide-react';
+import { iconoComo } from '../../flit/kit/iconoComo';
+const ChevronLeft = iconoComo('izquierda');
 import { api } from '../../../lib/api';
 import { obtenerUbicacion } from '../../../lib/geo';
 import FlitModal from '../../flit/FlitModal';
@@ -76,8 +77,8 @@ export default function PasoFirma({ filas, onAtras, onConfirmado, onSinFirma }: 
   if (total === 0) {
     return (
       <section className="space-y-3" aria-labelledby="firma-titulo">
-        <h2 id="firma-titulo" className="text-sm font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Confirmar recogida</h2>
-        <p className="rounded-xl border border-dashed p-6 text-center text-sm" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-muted)' }}>
+        <h2 id="firma-titulo" className="text-sm font-bold uppercase tracking-wide" style={{ color: 'var(--color-text-secondary)' }}>Confirmar recogida</h2>
+        <p className="rounded-xl border border-dashed p-6 text-center text-sm" style={{ borderColor: 'var(--color-border-control)', color: 'var(--color-text-tertiary)' }}>
           Ninguna de las LT escaneadas se puede recoger. Vuelve atrás y escanea otras.
         </p>
         <button type="button" className={`${flitBtnSecondary} w-full justify-center`} style={{ minHeight: 48 }} onClick={onAtras}>Atrás</button>
@@ -89,13 +90,13 @@ export default function PasoFirma({ filas, onAtras, onConfirmado, onSinFirma }: 
     <section className="space-y-4" aria-labelledby="firma-titulo">
       <div className="flex items-center gap-2">
         <button type="button" onClick={onAtras} disabled={enviando}
-          className="flit-focus -ml-1 inline-flex items-center gap-1 rounded-lg px-2 py-2 text-sm font-medium transition-colors hover:bg-[var(--flit-bg-hover)] disabled:opacity-50"
-          style={{ color: 'var(--flit-text-secondary)', minHeight: 44 }}>
+          className="flit-focus -ml-1 inline-flex items-center gap-1 rounded-full px-3 py-2 text-sm font-medium transition-colors hover:bg-[var(--kit-hover)] disabled:opacity-50"
+          style={{ color: 'var(--color-text-secondary)', minHeight: 44 }}>
           <ChevronLeft size={18} aria-hidden="true" /> Atrás
         </button>
-        <h2 id="firma-titulo" className="text-base font-bold" style={{ color: 'var(--flit-blue-text)' }}>Confirmar recogida</h2>
+        <h2 id="firma-titulo" className="text-lg font-bold" style={{ color: 'var(--color-action)' }}>Confirmar recogida</h2>
       </div>
-      <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+      <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
         {resumen}. Se generará 1 acta por compañía con una sola firma{grupos.length > 1 ? `: una firma sirve para las ${grupos.length} actas` : ''}.
       </p>
 
@@ -109,35 +110,35 @@ export default function PasoFirma({ filas, onAtras, onConfirmado, onSinFirma }: 
         )}
       </div>
       {sinOrganismo.length > 0 && (
-        <p role="status" className="rounded-lg border px-3 py-2 text-xs" style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-warning-ink)' }}>
+        <p role="status" className="rounded-[9px] border px-3 py-2 text-xs" style={{ borderColor: 'var(--color-border)', color: 'var(--kit-naranja-texto)' }}>
           {sinOrganismo.length} LT no se incluyen porque no pudimos identificar su organismo. Quítala y vuelve a escanearla, o ingrésala a mano.
         </p>
       )}
 
-      <fieldset className="space-y-3 border-t pt-4" style={{ borderColor: 'var(--flit-border-soft)' }} disabled={enviando}>
-        <legend className="text-[11px] font-bold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>Funcionario del organismo</legend>
+      <fieldset className="space-y-3 border-t pt-4" style={{ borderColor: 'var(--color-border)' }} disabled={enviando}>
+        <legend className="text-[11px] font-bold uppercase tracking-wide" style={{ color: 'var(--color-text-secondary)' }}>Funcionario del organismo</legend>
         <FlitField label="Nombre">
           <input className={flitInp} value={nombre} autoComplete="off" aria-invalid={!!errNombre} aria-describedby={errNombre ? 'err-nombre' : undefined}
             onChange={(e) => setNombre(e.target.value)} />
         </FlitField>
-        {errNombre && <p id="err-nombre" className="text-xs" style={{ color: 'var(--flit-danger-ink)' }}>{errNombre}</p>}
+        {errNombre && <p id="err-nombre" className="text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>{errNombre}</p>}
         <FlitField label="Cédula">
           <input className={`${flitInp} tabular-nums`} value={cedula} inputMode="numeric" autoComplete="off" aria-invalid={!!errCedula}
             aria-describedby={errCedula ? 'err-cedula' : undefined} onChange={(e) => setCedula(e.target.value.replace(/\D/g, '').slice(0, 12))} />
         </FlitField>
-        {errCedula && <p id="err-cedula" className="text-xs" style={{ color: 'var(--flit-danger-ink)' }}>{errCedula}</p>}
+        {errCedula && <p id="err-cedula" className="text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>{errCedula}</p>}
         <div>
-          <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Firma</span>
+          <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>Firma</span>
           <div className={enviando ? 'pointer-events-none opacity-60' : ''}>
             <FirmaCanvas onChange={setFirma} label={firma ? 'Firma del funcionario, capturada' : 'Firma del funcionario, vacía'} />
           </div>
-          {errFirma && <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--flit-danger-ink)' }}>{errFirma}</p>}
+          {errFirma && <p role="alert" className="mt-1 text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>{errFirma}</p>}
         </div>
       </fieldset>
 
-      <div className="sticky bottom-3 z-10 lg:bottom-24 space-y-2 rounded-xl p-1" style={{ background: 'var(--flit-bg-app)' }}>
+      <div className="sticky bottom-3 z-10 lg:bottom-24 space-y-2 rounded-xl p-1" style={{ background: 'var(--color-surface)' }}>
         {error && (
-          <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-danger-ink)', background: 'var(--flit-bg-card)' }}>
+          <div role="alert" className="flex flex-wrap items-center gap-2 rounded-[9px] border px-3 py-2 text-sm" style={{ borderColor: 'var(--color-border)', color: 'var(--kit-rojo-texto)', background: 'var(--color-surface-elevated)' }}>
             <span className="flex-1">{error}</span>
             <button type="button" className={`${flitBtnSecondary} text-xs`} style={{ minHeight: 40 }} onClick={() => void confirmar()}>Reintentar</button>
           </div>
@@ -147,7 +148,7 @@ export default function PasoFirma({ filas, onAtras, onConfirmado, onSinFirma }: 
           {enviando ? 'Confirmando…' : 'Confirmar recogida'}
         </button>
         <button type="button" disabled={enviando} onClick={() => setDialogoSinFirma(true)}
-          className="flit-focus mx-auto block rounded px-2 py-2 text-sm font-medium underline-offset-2 transition-colors hover:underline disabled:opacity-50" style={{ color: 'var(--flit-text-secondary)', minHeight: 40 }}>
+          className="flit-focus mx-auto block rounded px-2 py-2 text-sm font-medium underline-offset-2 transition-colors hover:underline disabled:opacity-50" style={{ color: 'var(--color-text-secondary)', minHeight: 40 }}>
           Confirmar sin firma
         </button>
       </div>
@@ -155,7 +156,7 @@ export default function PasoFirma({ filas, onAtras, onConfirmado, onSinFirma }: 
       {dialogoSinFirma && (
         <FlitModal title="Confirmar sin firma" onClose={() => setDialogoSinFirma(false)}>
           <div className="space-y-4">
-            <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+            <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
               Sin firma la recogida no se confirma: las LT quedan escaneadas con el acta pendiente de firma. Podrás firmarla después desde esta pantalla.
             </p>
             <div className="flex flex-wrap justify-end gap-2">
@@ -171,17 +172,17 @@ export default function PasoFirma({ filas, onAtras, onConfirmado, onSinFirma }: 
 
 function GrupoLt({ titulo, detalle, filas, nota }: { titulo: string; detalle: string; filas: FilaLt[]; nota?: string }) {
   return (
-    <section aria-label={titulo} className="rounded-xl border bg-flit-card p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
+    <section aria-label={titulo} className="rounded-xl border bg-flit-card p-3" style={{ borderColor: 'var(--color-border)' }}>
       <div className="flex items-baseline justify-between gap-2">
-        <h3 className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{titulo}</h3>
-        <span className="shrink-0 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{detalle}</span>
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>{titulo}</h3>
+        <span className="shrink-0 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{detalle}</span>
       </div>
       <ul className="mt-1.5 space-y-0.5 text-sm">
         {filas.map((f) => (
-          <li key={f.key} className="tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>{f.placa} · {f.numeroLt || '—'}</li>
+          <li key={f.key} className="tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>{f.placa} · {f.numeroLt || '—'}</li>
         ))}
       </ul>
-      {nota && <p className="mt-1.5 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{nota}</p>}
+      {nota && <p className="mt-1.5 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{nota}</p>}
     </section>
   );
 }

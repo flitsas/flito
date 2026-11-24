@@ -57,7 +57,7 @@ export default function StepVinRunt({
           onClick={onConsultarVin}
           disabled={vinLoading}
           className={`${FLIT_PRIMARY} disabled:opacity-55`}
-          style={{ background: 'var(--flit-gradient-primary)' }}
+          style={{ background: 'var(--kit-azul-relleno)' }}
         >
           {vinLoading ? 'Consultando...' : 'Consultar RUNT'}
         </button>
@@ -92,7 +92,7 @@ export default function StepVinRunt({
             type="button"
             onClick={onGuardar}
             className={FLIT_PRIMARY}
-            style={{ background: 'var(--flit-gradient-primary)' }}
+            style={{ background: 'var(--kit-azul-relleno)' }}
           >
             Guardar y continuar
           </button>

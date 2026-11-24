@@ -180,11 +180,14 @@ export const OPERACIONES_NACIDAS_EN_EL_ARBOL: ReadonlySet<string> = new Set([
   'bolsas.documentos.cargar', 'bolsas.documentos.ver', ...OPERACIONES_NACIDAS_EN_EL_ARBOL_ADMINISTRACION, ...OPERACIONES_DR_FLIT,
   // Certificación de impuesto sin trámite: la absorbe `accion.impuestos.certificar_sin_tramite` (0274); no se siembra.
   'impuestos.certificacion_directa.gestionar',
+  // Épica #14560 (ADR-0045): la absorbe `accion.tramites.administrar_vistas_columnas` (0305); no se siembra.
+  'tramites.vistas_columnas.administrar',
 ]);
 export const ACCIONES_NACIDAS_TRAS_LA_SIEMBRA: ReadonlySet<string> = new Set([
   'accion.bolsas.cargar_documentos', 'accion.bolsas.ver_documentos', ...ACCIONES_NACIDAS_TRAS_LA_SIEMBRA_ADMINISTRACION,
   ...Object.keys(ACCIONES_DR_FLIT),
   'accion.impuestos.certificar_sin_tramite',
+  'accion.tramites.administrar_vistas_columnas', // Épica #14560 (0305)
 ]);
 
 /** El área de esta HU sobre `OPERACIONES_DECLARADAS` (AC6 de cobertura), por prefijo del código. */

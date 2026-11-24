@@ -90,14 +90,14 @@ test.describe('AC1 y AC4 · pestañas y acciones por función y por enlace', () 
     await entrarProveedor(page, [...FUN_COORDINADOR, ...FUN_CERRADAS]);
     const espias = await mockConsola(page);
     await page.goto('/flito/logistica');
-    const tabs = page.locator('div.flex.flex-wrap.gap-1.border-b button');
+    const tabs = page.getByRole('tablist', { name: 'Secciones de Logística' }).getByRole('tab');
     await expect(tabs).toHaveCount(4);
     for (const nombre of ['Viajes adicionales', 'LT pendientes', 'Motivos de llegada']) {
-      await expect(page.getByRole('button', { name: nombre })).toHaveCount(0);
+      await expect(page.getByRole('tab', { name: nombre })).toHaveCount(0);
     }
     // La doble cerradura alcanza también a la petición: sin pestaña no hay bandeja.
     expect(espias.urls.some((u) => u.includes('pendientes-tramite'))).toBe(false);
-    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('tab', { name: /^Actas/ }).click();
     await expect(page.getByRole('button', { name: /Firmar llegada/ })).toHaveCount(0);
     await expect(page.getByText('A FLIT. Operaciones de FLITO firma la llegada.')).toBeVisible();
     await expect(page.getByRole('button', { name: /Devolver acta de Concesionario Demo Sur/ })).toBeVisible();
@@ -126,7 +126,7 @@ test.describe('AC1 y AC4 · pestañas y acciones por función y por enlace', () 
     await loginAs(page, { ...COORDINADOR, tipoEnlace: 'compania' }, { funciones: [...BASE, ...FUN_COORDINADOR] });
     await mockConsola(page);
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('tab', { name: /^Actas/ }).click();
     await expect(page.getByRole('button', { name: /^Ver acta de Concesionario Demo Norte/ })).toBeVisible();
     await expect(page.getByRole('button', { name: /Firmar y despachar/ })).toHaveCount(0);
   });
@@ -135,7 +135,7 @@ test.describe('AC1 y AC4 · pestañas y acciones por función y por enlace', () 
     await entrarProveedor(page, ['logistica.traslado.registrar', 'logistica.actas.listar']);
     await mockConsola(page);
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Viajes/ }).click();
+    await page.getByRole('tab', { name: /^Viajes/ }).click();
     await expect(page.getByText('Concesionario Demo Norte · 2 LT')).toBeVisible();
   });
 
@@ -149,11 +149,11 @@ test.describe('AC1 y AC4 · pestañas y acciones por función y por enlace', () 
     await page.goto('/flito/logistica');
     await expect(page.getByRole('columnheader', { name: 'Propietario' })).toBeVisible();
     await expect(page.getByText('ANA DEMO PRUEBA')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Viajes adicionales' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Motivos de llegada' })).toBeVisible();
-    await page.getByRole('button', { name: /^Viajes(?! adicionales)/ }).click();
+    await expect(page.getByRole('tab', { name: 'Viajes adicionales' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Motivos de llegada' })).toBeVisible();
+    await page.getByRole('tab', { name: /^Viajes(?! adicionales)/ }).click();
     await expect(page.getByText(/Cliente \$25\.000 por LT/)).toBeVisible();
-    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('tab', { name: /^Actas/ }).click();
     await expect(page.getByRole('columnheader', { name: 'Receptor' })).toBeVisible();
     await expect(page.getByRole('button', { name: /Firmar llegada/ })).toBeVisible();
     await expect(page.getByText('Operaciones de FLITO firma la llegada')).toHaveCount(0);
@@ -187,7 +187,7 @@ test.describe('AC2 · sin precios y sin propietario en listas', () => {
     await mockConsola(page);
     await page.route(/\/api\/flito\/logistica\/actas\/acta-2$/, (r) => r.fulfill(json(ACTA_DETALLE)));
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('tab', { name: /^Actas/ }).click();
     await page.getByRole('button', { name: /Ver acta de Concesionario Demo Sur/ }).click();
     const modal = page.getByRole('dialog', { name: /Acta · / });
     await expect(modal.getByRole('columnheader', { name: 'Placa' })).toBeVisible();
@@ -199,7 +199,7 @@ test.describe('AC2 · sin precios y sin propietario en listas', () => {
     await entrarProveedor(page);
     await mockConsola(page);
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Viajes/ }).click();
+    await page.getByRole('tab', { name: /^Viajes/ }).click();
     const tarjeta = page.getByRole('article');
     await expect(tarjeta.getByRole('heading', { name: 'Concesionario Demo Norte · 2 LT' })).toBeVisible();
     await expect(page.getByText('Elija el destino de cada compañía y registre el viaje.')).toBeVisible();
@@ -219,7 +219,7 @@ test.describe('AC2 · sin precios y sin propietario en listas', () => {
     await entrarProveedor(page);
     await mockConsola(page, { facetas: { ...FACETAS, companiasCerrables: [{ ...COMPANIA, destinos: { cliente: false, flit: false } }] } });
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Viajes/ }).click();
+    await page.getByRole('tab', { name: /^Viajes/ }).click();
     await expect(page.getByText('Este viaje aún no se puede registrar. Avísele a Operaciones de FLITO para que complete la configuración de la compañía.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Registrar viaje' })).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Ir a Tarifas' })).toHaveCount(0);
@@ -230,7 +230,7 @@ test.describe('AC2 · sin precios y sin propietario en listas', () => {
     await mockConsola(page, { facetas: { ...FACETAS, companiasCerrables: [{ ...COMPANIA, destinos: undefined }] } });
     await page.route(/\/api\/flito\/logistica\/traslados$/, (r) => r.fulfill(json({ error: 'crudo interno', codigo: 'PRECIO_TRASLADO_NO_CONFIGURADO' }, 422)));
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Viajes/ }).click();
+    await page.getByRole('tab', { name: /^Viajes/ }).click();
     await page.getByRole('button', { name: 'Registrar viaje' }).click();
     const modal = page.getByRole('dialog', { name: /Registrar viaje a/ });
     await modal.getByRole('button', { name: 'Confirmar viaje' }).click();
@@ -241,7 +241,7 @@ test.describe('AC2 · sin precios y sin propietario en listas', () => {
     await entrarProveedor(page);
     await mockConsola(page, { facetas: { ...FACETAS, companiasCerrables: [{ ...COMPANIA, lts: [{ ...COMPANIA.lts[0], origen: 'flit' }] }] } });
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Viajes/ }).click();
+    await page.getByRole('tab', { name: /^Viajes/ }).click();
     await page.getByRole('button', { name: 'Enviar a cliente' }).click();
     await expect(page.getByRole('dialog', { name: /Enviar a cliente/ })).not.toContainText(SIN_PRECIOS);
   });
@@ -250,7 +250,7 @@ test.describe('AC2 · sin precios y sin propietario en listas', () => {
 test.describe('AC3 · selector de mensajero', () => {
   const abrir = async (page: Page) => {
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('tab', { name: /^Actas/ }).click();
     await page.getByRole('button', { name: /Firmar y despachar acta de Concesionario Demo Norte/ }).click();
     return page.getByRole('dialog', { name: 'Firmar entrega y despachar' });
   };
@@ -389,7 +389,7 @@ test.describe('AC9 · cuatro estados y errores sin crudo', () => {
     let caido = true;
     await page.route(/\/api\/flito\/logistica\/actas$/, (r) => (caido ? r.fulfill(json({ error: 'interno' }, 500)) : r.fulfill(json([]))));
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('tab', { name: /^Actas/ }).click();
     await expect(page.getByRole('alert')).toContainText('No se pudieron cargar las actas. Inténtelo de nuevo.');
     await expect(page.getByText('Aún no hay actas')).toHaveCount(0);
     caido = false;
@@ -413,7 +413,7 @@ test.describe('AC9 · cuatro estados y errores sin crudo', () => {
     await entrarProveedor(page, ['logistica.consola.ver', 'logistica.actas.listar']);
     await mockConsola(page);
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: 'Entregas', exact: true }).click();
+    await page.getByRole('tab', { name: 'Entregas', exact: true }).click();
     await expect(page.getByText('Aún no hay viajes registrados. Cuando los registren, aparecen aquí.')).toBeVisible();
   });
 
@@ -462,7 +462,7 @@ test.describe('AC9 · cuatro estados y errores sin crudo', () => {
     await page.route(/\/api\/flito\/logistica\/actas\/acta-2$/, (r) => r.fulfill(json(ACTA_DETALLE)));
     await page.route(/\/api\/flito\/logistica\/actas\/acta-2\/pdf$/, (r) => r.fulfill(json({ error: 'crudo' }, 500)));
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('tab', { name: /^Actas/ }).click();
     await page.getByRole('button', { name: 'Ver acta de Concesionario Demo Norte', exact: true }).click();
     await expect(page.getByRole('alert')).toContainText('No encontramos esta acta. Revise la lista actualizada.');
     await page.getByRole('button', { name: 'Ver acta de Concesionario Demo Sur', exact: true }).click();
@@ -501,14 +501,14 @@ test.describe('AC7 y AC8 · flujo de la consola con mocks', () => {
     await page.route(/\/api\/flito\/logistica\/traslados\/tv-1\/devolucion$/, (r) => { devolucion = r.request().postDataJSON(); return r.fulfill(json({ ok: true })); });
 
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Viajes/ }).click();
+    await page.getByRole('tab', { name: /^Viajes/ }).click();
     await page.getByRole('button', { name: 'Registrar viaje' }).click();
     await page.getByRole('dialog', { name: /Registrar viaje a/ }).getByRole('button', { name: 'Confirmar viaje' }).click();
     await expect.poll(() => traslados.length).toBe(1);
     expect(traslados[0]).toMatchObject({ companiaId: 5, destino: 'cliente' });
     await expect(page.getByRole('status').filter({ hasText: /Viaje a cliente de Concesionario Demo Norte registrado/ })).not.toContainText(SIN_PRECIOS);
 
-    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('tab', { name: /^Actas/ }).click();
     await page.getByRole('button', { name: /Firmar y despachar acta de Concesionario Demo Norte/ }).click();
     const modal = page.getByRole('dialog', { name: 'Firmar entrega y despachar' });
     await modal.getByRole('combobox').selectOption('1');
@@ -532,7 +532,7 @@ test.describe('AC7 y AC8 · flujo de la consola con mocks', () => {
     let cuerpo: unknown = null;
     await page.route(/\/api\/flito\/logistica\/traslados\/tv-1\/devolucion$/, (r) => { cuerpo = r.request().postDataJSON(); return r.fulfill(json({ ok: true })); });
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('tab', { name: /^Actas/ }).click();
     await page.getByRole('button', { name: /Devolver acta de Concesionario Demo Sur/ }).click();
     const dev = page.getByRole('dialog', { name: 'Registrar devolución' });
     await dev.getByLabel('Motivo (obligatorio)').fill('Receptor ausente');
@@ -548,7 +548,7 @@ test.describe('AC7 y AC8 · flujo de la consola con mocks', () => {
     await page.route(/\/api\/flito\/logistica\/actas\/acta-vieja\/mensajeros$/, (r) => r.fulfill(json([{ id: 3, nombre: 'Laura Demo', grupo: 'flito' }])));
     await page.route(/\/api\/flito\/logistica\/actas\/acta-vieja\/despachar$/, (r) => { despacho = r.request().postDataJSON(); return r.fulfill(json({ documentos: 2 })); });
     await page.goto('/flito/logistica');
-    await page.getByRole('button', { name: /^Actas/ }).click();
+    await page.getByRole('tab', { name: /^Actas/ }).click();
     await page.getByRole('button', { name: /Firmar y despachar acta de Concesionario Demo Centro/ }).click();
     const modal = page.getByRole('dialog', { name: 'Firmar entrega y despachar' });
     await modal.getByRole('combobox').selectOption('3');

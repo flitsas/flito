@@ -4,7 +4,7 @@
     "@typescript-eslint/no-explicit-any": 1389,
     "@typescript-eslint/no-namespace": 1,
     "@typescript-eslint/no-unused-expressions": 3,
-    "@typescript-eslint/no-unused-vars": 157,
+    "@typescript-eslint/no-unused-vars": 150,
     "no-control-regex": 4,
     "no-irregular-whitespace": 5,
     "no-useless-assignment": 10,

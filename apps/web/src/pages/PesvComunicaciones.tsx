@@ -5,16 +5,15 @@ import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import StatusChip from '../components/flit/StatusChip';
 import FlitModal from '../components/flit/FlitModal';
+import { FlitCard, flitInp } from '../components/flit/flitPageKit';
+import { EstadoVista } from '../components/flit/Cargador';
 
 type Tipo = 'politica' | 'lecciones_aprendidas' | 'capacitacion' | 'recordatorio' | 'otro';
 interface Com { id: number; tipo: Tipo; asunto: string; cuerpoMd: string; destinatariosRoles: string[]; publicadoAt: string | null; vencimientoAcuse: string | null; acusesCount: number; createdAt: string; }
 interface ComBody { tipo: Tipo; asunto: string; cuerpoMd: string; destinatariosRoles: string[]; vencimientoAcuse?: string; }
 
 const TIPOS: Tipo[] = ['politica', 'lecciones_aprendidas', 'capacitacion', 'recordatorio', 'otro'];
-const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
-const cancelBtn = 'flit-focus inline-flex h-10 items-center rounded-[999px] border bg-white px-4 text-sm font-medium';
-const ghostBtn = 'flit-focus inline-flex h-8 items-center rounded-[999px] border bg-white px-2 text-xs font-medium';
+const inputCls = flitInp;
 
 export default function PesvComunicaciones() {
   const [items, setItems] = useState<Com[]>([]);
@@ -69,44 +68,47 @@ export default function PesvComunicaciones() {
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard
+        icono="flito-pesv"
+        miga={[{ etiqueta: 'Cumplimiento' }, { etiqueta: 'PESV', to: '/pesv' }]}
         title="Comunicaciones internas"
         subtitle="Publicación con acuse de recibo · Pasos 1.8 + 24"
         actions={<GradientButton type="button" onClick={() => setShowCreate(true)}>Nueva comunicación</GradientButton>}
       />
 
+      <EstadoVista status={items.length === 0 ? 'empty' : 'ready'} emptyMessage="Sin comunicaciones">
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {items.length === 0 && <div className="bg-white p-8 text-center text-sm lg:col-span-2" style={{ ...CARD, color: 'var(--flit-text-muted)' }}>Sin comunicaciones</div>}
         {items.map((c) => (
-          <div key={c.id} className="bg-white p-6" style={CARD}>
-            <div className="mb-2 flex items-start justify-between">
-              <div>
-                <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>{c.tipo.replace(/_/g, ' ')}</span>
-                <h3 className="mt-1 text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{c.asunto}</h3>
+          <FlitCard key={c.id} className="!mt-0">
+            <div className="mb-2 flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-[color:var(--color-text-tertiary)]">{c.tipo.replace(/_/g, ' ')}</span>
+                <h3 className="mt-1 text-sm font-semibold text-[color:var(--color-text-primary)]">{c.asunto}</h3>
               </div>
               <StatusChip tone={c.publicadoAt ? 'success' : 'neutral'}>{c.publicadoAt ? 'Publicada' : 'Borrador'}</StatusChip>
             </div>
             {c.destinatariosRoles.length > 0 && (
               <div className="mb-2 flex flex-wrap gap-1">
-                {c.destinatariosRoles.map((r) => <span key={r} className="inline-flex items-center rounded-[999px] px-2 py-0.5 text-[10px] font-medium" style={{ color: 'var(--flit-blue)', background: 'rgba(79,116,201,0.12)' }}>{r}</span>)}
+                {c.destinatariosRoles.map((r) => <span key={r} className="inline-flex items-center rounded-full border border-[color:var(--color-border)] bg-[var(--kit-hover)] px-2 py-0.5 text-[10px] font-medium text-[color:var(--color-action)]">{r}</span>)}
               </div>
             )}
-            <div className="mt-4 flex items-center justify-between border-t pt-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-              <span className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{c.acusesCount} acuses{c.vencimientoAcuse ? ` · vence ${c.vencimientoAcuse}` : ''}</span>
-              <div className="flex gap-1">
-                <button onClick={() => setSelected(c)} className={ghostBtn} style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>Ver</button>
-                {!c.publicadoAt && <button onClick={() => publicar(c.id)} className="flit-focus inline-flex h-8 items-center rounded-[999px] px-2 text-xs font-semibold text-white" style={{ background: 'var(--flit-gradient-primary)' }}>Publicar</button>}
-                {c.publicadoAt && <button onClick={() => acusar(c.id)} className="flit-focus inline-flex h-8 items-center rounded-[999px] px-2 text-xs font-semibold text-white" style={{ background: 'var(--flit-gradient-success)' }}>Acusar</button>}
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[color:var(--color-border)] pt-3">
+              <span className="text-xs text-[color:var(--color-text-secondary)]">{c.acusesCount} acuses{c.vencimientoAcuse ? ` · vence ${c.vencimientoAcuse}` : ''}</span>
+              <div className="flex flex-wrap gap-1">
+                <GradientButton type="button" variant="secondary" size="sm" onClick={() => setSelected(c)}>Ver</GradientButton>
+                {!c.publicadoAt && <GradientButton type="button" size="sm" onClick={() => publicar(c.id)}>Publicar</GradientButton>}
+                {c.publicadoAt && <GradientButton type="button" variant="success" size="sm" onClick={() => acusar(c.id)}>Acusar</GradientButton>}
               </div>
             </div>
-          </div>
+          </FlitCard>
         ))}
       </div>
+      </EstadoVista>
 
       {selected && (
         <FlitModal title={selected.asunto} onClose={() => setSelected(null)}>
-          <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>{selected.tipo.replace(/_/g, ' ')}</span>
-          <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded-[10px] p-4 text-xs" style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-text-primary)' }}>{selected.cuerpoMd}</pre>
-          <p className="mt-3 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>Creada {selected.createdAt.slice(0, 10)}{selected.publicadoAt ? ` · publicada ${selected.publicadoAt.slice(0, 10)}` : ''}</p>
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-[color:var(--color-text-tertiary)]">{selected.tipo.replace(/_/g, ' ')}</span>
+          <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded-[9px] bg-[var(--color-surface)] p-4 text-xs text-[color:var(--color-text-primary)]">{selected.cuerpoMd}</pre>
+          <p className="mt-3 text-[10px] text-[color:var(--color-text-tertiary)]">Creada {selected.createdAt.slice(0, 10)}{selected.publicadoAt ? ` · publicada ${selected.publicadoAt.slice(0, 10)}` : ''}</p>
         </FlitModal>
       )}
 
@@ -119,19 +121,18 @@ export default function PesvComunicaciones() {
             <input placeholder="Asunto (≥3 chars)" value={form.asunto} onChange={(e) => setForm({ ...form, asunto: e.target.value })} className={inputCls} />
             <textarea placeholder="Cuerpo en markdown (≥20 chars)" value={form.cuerpoMd} onChange={(e) => setForm({ ...form, cuerpoMd: e.target.value })} rows={6} className={`${inputCls} font-mono text-xs`} />
             <div>
-              <p className="mb-2 text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Roles destinatarios (vacío = todos)</p>
+              <p className="mb-2 text-xs font-semibold text-[color:var(--color-text-primary)]">Roles destinatarios (vacío = todos)</p>
               <div className="flex flex-wrap gap-1">
                 {['conductor', 'supervisor_flota', 'lider_pesv', 'admin'].map((r) => (
                   <button key={r} type="button" onClick={() => toggleRol(r)}
-                    className="flit-focus inline-flex h-8 items-center rounded-[999px] px-3 text-xs font-medium"
-                    style={form.destinatariosRoles.includes(r) ? { background: 'var(--flit-gradient-primary)', color: '#fff' } : { border: '1px solid var(--flit-border-input)', background: '#fff', color: 'var(--flit-text-secondary)' }}>{r.replace(/_/g, ' ')}</button>
+                    className={`flit-focus inline-flex h-8 items-center rounded-full border px-3 text-xs font-medium transition-colors ${form.destinatariosRoles.includes(r) ? 'border-[color:var(--kit-azul-relleno)] bg-[var(--kit-azul-relleno)] text-white' : 'border-[color:var(--color-border-control)] bg-[var(--color-surface-elevated)] text-[color:var(--color-text-secondary)] hover:border-[color:var(--kit-azul)] hover:text-[color:var(--color-action)]'}`}>{r.replace(/_/g, ' ')}</button>
                 ))}
               </div>
             </div>
             <input type="date" placeholder="Vencimiento acuse (opt)" value={form.vencimientoAcuse} onChange={(e) => setForm({ ...form, vencimientoAcuse: e.target.value })} className={inputCls} />
           </div>
-          <div className="mt-6 flex justify-end gap-2">
-            <button onClick={() => setShowCreate(false)} className={cancelBtn} style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>Cancelar</button>
+          <div className="mt-6 flex flex-wrap justify-end gap-2">
+            <GradientButton type="button" variant="secondary" onClick={() => setShowCreate(false)}>Cancelar</GradientButton>
             <GradientButton type="button" onClick={create}>Crear</GradientButton>
           </div>
         </FlitModal>

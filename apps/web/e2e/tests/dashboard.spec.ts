@@ -16,7 +16,9 @@ async function mockTablero(page: import('@playwright/test').Page) {
   // Dashboard.tsx dispara fetch de /soat/stats, /fleet, /rndc para admin aunque luego renderice
   // <FlitoTablero>; sin mock responderían 401 → SESSION_ENDED → logout. Catch-all vacío + tablero válido.
   await page.route('**/api/**', (route) => {
-    if (route.request().url().includes('/auth/me')) return route.fallback();
+    // `/permisos/mios` también lo responde `loginAs`: sin el fallback el catch-all lo tapa con `[]`,
+    // la sesión queda sin `tablero.tablero.ver` y la home cae al panel operativo.
+    if (/\/auth\/me|\/permisos\/mios$/.test(route.request().url())) return route.fallback();
     return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
   });
   await page.route('**/api/flito/tablero', (route) =>

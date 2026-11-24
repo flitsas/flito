@@ -109,7 +109,7 @@ test.describe('FLITO — Logística · línea de tiempo (HU #14126)', () => {
     await expect(reciente).not.toContainText('No Debe Verse');
     await expect(reciente).not.toContainText('sede-oculta');
     const motivo = reciente.getByText('Recibida en ventanilla');
-    await expect(motivo).toHaveAttribute('style', /--flit-text-muted/);
+    await expect(motivo).toHaveAttribute('style', /--color-text-tertiary/);
 
     const fechaLlegada = await fechaEnPagina(page, ISO_LLEGADA);
     const cajaRotulo = await reciente.getByText('Llegada a FLIT').boundingBox();

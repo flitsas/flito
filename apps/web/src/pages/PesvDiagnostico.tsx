@@ -1,7 +1,6 @@
 // PESV Auto-diagnóstico PHVA · Workspace líder + listado anualidades.
-// Capa visual FLIT (Fase 6A). Estructura/paneles/rúbrica, roles y aria-labels
-// conservados (E2E pesv-diagnostico-*). Modales/drawer viven en components/pesv/*
-// y NO se tocan en 6A.
+// UI Kit 2026 (Épica #14560, S5): molde M-DETALLE + M-MODAL. Estructura/paneles/rúbrica, roles y aria-labels
+// conservados (E2E pesv-diagnostico-*). Modales/drawer viven en components/pesv/*.
 //
 // Contratos zod en `apps/api/src/modules/pesv/diagnostico.schemas.ts`. Las columnas
 // numeric llegan como string (driver postgres-js).
@@ -21,6 +20,8 @@ import {
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import StatusChip from '../components/flit/StatusChip';
+import { ErrorVista } from '../components/flit/Cargador';
+import type { PasoMiga } from '../components/flit/Miga';
 import type {
   FasePhva, NivelEmpresa, NivelRubrica, PreflightResponse,
 } from '../types/pesv';
@@ -48,9 +49,9 @@ interface HistorialEntry { createdAt: string; userId: number | null; action: str
 const FASES: FasePhva[] = ['planear', 'hacer', 'verificar', 'actuar'];
 const FASE_LABEL: Record<FasePhva, string> = { planear: 'Planear', hacer: 'Hacer', verificar: 'Verificar', actuar: 'Actuar' };
 
-// Input de búsqueda FLIT (local; no toca el inputCls compartido de components/pesv).
-const searchCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white py-2.5 pl-9 pr-4 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
+// Tarjeta del kit: borde, radio 9, sin sombra.
+const CARD = 'rounded-[9px] border border-[color:var(--color-border)] bg-[color:var(--color-surface-elevated)]';
+const MIGA_PESV: PasoMiga[] = [{ etiqueta: 'Cumplimiento' }, { etiqueta: 'PESV', to: '/pesv' }];
 
 // Página raíz: decide lista vs detalle según params ──────────────────────
 export default function PesvDiagnostico() {
@@ -85,6 +86,8 @@ function ListaDiagnosticos() {
       <PageHeaderCard
         title="Diagnóstico PESV"
         subtitle="Auto-evaluación PHVA con evidencia documental ante MinTransporte, SuperTransporte y ONAC."
+        icono="flito-pesv"
+        miga={MIGA_PESV}
         actions={
           <GradientButton type="button" onClick={() => setShowCreate(true)} aria-label="Crear nuevo diagnóstico">
             Nuevo diagnóstico
@@ -112,36 +115,36 @@ function TarjetaAnualidad({ diag, prev, onOpen }: { diag: DiagRow; prev: DiagRow
   const score = parseFloat(diag.scoreGlobal);
   const prevScore = prev ? parseFloat(prev.scoreGlobal) : null;
   const delta = prevScore !== null ? score - prevScore : null;
-  const tone = score >= 80 ? 'var(--flit-success)' : score >= 60 ? 'var(--flit-warning)' : 'var(--flit-danger)';
+  const tone = score >= 80 ? 'text-[color:var(--kit-verde-texto)]' : score >= 60 ? 'text-[color:var(--kit-naranja-texto)]' : 'text-[color:var(--kit-rojo-texto)]';
   const relativeEdit = diag.updatedAt ? relativeTime(diag.updatedAt) : null;
 
   return (
-    <button onClick={onOpen} className="flit-focus bg-white p-5 text-left transition-shadow hover:shadow-[0_12px_30px_rgba(22,39,68,0.12)]" style={CARD}>
+    <button onClick={onOpen} className={`${CARD} flit-focus p-5 text-left transition-colors hover:border-[color:var(--kit-azul)] hover:bg-[color:var(--kit-hover)]`}>
       <div className="mb-3 flex items-start justify-between">
-        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--flit-text-muted)' }}>Año {diag.anio}</span>
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-[color:var(--color-text-tertiary)]">Año {diag.anio}</span>
         <StatusChip tone={diag.estado === 'cerrado' ? 'success' : 'active'}>{diag.estado}</StatusChip>
       </div>
       <div className="flex items-baseline gap-2">
-        <div className="text-3xl font-bold" style={{ color: tone }}>{score.toFixed(1)}<span className="text-base font-normal" style={{ color: 'var(--flit-text-muted)' }}>%</span></div>
+        <div className={`text-3xl font-bold tabular-nums ${tone}`}>{score.toFixed(1)}<span className="text-base font-normal text-[color:var(--color-text-tertiary)]">%</span></div>
         {delta !== null && delta !== 0 && (
-          <span className="text-xs font-semibold" style={{ color: delta > 0 ? 'var(--flit-success)' : 'var(--flit-danger)' }}>{delta > 0 ? '+' : ''}{delta.toFixed(1)} pts</span>
+          <span className={`text-xs font-semibold ${delta > 0 ? 'text-[color:var(--kit-verde-texto)]' : 'text-[color:var(--kit-rojo-texto)]'}`}>{delta > 0 ? '+' : ''}{delta.toFixed(1)} pts</span>
         )}
       </div>
-      <p className="mt-2 font-mono text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{diag.fecha}</p>
-      {relativeEdit && <p className="mt-1 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>Última edición {relativeEdit}</p>}
-      <span className="mt-4 inline-flex items-center gap-1 text-xs font-semibold" style={{ color: 'var(--flit-blue)' }}>Abrir expediente <ArrowRightIcon /></span>
+      <p className="mt-2 text-[11px] tabular-nums text-[color:var(--color-text-tertiary)]">{diag.fecha}</p>
+      {relativeEdit && <p className="mt-1 text-[11px] text-[color:var(--color-text-tertiary)]">Última edición {relativeEdit}</p>}
+      <span className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-[color:var(--color-action)]">Abrir expediente <ArrowRightIcon /></span>
     </button>
   );
 }
 
 function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
-    <div className="mx-auto max-w-lg bg-white p-12 text-center" style={CARD}>
-      <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full" style={{ background: 'rgba(79,116,201,0.12)', color: 'var(--flit-blue)' }} aria-hidden="true">
+    <div className={`${CARD} mx-auto w-full max-w-lg p-8 text-center sm:p-12`} data-kit="vacio">
+      <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[color:var(--kit-hover)] text-[color:var(--color-action)]" aria-hidden="true">
         <ClipboardCheckIcon />
       </div>
-      <h2 className="text-2xl font-bold" style={{ color: 'var(--flit-blue-text)' }}>Aún sin diagnósticos</h2>
-      <p className="mt-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>El expediente PESV inicia con la línea base anual. Cada estándar requerirá evidencia documental para ser válido ante auditor.</p>
+      <h2 className="text-2xl font-bold text-[color:var(--color-text-primary)]">Aún sin diagnósticos</h2>
+      <p className="mt-2 text-sm text-[color:var(--color-text-secondary)]">El expediente PESV inicia con la línea base anual. Cada estándar requerirá evidencia documental para ser válido ante auditor.</p>
       <div className="mt-6 flex justify-center">
         <GradientButton type="button" onClick={onCreate}>Crear primer diagnóstico</GradientButton>
       </div>
@@ -152,7 +155,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
 function SkeletonGrid() {
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {[0, 1, 2].map((i) => <div key={i} className="h-40 animate-pulse bg-white motion-reduce:animate-none" style={CARD} />)}
+      {[0, 1, 2].map((i) => <div key={i} className="kit-esqueleto h-40 rounded-[9px]" data-kit="esqueleto" />)}
     </div>
   );
 }
@@ -208,51 +211,56 @@ function DetalleDiagnostico({ id }: { id: number }) {
     } catch (e) { toast.error(errorMessage(e)); }
   };
 
-  if (loading) return <div className="mx-auto max-w-[1600px]"><div className="h-32 animate-pulse bg-white motion-reduce:animate-none" style={CARD} /></div>;
-  if (!detail) return <div className="mx-auto max-w-[1600px]"><p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Diagnóstico no encontrado.</p></div>;
+  if (loading) {
+    return (
+      <div className="mx-auto flex max-w-[1600px] flex-col gap-4">
+        <div className="kit-esqueleto h-32 rounded-[9px]" data-kit="esqueleto" />
+        <div className="kit-esqueleto h-64 rounded-[9px]" data-kit="esqueleto" />
+      </div>
+    );
+  }
+  if (!detail) return <div className="mx-auto max-w-[1600px]"><ErrorVista texto="Diagnóstico no encontrado." onReintentar={load} /></div>;
 
   const drawerItem = drawerEstandarId !== null ? detail.items.find((i) => i.estandarId === drawerEstandarId) ?? null : null;
 
   return (
-    <div className="mx-auto max-w-[1600px]">
-      {/* Migas */}
-      <div className="mb-4 text-xs" style={{ color: 'var(--flit-text-muted)' }}><button onClick={() => navigate('/pesv/diagnostico')} className="transition-colors hover:underline" style={{ color: 'var(--flit-blue)' }}>PESV · Diagnóstico</button> / <span style={{ color: 'var(--flit-text-secondary)' }}>{detail.anio}</span></div>
+    <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
+      <PageHeaderCard
+        title={`Diagnóstico ${detail.anio}`}
+        subtitle={`PESV · Res. 40595/2022 · Nivel ${detail.nivelEmpresa ?? 'avanzado'} · Score ${parseFloat(detail.scoreGlobal).toFixed(1)}%`}
+        icono="flito-pesv"
+        miga={[...MIGA_PESV, { etiqueta: 'Diagnóstico', to: '/pesv/diagnostico' }]}
+        actions={
+          <>
+            <GradientButton type="button" variant="secondary" onClick={() => navigate(`/pesv/diagnostico/${id}/auditoria`)}>Ver como auditor</GradientButton>
+            {!isWorm && (
+              <GradientButton type="button" onClick={abrirCierre} disabled={stats.evaluados === 0} aria-label="Cerrar diagnóstico">
+                <LockIcon /> Cerrar diagnóstico
+              </GradientButton>
+            )}
+          </>
+        }
+      />
 
       {isWorm && (
-        <div className="mb-4 rounded-[12px] p-4" style={{ border: '1px solid rgba(240,90,53,0.30)', background: 'rgba(240,90,53,0.10)' }} role="status">
-          <p className="text-sm font-medium" style={{ color: 'var(--flit-warning)' }}>Diagnóstico cerrado el {fmtDate(detail.cerradoAt)}. Vista solo lectura.</p>
-          <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>Para vista auditor accesible al compliance officer, <button onClick={() => navigate(`/pesv/diagnostico/${id}/auditoria`)} className="hover:underline" style={{ color: 'var(--flit-blue)' }}>abrir modo auditoría</button>.</p>
+        <div className="kit-alerta" data-tono="warn" data-kit="alerta" role="status">
+          <img src="/kit/aviso-alerta.svg" alt="" aria-hidden="true" className="kit-alerta__icono" />
+          <div className="min-w-0 flex-1 text-sm">
+            <p className="m-0 font-semibold">Diagnóstico cerrado el {fmtDate(detail.cerradoAt)}. Vista solo lectura.</p>
+            <p className="mt-1 text-xs text-[color:var(--color-text-secondary)]">Para vista auditor accesible al compliance officer, <button onClick={() => navigate(`/pesv/diagnostico/${id}/auditoria`)} className="flit-focus rounded-sm font-semibold text-[color:var(--color-action)] transition-colors hover:underline">abrir modo auditoría</button>.</p>
+          </div>
         </div>
       )}
 
-      {/* top-16 = topbar (<lg); en lg+ se suma --flit-navbar-height, hoy 0px:
-          la navegación es un dock al pie y no reserva franja superior. */}
-      <header className="sticky top-16 z-10 mb-6 bg-white p-5 lg:top-[calc(var(--flit-topbar-height)_+_var(--flit-navbar-height))]" style={CARD}>
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em]" style={{ color: 'var(--flit-text-muted)' }}>PESV · Res. 40595/2022 · Nivel {detail.nivelEmpresa ?? 'avanzado'}</p>
-            <h1 className="mt-1 text-2xl font-bold tracking-tight" style={{ color: 'var(--flit-blue-text)' }}>
-              Diagnóstico {detail.anio}
-              <span className="ml-3 font-mono text-base font-normal" style={{ color: 'var(--flit-text-secondary)' }}>Score {parseFloat(detail.scoreGlobal).toFixed(1)}%</span>
-            </h1>
-            <ProgressBar evaluados={stats.evaluados} total={stats.total} conEvidencia={stats.conEvidencia} advertencias={stats.advertencias} />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => navigate(`/pesv/diagnostico/${id}/auditoria`)} className="flit-focus inline-flex h-10 items-center gap-2 rounded-[999px] border bg-white px-4 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>Ver como auditor</button>
-            {!isWorm && (
-              <button onClick={abrirCierre} disabled={stats.evaluados === 0} className="flit-focus inline-flex h-10 items-center gap-2 rounded-[999px] px-4 text-sm font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-40" style={{ background: 'var(--flit-gradient-primary)' }} aria-label="Cerrar diagnóstico">
-                <LockIcon /> Cerrar diagnóstico
-              </button>
-            )}
-          </div>
-        </div>
-      </header>
+      <div className={`${CARD} px-5 py-4`}>
+        <ProgressBar evaluados={stats.evaluados} total={stats.total} conEvidencia={stats.conEvidencia} advertencias={stats.advertencias} />
+      </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[200px_minmax(0,1fr)_240px]">
         {/* Sidebar fases */}
         <aside aria-label="Filtros por fase PHVA">
-          <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-[0.18em]" style={{ color: 'var(--flit-text-muted)' }}>Fases PHVA</h2>
-          <nav className="flex flex-row flex-wrap gap-2 lg:flex-col">
+          <h2 className="mb-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-[color:var(--color-text-tertiary)]">Fases PHVA</h2>
+          <nav className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:flex sm:flex-row sm:flex-wrap lg:flex-col">
             <FaseChip activo={faseFiltro === null} onClick={() => setFaseFiltro(null)} label="Todas" count={stats.total} progreso={stats.total > 0 ? (stats.evaluados / stats.total) * 100 : 0} />
             {FASES.map((f) => {
               const fItems = detail.items.filter((i) => i.fase === f);
@@ -263,30 +271,29 @@ function DetalleDiagnostico({ id }: { id: number }) {
         </aside>
 
         {/* Centro: lista estándares */}
-        <section aria-label="Lista de estándares">
+        <section aria-label="Lista de estándares" className="min-w-0">
           <div className="relative mb-3">
-            <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por código o nombre…" className={searchCls} />
-            <SearchIcon className="absolute left-3 top-3 h-4 w-4 text-[color:var(--flit-text-muted)]" />
+            <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por código o nombre…" className="control w-full !pl-9" />
+            <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[color:var(--color-text-tertiary)]" />
           </div>
-          <div className="overflow-hidden bg-white" style={CARD}>
+          <div className={`${CARD} overflow-hidden`}>
             {itemsVisibles.length === 0
-              ? <p className="p-6 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin estándares para los filtros activos.</p>
+              ? <p className="p-6 text-center text-sm text-[color:var(--color-text-tertiary)]">Sin estándares para los filtros activos.</p>
               : itemsVisibles.map((it) => <FilaEstandar key={it.estandarId} item={it} onOpen={() => setDrawerEstandarId(it.estandarId)} />)}
           </div>
         </section>
 
         {/* Panel der: próximos pasos */}
-        {/* Encadenado bajo el header sticky: topbar + navbar + 4rem (gap del header, antes top-32). */}
-        <aside aria-label="Resumen y próximos pasos" className="lg:sticky lg:top-[calc(var(--flit-topbar-height)_+_var(--flit-navbar-height)_+_4rem)] lg:self-start">
-          <div className="bg-white p-4" style={CARD}>
-            <h3 className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Próximos pasos</h3>
+        <aside aria-label="Resumen y próximos pasos" className="lg:sticky lg:top-24 lg:self-start">
+          <div className={`${CARD} p-4`}>
+            <h3 className="text-sm font-semibold text-[color:var(--color-text-primary)]">Próximos pasos</h3>
             <ul className="mt-3 space-y-2 text-xs">
-              <li className="flex justify-between"><span style={{ color: 'var(--flit-text-secondary)' }}>Sin evaluar</span><span className="font-mono" style={{ color: 'var(--flit-text-primary)' }}>{stats.sinEvaluar}</span></li>
-              <li className="flex justify-between"><span style={{ color: 'var(--flit-text-secondary)' }}>Sin evidencia</span><span className="font-mono" style={{ color: 'var(--flit-text-primary)' }}>{stats.sinEvidencia}</span></li>
-              <li className="flex justify-between"><span style={{ color: 'var(--flit-text-secondary)' }}>Advertencias</span><span className="font-mono" style={{ color: 'var(--flit-warning)' }}>{stats.advertencias}</span></li>
+              <li className="flex justify-between"><span className="text-[color:var(--color-text-secondary)]">Sin evaluar</span><span className="font-semibold tabular-nums text-[color:var(--color-text-primary)]">{stats.sinEvaluar}</span></li>
+              <li className="flex justify-between"><span className="text-[color:var(--color-text-secondary)]">Sin evidencia</span><span className="font-semibold tabular-nums text-[color:var(--color-text-primary)]">{stats.sinEvidencia}</span></li>
+              <li className="flex justify-between"><span className="text-[color:var(--color-text-secondary)]">Advertencias</span><span className="font-semibold tabular-nums text-[color:var(--kit-naranja-texto)]">{stats.advertencias}</span></li>
             </ul>
             {!isWorm && (
-              <button onClick={abrirCierre} disabled={stats.evaluados === 0} className="flit-focus mt-4 inline-flex h-9 w-full items-center justify-center rounded-[999px] border bg-white px-3 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>Ver preflight</button>
+              <GradientButton type="button" variant="secondary" size="sm" onClick={abrirCierre} disabled={stats.evaluados === 0} className="mt-4 w-full justify-center">Ver preflight</GradientButton>
             )}
           </div>
         </aside>
@@ -320,42 +327,45 @@ function DetalleDiagnostico({ id }: { id: number }) {
 function ProgressBar({ evaluados, total, conEvidencia, advertencias }: { evaluados: number; total: number; conEvidencia: number; advertencias: number }) {
   const pct = total > 0 ? (evaluados / total) * 100 : 0;
   return (
-    <div className="mt-3 max-w-md">
-      <div className="h-1.5 overflow-hidden rounded-full" style={{ background: 'var(--flit-bg-app)' }} role="progressbar" aria-valuenow={evaluados} aria-valuemin={0} aria-valuemax={total} aria-label={`${evaluados} de ${total} estándares evaluados`}>
-        <div className="h-full rounded-full transition-[width]" style={{ width: `${pct}%`, background: 'var(--flit-gradient-primary)' }} />
+    <div className="max-w-xl">
+      <div className="h-2 overflow-hidden rounded-full bg-[color:var(--kit-hover)]" role="progressbar" aria-valuenow={evaluados} aria-valuemin={0} aria-valuemax={total} aria-label={`${evaluados} de ${total} estándares evaluados`}>
+        <div className="h-full rounded-full bg-[color:var(--kit-azul)] transition-[width] motion-reduce:transition-none" style={{ width: `${pct}%` }} />
       </div>
-      <p className="mt-1.5 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{evaluados}/{total} evaluados · {conEvidencia}/{total} con evidencia · <span style={{ color: 'var(--flit-warning)' }}>{advertencias} advertencias</span></p>
+      <p className="mt-1.5 text-[11px] text-[color:var(--color-text-tertiary)]">{evaluados}/{total} evaluados · {conEvidencia}/{total} con evidencia · <span className="font-semibold text-[color:var(--kit-naranja-texto)]">{advertencias} advertencias</span></p>
     </div>
   );
 }
 
 function FaseChip({ activo, onClick, label, count, progreso }: { activo: boolean; onClick: () => void; label: string; count: number; progreso: number }) {
+  const estado = activo
+    ? 'border-[color:var(--kit-azul)] bg-[color:var(--kit-hover)] text-[color:var(--color-text-primary)]'
+    : 'border-[color:var(--color-border)] bg-[color:var(--color-surface-elevated)] text-[color:var(--color-text-secondary)] hover:bg-[color:var(--kit-hover)]';
   return (
-    <button onClick={onClick} className="flit-focus w-full rounded-lg border p-2.5 text-left transition-colors" style={activo ? { borderColor: 'var(--flit-blue)', background: 'rgba(79,116,201,0.10)', color: 'var(--flit-text-primary)' } : { borderColor: 'var(--flit-border-soft)', background: '#fff', color: 'var(--flit-text-secondary)' }} aria-pressed={activo}>
-      <div className="flex items-baseline justify-between">
-        <span className="text-sm font-medium">{label} <span style={{ color: 'var(--flit-text-muted)' }}>({count})</span></span>
-        <span className="font-mono text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>{progreso.toFixed(0)}%</span>
+    <button onClick={onClick} className={`flit-focus w-full rounded-[9px] border p-2.5 text-left transition-colors sm:w-auto lg:w-full ${estado}`} aria-pressed={activo}>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-sm font-medium">{label} <span className="text-[color:var(--color-text-tertiary)]">({count})</span></span>
+        <span className="text-[10px] tabular-nums text-[color:var(--color-text-tertiary)]">{progreso.toFixed(0)}%</span>
       </div>
     </button>
   );
 }
 
 const DOT_NIVEL: Record<NivelRubrica, string> = {
-  no_implementado: 'var(--flit-text-muted)', en_desarrollo: 'var(--flit-warning)',
-  implementado: 'var(--flit-blue)', sostenido: 'var(--flit-success)',
+  no_implementado: 'bg-[color:var(--color-text-tertiary)]', en_desarrollo: 'bg-[color:var(--kit-naranja)]',
+  implementado: 'bg-[color:var(--kit-azul)]', sostenido: 'bg-[color:var(--kit-verde)]',
 };
 function FilaEstandar({ item, onOpen }: { item: ItemDetail; onOpen: () => void }) {
   const evCount = item.evidencias.length;
   return (
-    <button onClick={onOpen} className="flit-focus flex w-full items-center gap-3 border-b px-4 py-3 text-left transition-colors last:border-0 hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: DOT_NIVEL[item.nivelRubrica] }} aria-hidden="true" />
-      <span className="w-20 truncate font-mono text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{item.codigo}</span>
-      <span className="flex-1 truncate text-sm" style={{ color: 'var(--flit-text-primary)' }}>{item.nombre}</span>
-      <span className="hidden items-center gap-2 text-[11px] md:flex" style={{ color: 'var(--flit-text-muted)' }}>
+    <button onClick={onOpen} className="flit-focus flex w-full items-center gap-3 border-b border-[color:var(--color-border)] px-4 py-3 text-left transition-colors last:border-0 hover:bg-[color:var(--kit-hover)]">
+      <span className={`h-2 w-2 shrink-0 rounded-full ${DOT_NIVEL[item.nivelRubrica]}`} aria-hidden="true" />
+      <span className="w-14 shrink-0 truncate text-[11px] font-semibold tabular-nums text-[color:var(--color-text-tertiary)] sm:w-20">{item.codigo}</span>
+      <span className="min-w-0 flex-1 truncate text-sm text-[color:var(--color-text-primary)]">{item.nombre}</span>
+      <span className="hidden items-center gap-2 text-[11px] text-[color:var(--color-text-tertiary)] md:flex">
         <span>{evCount} evidencia{evCount === 1 ? '' : 's'}</span>
-        {item.comentarios && <span title="Con comentario" className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: 'var(--flit-blue)' }} aria-label="con comentario" />}
+        {item.comentarios && <span title="Con comentario" className="inline-block h-1.5 w-1.5 rounded-full bg-[color:var(--kit-azul)]" aria-label="con comentario" />}
       </span>
-      <ArrowRightIcon className="h-4 w-4 text-[color:var(--flit-text-muted)]" />
+      <ArrowRightIcon className="h-4 w-4 shrink-0 text-[color:var(--color-text-tertiary)]" />
     </button>
   );
 }

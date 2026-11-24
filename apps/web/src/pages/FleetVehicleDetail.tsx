@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback, type ReactNode } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useState, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -8,6 +8,11 @@ import LinksPanel from '../components/fleet/LinksPanel';
 import DocumentsPanel from '../components/fleet/DocumentsPanel';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import PasaporteVehiculo from './vehiculo/PasaporteVehiculo';
+import Pestanas from '../components/flit/Pestanas';
+import { Cargador } from '../components/flit/Cargador';
+import { FlitCard } from '../components/flit/flitPageKit';
+import { Vehiculo } from '../components/flit/Placa';
+import { Fichas } from '../components/flit/Bloques';
 
 interface Vehicle {
   id: number; plate: string | null; vin: string | null; alias: string | null; brand: string | null;
@@ -38,7 +43,7 @@ export default function FleetVehicleDetail() {
   }, [id]);
   useEffect(() => { load(); }, [load]);
 
-  if (!detail) return <div className="p-6 text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</div>;
+  if (!detail) return <Cargador texto="Cargando…" />;
   const v = detail.data;
   const subtitle = [v.alias, v.brand, v.model, v.year ? `(${v.year})` : '']
     .filter(Boolean).join(' ')
@@ -48,53 +53,53 @@ export default function FleetVehicleDetail() {
 
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
-      <Link to="/fleet" className="flit-focus inline-flex w-fit items-center gap-1 text-xs font-medium" style={{ color: 'var(--flit-blue)' }}>
-        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-        </svg>
-        Flota
-      </Link>
+      <PageHeaderCard
+        title={v.plate || 'Sin placa'}
+        subtitle={subtitle || undefined}
+        icono="flito-vehiculos"
+        miga={[{ etiqueta: 'Flota', to: '/fleet' }]}
+      />
 
-      <PageHeaderCard title={v.plate || 'Sin placa'} subtitle={subtitle || undefined} />
+      {v.plate && (
+        <FlitCard>
+          <Vehiculo
+            placa={v.plate}
+            icono="flito-flota"
+            nombre={[v.brand, v.model].filter(Boolean).join(' ') || '—'}
+            meta={[v.alias, v.year].filter(Boolean).join(' · ') || undefined}
+          />
+        </FlitCard>
+      )}
 
-      <div className="border-b" style={{ borderColor: 'var(--flit-border-soft)' }}>
-        <nav className="-mb-px flex gap-6">
-          <TabBtn active={tab === 'datos'} onClick={() => setTab('datos')}>Datos</TabBtn>
-          <TabBtn active={tab === 'mediciones'} onClick={() => setTab('mediciones')}>Mediciones</TabBtn>
-          <TabBtn active={tab === 'vinculos'} onClick={() => setTab('vinculos')}>Vinculaciones</TabBtn>
-          <TabBtn active={tab === 'documentos'} onClick={() => setTab('documentos')}>Documentos</TabBtn>
-          <TabBtn active={tab === 'pasaporte'} onClick={() => setTab('pasaporte')}>Pasaporte</TabBtn>
-        </nav>
-      </div>
+      <Pestanas
+        etiqueta="Secciones del vehículo"
+        activa={tab}
+        onElegir={(id) => setTab(id as Tab)}
+        pestanas={[
+          { id: 'datos', etiqueta: 'Datos' },
+          { id: 'mediciones', etiqueta: 'Mediciones' },
+          { id: 'vinculos', etiqueta: 'Vinculaciones' },
+          { id: 'documentos', etiqueta: 'Documentos' },
+          { id: 'pasaporte', etiqueta: 'Pasaporte' },
+        ]}
+      />
 
       {tab === 'datos' && <DatosPanel v={v} />}
       {tab === 'mediciones' && <MeasurementsPanel vehicleId={v.id} tipoMedicion={v.tipoMedicion} canCreate={true} />}
       {tab === 'vinculos' && <LinksPanel vehicleId={v.id} canEdit={isAdmin} onChanged={load} />}
       {tab === 'documentos' && <DocumentsPanel vehicleId={v.id} canEdit={isAdmin} />}
       {tab === 'pasaporte' && (
-        <div className="bg-white p-6" style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}>
+        <FlitCard>
           {v.vin ? (
             <PasaporteVehiculo vin={v.vin} />
           ) : (
-            <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>
+            <p className="text-sm text-[color:var(--color-text-tertiary)]">
               Este vehículo no tiene VIN registrado. Agrega el VIN en los datos del vehículo para ver el pasaporte e historial encadenado.
             </p>
           )}
-        </div>
+        </FlitCard>
       )}
     </div>
-  );
-}
-
-function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      className="flit-focus border-b-2 pb-2 text-sm font-semibold transition-colors"
-      style={active ? { borderColor: 'var(--flit-blue)', color: 'var(--flit-blue)' } : { borderColor: 'transparent', color: 'var(--flit-text-muted)' }}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -108,15 +113,8 @@ function DatosPanel({ v }: { v: Vehicle }) {
     ['Rendimiento ideal', v.rendimientoIdeal ? `${v.rendimientoIdeal} km/gal` : null],
   ];
   return (
-    <div className="bg-white p-6" style={{ borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' }}>
-      <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm md:grid-cols-2">
-        {rows.map(([k, val]) => (
-          <div key={k}>
-            <dt className="text-[11px] uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>{k}</dt>
-            <dd className="font-medium" style={{ color: 'var(--flit-text-primary)' }}>{val ?? '—'}</dd>
-          </div>
-        ))}
-      </dl>
-    </div>
+    <FlitCard>
+      <Fichas items={rows.map(([k, val]) => ({ etiqueta: k, valor: val ?? '—' }))} />
+    </FlitCard>
   );
 }

@@ -27,7 +27,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Flit2EstadoConexion, Flit2EstadoProblema } from '@operaciones/shared-types';
 import { ApiError, api } from '../../../lib/api';
 import { useAuth } from '../../../lib/auth';
-import { PuntoFlit2, conexionFlit2, duracionUmbral, umbralMin, type DetenidaFlit2 } from './IndicadorFlit2';
+import { PuntoFlit2, TONO_CONEXION, conexionFlit2, duracionUmbral, umbralMin, type DetenidaFlit2 } from './IndicadorFlit2';
 
 const RUTA_ESTADO = '/flito/sync/flit2/estado';
 /** La lectura automática corre cada 5 min: con 2 min el aviso llega con ~2 min de retraso máximo. */
@@ -178,9 +178,8 @@ export function automaticaActivaFlit2(uso: UsoEstadoFlit2): boolean | null {
 
 // ── Cabecera ────────────────────────────────────────────────────────────────────────────────────
 
-const MUTED = { color: 'var(--flit-text-muted)' } as const;
-const VALOR = { color: 'var(--flit-text-secondary)' } as const;
-const HUECO = { background: 'var(--flit-bg-hover)' } as const;
+const MUTED = { color: 'var(--color-text-tertiary)' } as const;
+const VALOR = { color: 'var(--color-text-secondary)' } as const;
 
 /** Rótulo + valor, el mismo `Par` del grupo FLIT 1 (`LecturaFlit1.tsx`). */
 function Par({ rotulo, testId, children }: { rotulo: string; testId?: string; children: ReactNode }) {
@@ -213,7 +212,7 @@ export function LineaEstadoFlit2({ estado, detenida = null }: { estado: UsoEstad
   if (e.fase === 'oculto') return null;
   let cuerpo: ReactNode;
   if (e.fase === 'cargando') {
-    const hueco = <div className="mt-0.5 h-3 w-28 animate-pulse rounded" style={HUECO} aria-hidden="true" />;
+    const hueco = <div data-kit="esqueleto" className="kit-esqueleto mt-0.5 h-3 w-28" aria-hidden="true" />;
     cuerpo = (
       <div className={PARES}>
         <Par rotulo="Conexión">{hueco}</Par>
@@ -226,7 +225,7 @@ export function LineaEstadoFlit2({ estado, detenida = null }: { estado: UsoEstad
         No se pudo consultar ·{' '}
         <button type="button" onClick={estado.reintentar} aria-label="Reintentar la consulta del estado de FLIT 2"
           className="flit-focus rounded font-semibold underline-offset-2 transition-colors hover:underline"
-          style={{ color: 'var(--flit-blue-text)' }}>
+          style={{ color: 'var(--color-action)' }}>
           Reintentar
         </button>
       </div>
@@ -237,7 +236,7 @@ export function LineaEstadoFlit2({ estado, detenida = null }: { estado: UsoEstad
     cuerpo = (
       <div className={PARES}>
         <Par rotulo="Conexión">
-          <span className="inline-flex items-center gap-1.5">
+          <span className="kit-etiqueta" data-tono={TONO_CONEXION[conexion]}>
             <PuntoFlit2 conexion={conexion} />
             <span role="status" data-testid="conexion-flit2">{conexion}</span>
           </span>
@@ -387,10 +386,10 @@ export function AvisoEstadoFlit2({ estado, apagada = false }: { estado: UsoEstad
   return (
     <div role={alerta ? 'alert' : 'status'} data-testid="aviso-estado-flit2"
       className="break-words rounded-lg px-3 py-2.5 text-sm"
-      style={{ border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-card)', color: 'var(--flit-text-primary)' }}>
+      style={{ border: '1px solid var(--color-border)', background: 'var(--color-surface-elevated)', color: 'var(--color-text-primary)' }}>
       {motivo && (
         <>
-          <p className="font-semibold" style={alerta ? { color: 'var(--flit-danger-text)' } : undefined} data-testid="motivo-conexion-flit2">
+          <p className="font-semibold" style={alerta ? { color: 'var(--kit-rojo-texto)' } : undefined} data-testid="motivo-conexion-flit2">
             {motivo.motivo}
           </p>
           <p className="mt-0.5" data-testid="accion-conexion-flit2">{motivo.accion}</p>
@@ -398,7 +397,7 @@ export function AvisoEstadoFlit2({ estado, apagada = false }: { estado: UsoEstad
       )}
       {cuerpo && <p>{cuerpo}</p>}
       {pii > 0 && (
-        <p className={hayTexto ? 'mt-2 border-t pt-2' : undefined} style={hayTexto ? { borderColor: 'var(--flit-border-soft)' } : undefined}>
+        <p className={hayTexto ? 'mt-2 border-t pt-2' : undefined} style={hayTexto ? { borderColor: 'var(--color-border)' } : undefined}>
           {frasePii(pii)}
         </p>
       )}

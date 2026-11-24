@@ -1,4 +1,4 @@
-// FLITO — Las dos superficies de la vigencia del SOAT frente al RUNT (HU #12097, Feature #12075).
+// FLITO — Las dos superficies de la vigencia del SOAT frente al RUNT (HU 12097, Feature 12075).
 //
 // Salen de `pages/FlitoSoat.tsx` porque esa página cruzó el techo de `max-lines` (800 contables) y
 // porque el reparto ya estaba hecho a medias: la lógica de decisión vive desde el principio en
@@ -20,7 +20,7 @@ import { pintarVigenciaSoat, type VigenciaSoatCola } from '../../lib/vigenciaSoa
  * La vigencia dentro de la celda «Estado» de la cola (AC1 y AC3).
  *
  * Va DENTRO de esa celda y no en una columna propia: la tabla sigue en 10/9/10 columnas, que es el
- * centinela que dejaron escrito la HU #11905 y la #11906 para que no vuelva el desborde a 1280 px.
+ * centinela que dejaron escrito la HU 11905 y la 11906 para que no vuelva el desborde a 1280 px.
  *
  * Devuelve `null` —nada, ni un «—»— cuando la fila no entra en la verificación diaria. Los tres
  * «vacíos por dato» de esta celda se distinguen SIN LEER: nada (sin comprobante), una línea gris
@@ -42,7 +42,7 @@ export function CeldaVigenciaSoat({ vigencia }: { vigencia?: VigenciaSoatCola | 
       {pintada.chip && <StatusChip tone={pintada.chip.tono}>{pintada.chip.etiqueta}</StatusChip>}
       {/* Sin color propio: el dato viejo se lee en el texto, y teñirlo sería otro criterio que
           depende del color — justo lo que el AC3 combate. */}
-      <span className="text-xs tabular-nums" style={{ color: 'var(--flit-text-muted)' }}>{pintada.linea}</span>
+      <span className="text-xs tabular-nums" style={{ color: 'var(--color-text-tertiary)' }}>{pintada.linea}</span>
     </>
   );
 }
@@ -82,7 +82,7 @@ export function FiltroVigenciaSoat({ valor, onCambio }: {
   valor: '' | FiltroVigenciaCola; onCambio: (v: '' | FiltroVigenciaCola) => void;
 }) {
   return (
-    <label className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>
+    <label className="flex items-center gap-2 text-xs font-semibold" style={{ color: 'var(--color-text-secondary)' }}>
       Vigencia
       <select className={`${flitInp} max-w-[11rem]`} value={valor}
         onChange={(e) => onCambio(esFiltroVigenciaCola(e.target.value) ? e.target.value : '')}>

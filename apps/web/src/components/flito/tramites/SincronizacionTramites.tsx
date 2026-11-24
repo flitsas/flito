@@ -16,8 +16,8 @@
 //     en la cabecera que no inventa valores mientras carga, y el distintivo «Requiere atención» con la misma
 //     regla del aviso de cada grupo. Contraído, el cuerpo no se monta.
 
-import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { Icono } from '../../flit/kit/Icono';
 import type { SyncEstadoFlit1 } from '@operaciones/shared-types';
 import { api } from '../../../lib/api';
 import { useAuth } from '../../../lib/auth';
@@ -35,9 +35,10 @@ const ID_MOTIVO_1 = 'sync-motivo-flit1';
 const ID_MOTIVO_2 = 'sync-motivo-flit2';
 
 const GRUPO = 'flex min-w-0 flex-col gap-3 rounded-lg border p-4';
-const ESTILO_GRUPO = { borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)' } as const;
-const AVISO = 'break-words rounded-lg px-3 py-2.5 text-sm';
-const ESTILO_AVISO = { border: '1px solid var(--flit-border-soft)', background: 'var(--flit-bg-card)', color: 'var(--flit-text-primary)' } as const;
+const ESTILO_GRUPO = { borderColor: 'var(--color-border)', background: 'var(--color-surface-elevated)' } as const;
+// Aviso en página del kit (`.kit-alerta`, sin data-tono: el color va en `--c`).
+const AVISO = 'kit-alerta flex-col gap-1 break-words text-sm';
+const ESTILO_AVISO = { '--c': 'var(--kit-azul)' } as CSSProperties;
 const BARRA = 'mt-auto flex flex-wrap items-center justify-end gap-3 pt-1';
 
 /** Valor de una fuente en el resumen de la cabecera. `null` = la fuente no se muestra (sin permiso). */
@@ -50,12 +51,12 @@ function ResumenFuente({ nombre, valor, alerta = false, testId }: {
   return (
     <span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
       <span data-testid={testId}>
-        {nombre}: <span className="font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>{texto}</span>
+        {nombre}: <span className="font-semibold" style={{ color: 'var(--color-text-secondary)' }}>{texto}</span>
       </span>
       {alerta && (
-        <span className="inline-flex items-center gap-1 font-semibold" style={{ color: 'var(--flit-danger-text)' }}
+        <span className="inline-flex items-center gap-1 font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}
           data-testid={`alerta-${testId}`}>
-          <AlertTriangle aria-hidden="true" size={14} className="shrink-0" />
+          <Icono nombre="alerta" size={14} className="shrink-0" />
           Requiere atención
         </span>
       )}
@@ -132,11 +133,11 @@ export default function SincronizacionTramites() {
       aria-busy={inter.estado.fase === 'cargando' || flit1.fase === 'cargando' ? true : undefined}>
       <FlitAcordeon titulo="Sincronización" nivel={2} resumen={resumen} abierto={abierto}
         onToggle={() => setAbierto((v) => !v)} testId="cabecera-sincronizacion">
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           Cada fuente trae trámites a FLITO en este ambiente. Apagarla detiene la entrada; lo que ya entró no cambia.
         </p>
         {inter.estado.fase === 'error' && (
-          <p role="alert" className="mt-2 text-sm" style={{ color: 'var(--flit-danger-text)' }} data-testid="error-interruptores">
+          <p role="alert" className="mt-2 text-sm" style={{ color: 'var(--kit-rojo-texto)' }} data-testid="error-interruptores">
             No se pudo consultar los interruptores de sincronización.{' '}
             <Reintentar onClick={inter.reintentar} etiqueta="Reintentar la consulta de los interruptores de sincronización" />
           </p>

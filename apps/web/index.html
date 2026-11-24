@@ -2,7 +2,7 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/svg+xml" href="/kit/favicon.svg" />
     <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FLIT Operaciones</title>
@@ -13,47 +13,27 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="FLIT" />
     <link rel="apple-touch-icon" href="/pwa-192.png" />
-    <!-- FIONA PR1: preload del Inter Variable auto-hospedado (mismo origen) para
-         descubrir/priorizar el font del texto LCP sin esperar el parse del CSS.
-         crossorigin obligatorio: las fuentes se piden en modo CORS anónimo. -->
-    <link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
+    <!-- UI Kit 2026: Poppins autohospedada (mismo origen). Preload de los dos pesos del primer paint. -->
+    <link rel="preload" href="/fonts/poppins-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/poppins-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin />
     <script>
-      // Anti-flash theme bootstrap. Debe ejecutarse ANTES del primer paint.
-      // Inline en <head> para que aplique data-theme antes del CSS y evite flash.
-      //
-      // HU #11899 — el atributo se escribe SIEMPRE, resuelto a 'light' o 'dark'.
-      // Antes, con la preferencia en 'system' (que es el DEFECTO cuando nadie ha
-      // tocado el toggle) no se seteaba nada y se dejaba que `prefers-color-scheme`
-      // resolviera por CSS. Eso funcionaba para Aura, que tiene un gemelo @media de
-      // sus tokens, y NO para nada de lo que se selecciona por `[data-theme='dark']`:
-      // el dock, la ⌘K y —desde esta HU— todo el kit FLIT. De ahí el síntoma que se
-      // reportaba como «en algunos dispositivos no cambia el tema»: eran los que
-      // tenían el SO en oscuro y la preferencia sin tocar.
-      //
-      // Este script y `applyDocumentTheme()` en src/lib/theme.tsx tienen que resolver
-      // IGUAL: son la misma decisión tomada dos veces (aquí antes del primer paint,
-      // allí en cada cambio). Si una de las dos vuelve a quitar el atributo, vuelve el
-      // parpadeo o vuelve el bug.
+      // Tema antes de la primera pintura (UI Kit 2026): guardado o el del sistema, SIEMPRE resuelto a
+      // light o dark. Clave `flit-tema` (la de la suite). `aura-theme` se lee como respaldo para no perder
+      // la preferencia de quien ya la tenía. Debe resolver igual que applyDocumentTheme() en src/lib/theme.tsx.
       (function () {
-        var resuelto = null;
+        var t = null;
         try {
-          var stored = localStorage.getItem('aura-theme');
-          if (stored === 'light' || stored === 'dark') resuelto = stored;
-        } catch (e) {
-          // localStorage bloqueado (modo privado, cookies de terceros): no es motivo
-          // para quedarse sin tema. Se cae al esquema del SO, igual que 'system'.
+          t = localStorage.getItem('flit-tema');
+          if (t !== 'light' && t !== 'dark') t = localStorage.getItem('aura-theme');
+        } catch (e) {}
+        if (t !== 'light' && t !== 'dark') {
+          t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
-        if (resuelto === null) {
-          resuelto =
-            window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
-              ? 'dark'
-              : 'light';
-        }
-        document.documentElement.setAttribute('data-theme', resuelto);
+        document.documentElement.setAttribute('data-theme', t);
       })();
     </script>
   </head>
-  <body>
+  <body class="kit-cuerpo">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -22,9 +22,9 @@ import FlitModal from '../flit/FlitModal';
 import { FlitEmpty, flitBtnSecondary, flitBtnSecondaryStyle } from '../flit/flitPageKit';
 import { pesos } from './tiposReporteCostos';
 
-const SECUNDARIO = { color: 'var(--flit-text-secondary)' } as const;
-const PELIGRO = { color: 'var(--flit-warning-text)' } as const;
-const BORDE_SUAVE = { borderColor: 'var(--flit-border-soft)' } as const;
+const SECUNDARIO = { color: 'var(--color-text-secondary)' } as const;
+const PELIGRO = { color: 'var(--kit-naranja-texto)' } as const;
+const BORDE_SUAVE = { borderColor: 'var(--color-border)' } as const;
 
 /** Lo que falla al PEDIR el desglose. El 403 y el 404 no se reintentan: reintentar no los arregla. */
 interface ErrorCarga { mensaje: string; reintentable: boolean; tramiteIdo: boolean }
@@ -228,7 +228,7 @@ function errorDeCarga(e: unknown): ErrorCarga {
  */
 function Esqueleto() {
   const barra = (ancho: string) => (
-    <span className={`block h-3 ${ancho} rounded`} style={{ background: 'var(--flit-border-soft)' }} />
+    <span className={`block h-3 ${ancho} rounded`} style={{ background: 'var(--color-border)' }} />
   );
   return (
     <div role="status" aria-busy="true" aria-label="Consultando los viajes…">

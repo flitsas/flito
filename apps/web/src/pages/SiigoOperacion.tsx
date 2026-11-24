@@ -1,11 +1,11 @@
-// Facturación electrónica — Operación (HU #11345, Feature #11244).
+// Facturación electrónica — Operación (HU 11345, Feature 11244).
 //
 // **Quien mira el reporte de costos pregunta «¿mi factura salió?». Quien abre esta pantalla viene a
 // arreglar algo.** El AC7 convierte esa frase en regla: aquí no hay ni una columna de costos, ni
 // totales, ni el listado completo de trámites. Solo lo que quedó detenido y el detalle de un caso.
 // En la cabecera va el enlace al reporte de costos, que es donde se busca *una* factura concreta.
 //
-// HU #12170: botones por función efectiva (`/permisos/mios`). Siigo sigue fuera del catálogo FLITO;
+// HU 12170: botones por función efectiva (`/permisos/mios`). Siigo sigue fuera del catálogo FLITO;
 // el proxy de escritura es `liquidacion.liquidacion.facturar` / `.reversar`. Quien solo consulta ve
 // lista y detalle sin acciones — el aviso de cabecera evita leerlo como pantalla rota.
 
@@ -53,7 +53,7 @@ function aCasoLote(item: SiigoBandejaItem): CasoLote {
 
 export default function SiigoOperacion() {
   const { hasFuncion } = useAuth();
-  // HU #12170: Siigo no está en el catálogo FLITO (Feature #12072); el proxy de escritura FE
+  // HU 12170: Siigo no está en el catálogo FLITO (Feature 12072); el proxy de escritura FE
   // es `liquidacion.liquidacion.facturar` (admin+financiera). Reactivar el freno exige admin
   // en el API → `liquidacion.liquidacion.reversar` (solo admin en el seed).
   const puedeEscribirFe = hasFuncion('liquidacion.liquidacion.facturar');
@@ -183,6 +183,8 @@ export default function SiigoOperacion() {
     <div className="flex flex-col gap-5">
       <PageHeaderCard
         title="Facturación electrónica — Operación"
+        icono="flito-siigo"
+        miga={[{ etiqueta: 'Finanzas' }]}
         subtitle="Lo que quedó detenido en el camino a la DIAN, con qué hacer en cada caso."
         actions={(
           <Link to="/finanzas/reporte-costos" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle}>
@@ -195,7 +197,7 @@ export default function SiigoOperacion() {
       {soloConsulta && (
         <p
           className="rounded-[10px] px-4 py-3 text-sm"
-          style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-text-primary)' }}
+          style={{ background: 'var(--color-surface)', color: 'var(--color-text-primary)' }}
         >
           Tu rol es de consulta: ves todo y no hay acciones disponibles.
         </p>
@@ -231,13 +233,13 @@ export default function SiigoOperacion() {
           ref={encabezadoLista}
           tabIndex={-1}
           className="text-base font-bold outline-none"
-          style={{ color: 'var(--flit-blue-text)' }}
+          style={{ color: 'var(--color-action)' }}
         >
           Casos detenidos
         </h2>
         {!soloConsulta && seleccionados.length > 0 && (
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+            <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
               {seleccionados.length} seleccionados
             </span>
             <button
@@ -265,7 +267,7 @@ export default function SiigoOperacion() {
       </div>
 
       {refIdAbierto && !casoAbierto && !bandeja.cargando && (
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           El caso del enlace no está entre lo que se está viendo ahora. Quita los filtros o pasa de
           página para encontrarlo.
         </p>

@@ -6,7 +6,7 @@
 // evidencia adjunta, advertencia si en_desarrollo sin comentario justificativo).
 //
 // WCAG 2.2 AA: fieldset + legend semántico, radios reales con aria-describedby
-// apuntando a los criterios por opción, focus-visible heredado de tokens Aura,
+// apuntando a los criterios por opción, foco visible del kit (2 px azul) sobre la tarjeta de cada opción,
 // prefers-reduced-motion deshabilita transición selected.
 
 import { useId } from 'react';
@@ -58,22 +58,6 @@ const OPTIONS: Option[] = [
   },
 ];
 
-function CheckIcon({ className = 'w-3.5 h-3.5' }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-    </svg>
-  );
-}
-
-function DotIcon({ className = 'w-2 h-2' }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <circle cx="12" cy="12" r="4" />
-    </svg>
-  );
-}
-
 export default function RubricaRadioGroup({
   value,
   onChange,
@@ -89,7 +73,7 @@ export default function RubricaRadioGroup({
       className={`@container border-0 p-0 m-0 ${disabled ? 'opacity-60' : ''}`}
       aria-describedby={describedById}
     >
-      <legend className="block text-[11px] font-medium flit-tone-secondary mb-3 uppercase tracking-wide">
+      <legend className="mb-3 block text-xs font-medium uppercase tracking-wide text-[color:var(--color-text-secondary)]">
         {legend}
       </legend>
 
@@ -103,12 +87,13 @@ export default function RubricaRadioGroup({
               key={opt.value}
               htmlFor={id}
               className={[
-                'relative flex items-start gap-3 rounded-xl border p-3 transition-colors duration-150',
+                'relative flex items-start gap-3 rounded-[9px] border p-3 transition-colors duration-150',
                 'motion-reduce:transition-none',
+                'has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[color:var(--kit-azul)]',
                 disabled ? 'cursor-not-allowed' : 'cursor-pointer',
                 selected
-                  ? 'border-[color:var(--flit-blue)] flit-tone-active-bg'
-                  : 'border-[color:var(--flit-border-soft)] bg-white hover:bg-[color:var(--flit-bg-app)]',
+                  ? 'border-[color:var(--kit-azul)] bg-[color:var(--kit-hover)]'
+                  : 'border-[color:var(--color-border)] bg-[color:var(--color-surface-elevated)] hover:bg-[color:var(--kit-hover)]',
               ].join(' ')}
             >
               <input
@@ -130,27 +115,25 @@ export default function RubricaRadioGroup({
               <span
                 aria-hidden="true"
                 className={[
-                  'flex-shrink-0 mt-0.5 inline-flex items-center justify-center w-5 h-5 rounded-full border',
-                  selected
-                    ? 'border-[color:var(--flit-blue)] bg-[color:var(--flit-blue)] text-[color:var(--color-accent-foreground)]'
-                    : 'border-[color:var(--flit-border-soft)]-strong bg-white flit-tone-muted',
+                  'mt-0.5 inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border-2 bg-[color:var(--color-surface-elevated)]',
+                  selected ? 'border-[color:var(--kit-azul)]' : 'border-[color:var(--color-border-control)]',
                 ].join(' ')}
               >
-                {selected ? <CheckIcon /> : <DotIcon />}
+                {selected && <span className="h-2.5 w-2.5 rounded-full bg-[color:var(--kit-azul)]" />}
               </span>
 
               <span className="flex-1 min-w-0">
                 <span className="flex items-baseline gap-2">
-                  <span className={`text-sm font-medium ${selected ? 'text-[color:var(--flit-blue)]' : 'flit-tone-primary'}`}>
+                  <span className={`text-sm font-medium ${selected ? 'text-[color:var(--color-action)]' : 'text-[color:var(--color-text-primary)]'}`}>
                     {opt.label}
                   </span>
-                  <span className="text-[11px] font-mono tabular-nums flit-tone-muted">
+                  <span className="font-mono text-xs tabular-nums text-[color:var(--color-text-tertiary)]">
                     {opt.pct}
                   </span>
                 </span>
                 <span
                   id={descId}
-                  className="block mt-1 text-xs leading-relaxed flit-tone-secondary"
+                  className="mt-1 block text-xs leading-relaxed text-[color:var(--color-text-secondary)]"
                 >
                   {opt.criterios}
                 </span>

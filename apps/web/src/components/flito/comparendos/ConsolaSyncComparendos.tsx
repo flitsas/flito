@@ -1,4 +1,4 @@
-// FLITO — Comparendos · Sincronización: la consola de disparo (HU #11635, Región A).
+// FLITO — Comparendos · Sincronización: la consola de disparo (HU 11635, Región A).
 //
 // Toda la máquina de estados vive en `useComparendosSync`; aquí solo se decide QUÉ se enseña en cada
 // fase. La regla que ordena el archivo es una sola: **el formulario y el progreso nunca conviven**.
@@ -56,7 +56,7 @@ interface Props {
  * configuración son cuatro tarjetas y el token es la última, así que dejar al operador arriba del
  * todo con un «búscalo tú» convierte un error accionable en uno decorativo.
  *
- * Se resuelve sin tocar `navegacionComparendos.tsx` —que es de la HU #11633 y ya está certificado—
+ * Se resuelve sin tocar `navegacionComparendos.tsx` —que es de la HU 11633 y ya está certificado—
  * usando el `id` que `BloqueConfig` ya pone en el `<h2>` de cada bloque. Cambiar de pestaña desmonta
  * y remonta el marco, así que el destino no existe todavía cuando se pulsa: de ahí las cuatro
  * pasadas espaciadas. Se repite el desplazamiento aunque ya se haya encontrado el bloque porque el
@@ -104,7 +104,7 @@ export default function ConsolaSyncComparendos({ nav, sync }: Props) {
   return (
     <section role="region" aria-labelledby={ID_TITULO_CONSOLA_SYNC}>
       <FlitCard>
-        {/* `tabIndex={-1}` es lo único que este archivo pone para la HU #11637: sin él, el `.focus()`
+        {/* `tabIndex={-1}` es lo único que este archivo pone para la HU 11637: sin él, el `.focus()`
             que llega desde el vacío del visor no hace nada y el foco se queda en `<body>` tras el
             cambio de pestaña. El título ya se ve, así que no necesita el `sr-only focus:not-sr-only`
             de los encabezados del marco; sí lleva `flit-focus` para que el anillo sea el del sistema
@@ -113,18 +113,18 @@ export default function ConsolaSyncComparendos({ nav, sync }: Props) {
           id={ID_TITULO_CONSOLA_SYNC}
           tabIndex={-1}
           className="flit-focus rounded text-sm font-semibold"
-          style={{ color: 'var(--flit-text-primary)' }}
+          style={{ color: 'var(--color-text-primary)' }}
         >
           Sincronizar ahora
         </h2>
-        <p className="mt-1 max-w-3xl text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="mt-1 max-w-3xl text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           Consulta las fuentes sobre los NIT activos. Puede tardar más de un minuto; no cierres la
           pestaña. Si el tiempo se agota en el navegador, la corrida sigue en el servidor y aquí se
           sigue su progreso.
         </p>
 
         {sync.aviso && !enCurso && (
-          <p className="mt-3 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{sync.aviso}</p>
+          <p className="mt-3 text-sm" style={{ color: 'var(--color-text-secondary)' }}>{sync.aviso}</p>
         )}
 
         {sync.error && <BandaError sync={sync} nav={nav} alcance={alcance} seleccion={seleccion} />}
@@ -132,11 +132,11 @@ export default function ConsolaSyncComparendos({ nav, sync }: Props) {
         {sync.fase === 'sin_confirmar' && (
           <div
             className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg p-3"
-            style={{ background: 'var(--flit-bg-app)' }}
+            style={{ background: 'var(--color-surface)' }}
           >
             {/* Ni `alert` ni rojo: la corrida puede haber terminado perfectamente y lo único cierto
                 es que no lo pudimos confirmar. Pintarlo como un fallo sería afirmar lo que no se sabe. */}
-            <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+            <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
               La corrida sigue en el servidor. Revisa el historial en unos minutos.
             </p>
             <button
@@ -155,7 +155,7 @@ export default function ConsolaSyncComparendos({ nav, sync }: Props) {
         ) : (
           <div className="mt-4 space-y-4">
             <fieldset>
-              <legend className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>
+              <legend className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-secondary)' }}>
                 Alcance
               </legend>
               <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
@@ -184,7 +184,7 @@ export default function ConsolaSyncComparendos({ nav, sync }: Props) {
             )}
 
             {sobrepasaTope && (
-              <p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+              <p className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
                 Como máximo {MAX_NITS_POR_CORRIDA} NIT por corrida. Quita alguno y repite con el resto.
               </p>
             )}
@@ -207,7 +207,7 @@ export default function ConsolaSyncComparendos({ nav, sync }: Props) {
 
 function OpcionAlcance({ etiqueta, marcada, alElegir }: { etiqueta: string; marcada: boolean; alElegir: () => void }) {
   return (
-    <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+    <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--color-text-primary)' }}>
       <input
         type="radio"
         name="alcance-sync-comparendos"
@@ -242,19 +242,19 @@ function SelectorNits({
 }) {
   return (
     <fieldset aria-busy={estado === 'cargando'}>
-      <legend className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-secondary)' }}>
+      <legend className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-secondary)' }}>
         NIT activos a sincronizar
       </legend>
 
       {estado === 'cargando' && (
-        <p className="mt-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>Cargando los NIT activos…</p>
+        <p className="mt-2 text-sm" style={{ color: 'var(--color-text-secondary)' }}>Cargando los NIT activos…</p>
       )}
 
       {/* El error va ANTES que el vacío, como en el resto del módulo: si la consulta falló no se
           sabe si hay NIT, y decir «no hay» sería afirmar algo que nadie comprobó. */}
       {estado === 'error' && (
         <div className="mt-2 flex flex-wrap items-center gap-3">
-          <p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
+          <p className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
             No se pudieron cargar los NIT del catálogo.
           </p>
           <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={onReintentar}>
@@ -265,7 +265,7 @@ function SelectorNits({
 
       {estado === 'ok' && activos.length === 0 && (
         <div className="mt-2 flex flex-wrap items-center gap-3">
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             No hay NIT activos en el catálogo.
           </p>
           <button
@@ -286,7 +286,7 @@ function SelectorNits({
               <label
                 key={n.id}
                 className="flex items-center gap-2 text-sm"
-                style={{ color: 'var(--flit-text-primary)' }}
+                style={{ color: 'var(--color-text-primary)' }}
               >
                 <input
                   type="checkbox"
@@ -298,7 +298,7 @@ function SelectorNits({
               </label>
             ))}
           </div>
-          <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <p className="mt-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
             Solo se listan los NIT activos en Configuración. Máximo {MAX_NITS_POR_CORRIDA} por corrida.
           </p>
         </>
@@ -325,20 +325,20 @@ function PanelEnCurso({ sync }: { sync: SyncEnVivo }) {
 
   return (
     <div className="mt-4 space-y-3">
-      <h3 className="text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+      <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
         Sincronización en curso
       </h3>
-      <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{contexto}</p>
+      <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{contexto}</p>
 
       {ajena && (
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           Ya hay una sincronización en curso, iniciada desde otra sesión. Se sigue su progreso; cuando
           termine podrás lanzar la tuya.
         </p>
       )}
 
       {contactoPerdido && (
-        <p className="text-sm" style={{ color: 'var(--flit-warning-ink)' }}>
+        <p className="text-sm" style={{ color: 'var(--kit-naranja-texto)' }}>
           Perdimos contacto con el servidor; seguimos intentando.
         </p>
       )}
@@ -349,8 +349,7 @@ function PanelEnCurso({ sync }: { sync: SyncEnVivo }) {
       <div
         role="progressbar"
         aria-label="Sincronización en curso"
-        className="h-2 w-full max-w-md animate-pulse motion-reduce:animate-none"
-        style={{ background: 'var(--flit-border-soft)', borderRadius: 999 }}
+        className="kit-esqueleto h-2 w-full max-w-md !rounded-full"
       />
 
       <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle} disabled aria-busy="true">
@@ -390,12 +389,12 @@ function BandaError({ sync, nav, alcance, seleccion }: {
     <div
       role="alert"
       className="mt-4 flex flex-wrap items-start justify-between gap-3 rounded-lg p-3"
-      style={{ background: 'var(--flit-bg-app)' }}
+      style={{ background: 'var(--color-surface)' }}
     >
       <div className="min-w-0 max-w-2xl space-y-1">
-        <p className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error.texto}</p>
+        <p className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error.texto}</p>
         {error.nombraSeleccion && (
-          <p className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+          <p className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
             {seleccion.length > 0 ? seleccion.join(' · ') : 'Revisa la selección de alcance.'}
           </p>
         )}

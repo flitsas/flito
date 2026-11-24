@@ -3,7 +3,6 @@
 // persona lo confirme (RN-04/RN-05): los campos pre-llenados vienen marcados como no confiables.
 
 import { useEffect, useId, useMemo, useState } from 'react';
-import { RotateCw } from 'lucide-react';
 import {
   CAMPO_DERECHO_TRAMITE_LABEL, CAMPO_FACTURA_VENTA_LABEL, CAMPO_IMPUESTO_LABEL, CAMPO_SOAT_LABEL,
   CANDIDATOS_REVISION_TEXTO_MAX, MOTIVO_CANDIDATO_YA_TIENE_DERECHO, MOTIVO_REVISION_LABEL,
@@ -15,11 +14,13 @@ import {
   COPY_REINTENTO, mensajeReintento, normLlave, reintentarLecturaRevision, useCandidatosRevision,
 } from '../lib/revisiones';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
-import {
-  FlitCard, FlitField, FlitEmpty, FlitPillGroup, FlitPillButton, flitInp,
-  flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../components/flit/flitPageKit';
+import { FlitCard, FlitField, flitInp } from '../components/flit/flitPageKit';
 import StatusChip from '../components/flit/StatusChip';
+import GradientButton from '../components/flit/GradientButton';
+import Pestanas from '../components/flit/Pestanas';
+import InlineAlert from '../components/flit/InlineAlert';
+import { Girador, Vacio } from '../components/flit/Cargador';
+import { Icono } from '../components/flit/kit/Icono';
 import FlitComboboxBuscable, { type OpcionBuscable } from '../components/flit/FlitComboboxBuscable';
 
 type Grupo = 'soat' | 'impuestos' | 'derechos';
@@ -29,7 +30,7 @@ interface RevisionItem {
   id: string; modulo: FlujoRevision; motivo: string; detalle: string; registroId: string | null;
   placaSugerida: string | null; extraccion: Record<string, CampoExtraido | undefined>; resuelto: boolean;
   creadoEn: string; soporte: { id: string; nombreArchivo: string };
-  /** BUG #14569: el trámite asociado viene en el listado; el auditor lo ve sin usar el buscador. */
+  /** BUG 14569: el trámite asociado viene en el listado; el auditor lo ve sin usar el buscador. */
   registroActual: CandidatoRevisionDto | null;
 }
 
@@ -245,12 +246,13 @@ function Formulario({ revision, soloLectura, onResuelta, onActualizada }: {
   return (
     <div className="space-y-3">
       <div>
-        <div className="flex flex-wrap items-center gap-2">
+        {/* El motivo puede ser largo («El documento cruza con más de un trámite…»): a 375 px la etiqueta del kit (nowrap) desbordaba. */}
+        <div className="flex flex-wrap items-center gap-2 [&_.kit-etiqueta]:max-w-full [&_.kit-etiqueta]:whitespace-normal">
           <StatusChip tone="neutral">{ETIQUETA_MODULO[modulo]}</StatusChip>
           <StatusChip tone="warning">{MOTIVO_REVISION_LABEL[revision.motivo as keyof typeof MOTIVO_REVISION_LABEL] ?? revision.motivo}</StatusChip>
           {revision.resuelto && <StatusChip tone="success">Resuelta</StatusChip>}
         </div>
-        <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{revision.detalle}</p>
+        <p className="mt-1 text-sm text-[color:var(--color-text-secondary)]">{revision.detalle}</p>
       </div>
 
       <FlitField label="Trámite contra el que se concilia *" inputId={`${base}-tramite`}>
@@ -287,14 +289,13 @@ function Formulario({ revision, soloLectura, onResuelta, onActualizada }: {
       </FlitField>
 
       {aviso && (
-        <div id={avisoId} role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border px-3 py-2 text-sm"
-          style={{ borderColor: 'var(--flit-border-soft)', color: aviso.tono === 'warning' ? 'var(--flit-warning-ink)' : 'var(--flit-text-secondary)' }}>
+        <div id={avisoId} role="status"
+          className={`flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[9px] border border-[color:var(--color-border)] px-3 py-2 text-sm ${aviso.tono === 'warning' ? 'text-[color:var(--kit-amarillo-texto)]' : 'text-[color:var(--color-text-secondary)]'}`}>
           <span aria-hidden>{aviso.tono === 'warning' ? '⚠' : 'ⓘ'}</span>
           <span className="min-w-0 flex-1 basis-48">{aviso.texto}</span>
           {aviso.accion && (
             <button type="button" onClick={aviso.accion.onClick}
-              className="flit-focus min-h-[44px] rounded-md px-2 text-sm font-medium underline-offset-2 transition-colors hover:bg-[color:var(--flit-bg-hover)] hover:underline lg:min-h-8"
-              style={{ color: 'var(--flit-blue-text)' }}>
+              className="min-h-[44px] rounded-[9px] px-2 text-sm font-medium text-[color:var(--color-action)] underline-offset-2 transition-colors hover:bg-[color:var(--kit-hover)] hover:underline focus-visible:outline-2 focus-visible:outline-[color:var(--kit-azul)] lg:min-h-8">
               {aviso.accion.label}
             </button>
           )}
@@ -302,8 +303,8 @@ function Formulario({ revision, soloLectura, onResuelta, onActualizada }: {
       )}
 
       {elegido && (
-        <div className="rounded-lg border text-sm" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <div className="grid grid-cols-[70px_1fr_1fr] gap-2 border-b px-3 py-1.5 text-xs font-semibold" style={{ color: 'var(--flit-text-muted)', borderColor: 'var(--flit-border-soft)' }}>
+        <div className="rounded-[9px] border border-[color:var(--color-border)] text-sm">
+          <div className="grid grid-cols-[70px_1fr_1fr] gap-2 border-b border-[color:var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[color:var(--color-text-tertiary)]">
             <span>Campo</span><span>Trámite</span><span>Leído del PDF</span>
           </div>
           {[{ e: 'Placa', t: elegido.placa ?? '—', l: revision.extraccion.placa?.valor ?? null },
@@ -312,9 +313,9 @@ function Formulario({ revision, soloLectura, onResuelta, onActualizada }: {
             const cruza = f.l !== null && norm(f.t) === norm(f.l);
             return (
               <div key={f.e} className="grid grid-cols-[70px_1fr_1fr] items-center gap-2 px-3 py-1.5">
-                <span style={{ color: 'var(--flit-text-muted)' }}>{f.e}</span>
+                <span className="text-[color:var(--color-text-tertiary)]">{f.e}</span>
                 <span className="break-all font-medium tabular-nums">{f.t}</span>
-                <span className="break-all" style={cruza ? undefined : { color: 'var(--flit-danger-ink)' }}>{f.l ? `${cruza ? '✓ ' : '✗ '}${f.l}` : 'No leído'}</span>
+                <span className={`break-all ${cruza ? 'text-[color:var(--kit-verde-texto)]' : 'text-[color:var(--kit-rojo-texto)]'}`}>{f.l ? `${cruza ? '✓ ' : '✗ '}${f.l}` : 'No leído'}</span>
               </div>
             );
           })}
@@ -347,43 +348,43 @@ function Formulario({ revision, soloLectura, onResuelta, onActualizada }: {
 
       {!soloLectura && !revision.resuelto && modo === 'idle' && (
         <div className="flex flex-wrap gap-2">
-          <button className={`${flitBtnPrimary} ${TACTIL}`} style={flitBtnPrimaryStyle} disabled={!registroId || leyendo} onClick={() => setModo('resolver')}>Confirmar y resolver</button>
-          <button className={`${flitBtnSecondary} ${TACTIL}`} style={flitBtnSecondaryStyle} disabled={leyendo} onClick={() => setModo('descartar')}>Descartar documento</button>
-          <button type="button" className={`${flitBtnSecondary} ${TACTIL}`} style={flitBtnSecondaryStyle} disabled={leyendo || confirmarReintento}
+          <GradientButton type="button" className={TACTIL} disabled={!registroId || leyendo} onClick={() => setModo('resolver')}>Confirmar y resolver</GradientButton>
+          <GradientButton type="button" className={TACTIL} variant="alerta" disabled={leyendo} onClick={() => setModo('descartar')}>Descartar documento</GradientButton>
+          <GradientButton type="button" className={TACTIL} variant="secondary" disabled={leyendo || confirmarReintento}
             onClick={() => (editado ? setConfirmarReintento(true) : reintentar())}>
-            <RotateCw size={16} aria-hidden />{leyendo ? 'Leyendo de nuevo…' : 'Reintentar lectura'}
-          </button>
+            <Icono nombre="reintento" size={16} className="shrink-0" />{leyendo ? 'Leyendo de nuevo…' : 'Reintentar lectura'}
+          </GradientButton>
         </div>
       )}
 
       {confirmarReintento && !leyendo && (
-        <div role="group" aria-labelledby={`${base}-confirma`} className="rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <p id={`${base}-confirma`} className="text-sm" style={{ color: 'var(--flit-warning-text)' }}>{COPY_REINTENTO.confirmar}</p>
+        <div role="group" aria-labelledby={`${base}-confirma`} className="rounded-[9px] border border-[color:var(--color-border)] p-3">
+          <p id={`${base}-confirma`} className="text-sm text-[color:var(--kit-amarillo-texto)]">{COPY_REINTENTO.confirmar}</p>
           <div className="mt-2 flex flex-wrap gap-2">
-            <button type="button" className={`${flitBtnSecondary} ${TACTIL}`} style={flitBtnSecondaryStyle} onClick={reintentar}>Reintentar de todos modos</button>
-            <button type="button" className={`${flitBtnSecondary} ${TACTIL}`} style={flitBtnSecondaryStyle} onClick={() => setConfirmarReintento(false)}>Cancelar</button>
+            <GradientButton type="button" className={TACTIL} variant="secondary" onClick={reintentar}>Reintentar de todos modos</GradientButton>
+            <GradientButton type="button" className={TACTIL} variant="secondary" onClick={() => setConfirmarReintento(false)}>Cancelar</GradientButton>
           </div>
         </div>
       )}
 
       {avisoLectura && !revision.resuelto && modo === 'idle' && (
-        <div role="status" className="rounded-lg border px-3 py-2 text-sm"
-          style={{ borderColor: 'var(--flit-border-soft)', color: avisoLectura.tono === 'error' ? 'var(--flit-danger-text)' : 'var(--flit-text-secondary)' }}>
+        <div role="status"
+          className={`rounded-[9px] border border-[color:var(--color-border)] px-3 py-2 text-sm ${avisoLectura.tono === 'error' ? 'text-[color:var(--kit-rojo-texto)]' : 'text-[color:var(--color-text-secondary)]'}`}>
           {avisoLectura.texto}
         </div>
       )}
 
       {modo !== 'idle' && (
-        <div className="rounded-lg border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
+        <div className="rounded-[9px] border border-[color:var(--color-border)] p-3">
           <p className="text-sm font-medium">{modo === 'resolver' ? 'Deja constancia de qué validaste' : 'Motivo del descarte (mín. 5 caracteres)'}</p>
           <textarea className={`${flitInp} mt-2 min-h-[64px]`} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
-          {error && <p className="mt-1 text-sm" style={{ color: 'var(--flit-danger-ink)' }}>{error}</p>}
-          <div className="mt-2 flex gap-2">
-            <button className={flitBtnPrimary} style={flitBtnPrimaryStyle}
+          {error && <p className="mt-1 text-sm text-[color:var(--kit-rojo-texto)]">{error}</p>}
+          <div className="mt-2 flex flex-wrap gap-2">
+            <GradientButton type="button" variant={modo === 'resolver' ? 'success' : 'alerta'}
               disabled={enviando || !motivo.trim() || (modo === 'descartar' && motivo.trim().length < 5)} onClick={enviar}>
               {enviando ? 'Enviando…' : modo === 'resolver' ? 'Resolver' : 'Descartar'}
-            </button>
-            <button className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => { setModo('idle'); setError(null); }}>Cancelar</button>
+            </GradientButton>
+            <GradientButton type="button" variant="alerta" onClick={() => { setModo('idle'); setError(null); }}>Cancelar</GradientButton>
           </div>
         </div>
       )}
@@ -400,7 +401,7 @@ export default function FlitoRevisiones() {
   // Revisiones que «Reintentar lectura» devolvió con extracción nueva; mandan sobre la cola cargada.
   const [reemplazos, setReemplazos] = useState<Record<string, RevisionItem>>({});
 
-  // HU #12872: solo lectura = sin la función de resolver (la guarda de `POST /:id/resolver`).
+  // HU 12872: solo lectura = sin la función de resolver (la guarda de `POST /:id/resolver`).
   const soloLectura = !hasFuncion('revisiones.revision.resolver');
 
   const rSoat = useRevisiones('soat', incluirResueltas, recarga);
@@ -422,32 +423,41 @@ export default function FlitoRevisiones() {
         title="Revisiones OCR"
         subtitle="Todo documento con OCR que no superó la coincidencia cae aquí. Nada se da por válido sin que alguien lo confirme."
         actions={
-          <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
-            <input type="checkbox" checked={incluirResueltas} onChange={(e) => setIncluirResueltas(e.target.checked)} />
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-[color:var(--color-text-secondary)]">
+            <input type="checkbox" className="size-4 accent-[color:var(--kit-azul)]" checked={incluirResueltas} onChange={(e) => setIncluirResueltas(e.target.checked)} />
             Incluir resueltas
           </label>
         }
       />
 
-      <FlitPillGroup>
-        <FlitPillButton active={grupo === 'soat'} onClick={() => { setGrupo('soat'); setSeleccionadaId(null); }}>SOAT</FlitPillButton>
-        <FlitPillButton active={grupo === 'impuestos'} onClick={() => { setGrupo('impuestos'); setSeleccionadaId(null); }}>Impuestos</FlitPillButton>
-        <FlitPillButton active={grupo === 'derechos'} onClick={() => { setGrupo('derechos'); setSeleccionadaId(null); }}>Derechos de tránsito</FlitPillButton>
-      </FlitPillGroup>
+      <Pestanas
+        etiqueta="Tipo de documento en revisión"
+        pestanas={[
+          { id: 'soat', etiqueta: 'SOAT' },
+          { id: 'impuestos', etiqueta: 'Impuestos' },
+          { id: 'derechos', etiqueta: 'Derechos de tránsito' },
+        ]}
+        activa={grupo}
+        onElegir={(id) => { setGrupo(id as Grupo); setSeleccionadaId(null); }}
+      />
 
       {data.length === 0 ? (
-        <FlitCard><FlitEmpty>No hay nada en revisión. Cuando una extracción no supere el umbral o su llave no cruce, el documento aparecerá aquí.</FlitEmpty></FlitCard>
+        <FlitCard>
+          <div data-testid="ui-empty">
+            <Vacio icono="carpeta" texto="No hay nada en revisión."
+              detalle="Cuando una extracción no supere el umbral o su llave no cruce, el documento aparecerá aquí." />
+          </div>
+        </FlitCard>
       ) : (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr_1fr]">
           <FlitCard>
-            <p className="mb-2 text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>Cola ({data.length})</p>
+            <p className="mb-2 text-sm font-semibold text-[color:var(--color-action)]">Cola ({data.length})</p>
             <div className="space-y-1.5">
               {data.map((r) => (
                 <button key={r.id} type="button" onClick={() => setSeleccionadaId(r.id)}
-                  className="w-full rounded-md border p-2 text-left transition-colors hover:bg-[color:var(--flit-bg-hover)]"
-                  style={{ borderColor: seleccionada?.id === r.id ? 'var(--flit-blue-text)' : 'var(--flit-border-soft)' }}>
+                  className={`w-full rounded-[9px] border p-2 text-left transition-colors hover:bg-[color:var(--kit-hover)] focus-visible:outline-2 focus-visible:outline-[color:var(--kit-azul)] ${seleccionada?.id === r.id ? 'border-[color:var(--kit-azul)] bg-[color:var(--kit-hover)]' : 'border-[color:var(--color-border)]'}`}>
                   <p className="truncate text-sm font-medium">{r.soporte.nombreArchivo}</p>
-                  <p className="mt-0.5 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{ETIQUETA_MODULO[r.modulo]} · {fechaHora(r.creadoEn)}</p>
+                  <p className="mt-0.5 text-xs text-[color:var(--color-text-tertiary)]">{ETIQUETA_MODULO[r.modulo]} · {fechaHora(r.creadoEn)}</p>
                 </button>
               ))}
             </div>
@@ -456,14 +466,14 @@ export default function FlitoRevisiones() {
           {seleccionada && (
             <>
               <FlitCard>
-                <p className="mb-2 truncate text-sm font-semibold" style={{ color: 'var(--flit-blue-text)' }}>{seleccionada.soporte.nombreArchivo}</p>
-                {url ? <object data={url} type="application/pdf" className="h-[600px] w-full rounded-md border" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                  <a href={url} target="_blank" rel="noreferrer">Abrir el documento</a>
-                </object> : <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando documento…</p>}
+                <p className="mb-2 truncate text-sm font-semibold text-[color:var(--color-action)]">{seleccionada.soporte.nombreArchivo}</p>
+                {url ? <object data={url} type="application/pdf" className="h-[600px] w-full rounded-[9px] border border-[color:var(--color-border)]">
+                  <a href={url} target="_blank" rel="noreferrer" className="text-[color:var(--color-action)] underline">Abrir el documento</a>
+                </object> : <p className="flex items-center gap-2 text-sm text-[color:var(--color-text-tertiary)]"><Girador />Cargando documento…</p>}
               </FlitCard>
 
               <FlitCard>
-                {soloLectura && <div className="mb-3 rounded-md border p-2 text-sm" style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-blue-text)' }}>Solo lectura · Auditoría ve la cola y los soportes, pero no los resuelve.</div>}
+                {soloLectura && <div className="mb-3"><InlineAlert tono="info">Solo lectura · Auditoría ve la cola y los soportes, pero no los resuelve.</InlineAlert></div>}
                 <Formulario key={seleccionada.id} revision={seleccionada} soloLectura={!!soloLectura}
                   onResuelta={() => { setSeleccionadaId(null); setReemplazos({}); setRecarga((n) => n + 1); }}
                   onActualizada={(r) => setReemplazos((m) => ({ ...m, [r.id]: r }))} />

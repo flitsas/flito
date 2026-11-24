@@ -209,7 +209,7 @@ test.describe('FLITO — Impuestos · envío del comprobante a FLIT 2 y reemplaz
   test('AC3 · «Reemplazar comprobante» solo con la función, Pagado y comprobante de pago vigente', async ({ page }) => {
     await iniciar(page);
     let detalle = await abrirDetalle(page, 'ENV001');
-    const textos = await detalle.locator('dd').filter({ hasText: 'Ver soporte' }).getByRole('button').allInnerTexts();
+    const textos = await detalle.getByRole('group', { name: 'Acciones del comprobante' }).getByRole('button').allInnerTexts();
     expect(textos.map((t) => t.trim())).toEqual(['Ver soporte', 'Reemplazar comprobante']);
     // Secundario: el detalle sigue sin primaria.
     await expect(detalle.getByRole('button', { name: 'Reemplazar comprobante' })).not.toHaveCSS('background-image', /gradient/);
@@ -405,7 +405,12 @@ test.describe('FLITO — Impuestos · envío del comprobante a FLIT 2 y reemplaz
     await iniciar(page);
     const { modal } = await abrirReemplazo(page, 'ERR001');
     await expect(modal).toBeVisible();
-    esperarSinViolacionesGraves(await correrAxe(page), 'reemplazo de comprobante');
+    // Acotado a los diálogos (el detalle y el de reemplazo), que es lo que este test audita. Sobre el
+    // documento entero, axe medía también la cola que queda DETRÁS del modal, desplazada por el clic
+    // en «Ver», y sus botones salían «parcialmente tapados» por la barra superior fija: un falso
+    // `target-size` que dependía de la altura de las filas, no del diálogo (Épica #14560). La cola
+    // tiene su propio axe en `flito-impuestos-fases-a11y`.
+    esperarSinViolacionesGraves(await correrAxe(page, '[role="dialog"]'), 'reemplazo de comprobante');
   });
 });
 

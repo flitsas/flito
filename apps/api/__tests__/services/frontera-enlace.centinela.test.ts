@@ -327,6 +327,7 @@ const RUTAS_13426: [string, Decision][] = [
   ['POST /api/flito/tramites/buscar',                                          'filtra'], // HU #13836: Dr. Flit gestión, alcance del listado
   ['GET /api/flito/tramites/facetas',                                          'filtra'],
   ['GET /api/flito/tramites/:id/historial',                                    'filtra'],
+  ['GET /api/flito/tramites/:id/detalle',                                      'filtra'], // Épica #14560 (ADR-0046): alcance por compañía en el WHERE
   ['GET /api/flito/tramites/:id/soportes',                                     'filtra'],
   ['POST /api/flito/tramites/soportes/zip',                                    'filtra'],
   ['POST /api/flito/tramites/crear-empresa',                                   'soloSinEnlace'],

@@ -8,8 +8,8 @@ palabras_clave:
 consultas:
   - cuánto cobra el organismo por radicar
   - cómo registro el pago de derechos
-version: 1.1
-fecha: 2026-10-22
+version: 1.4
+fecha: 2026-11-17
 ---
 ## Qué es
 
@@ -21,7 +21,7 @@ Administrador (carga, procesa el Drive y consulta). Auditor (consulta). Financie
 
 ## Cómo se entra
 
-En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el grupo **Trámites** del panel que se abre, el ítem **Derechos**. En pantallas pequeñas, use el botón de menú de la barra superior; también puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «Derechos».
+En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el grupo **Trámites** del panel que se abre, el ítem **Derechos**. Si la sección no cabe en la barra, está en **Más**, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «Derechos».
 
 ## Pasos
 
@@ -29,7 +29,7 @@ En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el gr
 2. Pulse **Cargar**; el botón dice cuántos archivos eligió, por ejemplo **Cargar (1)**, y mientras lee dice **Procesando…**. Al terminar, un aviso le dice cuántos derechos quedaron registrados y aparece **Resultado de la carga**: cada archivo en su canasta —**Registrados**, **En revisión**, **Sin trámite asociado**, **Duplicados**, **Páginas omitidas** o **Fallidos**—, con el archivo, la placa, el trámite, el valor y el detalle. **Cerrar** oculta el panel cuando termine. ![Resultado de la carga de un recibo demo: canastas Registrados, En revisión y Duplicados, cada una con archivo, placa, trámite, valor y detalle](./flito_derechos/01-resultado-de-la-carga.png)
 3. Lo **En revisión** (por ejemplo, una placa con varios trámites) se resuelve en **Revisiones OCR**, no aquí.
 4. En la pestaña **Drive · Medellín** están los consolidados que publica la secretaría en su Drive, con quién los modificó, el tamaño y si ya se procesaron (la fecha, **Nunca** o **Dado por visto**). Pulse **Procesar**, o **Reprocesar** si ya se había procesado; el resultado aparece en el mismo panel **Resultado de la carga**. **Ver el registro** muestra cada pasada, aunque el archivo ya no esté en el Drive. El barrido automático diario de las 9:00 no sustituye este botón. ![Pestaña Drive · Medellín con el registro de procesamientos abierto y la lista de consolidados demo con Procesar y Reprocesar](./flito_derechos/02-drive.png)
-5. En la pestaña **Registrados**, busque por placa o trámite y filtre por **Secretaría**, **Origen** o el rango **Pagado**; en **Vista**, **Con advertencia** deja solo los recibos cuyo concepto no coincide con el del trámite. Bajo el origen va el archivo y la página de donde salió cada recibo (o **Archivo no registrado** en los antiguos). **Ver PDF** abre el soporte y **Ver todos** abre los documentos del trámite (derecho, SOAT e impuesto). Una fila con duda muestra **Con advertencia**. ![Pestaña Registrados con el buscador, los filtros y tres derechos demo, uno de ellos Con advertencia](./flito_derechos/03-registrados.png)
+5. En la pestaña **Registrados**, busque por placa o trámite y, en **Filtros**, filtre por **Secretaría**, **Origen** o el rango **Pagado** (cada filtro puesto aparece debajo del buscador con su X para quitarlo); en **Vista**, **Con advertencia** deja solo los recibos cuyo concepto no coincide con el del trámite. Bajo el origen va el archivo y la página de donde salió cada recibo (o **Archivo no registrado** en los antiguos). **Ver PDF** abre el soporte y **Ver todos** abre los documentos del trámite (derecho, SOAT e impuesto). Una fila con duda muestra **Con advertencia**. ![Pestaña Registrados con el buscador, los filtros y tres derechos demo, uno de ellos Con advertencia](./flito_derechos/03-registrados.png)
 
 ![Diagrama: los recibos entran por Cargar recibos o por Drive · Medellín, el sistema lee placa, fecha y valor, y cada uno cae en Registrados, En revisión, Sin trámite asociado, Duplicados, Páginas omitidas o Fallidos; lo En revisión se resuelve en Revisiones OCR](./flito_derechos/canastas-de-carga.svg)
 

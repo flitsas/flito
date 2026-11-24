@@ -12,7 +12,7 @@ import { etiquetaConcepto, tarifasProveedorApi } from '../../lib/tarifas-proveed
 import FlitAcordeon from '../../components/flit/FlitAcordeon';
 import StatusChip from '../../components/flit/StatusChip';
 import {
-  FlitEmpty, FlitPillButton, FlitPillGroup, FlitTable, FlitTh, FlitTr, flitBtnSecondary, flitBtnSecondaryStyle,
+  FlitEmpty, FlitPillButton, FlitPillGroup, FlitTable, FlitTh, FlitTr, flitBtnSecondary,
 } from '../../components/flit/flitPageKit';
 import { AvisoTonal, useEsEscritorio } from './CostosProveedor';
 
@@ -36,7 +36,7 @@ const SIN_SERVICIO = 'Sin servicio asignado';
 
 function Hasta({ v }: { v: VigenciaCostoProveedor }) {
   if (v.vigenteHasta !== null) return <>{fechaCorta(v.vigenteHasta)}</>;
-  if (!v.servicioAsignado) return <span style={{ color: 'var(--flit-text-secondary)' }}>{SIN_SERVICIO}</span>;
+  if (!v.servicioAsignado) return <span style={{ color: 'var(--color-text-secondary)' }}>{SIN_SERVICIO}</span>;
   return <StatusChip tone="active">Vigente</StatusChip>;
 }
 
@@ -81,27 +81,27 @@ export default function HistorialCostosProveedor({
 
         {error ? (
           <AvisoTonal tono="activo" rol="alert" icono="!"
-            accion={<button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={reintentar}>Reintentar</button>}>
+            accion={<button type="button" className={flitBtnSecondary} onClick={reintentar}>Reintentar</button>}>
             <p className="font-semibold">No se pudo cargar el historial.</p>
           </AvisoTonal>
         ) : filas === null ? (
           <div role="status" aria-busy="true" aria-label="Cargando el historial"
             className={escritorio ? 'space-y-2' : 'grid grid-cols-1 gap-3 md:grid-cols-2'}>
             {[0, 1, 2].map((i) => (
-              <div key={i} className={`${escritorio ? 'h-8' : 'h-24'} animate-pulse rounded`} style={{ background: 'var(--flit-bg-table-header)' }} />
+              <div key={i} className={`kit-esqueleto ${escritorio ? 'h-8' : 'h-24'}`} />
             ))}
           </div>
         ) : filas.length === 0 ? (
           <FlitEmpty>
             {conTodos ? (
               <>
-                <p style={{ color: 'var(--flit-text-primary)' }}>Todavía no hay valores fijados para {proveedorNombre}.</p>
+                <p style={{ color: 'var(--color-text-primary)' }}>Todavía no hay valores fijados para {proveedorNombre}.</p>
                 <p className="mt-1">Cuando fijes el primero, aquí queda con su fecha y quién lo fijó.</p>
               </>
             ) : (
               <>
-                <p style={{ color: 'var(--flit-text-primary)' }}>Este servicio todavía no tiene valores fijados.</p>
-                <button type="button" className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle} onClick={() => onFiltro('todos')}>Ver todos</button>
+                <p style={{ color: 'var(--color-text-primary)' }}>Este servicio todavía no tiene valores fijados.</p>
+                <button type="button" className={`${flitBtnSecondary} mt-3`} onClick={() => onFiltro('todos')}>Ver todos</button>
               </>
             )}
           </FlitEmpty>
@@ -120,12 +120,12 @@ export default function HistorialCostosProveedor({
             <tbody>
               {filas.map((v) => (
                 <FlitTr key={v.id}>
-                  {conTodos && <td className={`${celda} font-medium`} style={{ color: 'var(--flit-text-primary)' }}>{etiquetaConcepto(v.concepto)}</td>}
-                  <td className={`${celda} tabular-nums`} style={{ color: 'var(--flit-text-primary)' }}>{pesosTarifa(v.valor)}</td>
-                  <td className={celda} style={{ color: 'var(--flit-text-secondary)' }}>{fechaCorta(v.vigenteDesde)}</td>
-                  <td className={celda} style={{ color: 'var(--flit-text-secondary)' }}><Hasta v={v} /></td>
-                  <td className={celda} style={{ color: 'var(--flit-text-primary)' }}>{nombreUsuario(v.fijadoPor)}</td>
-                  <td className={celda} style={{ color: v.cerradoEn ? 'var(--flit-text-primary)' : 'var(--flit-text-muted)' }}>
+                  {conTodos && <td className={`${celda} font-medium`} style={{ color: 'var(--color-text-primary)' }}>{etiquetaConcepto(v.concepto)}</td>}
+                  <td className={`${celda} tabular-nums`} style={{ color: 'var(--color-text-primary)' }}>{pesosTarifa(v.valor)}</td>
+                  <td className={celda} style={{ color: 'var(--color-text-secondary)' }}>{fechaCorta(v.vigenteDesde)}</td>
+                  <td className={celda} style={{ color: 'var(--color-text-secondary)' }}><Hasta v={v} /></td>
+                  <td className={celda} style={{ color: 'var(--color-text-primary)' }}>{nombreUsuario(v.fijadoPor)}</td>
+                  <td className={celda} style={{ color: v.cerradoEn ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)' }}>
                     {v.cerradoEn ? nombreUsuario(v.cerradoPor) : '—'}
                   </td>
                 </FlitTr>
@@ -135,16 +135,16 @@ export default function HistorialCostosProveedor({
         ) : (
           <ul aria-label={`Historial de ${proveedorNombre}`} className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {filas.map((v) => (
-              <li key={v.id} className="min-w-0 rounded-xl border p-4" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)' }}>
-                {conTodos && <p className="break-words text-sm font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{etiquetaConcepto(v.concepto)}</p>}
+              <li key={v.id} className="min-w-0 rounded-[9px] border p-4" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-elevated)' }}>
+                {conTodos && <p className="break-words text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>{etiquetaConcepto(v.concepto)}</p>}
                 <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xl font-bold tabular-nums" style={{ color: 'var(--flit-text-primary)' }}>{pesosTarifa(v.valor)}</span>
+                  <span className="text-xl font-bold tabular-nums" style={{ color: 'var(--color-text-primary)' }}>{pesosTarifa(v.valor)}</span>
                   {v.vigenteHasta === null && v.servicioAsignado && <StatusChip tone="active">Vigente</StatusChip>}
                 </div>
-                <p className="mt-1 break-words text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+                <p className="mt-1 break-words text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                   {fechaCorta(v.vigenteDesde)} → {v.vigenteHasta !== null ? fechaCorta(v.vigenteHasta) : v.servicioAsignado ? 'Vigente' : SIN_SERVICIO}
                 </p>
-                <p className="mt-0.5 break-words text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+                <p className="mt-0.5 break-words text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                   Fijó {nombreUsuario(v.fijadoPor)}{v.cerradoEn ? ` · Cerró ${nombreUsuario(v.cerradoPor)}` : ''}
                 </p>
               </li>

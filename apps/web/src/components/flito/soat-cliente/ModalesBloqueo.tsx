@@ -89,7 +89,7 @@ export function ModalVinEnCola(
   // un caso: el estado se sigue NOMBRANDO en la frase (una fila antigua puede llegar así hasta que
   // la HU #12081 las migre) y la salida es la misma que para cualquier otra solicitud propia.
   return (
-    <FlitModal title="Ese vehículo ya está en la cola de FLITO" onClose={onClose} restoreFocusRef={restoreFocusRef}>
+    <FlitModal title="Ese vehículo ya está en la cola de FLITO" icono="alerta" onClose={onClose} restoreFocusRef={restoreFocusRef}>
       <div className="space-y-3 text-sm">
         <StatusChip tone="warning">No se puede crear otra solicitud</StatusChip>
 
@@ -147,7 +147,7 @@ export function ModalIncompletaExistente(
   return (
     <FlitModal
       title={propia ? 'Ese vehículo ya tiene una solicitud pendiente de validar' : 'Ese vehículo ya está en la cola de FLITO'}
-      onClose={onClose} restoreFocusRef={restoreFocusRef}
+      icono="alerta" onClose={onClose} restoreFocusRef={restoreFocusRef}
     >
       <div className="space-y-3 text-sm">
         <StatusChip tone="warning">No se puede crear otra solicitud</StatusChip>

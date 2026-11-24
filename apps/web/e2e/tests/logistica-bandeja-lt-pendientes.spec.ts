@@ -46,7 +46,7 @@ async function mockBandeja(page: Page, m: Mock = {}) {
 
 const irABandeja = async (page: Page) => {
   await page.goto('/flito/logistica');
-  await page.getByRole('button', { name: /^LT pendientes/ }).click();
+  await page.getByRole('tab', { name: /^LT pendientes/ }).click();
 };
 
 test.describe('FLITO — Logística · bandeja de LT pendientes', () => {
@@ -56,7 +56,7 @@ test.describe('FLITO — Logística · bandeja de LT pendientes', () => {
     const st = await mockBandeja(page);
     await page.goto('/flito/logistica');
     await expect(page.getByRole('heading', { name: 'Actas' })).toBeVisible();
-    await expect(page.getByRole('button', { name: /LT pendientes/ })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: /LT pendientes/ })).toHaveCount(0);
     expect(st.listaGets).toBe(0);
   });
 
@@ -64,8 +64,8 @@ test.describe('FLITO — Logística · bandeja de LT pendientes', () => {
     await loginAs(page, OPERACIONES_USER, { funciones: [...BASE, FUNCION] });
     await mockBandeja(page);
     await page.goto('/flito/logistica');
-    await expect(page.getByRole('button', { name: 'LT pendientes, 3' })).toBeVisible();
-    await page.getByRole('button', { name: /^LT pendientes/ }).click();
+    await expect(page.getByRole('tab', { name: 'LT pendientes, 3' })).toBeVisible();
+    await page.getByRole('tab', { name: /^LT pendientes/ }).click();
     const filas = page.getByRole('row');
     await expect(filas.nth(1)).toContainText('ABC123');
     await expect(filas.nth(1)).toContainText('2 candidatos');
@@ -201,7 +201,7 @@ test.describe('FLITO — Logística · bandeja de LT pendientes', () => {
     await mockBandeja(page, { lista: [] });
     await irABandeja(page);
     await expect(page.getByText('No hay LT esperando trámite.')).toBeVisible();
-    await expect(page.getByRole('button', { name: /^LT pendientes,/ })).toHaveCount(0);
+    await expect(page.getByRole('tab', { name: /^LT pendientes,/ })).toHaveCount(0);
   });
 
   test('error de carga: alerta con Reintentar que recupera', async ({ page }) => {

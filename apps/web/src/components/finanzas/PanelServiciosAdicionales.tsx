@@ -26,8 +26,8 @@ import BuscadorTipoServicio from './BuscadorTipoServicio';
 import FilaServicioAdicional from './FilaServicioAdicional';
 import { pesos } from './tiposReporteCostos';
 
-const SECUNDARIO = { color: 'var(--flit-text-secondary)' } as const;
-const PELIGRO = { color: 'var(--flit-warning-text)' } as const;
+const SECUNDARIO = { color: 'var(--color-text-secondary)' } as const;
+const PELIGRO = { color: 'var(--kit-naranja-texto)' } as const;
 
 /** Lo que falla al PEDIR la lista. El 403 y el 404 no se reintentan: reintentar no los arregla. */
 interface ErrorCarga { mensaje: string; reintentable: boolean; tramiteIdo: boolean }
@@ -181,7 +181,7 @@ export default function PanelServiciosAdicionales({
               )}
 
               {items.length > 0 && (
-                <ul className="divide-y" style={{ borderColor: 'var(--flit-border-soft)' }}>
+                <ul className="divide-y" style={{ borderColor: 'var(--color-border)' }}>
                   {items.map((item) => (
                     <FilaServicioAdicional
                       key={item.id}
@@ -204,7 +204,7 @@ export default function PanelServiciosAdicionales({
         </div>
 
         {!errorCarga && (
-          <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
+          <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--color-border)' }}>
             <div className="flex items-baseline justify-between gap-3">
               <span className="text-xs" style={SECUNDARIO}>{primeraCarga ? '' : etiquetaCantidad(items.length)}</span>
               <span className="text-sm">
@@ -255,12 +255,12 @@ function errorDeCarga(e: unknown): ErrorCarga {
  */
 function Esqueleto() {
   const barra = (ancho: string) => (
-    <span className={`block h-3 ${ancho} rounded`} style={{ background: 'var(--flit-border-soft)' }} />
+    <span className={`block h-3 ${ancho} rounded`} style={{ background: 'var(--color-border)' }} />
   );
   return (
     <div role="status" aria-busy="true" aria-label="Cargando los servicios adicionales del trámite">
       {[0, 1, 2].map((i) => (
-        <div key={i} className="border-t py-3 first:border-t-0" style={{ borderColor: 'var(--flit-border-soft)' }}>
+        <div key={i} className="border-t py-3 first:border-t-0" style={{ borderColor: 'var(--color-border)' }}>
           <div className="flex items-center justify-between gap-3">{barra('w-40')}{barra('w-20')}</div>
           <div className="mt-2">{barra('w-56')}</div>
         </div>

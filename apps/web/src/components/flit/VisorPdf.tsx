@@ -95,11 +95,11 @@ export default function VisorPdf({ url, nombre, paginaInicial }: {
   if (error) {
     return (
       <div role="status" className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-sm">
-        <p style={{ color: error === 'protegido' ? 'var(--flit-text-primary)' : 'var(--flit-danger-text)' }}>
+        <p style={{ color: error === 'protegido' ? 'var(--color-text-primary)' : 'var(--kit-rojo-texto)' }}>
           {error === 'protegido' ? `${COPY_PDF_PROTEGIDO}.` : 'No pudimos mostrar la vista previa.'}
         </p>
         {/* Salida de emergencia: si pdf.js no puede con el fichero, que al menos se pueda descargar. */}
-        <a href={url} target="_blank" rel="noreferrer" className="underline" style={{ color: 'var(--flit-blue-text)' }}>
+        <a href={url} target="_blank" rel="noreferrer" className="underline" style={{ color: 'var(--color-action)' }}>
           Abrir en una pestaña nueva
         </a>
       </div>
@@ -108,7 +108,7 @@ export default function VisorPdf({ url, nombre, paginaInicial }: {
 
   if (!paginas) {
     return (
-      <div className="flex h-full items-center justify-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>
+      <div className="flex h-full items-center justify-center text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
         Cargando {nombre ?? 'el documento'}…
       </div>
     );
@@ -116,7 +116,7 @@ export default function VisorPdf({ url, nombre, paginaInicial }: {
 
   return (
     // `tabIndex=0`: una región que desplaza tiene que poder recibir foco para recorrerla con el teclado (axe `scrollable-region-focusable`, WCAG 2.1.1).
-    <div ref={contenedor} tabIndex={0} role="region" aria-label={`Páginas de ${nombre ?? 'el documento'}`} className="flit-focus h-full overflow-auto rounded-md" style={{ background: 'var(--flit-border-soft)' }}>
+    <div ref={contenedor} tabIndex={0} role="region" aria-label={`Páginas de ${nombre ?? 'el documento'}`} className="flit-focus h-full overflow-auto rounded-md" style={{ background: 'var(--color-border)' }}>
       <div className="flex flex-col items-center gap-3 p-3">
         {paginas.map((src, i) => (
           <img

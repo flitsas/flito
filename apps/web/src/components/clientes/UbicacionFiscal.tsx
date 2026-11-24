@@ -81,8 +81,8 @@ export default function UbicacionFiscal({
 
   if (catalogoCargado === false) {
     return (
-      <p role="alert" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
-        <span aria-hidden="true" style={{ color: 'var(--flit-danger)' }}>⚠ </span>
+      <p role="alert" className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
+        <span aria-hidden="true" style={{ color: 'var(--kit-rojo-texto)' }}>⚠ </span>
         El catálogo de ubicaciones de Siigo no está cargado. Sin él no se puede elegir la ciudad
         fiscal: cárgalo desde la parametrización de facturación electrónica.
       </p>
@@ -133,15 +133,15 @@ export default function UbicacionFiscal({
       </div>
 
       {ciudadTexto && (
-        <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           Ciudad registrada en la ficha: <strong>{ciudadTexto}</strong>
           {cityCode === '' && ' — todavía sin equivalencia confirmada.'}
         </p>
       )}
 
       {propuesta && propuesta.certeza !== 'sin_equivalencia' && editable && (
-        <div className="rounded-[10px] px-3 py-2 text-xs" style={{ background: 'rgba(79, 116, 201, 0.08)' }}>
-          <p className="font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        <div className="kit-alerta flex-col !gap-1 text-xs" data-tono="info">
+          <p className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>
             Equivalencia propuesta para «{propuesta.textoOrigen}»{' '}
             <StatusChip tone={propuesta.certeza === 'exacta' ? 'success' : 'warning'}>
               {propuesta.certeza === 'exacta' ? 'Coincidencia exacta'
@@ -155,7 +155,7 @@ export default function UbicacionFiscal({
                 <button
                   type="button"
                   className="flit-focus underline"
-                  style={{ color: 'var(--flit-info)' }}
+                  style={{ color: 'var(--color-action)' }}
                   onClick={() => onCambio({
                     countryCode: c.countryCode, stateCode: c.stateCode, cityCode: c.cityCode,
                   })}
@@ -167,7 +167,7 @@ export default function UbicacionFiscal({
           </ul>
           {/* Se propone, no se aplica: quien confirma es quien responde por el municipio que sale
               impreso en la factura. */}
-          <p className="mt-1" style={{ color: 'var(--flit-text-muted)' }}>
+          <p className="mt-1" style={{ color: 'var(--color-text-tertiary)' }}>
             Nada se aplica solo: elige la que corresponda y guarda.
           </p>
         </div>

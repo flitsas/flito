@@ -240,15 +240,20 @@ const panelRango = (page: Page, etiqueta: string) =>
 
 /** Deja puesto el rango del filtro nuevo, pinchando los dos extremos del mes visible. */
 /**
- * HU #12819: en la cola SOAT los filtros secundarios viven en el panel plegable «Más filtros»;
- * Impuestos no lo tiene y ahí no hace nada. Idempotente: si ya está abierto no lo cierra.
+ * HU #12819: en la cola SOAT los filtros secundarios viven en el panel plegable «Filtros»;
+ * en Impuestos (UI Kit 2026) todos viven en el panel «Filtros». Idempotente: si ya está abierto no lo cierra.
  */
 async function abrirMasFiltrosSoat(page: Page) {
-  if (!new URL(page.url()).pathname.startsWith('/flito/soat')) return;
-  const boton = page.getByRole('button', { name: /^Más filtros/ });
+  const ruta = new URL(page.url()).pathname;
+  // UI Kit 2026: en Impuestos TODOS los filtros viven en el panel que abre «Filtros» (`PanelFiltros`).
+  const enImpuestos = ruta.startsWith('/flito/impuestos');
+  if (!enImpuestos && !ruta.startsWith('/flito/soat')) return;
+  // Épica #14560 (ronda 2): el botón se llama «Filtros» en las dos colas.
+  const boton = page.getByRole('button', { name: /^Filtros/ });
   // Primero que la cola haya pintado: durante la carga inicial la pantalla se vuelve a montar
   // (sesión y permisos) y un panel abierto antes se cerraría con ella.
-  await expect(page.getByRole('region', { name: 'Pólizas SOAT' })).toBeVisible();
+  if (enImpuestos) await expect(page.getByText('ABC123').first()).toBeVisible();
+  else await expect(page.getByRole('region', { name: 'Pólizas SOAT' })).toBeVisible();
   // `toPass`: un clic antes de que React enganche el manejador no abre nada; se reintenta hasta
   // que el botón DIGA que está abierto, que es lo que se comprueba y no el clic.
   await expect(async () => {
@@ -277,7 +282,8 @@ async function ponerRangoCreado(page: Page) {
  * coincidencias y el fallo no habla de lo que se estaba comprobando.
  */
 const contador = (page: Page, texto: string) => page.getByText(texto).first();
-const siguiente = (page: Page) => page.getByRole('button', { name: 'Siguiente →' }).first();
+// UI Kit 2026 (S0): la flecha de la paginación se llama «Página siguiente».
+const siguiente = (page: Page) => page.getByRole('button', { name: 'Página siguiente' }).first();
 
 /** Lo que la cola pidió la última vez, como pares ordenados. */
 const pares = (search: string) => [...new URLSearchParams(search).entries()]
@@ -855,5 +861,63 @@ test.describe('HU #11909 — el nombre del archivo', () => {
     expect(descarga.suggestedFilename()).toBe(NOMBRE_SOAT);
     expect(descarga.suggestedFilename()).not.toContain('/');
     expect(descarga.suggestedFilename()).not.toContain('..');
+  });
+});
+
+// Épica #14560 (rediseño, retrabajo pre-PR): la primaria de la cabecera y «Exportar a Excel» van en UN
+// grupo, en la misma fila, primaria a la izquierda, alineado a la derecha de la cabecera (≥ 768 px).
+test.describe('Épica #14560 — cabecera: primaria + «Exportar a Excel» agrupadas a la derecha', () => {
+  for (const caso of [
+    { modulo: SOAT_MOD, primaria: 'Cargar comprobantes de SOAT (masivo)' },
+    { modulo: IMPUESTOS_MOD, primaria: 'Cargar recibos (masivo)' },
+  ]) {
+    for (const width of [768, 1366]) {
+      test(`${caso.modulo.ruta} · ${width} px — «${caso.primaria}» junto a «Exportar a Excel», a la derecha`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await loginAs(page, OPERACIONES_USER);
+        await mockCola(page, caso.modulo);
+        await page.goto(caso.modulo.ruta);
+        const primaria = page.getByRole('button', { name: caso.primaria, exact: true });
+        await expect(primaria).toBeVisible();
+        await expect(botonExportar(page)).toBeVisible();
+        const p = (await primaria.boundingBox())!;
+        const e = (await botonExportar(page).boundingBox())!;
+        // Misma fila (centros verticales a ≤ 4 px) y primaria a la izquierda de Exportar.
+        expect(Math.abs((p.y + p.height / 2) - (e.y + e.height / 2))).toBeLessThanOrEqual(4);
+        expect(p.x + p.width).toBeLessThanOrEqual(e.x + 1);
+        // Alineado a la derecha: el borde derecho del grupo cerca del borde derecho del contenedor
+        // ancho que lo aloja (la cabecera / la barra bajo las pestañas).
+        const holgura = await botonExportar(page).evaluate((el) => {
+          const derecha = el.getBoundingClientRect().right;
+          let n: HTMLElement | null = el.parentElement;
+          while (n && n.getBoundingClientRect().width < window.innerWidth * 0.6) n = n.parentElement;
+          if (!n) return Infinity;
+          const r = n.getBoundingClientRect();
+          const pad = parseFloat(getComputedStyle(n).paddingRight) || 0;
+          return r.right - pad - derecha;
+        });
+        expect(holgura).toBeGreaterThanOrEqual(-1);
+        expect(holgura).toBeLessThanOrEqual(8);
+      });
+    }
+  }
+
+  test('/flito/soat — cada estado del embudo lleva su ícono', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 900 });
+    await loginAs(page, OPERACIONES_USER);
+    await mockCola(page, SOAT_MOD);
+    await page.goto(SOAT_MOD.ruta);
+    const embudo = page.getByRole('group', { name: 'Estado del SOAT' });
+    await expect(embudo).toBeVisible();
+    const botones = embudo.getByRole('button');
+    const n = await botones.count();
+    expect(n).toBeGreaterThan(1);
+    for (let i = 0; i < n; i++) {
+      const ico = botones.nth(i).locator('.estado-ico');
+      await expect(ico).toHaveCount(1);
+      await expect(ico).toBeVisible();
+      await expect(ico).toHaveAttribute('aria-hidden', 'true');
+      await expect(ico.locator('svg')).toHaveCount(1);
+    }
   });
 });

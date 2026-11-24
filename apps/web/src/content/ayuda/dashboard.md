@@ -12,12 +12,12 @@ consultas:
   - qué veo al iniciar sesión
   - por qué mi inicio no muestra indicadores
   - dónde veo los documentos por vencer
-version: 1.0
-fecha: 2026-10-22
+version: 1.1
+fecha: 2026-11-12
 ---
 ## Qué es
 
-El **Tablero de control** es la pantalla de inicio de quien no tiene el Tablero FLITO. Arriba lo saluda con su nombre y la fecha, bajo el título **Panel operativo**. Reúne los indicadores de vehículos, SOAT, documentos de flota por vencer y errores de RNDC, las alertas que piden atención y atajos a Mantenimiento, RNDC y PESV. Cada bloque aparece solo si usted puede abrir la pantalla a la que lleva. Es de solo lectura: cada tarjeta lo lleva a la pantalla donde se actúa.
+El **Tablero de control** es la pantalla de inicio de quien no tiene el Tablero FLITO. Arriba, un banner lo saluda con su nombre y la fecha, bajo el título **Panel operativo**, y a su lado van las cuatro cifras principales. Reúne los indicadores de vehículos, SOAT, documentos de flota por vencer y errores de RNDC, las alertas que piden atención y atajos a Mantenimiento, RNDC y PESV. Cada bloque aparece solo si usted puede abrir la pantalla a la que lleva. Es de solo lectura: cada tarjeta lo lleva a la pantalla donde se actúa.
 
 ## Para quién
 
@@ -32,7 +32,7 @@ Es lo primero que ve al iniciar sesión. Para volver a él, abra el menú **Gene
 
 ## Pasos
 
-1. Lea el bloque **Estado operativo**: **Vehículos** (en operación), **SOAT vigentes** (porcentaje verificado del total), **Por vencer 60d** (documentos de flota) y **RNDC errores** (manifiestos con error de envío). A la derecha, **Flota** y **Salud SOAT** resumen lo mismo y abren su pantalla al pulsarlas. ![Panel operativo demo con el bloque Estado operativo, sus cuatro indicadores y las tarjetas Flota y Salud SOAT](./dashboard/01-estado-operativo.png)
+1. Lea las cifras junto al saludo: **Vehículos** (en operación), **SOAT vigentes** (porcentaje verificado del total), **Por vencer 60d** (documentos de flota) y **RNDC errores** (manifiestos con error de envío). Debajo, el bloque **Estado operativo** reúne las tarjetas **Flota** y **Salud SOAT**, que resumen lo mismo y abren su pantalla al pulsarlas. ![Panel operativo demo con el saludo, sus cuatro indicadores y el bloque Estado operativo con las tarjetas Flota y Salud SOAT](./dashboard/01-estado-operativo.png)
 2. Pulse **Por vencer 60d** para abrir Flota en la pestaña de vencimientos. Los enlaces **Ver vehículos**, **Tablero PESV**, **Rendimiento (RUM)** y **Métricas trámites** abren esas pantallas.
 3. Revise **Atención operativa**: cada fila dice qué está pendiente (solicitudes SOAT pendientes de compra, documentos vencidos o por vencer en 60 días) y su botón **Ir a SOAT** o **Ver vencimientos** lo lleva a resolverlo. Debajo, los atajos **Mantenimiento**, **RNDC**, **PESV** y **Tablero ejecutivo** abren cada módulo. ![Atención operativa demo con una solicitud SOAT pendiente y documentos vencidos y por vencer, y la fila de atajos debajo](./dashboard/02-atencion-y-atajos.png)
 4. Si un bloque dice «No pudimos cargar…», pulse **Reintentar**: repite solo esa consulta y los demás bloques siguen como están.
@@ -41,10 +41,10 @@ Es lo primero que ve al iniciar sesión. Para volver a él, abra el menú **Gene
 
 ## Estados
 
-- **Cargando**: las cifras muestran un punto (·) mientras llegan.
+- **Cargando**: cada cifra muestra una barra gris mientras llega.
 - **Error**: por bloque, «No pudimos cargar…» con **Reintentar**. Si le quitaron el permiso de un bloque mientras lo miraba, ese bloque desaparece en vez de mostrar el error.
 - **Vacío**: «Tu tablero no tiene indicadores con tus permisos actuales», con la indicación de usar el buscador (Ctrl K) o el menú para ir a sus secciones.
-- **Lleno**: el bloque **Estado operativo**, las tarjetas de la derecha, **Atención operativa** cuando hay pendientes y la fila de atajos.
+- **Lleno**: el saludo con las cuatro cifras, el bloque **Estado operativo** con sus tarjetas, **Atención operativa** cuando hay pendientes y la fila de atajos.
 
 ## Qué no hace
 

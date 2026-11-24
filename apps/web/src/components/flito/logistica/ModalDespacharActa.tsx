@@ -98,7 +98,7 @@ export default function ModalDespacharActa({ acta, onClose, onDespachado, onList
     <FlitModal title="Firmar entrega y despachar" onClose={onClose} cierreBloqueado={busy}>
       {carga === 'ok' && mensajeros.length === 0 ? (
         <>
-          <div role="status" className="rounded-lg border px-3 py-3 text-sm" style={{ borderColor: 'var(--flit-border-soft)', background: 'var(--flit-bg-card)', color: 'var(--flit-text-primary)' }}>
+          <div role="status" className="rounded-[9px] border px-3 py-3 text-sm" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-elevated)', color: 'var(--color-text-primary)' }}>
             {esProveedor ? (
               <><p>Su empresa aún no tiene mensajeros activos.</p><p className="mt-1">Pídale a Operaciones de FLITO que cree el usuario.</p></>
             ) : (
@@ -110,7 +110,7 @@ export default function ModalDespacharActa({ acta, onClose, onDespachado, onList
       ) : (
         <>
           {carga === 'error' ? (
-            <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--flit-danger-text)' }}>
+            <div role="alert" className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>
               <p className="flex-1">No se pudieron cargar los mensajeros.</p>
               <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => cargar()}>Reintentar</button>
             </div>
@@ -137,10 +137,10 @@ export default function ModalDespacharActa({ acta, onClose, onDespachado, onList
             </FlitField>
           </div>
           <div className="mt-3">
-            <span className="mb-1 block text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>Firma de quien entrega</span>
+            <span className="mb-1 block text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>Firma de quien entrega</span>
             <FirmaCanvas label="Firma de quien entrega" onChange={setFirma} />
           </div>
-          {error && <p role="alert" className="mt-3 text-sm" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>}
+          {error && <p role="alert" className="mt-3 text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>}
           {pie(busy || carga !== 'ok' || !elegido || !firma)}
         </>
       )}

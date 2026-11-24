@@ -57,7 +57,10 @@ async function conMundo(fn: (m: Mundo) => Promise<void>) {
   try {
     await enTx(sql, async (tx) => {
       // `TransactionSql` no trae `options` (drizzle lee de ahí los parsers): se le prestan los de la conexión.
-      actual.db = drizzle(Object.assign(tx, { options: sql.options }) as unknown as postgres.Sql, { schema });
+      // Ni `begin`: el `db.transaction` de `sinJit` (totales y consolidado) corre en un SAVEPOINT de la
+      // transacción del test, con su `SET LOCAL jit = off` real, y el ROLLBACK final lo deshace todo.
+      const begin = (cb: (t: postgres.TransactionSql) => unknown) => tx.savepoint(cb);
+      actual.db = drizzle(Object.assign(tx, { options: sql.options, begin }) as unknown as postgres.Sql, { schema });
       const buscar = `CP${sello()}`;
       const org = (await tx`SELECT codigo FROM organismos_transito_config LIMIT 1`)[0]?.codigo as string
         ?? (await tx`INSERT INTO organismos_transito_config (codigo, activo) VALUES ('99999', true) RETURNING codigo`)[0]!.codigo as string;
@@ -444,6 +447,17 @@ describe.skipIf(!URL_BASE)('ADR-0041 §13 — costo de proveedor (PostgreSQL)', 
       expect((await fila(m, antes.idFlit)).costoProveedorLogistica.estado).toBe('sin_proveedor');
       await m.entrega(antes.id, cia, p, { entregado: HACE(0) });
       expect((await fila(m, antes.idFlit)).costoProveedorLogistica).toMatchObject({ estado: 'estimado', valor: 1 });
+
+      // Los agregados con filas SELLADAS (rama `flito_liquidaciones.id IS NOT NULL` de `selladoOVivo`): la
+      // subconsulta `cp` de `totalesCostosProveedorDe` (cada concepto una vez por fila, sin JIT) suma lo mismo
+      // que las filas y que el consolidado. 8000 congelado + 1 estimado + 1 estimado; sin SOAT ⇒ 0.
+      const r = await reporteCostos({ buscar: m.buscar, pageSize: 50 });
+      const c = await consolidadoReporte({ buscar: m.buscar }, 'mes');
+      const sumaFilas = r.items.reduce((a, x) => a + (x.costoProveedorLogistica.valor ?? 0), 0);
+      expect(sumaFilas).toBe(8002);
+      expect(r.totalesCostosProveedor).toEqual({ costoProveedorSoat: 0, costoProveedorLogistica: 8002, costoProveedorTotal: 8002, tramitesCostoSinConfigurar: 0 });
+      const { costoProveedorSoat, costoProveedorLogistica, costoProveedorTotal, tramitesCostoSinConfigurar } = c.totales;
+      expect(r.totalesCostosProveedor).toEqual({ costoProveedorSoat, costoProveedorLogistica, costoProveedorTotal, tramitesCostoSinConfigurar });
     }));
 
     it('Enmienda 1.1 — sin entrega se congela null aunque la compañía dé estimación; el reporte la lee `estimado`', () => conMundo(async (m) => {

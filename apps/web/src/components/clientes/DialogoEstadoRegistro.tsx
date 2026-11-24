@@ -15,9 +15,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { ApiError } from '../../lib/api';
 import FlitModal from '../flit/FlitModal';
-import {
-  flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle, flitBtnSecondarySm,
-} from '../flit/flitPageKit';
+import { claseBoton } from '../flit/GradientButton';
 
 export interface ProcesosAbiertos { soat: number; impuestos: number; tramites: number; liquidaciones: number }
 
@@ -149,22 +147,23 @@ export function DialogoEstadoRegistro({
   return (
     <FlitModal
       title={`${desactiva ? 'Desactivar' : 'Activar'} «${nombre}»`}
+      icono={desactiva ? 'alerta' : 'check'}
       onClose={onCerrar}
       restoreFocusRef={restoreFocusRef}
       cierreBloqueado={enviando}
     >
-      <div className="flex flex-col gap-3 text-sm" style={{ color: 'var(--flit-text-primary)' }}>
+      <div className="flex flex-col gap-3 text-sm text-[color:var(--color-text-primary)]">
         {impacto?.fase === 'cargando' && (
-          <p role="status" style={{ color: 'var(--flit-text-muted)' }}>Revisando procesos en curso…</p>
+          <p role="status" className="text-[color:var(--color-text-tertiary)]">Revisando procesos en curso…</p>
         )}
         {impacto?.fase === 'error' && (
           <div className="flex flex-wrap items-center gap-2">
-            <p role="alert" className="font-semibold" style={{ color: 'var(--flit-danger-text)' }}>
+            <p role="alert" className="font-semibold text-[color:var(--kit-rojo-texto)]">
               <span aria-hidden="true">⚠ </span>
               {impacto.sinPermiso ? SIN_PERMISO : `No pudimos revisar los procesos en curso de este ${sustantivo}.`}
             </p>
             {!impacto.sinPermiso && (
-              <button type="button" className={flitBtnSecondarySm} style={flitBtnSecondaryStyle} onClick={pedirImpacto}>
+              <button type="button" className={claseBoton('secondary', 'sm')} data-variante="secundario" onClick={pedirImpacto}>
                 Reintentar
               </button>
             )}
@@ -179,7 +178,7 @@ export function DialogoEstadoRegistro({
         )}
 
         {error && (
-          <p role="alert" className="font-semibold" style={{ color: 'var(--flit-danger-text)' }}>
+          <p role="alert" className="font-semibold text-[color:var(--kit-rojo-texto)]">
             <span aria-hidden="true">⚠ </span>{error.texto}
           </p>
         )}
@@ -190,21 +189,20 @@ export function DialogoEstadoRegistro({
             ref={refCancelar}
             onClick={onCerrar}
             disabled={enviando}
-            className={flitBtnSecondary}
-            style={flitBtnSecondaryStyle}
+            className={claseBoton('secondary')}
+            data-variante="secundario"
           >
             Cancelar
           </button>
           {!ocultarConfirmar && (desactiva ? (
-            // Peso de peligro con tinta y borde, no con un rojo sólido (patrón de
-            // `siigo/credenciales/DialogoDesactivar.tsx`, con fondo de tarjeta en vez de blanco).
+            // Destructivo: botón alerta (naranja) del kit.
             <button
               type="button"
               ref={refConfirmar}
               onClick={() => { void ejecutar(); }}
               disabled={enviando || !impactoListo}
-              className="flit-focus inline-flex h-10 items-center rounded-[999px] border bg-flit-card px-5 text-sm font-semibold transition-colors hover:bg-[var(--flit-bg-hover)] disabled:cursor-not-allowed disabled:opacity-50"
-              style={{ borderColor: 'var(--flit-danger)', color: 'var(--flit-danger-text)' }}
+              className={claseBoton('alerta')}
+              data-variante="alerta"
             >
               {textoBoton}
             </button>
@@ -214,8 +212,8 @@ export function DialogoEstadoRegistro({
               ref={refConfirmar}
               onClick={() => { void ejecutar(); }}
               disabled={enviando}
-              className={flitBtnPrimary}
-              style={flitBtnPrimaryStyle}
+              className={claseBoton('success')}
+              data-variante="confirmar"
             >
               {textoBoton}
             </button>

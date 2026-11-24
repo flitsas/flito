@@ -80,7 +80,7 @@ const abrir = async (page: Page) => {
 };
 
 const consultarRenovacion = async (page: Page, placa = PLACA, doc = DOC) => {
-  await page.getByLabel('Placa').fill(placa);
+  await page.getByLabel(/^Placa/).fill(placa);
   await page.getByLabel('Documento del propietario').fill(doc);
   await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
 };
@@ -126,7 +126,7 @@ test.describe('HU #14019 · AC2 — formulario de renovación', () => {
     await elegirTipoRenovacion(page);
 
     await expect(page.getByText('Escriba la placa y el documento del propietario, adjunte la factura si la tiene y complete el propietario.')).toBeVisible();
-    await expect(bloque1(page).getByLabel('Placa')).toBeVisible();
+    await expect(bloque1(page).getByLabel(/^Placa/)).toBeVisible();
     await expect(bloque1(page).getByLabel('Documento del propietario')).toBeVisible();
     await expect(bloque1(page).getByLabel('Tipo de documento')).toHaveCount(0);
     await expect(bloque1(page).getByLabel(/VIN/)).toHaveCount(0);
@@ -138,7 +138,7 @@ test.describe('HU #14019 · AC2 — formulario de renovación', () => {
     const cap = await montar(page);
     await abrir(page);
     await elegirTipoRenovacion(page);
-    await page.getByLabel('Placa').fill('xyz-123');
+    await page.getByLabel(/^Placa/).fill('xyz-123');
     await page.getByLabel('Documento del propietario').fill(DOC);
     await expect(page.getByLabel('Número de documento')).toHaveValue(DOC);
     await page.getByLabel('Número de documento').fill('999888777');
@@ -158,7 +158,7 @@ test.describe('HU #14019 · AC2 — formulario de renovación', () => {
     const cap = await montar(page);
     await abrir(page);
     await elegirTipoRenovacion(page);
-    await page.getByLabel('Placa').fill('AB');
+    await page.getByLabel(/^Placa/).fill('AB');
     await page.getByRole('button', { name: 'Consultar el RUNT' }).click();
 
     await expect(page.getByText('Escriba la placa sin espacios, por ejemplo ABC123.')).toBeVisible();
@@ -283,8 +283,8 @@ test.describe('HU #14019 · AC5 — «Renovar» desde el 409 de Inicial', () => 
     await modal.getByRole('button', { name: 'Renovar' }).click();
     await expect(modal).toHaveCount(0);
     await expect(page.getByRole('radio', { name: /Renovación/ })).toBeChecked();
-    await expect(page.getByLabel('Placa')).toBeFocused();
-    await expect(page.getByLabel('Placa')).toHaveValue('');
+    await expect(page.getByLabel(/^Placa/)).toBeFocused();
+    await expect(page.getByLabel(/^Placa/)).toHaveValue('');
     await expect(page.getByLabel(/^VIN/)).toHaveCount(0);
   });
 

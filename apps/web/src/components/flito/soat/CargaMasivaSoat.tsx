@@ -1,8 +1,8 @@
-// Carga masiva de comprobantes de SOAT (modal). HU #12819 (§13): copy sin mecánica interna (tandas, OCR,
+// Carga masiva de comprobantes de SOAT (modal). HU 12819 (§13): copy sin mecánica interna (tandas, OCR,
 // umbral), icono en la primaria, error con token de par oscuro y hover de fila en el resultado.
 
 import { useState } from 'react';
-import { Upload } from 'lucide-react';
+import { Icono } from '../../flit/kit/Icono';
 import { enviarCargaEnTandas, validarCargaMasiva } from '../../../lib/carga-masiva';
 import useSeleccionCargaMasiva from '../../../lib/useSeleccionCargaMasiva';
 import RanuraCargaMasiva from '../RanuraCargaMasiva';
@@ -11,7 +11,7 @@ import StatusChip, { type ChipTone } from '../../flit/StatusChip';
 import { flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary } from '../../flit/flitPageKit';
 import ReintentoProtegidosSoat, { emparejarProtegidos, type ResultadoMasivoSoat as ResultadoMasivo } from './ReintentoProtegidosSoat';
 
-// El ZIP se abre en el navegador (HU #12056): lo que se cuenta, se pesa, se valida y se envía son
+// El ZIP se abre en el navegador (HU 12056): lo que se cuenta, se pesa, se valida y se envía son
 // sus ENTRADAS, no el ZIP. `rutas` NO se manda: la ruta solo sirve para deducir la marca de agua y
 // SOAT ni la lee (`/flito/soat/facturas` no toca `req.body`); mandarla sería peso muerto por tanda.
 export default function CargaMasiva({ onClose, onListo }: { onClose: () => void; onListo: () => void }) {
@@ -42,7 +42,7 @@ export default function CargaMasiva({ onClose, onListo }: { onClose: () => void;
     <FlitModal title="Carga masiva de comprobantes de SOAT" onClose={resultado ? onListo : onClose} wide>
       {!resultado ? (
         <div className="space-y-3">
-          <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
             Sube varios PDF o imágenes, o un ZIP. FLITO cruza cada factura con un SOAT solicitado: las que coinciden pasan a Pagado y el resto queda en revisión.
           </p>
           <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.zip" className={flitInp} disabled={enviando}
@@ -53,7 +53,7 @@ export default function CargaMasiva({ onClose, onListo }: { onClose: () => void;
           <div className="flex flex-wrap gap-2">
             <button type="button" className={flitBtnPrimary} style={flitBtnPrimaryStyle}
               disabled={enviando || abriendo !== null || seleccion.items.length === 0 || !!errorValidacion} onClick={subir}>
-              <Upload size={16} aria-hidden="true" className="shrink-0" />
+              <Icono nombre="nube-subir" size={16} className="shrink-0" />
               {enviando ? 'Procesando…' : 'Subir y procesar'}
             </button>
             <button type="button" className={flitBtnSecondary} disabled={enviando} onClick={onClose}>Cancelar</button>
@@ -61,7 +61,7 @@ export default function CargaMasiva({ onClose, onListo }: { onClose: () => void;
         </div>
       ) : (
         <div className="space-y-3">
-          {error && <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-text)' }}>{error}</p>}
+          {error && <p role="alert" className="text-sm" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>}
           <div className="flex flex-wrap gap-2">
             <StatusChip tone="success">Pagados {resultado.pagados.length}</StatusChip>
             <StatusChip tone="warning">En revisión {resultado.enRevision.length}</StatusChip>
@@ -91,22 +91,22 @@ function TablaResultadoOcr({ resultado }: { resultado: ResultadoMasivo }) {
     ...resultado.noAsociados.map((i) => ({ ...i, resultado: 'Sin asociar', tono: 'danger' as ChipTone })),
     ...(resultado.protegidos ?? []).map((i) => ({ archivo: i.archivo, detalle: i.detalle, resultado: 'Protegido', tono: 'warning' as ChipTone })),
   ];
-  if (filas.length === 0) return <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>No se procesó ningún archivo.</p>;
+  if (filas.length === 0) return <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>No se procesó ningún archivo.</p>;
   const th = 'px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide';
   return (
-    <div className="max-h-[55vh] overflow-auto rounded-lg border" style={{ borderColor: 'var(--flit-border-soft)' }}>
+    <div className="max-h-[55vh] overflow-auto rounded-lg border" style={{ borderColor: 'var(--color-border)' }}>
       <table className="w-full text-sm">
         <thead>
-          <tr style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>
+          <tr style={{ background: 'var(--kit-linea)', color: 'var(--color-text-secondary)' }}>
             <th className={th}>Archivo</th><th className={th}>Resultado</th><th className={th}>Detalle del análisis OCR</th>
           </tr>
         </thead>
         <tbody>
           {filas.map((f, idx) => (
-            <tr key={idx} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-              <td className="px-3 py-2 font-medium align-top" style={{ color: 'var(--flit-text-primary)' }}>{f.archivo}</td>
+            <tr key={idx} className="border-t transition-colors hover:bg-[color:var(--color-surface)]" style={{ borderColor: 'var(--color-border)' }}>
+              <td className="px-3 py-2 font-medium align-top" style={{ color: 'var(--color-text-primary)' }}>{f.archivo}</td>
               <td className="px-3 py-2 align-top"><StatusChip tone={f.tono}>{f.resultado}</StatusChip></td>
-              <td className="px-3 py-2 align-top" style={{ color: 'var(--flit-text-secondary)' }}>{f.detalle}</td>
+              <td className="px-3 py-2 align-top" style={{ color: 'var(--color-text-secondary)' }}>{f.detalle}</td>
             </tr>
           ))}
         </tbody>

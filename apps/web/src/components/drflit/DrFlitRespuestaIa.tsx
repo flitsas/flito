@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
-import { flitBtnSecondarySm } from '../flit/flitPageKit';
+import { claseBoton } from '../flit/GradientButton';
+
 import { entradaAyudaPorClave, puedeVerEntradaAyuda, type UsuarioAyuda } from '../../lib/ayudaFlito';
 import type { FichaParseada } from '../../lib/ayudaFicha';
 import { seccionesDeFicha } from '../../lib/drFlitBusqueda';
@@ -67,7 +68,7 @@ function CitaIa({ refFicha, user, fichas, onNavegar }: {
           </span>
         )}
       </span>
-      <span aria-hidden="true" className="shrink-0 text-[color:var(--flit-blue-text)]">→</span>
+      <span aria-hidden="true" className="shrink-0 text-[color:var(--color-action)]">→</span>
     </Link>
   );
 }
@@ -101,7 +102,7 @@ export default function DrFlitRespuestaIa({ mensaje, mapa, user, fichas, onNaveg
         </p>
         <p className="mt-2 text-xs text-flit-secondary">Respondido con IA.</p>
         <div className="mt-3 flex flex-wrap gap-2">
-          <Link to="/flito/ayuda" onClick={onNavegar} className={flitBtnSecondarySm}>
+          <Link to="/flito/ayuda" onClick={onNavegar} className={claseBoton('secondary', 'sm')}>
             Abrir la Ayuda FLITO
           </Link>
           {onSoporte && <BotonNecesitoSoporte abridor={mensaje.id} onClick={() => onSoporte(mensaje.id)} />}

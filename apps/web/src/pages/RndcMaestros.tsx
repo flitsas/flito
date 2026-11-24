@@ -4,6 +4,8 @@ import { api, errorMessage } from '../lib/api';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import FlitModal from '../components/flit/FlitModal';
+import Pestanas from '../components/flit/Pestanas';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
 
 type Tab = 'tenedores' | 'propietarios-carga' | 'destinatarios-carga';
 
@@ -28,8 +30,8 @@ const TABS: { key: Tab; label: string; subtitle: string }[] = [
 
 const TIPO_DOC = ['CC', 'CE', 'NIT', 'PAS', 'TI', 'RC'];
 
-const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
+const inputCls = 'control w-full';
+const TXT2 = 'text-xs text-[color:var(--color-text-secondary)]';
 
 export default function RndcMaestros() {
   const [tab, setTab] = useState<Tab>('tenedores');
@@ -79,61 +81,51 @@ export default function RndcMaestros() {
 
   const tabInfo = TABS.find((t) => t.key === tab)!;
 
+  const columnas: ColumnaTabla<Maestro>[] = [
+    { key: 'documento', header: 'Documento', render: (m) => <span className={TXT2}>{m.tipoDoc} {m.documento}</span> },
+    { key: 'nombre', header: 'Nombre', render: (m) => <span className="text-xs font-semibold text-[color:var(--color-text-primary)]">{m.nombre}</span> },
+    ...(tab === 'tenedores' ? [{ key: 'tipo', header: 'Tipo', render: (m: Maestro) => <span className={`${TXT2} capitalize`}>{m.tipo}</span> }] : []),
+    { key: 'contacto', header: 'Contacto', render: (m) => <span className={TXT2}>{m.telefono ?? ''}{m.telefono && m.email ? ' · ' : ''}{m.email ?? ''}</span> },
+    { key: 'acciones', header: '', acciones: true, align: 'right', render: (m) => (
+      <span className="inline-flex flex-wrap justify-end gap-2">
+        <GradientButton type="button" size="sm" variant="ghost" onClick={() => startEdit(m)}>Editar</GradientButton>
+        <GradientButton type="button" size="sm" variant="alerta" onClick={() => remove(m)}>Eliminar</GradientButton>
+      </span>
+    ) },
+  ];
+
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-5 lg:gap-6">
       <PageHeaderCard
         title="Maestros RNDC"
         subtitle="Catálogos propios de partes para manifiestos electrónicos"
+        icono="flito-rndc"
+        miga={[{ etiqueta: 'Cumplimiento' }, { etiqueta: 'RNDC', to: '/rndc' }]}
         actions={<GradientButton type="button" onClick={startNew}>Nuevo</GradientButton>}
       />
 
-      <div className="flex flex-col gap-2">
-        <div className="flex w-fit flex-wrap gap-2">
-          {TABS.map((t) => {
-            const active = tab === t.key;
-            return (
-              <button key={t.key} onClick={() => setTab(t.key)}
-                className="flit-focus rounded-[999px] px-4 py-2 text-sm font-semibold transition-colors"
-                style={active
-                  ? { background: 'var(--flit-blue)', color: '#fff' }
-                  : { background: '#fff', border: '1px solid var(--flit-border-soft)', color: 'var(--flit-text-muted)' }}>
-                {t.label}
-              </button>
-            );
-          })}
-        </div>
-        <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>{tabInfo.subtitle}</p>
+      <div className="flex min-w-0 flex-col gap-2">
+        <Pestanas
+          etiqueta="Maestros RNDC"
+          pestanas={TABS.map((t) => ({ id: t.key, etiqueta: t.label }))}
+          activa={tab}
+          onElegir={(k) => setTab(k as Tab)}
+        />
+        <p className="text-xs text-[color:var(--color-text-tertiary)]">{tabInfo.subtitle}</p>
       </div>
 
-      <div className="overflow-hidden bg-white" style={CARD}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr>
-              <Th>Documento</Th><Th>Nombre</Th>{tab === 'tenedores' && <Th>Tipo</Th>}<Th>Contacto</Th><Th></Th>
-            </tr></thead>
-            <tbody>
-              {items.length === 0 && <tr><td colSpan={tab === 'tenedores' ? 5 : 4} className="py-10 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin registros</td></tr>}
-              {items.map((m) => (
-                <tr key={m.id} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{m.tipoDoc} {m.documento}</td>
-                  <td className="px-4 py-3 text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{m.nombre}</td>
-                  {tab === 'tenedores' && <td className="px-4 py-3 text-xs capitalize" style={{ color: 'var(--flit-text-secondary)' }}>{m.tipo}</td>}
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{m.telefono ?? ''}{m.telefono && m.email ? ' · ' : ''}{m.email ?? ''}</td>
-                  <td className="px-4 py-3 text-right text-xs">
-                    <button onClick={() => startEdit(m)} className="mr-3 hover:underline" style={{ color: 'var(--flit-blue)' }}>Editar</button>
-                    <button onClick={() => remove(m)} className="hover:underline" style={{ color: 'var(--flit-danger)' }}>Eliminar</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DataTable
+        ariaLabel={tabInfo.label}
+        columnas={columnas}
+        filas={items}
+        getKey={(m) => String(m.id)}
+        emptyMessage="Sin registros"
+      />
 
       {showForm && editing && (
-        <FlitModal title={`${editing.id === 0 ? 'Nuevo' : 'Editar'} ${tabInfo.label.slice(0, -1).toLowerCase()}`} onClose={() => { setShowForm(false); setEditing(null); }}>
+        <FlitModal title={`${editing.id === 0 ? 'Nuevo' : 'Editar'} ${tabInfo.label.slice(0, -1).toLowerCase()}`} onClose={() => { setShowForm(false); setEditing(null); }} icono="empresas">
           <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Field label="Tipo doc">
                 <select value={editing.tipoDoc} onChange={(e) => setEditing({ ...editing, tipoDoc: e.target.value })} className={inputCls}>
                   {TIPO_DOC.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -152,13 +144,13 @@ export default function RndcMaestros() {
             )}
             <Field label="Nombre o razón social"><input value={editing.nombre} onChange={(e) => setEditing({ ...editing, nombre: e.target.value })} className={inputCls} /></Field>
             <Field label="Dirección"><input value={editing.direccion ?? ''} onChange={(e) => setEditing({ ...editing, direccion: e.target.value })} className={inputCls} /></Field>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Teléfono"><input value={editing.telefono ?? ''} onChange={(e) => setEditing({ ...editing, telefono: e.target.value })} className={inputCls} /></Field>
               <Field label="Email"><input type="email" value={editing.email ?? ''} onChange={(e) => setEditing({ ...editing, email: e.target.value })} className={inputCls} /></Field>
             </div>
           </div>
-          <div className="mt-5 flex justify-end gap-2">
-            <button onClick={() => { setShowForm(false); setEditing(null); }} className="flit-focus inline-flex h-11 items-center rounded-[999px] border bg-white px-5 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>Cancelar</button>
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <GradientButton type="button" variant="alerta" onClick={() => { setShowForm(false); setEditing(null); }}>Cancelar</GradientButton>
             <GradientButton type="button" onClick={save}>Guardar</GradientButton>
           </div>
         </FlitModal>
@@ -167,10 +159,6 @@ export default function RndcMaestros() {
   );
 }
 
-function Th({ children }: { children?: ReactNode }) {
-  return <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>{children}</th>;
-}
-
 function Field({ label, children, wide }: { label: string; children: ReactNode; wide?: boolean }) {
-  return <div className={wide ? 'col-span-2' : ''}><label className="mb-1.5 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>{label}</label>{children}</div>;
+  return <label className={`campo${wide ? ' sm:col-span-2' : ''}`}><span className="etiqueta">{label}</span>{children}</label>;
 }

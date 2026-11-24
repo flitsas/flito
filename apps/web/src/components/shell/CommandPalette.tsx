@@ -5,6 +5,9 @@ import { effectivePages } from '../../lib/permissions';
 import { useAuth } from '../../lib/auth';
 import { startViewTransition } from '../../lib/viewTransitions';
 import ModalPortal from '../flit/ModalPortal';
+import { Icono } from '../flit/kit/Icono';
+import { IconoGlifo } from '../flit/kit/IconoGlifo';
+import { iconoDeRuta } from './iconosNav';
 
 interface Props {
   open: boolean;
@@ -144,121 +147,64 @@ export default function CommandPalette({ open, onClose }: Props) {
 
   let runningIdx = 0;
 
+  // Buscador del UI Kit 2026 (`dialog#buscador` de la propuesta): velo azul con blur, modal blanco con ícono 52
+  // centrado y la X; dentro, el control con lupa y los resultados agrupados (ícono 32 + nombre + sección).
   return (
     <ModalPortal>
     <div
-      // Sin `flit-modal` a propósito: el panel es `.flit-shell-palette`, que SÍ cambia de fondo con
-      // el tema, así que aquí la tinta correcta es la del tema y no la fija de las superficies FLIT.
-      className="fixed inset-0 z-[100] flex items-start justify-center px-4 pt-[12vh] sm:pt-[14vh]"
+      className="kit-velo z-[100] items-start justify-center px-3 pt-[10vh] sm:pt-[12vh]"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label="Paleta de comandos"
+      data-kit="buscador"
     >
-      {/* Overlay con surface-overlay token + blur */}
-      <div
-        className="absolute inset-0 flit-shell-overlay backdrop-blur-md animate-in fade-in"
-        aria-hidden="true"
-      />
-
-      {/* Panel glassmórfico Aura */}
-      <div
-        className="flit-shell-palette relative w-full max-w-2xl overflow-hidden border flit-shell-sunken shadow-[var(--flit-shadow-card)]"
-        style={{ borderRadius: 'var(--radius-xl)' }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Halo teal sutil arriba — pista de marca */}
-        <div
-          className="pointer-events-none absolute inset-x-0 top-0 h-px"
-          style={{
-            background:
-              'linear-gradient(90deg, transparent, var(--color-accent-soft), transparent)',
-          }}
-          aria-hidden="true"
-        />
-
-        {/* Input row */}
-        <div className="flex h-14 items-center gap-3 border-b flit-shell-sunken px-5">
-          <svg
-            className="h-5 w-5 flit-shell-muted"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={1.8}
-            aria-hidden="true"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
+      <div className="kit-modal w-full max-w-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="kit-modal__cabeza">
+          <Icono nombre="buscar" disco size={52} />
+          <h2 className="kit-modal__titulo">Buscar en la plataforma</h2>
+          <button type="button" className="kit-modal__cerrar" aria-label="Cerrar" onClick={onClose}><Icono nombre="cerrar" size={20} /></button>
+        </div>
+        <div className="kit-modal__cuerpo !pb-3">
+          <div className="control-icono">
+            <Icono nombre="buscar" size={18} />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={onInputKeyDown}
+              placeholder="Buscar o ir a…"
+              aria-label="Buscar"
+              className="control"
+              role="combobox"
+              aria-expanded="true"
+              aria-controls={listboxId}
+              aria-activedescendant={filtered.length > 0 ? optionId(active) : undefined}
+              aria-autocomplete="list"
+              autoComplete="off"
+              spellCheck={false}
             />
-          </svg>
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={onInputKeyDown}
-            placeholder="Buscar o ir a…"
-            className="flex-1 bg-transparent text-base flit-shell-primary outline-none"
-            role="combobox"
-            aria-expanded="true"
-            aria-controls={listboxId}
-            aria-activedescendant={filtered.length > 0 ? optionId(active) : undefined}
-            aria-autocomplete="list"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <kbd
-            className="hidden items-center rounded-md border flit-shell-sunken px-2 py-0.5 font-mono text-[10px] flit-shell-muted sm:inline-flex"
-            aria-label="Tecla escape para cerrar"
-          >
-            esc
-          </kbd>
+          </div>
         </div>
 
-        {/* Listbox */}
         <div
           ref={listRef}
           id={listboxId}
           role="listbox"
           aria-label="Resultados"
-          className="overflow-y-auto py-2"
-          style={{ maxHeight: 'min(60vh, 28rem)' }}
+          className="resultados overflow-y-auto px-4 pb-2 sm:px-6"
+          style={{ maxHeight: 'min(52vh, 28rem)' }}
         >
           {filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 px-5 py-14 text-center">
-              <svg
-                className="h-9 w-9 flit-shell-muted"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.5}
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M9.879 16.121A3 3 0 1014.12 11.88M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              <p className="text-sm flit-shell-secondary">
-                Sin resultados para{' '}
-                <span className="font-medium flit-shell-primary">"{query}"</span>
-              </p>
-              <p className="text-xs flit-shell-muted">
-                Pulsa <kbd className="rounded border flit-shell-sunken px-1.5 py-0.5 font-mono text-[10px]">Esc</kbd>{' '}
-                o haz click fuera para cerrar
-              </p>
+            <div className="kit-vacio !py-8">
+              <Icono nombre="buscar" disco size={72} />
+              <p>No encontramos nada con «{query}». Prueba con el nombre de un módulo.</p>
+              <small>Pulsa Esc o haz clic fuera para cerrar.</small>
             </div>
           ) : (
             grouped.map(([section, list]) => (
-              <div key={section} className="mb-1" role="group" aria-label={SECTION_LABEL[section]}>
-                <p
-                  className="px-5 pt-3 pb-1.5 font-semibold uppercase flit-shell-muted"
-                  style={{ fontSize: '10px', letterSpacing: 'var(--tracking-wide)' }}
-                >
-                  {SECTION_LABEL[section]}
-                </p>
+              <div key={section} role="group" aria-label={SECTION_LABEL[section]}>
+                <p className="grupo">{SECTION_LABEL[section]}</p>
                 {list.map((it) => {
                   const idx = runningIdx++;
                   const isActive = idx === active;
@@ -275,30 +221,10 @@ export default function CommandPalette({ open, onClose }: Props) {
                         onClose();
                         startViewTransition(() => navigate(it.to));
                       }}
-                      className={[
-                        'group relative mx-2 flex w-[calc(100%-1rem)] items-center gap-3 rounded-lg px-3 py-2.5 text-left',
-                        'transition-all',
-                        isActive
-                          ? 'flit-shell-active flit-shell-primary translate-x-0.5'
-                          : 'flit-shell-secondary flit-shell-hover',
-                      ].join(' ')}
-                      style={{ transitionDuration: 'var(--duration-base)', transitionTimingFunction: 'var(--ease-out)' }}
+                      className="resultado text-left transition-colors"
                     >
-                      {/* Indicador lateral teal cuando está activo */}
-                      <span
-                        aria-hidden="true"
-                        className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full flit-shell-accent transition-opacity"
-                        style={{
-                          opacity: isActive ? 1 : 0,
-                          transitionDuration: 'var(--duration-fast)',
-                        }}
-                      />
-                      <span className="flex-1 text-sm font-medium">{it.label}</span>
-                      {isActive && (
-                        <kbd className="rounded border flit-shell-sunken px-1.5 py-0.5 font-mono text-[10px] flit-shell-accent">
-                          ↵
-                        </kbd>
-                      )}
+                      <span className="kico !h-8 !w-8" aria-hidden="true"><IconoGlifo icono={iconoDeRuta(it.to)} /></span>
+                      <span className="min-w-0"><strong className="truncate">{it.label}</strong><small>{SECTION_LABEL[section]}</small></span>
                     </button>
                   );
                 })}
@@ -307,22 +233,11 @@ export default function CommandPalette({ open, onClose }: Props) {
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex h-10 items-center justify-between border-t flit-shell-sunken px-5 text-[11px] flit-shell-muted">
-          <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1.5">
-              <kbd className="rounded border flit-shell-sunken px-1.5 py-0.5 font-mono">
-                ↑↓
-              </kbd>
-              navegar
-            </span>
-            <span className="flex items-center gap-1.5">
-              <kbd className="rounded border flit-shell-sunken px-1.5 py-0.5 font-mono">
-                ↵
-              </kbd>
-              abrir
-            </span>
-          </div>
+        <div className="flex h-10 items-center justify-between border-t border-[color:var(--color-divider)] px-6 text-xs text-[color:var(--color-text-tertiary)]">
+          <span className="hidden items-center gap-3 sm:flex">
+            <span><kbd className="flit-shell-kbd rounded px-1.5 py-0.5">↑↓</kbd> navegar</span>
+            <span><kbd className="flit-shell-kbd rounded px-1.5 py-0.5">↵</kbd> abrir</span>
+          </span>
           <span aria-live="polite" aria-atomic="true">
             {filtered.length} {filtered.length === 1 ? 'resultado' : 'resultados'}
           </span>

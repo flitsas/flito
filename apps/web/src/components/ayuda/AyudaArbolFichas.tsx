@@ -10,11 +10,11 @@
 
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronRight } from 'lucide-react';
 import {
   GRUPOS_ORDEN, GRUPO_AYUDA_LABEL, type AyudaGrupo, type EntradaAyuda,
 } from '../../content/ayuda/catalogo';
 import FlitAcordeon from '../flit/FlitAcordeon';
+import { Icono } from '../flit/kit/Icono';
 
 // ── Memoria de grupos desplegados (módulo; vive lo que vive la SPA) ─────────────────────────────
 
@@ -71,14 +71,13 @@ function GrupoArbol({
         aria-expanded={abierto}
         aria-controls={idLista}
         onClick={() => alternarGrupo(grupo)}
-        className="flit-focus flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-semibold transition-colors hover:bg-[color:var(--flit-bg-hover)]"
-        style={{ color: 'var(--flit-text-primary)' }}
+        className="flit-focus flex w-full items-center gap-2 rounded-[9px] px-2 py-1.5 text-left text-sm font-semibold text-[color:var(--color-text-primary)] transition-colors hover:bg-[var(--kit-hover)]"
       >
-        <ChevronRight
-          aria-hidden="true"
+        <Icono
+          nombre="derecha"
           size={16}
-          className="shrink-0 transition-transform motion-reduce:transition-none"
-          style={{ color: 'var(--flit-text-muted)', transform: abierto ? 'rotate(90deg)' : 'rotate(0deg)' }}
+          className="shrink-0 text-[color:var(--color-text-tertiary)] transition-transform motion-reduce:transition-none"
+          style={{ transform: abierto ? 'rotate(90deg)' : 'rotate(0deg)' }}
         />
         <span className="min-w-0 break-words">{GRUPO_AYUDA_LABEL[grupo]}</span>
       </button>
@@ -91,12 +90,10 @@ function GrupoArbol({
                 to={`/flito/ayuda/${f.clave}`}
                 onClick={onElegir}
                 aria-current={activa ? 'page' : undefined}
-                className={`flit-focus block break-words rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-[color:var(--flit-bg-hover)]${activa ? ' font-semibold' : ''}`}
-                // Tinta `--flit-text-primary` y no `--flit-blue-text` (spec UX): el azul sobre el velo
-                // del hover y `--flit-bg-app` da 4,15:1 en claro (medido en píxel), bajo el 4.5:1.
-                style={activa
-                  ? { color: 'var(--flit-text-primary)', background: 'var(--flit-bg-hover)' }
-                  : { color: 'var(--flit-text-secondary)' }}
+                // Tinta primaria y no azul en la activa (spec UX): el azul sobre el hover quedaba bajo 4.5:1.
+                className={`flit-focus block break-words rounded-[9px] px-2 py-1.5 text-sm transition-colors hover:bg-[var(--kit-hover)]${activa
+                  ? ' bg-[var(--kit-hover)] font-semibold text-[color:var(--color-text-primary)]'
+                  : ' text-[color:var(--color-text-secondary)]'}`}
               >
                 {f.etiqueta}
               </Link>
@@ -162,7 +159,7 @@ export function ArbolFichasLateral({ fichas, actual }: PropsArbol) {
       className="hidden lg:sticky lg:top-24 lg:block lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto"
       data-testid="ayuda-arbol-lateral"
     >
-      <p className="mb-2 px-2 text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: 'var(--flit-text-secondary)' }}>
+      <p className="mb-2 px-2 text-xs font-light text-[color:var(--color-text-tertiary)]">
         {ROTULO}
       </p>
       <Arbol fichas={fichas} actual={actual} />
@@ -177,13 +174,7 @@ export function ArbolFichasLateral({ fichas, actual }: PropsArbol) {
 export function ArbolFichasPlegable({ fichas, actual }: PropsArbol) {
   const [abierto, setAbierto] = useState(false);
   return (
-    <div
-      style={{
-        borderRadius: 'var(--flit-radius-card)',
-        border: '1px solid var(--flit-border-soft)',
-        background: 'var(--flit-bg-card)',
-      }}
-    >
+    <div className="rounded-[9px] border border-[color:var(--color-border)] bg-[var(--color-surface-elevated)]">
       <FlitAcordeon
         titulo={ROTULO}
         cantidad={fichas.length}

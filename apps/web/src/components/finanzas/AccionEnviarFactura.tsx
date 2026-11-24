@@ -28,7 +28,7 @@ interface Props {
   onEnviar: () => void;
 }
 
-const SECUNDARIO = { borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' } as const;
+const SECUNDARIO = { borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' } as const;
 
 export default function AccionEnviarFactura({
   tramiteId, idFlit, veredicto, cargando, error, onReintentar, onEnviar,
@@ -67,7 +67,7 @@ export default function AccionEnviarFactura({
       )}
 
       <ul id={idMotivos} hidden={!abierto} className="w-full list-disc pl-4 text-[11px]"
-        style={{ color: 'var(--flit-text-secondary)' }}>
+        style={{ color: 'var(--color-text-secondary)' }}>
         {motivos.map((m) => <li key={m.motivo}>{m.detalle}</li>)}
       </ul>
     </>

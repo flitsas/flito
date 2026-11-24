@@ -46,8 +46,8 @@ interface Props {
   onTransicionStt?: (estado: string) => void | Promise<void>;
 }
 
-const CARD = 'rounded-[12px] border p-4';
-const cardStyle: React.CSSProperties = { borderColor: 'var(--flit-border-soft)' };
+const CARD = 'rounded-[9px] border p-4';
+const cardStyle: React.CSSProperties = { borderColor: 'var(--color-border)' };
 
 export default function TraspasoStepDocumentos({
   tramiteId, tipologiaCodigo, checklistEstado, organismoCodigo, docsGenerados,
@@ -172,8 +172,8 @@ export default function TraspasoStepDocumentos({
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <p className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>6. Documentos y firma</p>
-        <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="m-0 text-base font-bold" style={{ color: 'var(--color-action)' }}>6. Documentos y firma</p>
+        <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
           Valida identidad → genera contrato y FUR → anexos → firma electrónica. Usa la guía azul para saltar a cada bloque.
         </p>
       </div>
@@ -191,37 +191,33 @@ export default function TraspasoStepDocumentos({
       )}
 
       <section id={PASO6_ANCHORS.documentos} aria-label="Documentos legales" className={`${CARD} scroll-mt-24`} style={cardStyle}>
-        <p className="mb-1 text-xs font-bold" style={{ color: 'var(--flit-blue-text)' }}>Contrato de compraventa y documentos legales</p>
-        <p className="mb-3 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="mb-1 text-xs font-bold" style={{ color: 'var(--color-action)' }}>Contrato de compraventa y documentos legales</p>
+        <p className="mb-3 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           Usa los datos comerciales del paso 5 (valor Fasecolda). El PDF se guarda en el expediente y también se descarga al generarlo.
           Cláusula quinta: <strong>los gastos del traspaso y el impuesto derivado serán asumidos por el comprador.</strong>
         </p>
         {hayContrato && (
-          <div className="mb-3 rounded-[10px] border p-3" style={{ borderColor: 'rgba(112,207,58,0.35)', background: 'rgba(112,207,58,0.08)' }}>
-            <p className="text-xs font-semibold" style={{ color: 'var(--flit-success)' }}>
+          <div className="mb-3 rounded-[9px] border p-3" style={{ borderColor: 'color-mix(in srgb, var(--kit-verde) 35%, transparent)', background: 'color-mix(in srgb, var(--kit-verde) 8%, transparent)' }}>
+            <p className="text-xs font-semibold" style={{ color: 'var(--kit-verde-texto)' }}>
               Contrato de compraventa en expediente
               {contratoAt ? ` · generado ${new Date(contratoAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}` : ''}
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
-              <button type="button" onClick={() => abrirContrato('ver')}
-                className="flit-focus rounded-[999px] px-3 py-1.5 text-[11px] font-semibold"
-                style={{ color: 'var(--flit-blue)', background: 'rgba(79,116,201,0.12)' }}>
+              <GradientButton type="button" variant="secondary" size="sm" onClick={() => abrirContrato('ver')}>
                 Ver contrato
-              </button>
-              <button type="button" onClick={() => abrirContrato('descargar')}
-                className="flit-focus rounded-[999px] px-3 py-1.5 text-[11px] font-semibold"
-                style={{ color: 'var(--flit-blue)', background: 'rgba(79,116,201,0.12)' }}>
+              </GradientButton>
+              <GradientButton type="button" variant="secondary" size="sm" onClick={() => abrirContrato('descargar')}>
                 Descargar PDF
-              </button>
+              </GradientButton>
             </div>
           </div>
         )}
         {!biometriaOk && !soloLectura && (
-          <p className="mb-2 rounded-[8px] px-3 py-2 text-[11px]" role="status"
-            style={{ background: 'var(--flit-amber-soft, #fff7e6)', color: 'var(--flit-text-secondary)' }}>
+          <p className="mb-2 rounded-[9px] px-3 py-2 text-xs" role="status"
+            style={{ background: 'color-mix(in srgb, var(--kit-naranja) 10%, var(--color-surface-elevated))', border: '1px solid var(--kit-naranja)', color: 'var(--color-text-secondary)' }}>
             Puedes generar el <strong>contrato</strong> ya con el valor del paso 5. El <strong>FUR</strong> y la versión del contrato con sellos electrónicos requieren biométrica aprobada arriba.
             {' '}
-            <a href="#traspaso-identidad-biometrica" className="font-semibold underline" style={{ color: 'var(--flit-blue)' }}>
+            <a href="#traspaso-identidad-biometrica" className="font-semibold underline" style={{ color: 'var(--color-action)' }}>
               Validar identidad ↑
             </a>
           </p>
@@ -237,8 +233,7 @@ export default function TraspasoStepDocumentos({
               <button
                 key={kind} type="button" onClick={() => generar(kind)} disabled={generando !== null || bloqueado || soloLectura}
                 title={soloLectura ? 'Expediente bloqueado — gestión enviada a STT' : bloqueado ? 'Requiere biométrica aprobada de ambas partes' : undefined}
-                className="flit-focus inline-flex items-center gap-1 rounded-[999px] border px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
-                style={{ borderColor: 'var(--flit-blue)', color: 'var(--flit-blue)' }}
+                className="flit-focus inline-flex h-8 items-center gap-1 rounded-full border border-[color:var(--kit-azul)] bg-[var(--color-surface-elevated)] px-3.5 text-xs font-semibold text-[color:var(--color-action)] transition-colors hover:bg-[var(--kit-hover)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {generando === kind ? 'Generando…' : (done ? `Regenerar ${label}` : `Generar ${label}`)}
                 {done && <span aria-hidden>✓</span>}
@@ -262,18 +257,18 @@ export default function TraspasoStepDocumentos({
       </div>
 
       <section id={PASO6_ANCHORS.anexos} aria-label="Anexos del traspaso" className={`${CARD} scroll-mt-24`} style={cardStyle}>
-        <p className="mb-2 text-xs font-bold" style={{ color: 'var(--flit-blue-text)' }}>Anexos del expediente</p>
-        <p className="mb-3 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="mb-2 text-xs font-bold" style={{ color: 'var(--color-action)' }}>Anexos del expediente</p>
+        <p className="mb-3 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           Sube SOAT, impronta escaneada o cédulas. Los ítems del checklist se marcan automáticamente al cargar el documento correcto.
         </p>
         {soloLectura && (
-          <p className="mb-3 rounded-[8px] px-3 py-2 text-[11px] font-semibold" role="status"
-            style={{ background: 'var(--flit-blue-soft)', color: 'var(--flit-blue-text)' }}>
+          <p className="mb-3 rounded-[9px] px-3 py-2 text-xs font-semibold" role="status"
+            style={{ background: 'var(--kit-hover)', color: 'var(--color-action)' }}>
             Expediente bloqueado — gestión enviada a STT. Los anexos quedan en solo consulta.
           </p>
         )}
         <div
-          className={`grid grid-cols-2 gap-3 lg:grid-cols-4 ${soloLectura ? 'pointer-events-none opacity-60' : ''}`}
+          className={`grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 ${soloLectura ? 'pointer-events-none opacity-60' : ''}`}
           aria-disabled={soloLectura || undefined}
         >
           {TRASPASO_DOC_TYPES.map((dt) => {
@@ -317,10 +312,10 @@ export default function TraspasoStepDocumentos({
       {/* Dual-actor: cierre de gestión CEA → validación STT / botones de flujo del operador. */}
       {estado && onTransicionStt && (
         <section id={PASO6_ANCHORS.stt} aria-label="Flujo del trámite STT" className={`${CARD} scroll-mt-24`} style={cardStyle}>
-          <p className="mb-1 text-xs font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+          <p className="mb-1 text-xs font-bold" style={{ color: 'var(--color-action)' }}>
             Cierre de gestión y flujo STT
           </p>
-          <p className="mb-3 text-[11px]" style={{ color: 'var(--flit-text-secondary)' }}>
+          <p className="mb-3 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
             Expediente STT en <strong>{estadoLabel}</strong>.
             {gestionAbierta
               ? ' Completa el checklist de abajo y envía la gestión a validación STT.'
@@ -331,14 +326,14 @@ export default function TraspasoStepDocumentos({
               <ul className="mb-3 flex flex-col gap-1.5">
                 {requisitosCierre.map((r) => (
                   <li key={r.key} className="flex items-center gap-2 text-xs"
-                    style={{ color: r.ok ? 'var(--flit-success)' : 'var(--flit-text-muted)' }}>
-                    <span className="grid h-4 w-4 place-items-center rounded-full text-[9px] font-bold"
-                      style={{ background: r.ok ? 'var(--flit-success)' : 'var(--flit-border-soft)', color: r.ok ? 'white' : 'var(--flit-text-muted)' }}
+                    style={{ color: r.ok ? 'var(--kit-verde-texto)' : 'var(--color-text-tertiary)' }}>
+                    <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-xs font-bold"
+                      style={{ background: r.ok ? 'var(--kit-verde)' : 'var(--color-border)', color: r.ok ? 'var(--kit-sobre-relleno)' : 'var(--color-text-tertiary)' }}
                       aria-hidden>
                       {r.ok ? '✓' : '·'}
                     </span>
                     {r.label}
-                    {!r.ok && <span className="text-[10px]">(pendiente)</span>}
+                    {!r.ok && <span className="text-xs">(pendiente)</span>}
                   </li>
                 ))}
               </ul>
@@ -351,7 +346,7 @@ export default function TraspasoStepDocumentos({
               >
                 {sttBusy ? 'Enviando…' : 'Enviar a validación STT'}
               </GradientButton>
-              <p className="mt-2 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>
+              <p className="mt-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
                 Al enviar, la gestión CEA se cierra (solo lectura) y el traspaso pasa a validación STT.
                 Si el organismo pide correcciones, volverá como Subsanación.
               </p>
@@ -359,16 +354,15 @@ export default function TraspasoStepDocumentos({
           )}
           {otrasTransiciones.length > 0 && (
             <div className="mt-3">
-              <p className="mb-2 text-[11px] font-semibold uppercase" style={{ color: 'var(--flit-text-muted)' }}>
+              <p className="mb-2 text-xs font-semibold uppercase" style={{ color: 'var(--color-text-tertiary)' }}>
                 {gestionAbierta ? 'Otras transiciones (operador)' : 'Flujo del trámite (operador)'}
               </p>
               <div className="flex flex-wrap gap-2">
                 {otrasTransiciones.map((e) => (
-                  <button key={e} type="button" onClick={() => onTransicionStt(e)} disabled={sttBusy}
-                    className="flit-focus rounded-[999px] px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
-                    style={{ color: 'var(--flit-blue)', background: 'rgba(79, 116, 201, 0.12)' }}>
+                  <GradientButton key={e} type="button" size="sm" onClick={() => onTransicionStt(e)} disabled={Boolean(sttBusy)}
+                    variant={e === 'rechazado' || e === 'anulado' ? 'alerta' : e === 'aprobado' || e === 'entregado' ? 'success' : 'secondary'}>
                     {ESTADO_STT_LABEL[e]}
-                  </button>
+                  </GradientButton>
                 ))}
               </div>
             </div>

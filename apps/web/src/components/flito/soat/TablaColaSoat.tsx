@@ -1,22 +1,28 @@
-// Tabla de la cola SOAT con su paginación (HU #12819). La selección vive en la página (la usan la
+// Tabla de la cola SOAT con su paginación (HU 12819). La selección vive en la página (la usan la
 // barra de envío y el ZIP).
 //
-// Orden de columnas desde la HU #12819 (§5.4): Vehículo · **Estado** · Compañía · Gestiona ·
+// Orden de columnas desde la HU 12819 (§5.4): Vehículo · **Estado** · Compañía · Gestiona ·
 // Solicitado · Pagado · Valor · acciones. El Estado sube de 5.ª a 2.ª porque es lo que decide si se
 // abre la fila, y a 375 px placa + estado caben en la primera vista. La columna «Fechas» (creado y
 // aprobado del TRÁMITE en FLIT) pasó al detalle (P-2): es un dato de consulta, no de decisión.
+//
+// Épica #14560 (`docs/ux/flito-soat-impuestos-patron-unificado.md` §3.5, disposición A): la tabla es el
+// `DataTable` del kit, como la de Impuestos — mismos 4 estados y el mismo modo tarjeta por debajo de
+// 900 px. Sin cambio de comportamiento: mismas columnas por rol, misma fila marcada (velo + filete),
+// las solicitudes incompletas ANTES de los SOAT (`filasPrevias`) y los mismos nombres accesibles.
 
-import { ChevronRight } from 'lucide-react';
 import { EstadoSoat, type SolicitudIncompletaFila } from '@operaciones/shared-types';
 import StatusChip from '../../flit/StatusChip';
+import { Icono } from '../../flit/kit/Icono';
 import AntiguedadPill from '../../flit/AntiguedadPill';
 import ChipSinGestion from '../../flit/ChipSinGestion';
 import Paginacion from '../../flit/Paginacion';
+import DataTable, { type ColumnaTabla } from '../../flit/DataTable';
 import CeldaVehiculoSoat from '../CeldaVehiculoSoat';
 import { CeldaVigenciaSoat } from '../VigenciaSoat';
 import { CasillaSoat } from '../BarraEnvioSoat';
 import { BotonComprobanteFila, type EstadoDescargaComprobante } from '../DescargarComprobanteSoat';
-import { FlitCard, FlitTable, FlitTh, FlitTr, flitBtnSecondarySm } from '../../flit/flitPageKit';
+import { claseBoton } from '../../flit/GradientButton';
 import ChipEstadoSoat from './ChipEstadoSoat';
 import FilaIncompletaSoat from './FilaIncompletaSoat';
 import { fecha, pesos, type ColaSoat, type SoatItem } from './tipos';
@@ -25,15 +31,15 @@ export interface TablaColaSoatProps {
   /** La página que se pinta: la de la cola o, en «Por validar»/«Descartadas», la de las incompletas. */
   data: Pick<ColaSoat, 'total' | 'page'>; filas: SoatItem[]; totalPaginas: number;
   /**
-   * Solicitudes aparcadas porque el RUNT no respondió (HU #12997). Van ANTES de los SOAT: en «Todos»
+   * Solicitudes aparcadas porque el RUNT no respondió (HU 12997). Van ANTES de los SOAT: en «Todos»
    * son la cabeza de la primera página, y en sus pastillas son lo único que hay.
    */
   incompletas?: SolicitudIncompletaFila[];
   puedeVerIncompleta?: boolean;
   onVerIncompleta?: (f: SolicitudIncompletaFila) => void;
-  /** HU #12998: reintento de la consulta al RUNT (sin la función, ni se pinta). */
+  /** HU 12998: reintento de la consulta al RUNT (sin la función, ni se pinta). */
   puedeReintentarIncompleta?: boolean;
-  /** `soat.solicitud.crear` (HU #14137). */
+  /** `soat.solicitud.crear` (HU 14137). */
   puedeCompletarIncompleta?: boolean;
   incompletasEnVuelo?: Record<string, unknown>;
   onReintentarIncompleta?: (f: SolicitudIncompletaFila) => void;
@@ -56,97 +62,101 @@ export default function TablaColaSoat({
   incompletas = [], puedeVerIncompleta = false, onVerIncompleta = () => {}, sustantivo = 'SOAT', sustantivoSingular,
   puedeReintentarIncompleta = false, puedeCompletarIncompleta = false, incompletasEnVuelo = {}, onReintentarIncompleta,
 }: TablaColaSoatProps) {
+  const paginacion = { total: data.total, page: data.page, totalPaginas, sustantivo, singular: sustantivoSingular, onPrev, onNext };
+
+  // Rótulos literales y NO `ENCABEZADOS_COMUNES.slice(1)`: atar los encabezados de esta cola a una
+  // posición dentro de un array de otras tres pantallas los cambiaría en silencio el día que alguien
+  // lo reordene.
+  const columnas: ColumnaTabla<SoatItem>[] = [
+    // Cuelga del PERMISO y no de «hay filas accionables»: para el auditor aquel cálculo daba vacío por
+    // casualidad, y lo que se quiere sostener es la afirmación (AC7). El nombre accesible cambia con
+    // el sentido: ya no marca «los pendientes».
+    ...(conCasillas ? [{
+      key: 'sel', etiqueta: 'Seleccionar', className: 'w-10 transition-colors hover:bg-[var(--kit-hover)]',
+      header: (
+        <CasillaSoat cabecera etiqueta="Seleccionar las filas de esta página"
+          marcada={seleccion.size > 0 && seleccion.size === seleccionables.length}
+          onCambio={(m) => setSeleccion(m ? new Set(seleccionables.map((f) => f.id)) : new Set())} />
+      ),
+      // `cabecera` aquí solo quiere decir «sin `<td>` propio»: la celda la pone el `DataTable`.
+      render: (f: SoatItem) => (
+        <CasillaSoat cabecera etiqueta={`Seleccionar ${f.placa ?? f.vin}`} marcada={seleccion.has(f.id)} onCambio={() => toggle(f.id)} />
+      ),
+    }] : []),
+    {
+      key: 'vehiculo', header: 'Vehículo',
+      render: (f) => (
+        <CeldaVehiculoSoat placa={f.placa} vin={f.vin} marca={f.marca} linea={f.linea}
+          cilindraje={f.cilindraje} carroceria={f.carroceria} tipoServicio={f.tipoServicio}
+          multiplePropietario={f.esMultiplePropietario} tipoSoat={f.tipoSoat} />
+      ),
+    },
+    {
+      // La vigencia entra AQUÍ y no en una columna nueva: esta celda es, desde la HU 11905, donde viven
+      // las señales temporales de riesgo del mismo SOAT, y una columna más devolvería la tabla a 11 y
+      // con ella el desborde a 1280 px que aquella HU quitó. Las dos ocupaciones son casi disjuntas
+      // —«sin gestión» solo sale en `solicitado` estancado y la vigencia solo en filas con
+      // comprobante—, así que la celda sigue teniendo como mucho dos pastillas.
+      key: 'estado', header: 'Estado',
+      render: (f) => (
+        <div className="flex flex-col items-start gap-1">
+          <ChipEstadoSoat estado={f.estado} />
+          {f.estancado && <ChipSinGestion desde={f.enviadoEn} />}
+          {!esCliente && <CeldaVigenciaSoat vigencia={f.vigencia} />}
+        </div>
+      ),
+    },
+    ...(conCompania ? [{ key: 'compania', header: 'Compañía', render: (f: SoatItem) => <span className="text-sm">{f.companiaNombre}</span> }] : []),
+    ...(!esCliente ? [{ key: 'gestiona', header: 'Gestiona', render: (f: SoatItem) => <CeldaGestion soat={f} /> }] : []),
+    {
+      key: 'solicitado', header: 'Solicitado',
+      render: (f) => (
+        <div className="text-sm">
+          <div className="tabular-nums">{f.enviadoEn ? fecha(f.enviadoEn) : '—'}</div>
+          {/* Ya pagado: los días transcurridos desde la solicitud dejan de ser una señal de riesgo y
+              solo ensucian. El chip de sin gestión ya desaparece al pagar. */}
+          {f.enviadoEn && f.estado !== EstadoSoat.PAGADO && (
+            <div className="mt-1"><AntiguedadPill desde={f.enviadoEn} /></div>
+          )}
+        </div>
+      ),
+    },
+    { key: 'pago', header: 'Pagado', render: (f) => <span className="text-sm tabular-nums">{f.pagadoEn ? fecha(f.pagadoEn) : '—'}</span> },
+    ...(!esCliente ? [{
+      key: 'valor', header: 'Valor', align: 'right' as const,
+      render: (f: SoatItem) => <span className="whitespace-nowrap text-sm tabular-nums">{pesos(f.valorPagado)}</span>,
+    }] : []),
+    {
+      key: 'acciones', header: <span className="sr-only">Acciones</span>, acciones: true,
+      render: (f) => (
+        <div className="flex items-center gap-2 whitespace-nowrap">
+          {puedeDescargar && <BotonComprobanteFila soat={f} descarga={descargaComprobante} />}
+          {/* El `secondary sm` relleno del kit, el mismo «Ver ›» de Impuestos (Épica #14560, ronda 2).
+              El chevrón dice que abre algo; el nombre accesible sigue siendo «Ver». */}
+          <button type="button" className={claseBoton('secondary', 'sm')} data-variante="secundario" onClick={() => onVer(f.id)}>
+            Ver
+            <Icono nombre="derecha" size={16} />
+          </button>
+        </div>
+      ),
+    },
+  ];
+
   return (
-        <FlitCard>
-          <div className="mb-3">
-            <Paginacion total={data.total} page={data.page} totalPaginas={totalPaginas} sustantivo={sustantivo} singular={sustantivoSingular}
-              onPrev={onPrev} onNext={onNext} />
-          </div>
-          <FlitTable label="Pólizas SOAT">
-            <thead>
-              <FlitTr>
-                {/* Cuelga del PERMISO y no de «hay filas accionables»: para el auditor aquel
-                    cálculo daba vacío por casualidad, y lo que se quiere sostener es la afirmación
-                    (AC7). El nombre accesible cambia con el sentido: ya no marca «los pendientes». */}
-                {conCasillas && (
-                  <FlitTh>
-                    <CasillaSoat cabecera etiqueta="Seleccionar las filas de esta página"
-                      marcada={seleccion.size > 0 && seleccion.size === seleccionables.length}
-                      onCambio={(m) => setSeleccion(m ? new Set(seleccionables.map((f) => f.id)) : new Set())} />
-                  </FlitTh>
-                )}
-                {/* Rótulos literales y NO `ENCABEZADOS_COMUNES.slice(1)`: atar los encabezados de
-                    esta cola a una posición dentro de un array de otras tres pantallas los cambiaría
-                    en silencio el día que alguien lo reordene. */}
-                <FlitTh>Vehículo</FlitTh><FlitTh>Estado</FlitTh>
-                {conCompania && <FlitTh>Compañía</FlitTh>}
-                {!esCliente && <FlitTh>Gestiona</FlitTh>}
-                <FlitTh>Solicitado</FlitTh><FlitTh>Pagado</FlitTh>
-                {!esCliente && <FlitTh>Valor</FlitTh>}
-                <FlitTh />
-              </FlitTr>
-            </thead>
-            <tbody>
-              {incompletas.map((f) => (
-                <FilaIncompletaSoat key={`inc-${f.id}`} fila={f} conCasillas={conCasillas} conCompania={conCompania}
-                  esCliente={esCliente} puedeVer={puedeVerIncompleta} onVer={onVerIncompleta}
-                  puedeReintentar={puedeReintentarIncompleta} puedeCompletar={puedeCompletarIncompleta} consultando={f.id in incompletasEnVuelo}
-                  onReintentar={onReintentarIncompleta} />
-              ))}
-              {filas.map((f) => (
-                <FlitTr key={f.id} marcada={seleccion.has(f.id)}>
-                  {conCasillas && (
-                    <CasillaSoat etiqueta={`Seleccionar ${f.placa ?? f.vin}`} marcada={seleccion.has(f.id)}
-                      onCambio={() => toggle(f.id)} />
-                  )}
-                  <CeldaVehiculoSoat placa={f.placa} vin={f.vin} marca={f.marca} linea={f.linea}
-                    cilindraje={f.cilindraje} carroceria={f.carroceria} tipoServicio={f.tipoServicio}
-                    multiplePropietario={f.esMultiplePropietario} tipoSoat={f.tipoSoat} />
-                  {/* La vigencia entra AQUÍ y no en una columna nueva: esta celda es, desde la HU
-                      #11905, donde viven las señales temporales de riesgo del mismo SOAT, y una
-                      columna más devolvería la tabla a 11 y con ella el desborde a 1280 px que
-                      aquella HU quitó. Las dos ocupaciones son casi disjuntas —«sin gestión» solo
-                      sale en `solicitado` estancado y la vigencia solo en filas con comprobante—,
-                      así que la celda sigue teniendo como mucho dos pastillas. */}
-                  <td className="px-3 py-2">
-                    <div className="flex flex-col items-start gap-1">
-                      <ChipEstadoSoat estado={f.estado} />
-                      {f.estancado && <ChipSinGestion desde={f.enviadoEn} />}
-                      {!esCliente && <CeldaVigenciaSoat vigencia={f.vigencia} />}
-                    </div>
-                  </td>
-                  {conCompania && <td className="px-3 py-2 text-sm">{f.companiaNombre}</td>}
-                  {!esCliente && <CeldaGestion soat={f} />}
-                  <td className="px-3 py-2 text-sm">
-                    <div className="tabular-nums">{f.enviadoEn ? fecha(f.enviadoEn) : '—'}</div>
-                    {/* Ya pagado: los días transcurridos desde la solicitud dejan de ser una señal
-                        de riesgo y solo ensucian. El chip de sin gestión ya desaparece al pagar. */}
-                    {f.enviadoEn && f.estado !== EstadoSoat.PAGADO && (
-                      <div className="mt-1"><AntiguedadPill desde={f.enviadoEn} /></div>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-sm tabular-nums">{f.pagadoEn ? fecha(f.pagadoEn) : '—'}</td>
-                  {!esCliente && <td className="px-3 py-2 text-sm tabular-nums">{pesos(f.valorPagado)}</td>}
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-2 whitespace-nowrap">
-                      {puedeDescargar && <BotonComprobanteFila soat={f} descarga={descargaComprobante} />}
-                      {/* `h-7`, el compacto del kit: dentro de la celda el botón no manda más que el dato.
-                          El chevrón dice que abre algo; el nombre accesible sigue siendo «Ver». */}
-                      <button type="button" className={flitBtnSecondarySm} onClick={() => onVer(f.id)}>
-                        Ver
-                        <ChevronRight size={16} aria-hidden="true" className="-mr-1 shrink-0" />
-                      </button>
-                    </div>
-                  </td>
-                </FlitTr>
-              ))}
-            </tbody>
-          </FlitTable>
-          <div className="mt-3">
-            <Paginacion total={data.total} page={data.page} totalPaginas={totalPaginas} sustantivo={sustantivo} singular={sustantivoSingular}
-              onPrev={onPrev} onNext={onNext} />
-          </div>
-        </FlitCard>
+    <div className="space-y-3">
+      <Paginacion {...paginacion} />
+      {/* `regionDesplazable`: la región «Pólizas SOAT» que ya nombraba `FlitTable` (la usan los E2E y
+          el lector de pantalla). Paginación arriba, fuera de la tabla, y abajo la del `DataTable`: lo mismo
+          que la cola de Impuestos (Épica #14560, ronda 2). */}
+      <DataTable ariaLabel="Pólizas SOAT" regionDesplazable="Pólizas SOAT" columnas={columnas} filas={filas} getKey={(f) => f.id}
+        filaMarcada={(f) => seleccion.has(f.id)} paginacion={paginacion}
+        filasPrevias={incompletas.map((f) => (
+          <FilaIncompletaSoat key={`inc-${f.id}`} fila={f} conCasillas={conCasillas} conCompania={conCompania}
+            esCliente={esCliente} puedeVer={puedeVerIncompleta} onVer={onVerIncompleta}
+            puedeReintentar={puedeReintentarIncompleta} puedeCompletar={puedeCompletarIncompleta} consultando={f.id in incompletasEnVuelo}
+            onReintentar={onReintentarIncompleta} />
+        ))} />
+    </div>
   );
 }
 
@@ -157,16 +167,16 @@ export default function TablaColaSoat({
  */
 function CeldaGestion({ soat }: { soat: SoatItem }) {
   if (!soat.gestionOperaciones) {
-    return <td className="px-3 py-2 text-sm">{soat.proveedorSoatNombre ?? '—'}</td>;
+    return <span className="text-sm">{soat.proveedorSoatNombre ?? '—'}</span>;
   }
   return (
-    <td className="px-3 py-2 text-sm">
+    <div className="text-sm">
       <StatusChip tone="warning">Operaciones</StatusChip>
       {soat.proveedorSoatNombre && (
-        <div className="mt-0.5 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+        <div className="mt-0.5 text-xs text-[color:var(--color-text-tertiary)]">
           retomado de {soat.proveedorSoatNombre}
         </div>
       )}
-    </td>
+    </div>
   );
 }

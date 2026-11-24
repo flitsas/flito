@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../../lib/api';
+import GradientButton from '../../components/flit/GradientButton';
 import { mensajePartesTraspasoDuplicadas, partesTraspasoDuplicadas, parteTraspasoRequiereReenvio, resolverValidacionTraspasoParte, type ValidacionTraspasoRow } from '@operaciones/shared-types';
 
 interface Parte { nombre: string; documento: string; email: string }
@@ -19,15 +20,15 @@ interface Props {
   onEstadoChange?: (ambasOk: boolean) => void;
 }
 
-const CARD = 'rounded-[12px] border p-4';
-const cardStyle: React.CSSProperties = { borderColor: 'var(--flit-border-soft)' };
+const CARD = 'rounded-[9px] border p-4';
+const cardStyle: React.CSSProperties = { borderColor: 'var(--color-border)' };
 
 const ESTADO_LABEL: Record<string, { label: string; color: string }> = {
-  enviado: { label: 'Correo enviado', color: 'var(--flit-blue)' },
-  en_proceso: { label: 'En proceso', color: 'var(--flit-warning)' },
-  aprobado: { label: 'Validado', color: 'var(--flit-success)' },
-  rechazado: { label: 'Rechazado', color: 'var(--flit-danger)' },
-  expirado: { label: 'Expirado', color: 'var(--flit-text-muted)' },
+  enviado: { label: 'Correo enviado', color: 'var(--color-action)' },
+  en_proceso: { label: 'En proceso', color: 'var(--kit-naranja-texto)' },
+  aprobado: { label: 'Validado', color: 'var(--kit-verde-texto)' },
+  rechazado: { label: 'Rechazado', color: 'var(--kit-rojo-texto)' },
+  expirado: { label: 'Expirado', color: 'var(--color-text-tertiary)' },
 };
 
 // Debe coincidir con el tope de `intentos` de POST /validacion-identidad/completar/:token (identidad.routes.ts).
@@ -132,16 +133,16 @@ export default function TraspasoStepIdentidad({ tramiteId, vendedor, comprador, 
   };
 
   const tarjeta = (titulo: string, parte: Parte, val?: Validacion) => {
-    const st = ESTADO_LABEL[val?.estado || ''] || { label: 'Pendiente', color: 'var(--flit-text-muted)' };
+    const st = ESTADO_LABEL[val?.estado || ''] || { label: 'Pendiente', color: 'var(--color-text-tertiary)' };
     const hint = hintEnProceso(val);
     return (
-      <div className="rounded-[10px] border p-3" style={{ borderColor: 'var(--flit-border-soft)' }}>
-        <p className="text-[10px] font-bold uppercase" style={{ color: 'var(--flit-text-muted)' }}>{titulo}</p>
-        <p className="text-xs font-semibold" style={{ color: 'var(--flit-text-primary)' }}>{parte.nombre || '—'}</p>
-        <p className="text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{parte.documento} · {parte.email || 'sin email'}</p>
+      <div className="rounded-[9px] border p-3" style={{ borderColor: 'var(--color-border)' }}>
+        <p className="text-xs font-bold uppercase" style={{ color: 'var(--color-text-tertiary)' }}>{titulo}</p>
+        <p className="text-xs font-semibold" style={{ color: 'var(--color-text-primary)' }}>{parte.nombre || '—'}</p>
+        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{parte.documento} · {parte.email || 'sin email'}</p>
         <p className="mt-2 text-xs font-bold" style={{ color: st.color }}>{st.label}{val?.score ? ` (${val.score})` : ''}</p>
         {hint && (
-          <p className="mt-2 text-[10px] leading-snug" style={{ color: 'var(--flit-warning)' }}>{hint}</p>
+          <p className="mt-2 text-xs leading-snug" style={{ color: 'var(--kit-naranja-texto)' }}>{hint}</p>
         )}
       </div>
     );
@@ -149,36 +150,36 @@ export default function TraspasoStepIdentidad({ tramiteId, vendedor, comprador, 
 
   return (
     <section id="traspaso-identidad-biometrica" aria-label="Validación de identidad" className={`${CARD} scroll-mt-24`} style={cardStyle}>
-      <p className="mb-1 text-xs font-bold" style={{ color: 'var(--flit-blue-text)' }}>Validación de identidad (vendedor y comprador)</p>
-      <p className="mb-3 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+      <p className="mb-1 text-xs font-bold" style={{ color: 'var(--color-action)' }}>Validación de identidad (vendedor y comprador)</p>
+      <p className="mb-3 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
         Se envía un enlace seguro por correo para validar identidad con selfie y cédula (Ley 1581). Igual que CEA Tránsito.
       </p>
       {faltaEmail && (
-        <p className="mb-3 rounded-[10px] border p-2 text-[11px] font-semibold" style={{ borderColor: 'rgba(240,90,53,0.35)', color: 'var(--flit-warning)', background: 'rgba(240,90,53,0.08)' }}>
+        <p className="mb-3 rounded-[9px] border p-2 text-xs font-semibold" style={{ borderColor: 'color-mix(in srgb, var(--kit-naranja) 35%, transparent)', color: 'var(--kit-naranja-texto)', background: 'color-mix(in srgb, var(--kit-naranja) 8%, transparent)' }}>
           Completa el email del vendedor y comprador en los pasos 3 y 4 antes de enviar.
         </p>
       )}
       {conflictoPartes && (
-        <p className="mb-3 rounded-[10px] border p-2 text-[11px] font-semibold" role="alert"
-          style={{ borderColor: 'rgba(228,61,48,0.35)', color: 'var(--flit-danger)', background: 'rgba(228,61,48,0.08)' }}>
+        <p className="mb-3 rounded-[9px] border p-2 text-xs font-semibold" role="alert"
+          style={{ borderColor: 'color-mix(in srgb, var(--kit-rojo) 35%, transparent)', color: 'var(--kit-rojo-texto)', background: 'color-mix(in srgb, var(--kit-rojo) 8%, transparent)' }}>
           {conflictoPartes} Corrige los datos en los pasos 3 y 4 del wizard.
         </p>
       )}
       {emailRecuperado && !faltaEmail && !conflictoPartes && (
-        <p className="mb-3 rounded-[10px] border p-2 text-[11px]" role="status"
-          style={{ borderColor: 'rgba(79,116,201,0.35)', color: 'var(--flit-blue-text)', background: 'rgba(79,116,201,0.08)' }}>
+        <p className="mb-3 rounded-[9px] border p-2 text-xs" role="status"
+          style={{ borderColor: 'color-mix(in srgb, var(--kit-azul) 35%, transparent)', color: 'var(--color-action)', background: 'color-mix(in srgb, var(--kit-azul) 8%, transparent)' }}>
           El correo se recuperó de la validación biométrica previa. Verifica los datos del vendedor y comprador en los pasos 3 y 4.
         </p>
       )}
       {!ambasOk && algunaEnviada && (
-        <p className="mb-3 rounded-[10px] border p-2.5 text-[11px]" role="status"
-          style={{ borderColor: 'rgba(79,116,201,0.35)', color: 'var(--flit-blue-text)', background: 'rgba(79,116,201,0.08)' }}>
+        <p className="mb-3 rounded-[9px] border p-2.5 text-xs" role="status"
+          style={{ borderColor: 'color-mix(in srgb, var(--kit-azul) 35%, transparent)', color: 'var(--color-action)', background: 'color-mix(in srgb, var(--kit-azul) 8%, transparent)' }}>
           <strong>Correo enviado ≠ validado.</strong> Cada parte debe abrir el enlace del correo y completar selfie + cédula.
           Cuando ambas tarjetas digan <strong>Validado</strong>, podrás generar el FUR. Mientras tanto, baja a <strong>Contrato / FUR</strong> y genera el contrato.
         </p>
       )}
       {!ambasOk && !algunaEnviada && algunaPendiente && validaciones.length === 0 && (
-        <p className="mb-3 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="mb-3 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           Pulsa el botón azul para enviar los enlaces de validación a vendedor y comprador.
         </p>
       )}
@@ -186,13 +187,11 @@ export default function TraspasoStepIdentidad({ tramiteId, vendedor, comprador, 
         {tarjeta('Vendedor (titular saliente)', { ...vendedor, email: emailVendedor }, valVendedor)}
         {tarjeta('Comprador (adquirente)', { ...comprador, email: emailComprador }, valComprador)}
       </div>
-      <button type="button" onClick={iniciar} disabled={enviando || faltaEmail || Boolean(conflictoPartes) || !puedeEnviar}
-        className="flit-focus w-full rounded-[999px] px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50"
-        style={{ background: 'var(--flit-gradient-primary)', boxShadow: 'var(--flit-shadow-button)' }}>
+      <GradientButton type="button" className="w-full justify-center" onClick={iniciar} disabled={enviando || faltaEmail || Boolean(conflictoPartes) || !puedeEnviar}>
         {labelBotonEnvio}
-      </button>
+      </GradientButton>
       {links.length > 0 && (
-        <ul className="mt-3 space-y-1 text-[10px]" style={{ color: 'var(--flit-text-muted)' }}>
+        <ul className="mt-3 space-y-1 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
           {links.filter((l) => l.link).map((l) => (
             <li key={l.parte}>{l.parte}: enlace manual disponible si el correo no llegó.</li>
           ))}
@@ -202,7 +201,7 @@ export default function TraspasoStepIdentidad({ tramiteId, vendedor, comprador, 
         {ambasOk ? 'Ambas identidades biométricas validadas.' : ''}
       </p>
       {ambasOk && (
-        <p className="mt-3 text-xs font-semibold" style={{ color: 'var(--flit-success)' }}>✓ Ambas identidades validadas.</p>
+        <p className="mt-3 text-xs font-semibold" style={{ color: 'var(--kit-verde-texto)' }}>✓ Ambas identidades validadas.</p>
       )}
     </section>
   );

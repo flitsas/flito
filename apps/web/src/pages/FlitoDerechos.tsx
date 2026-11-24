@@ -10,14 +10,20 @@
 // de revisión que ya existe, para que Operaciones tenga una sola bandeja que atender.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api, errorMessage } from '../lib/api';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
-import {
-  FlitCard, FlitEmpty, FlitPillGroup, FlitPillButton, FlitTable, FlitTh, FlitTr,
-  flitInp, flitBtnPrimary, flitBtnPrimaryStyle, flitBtnSecondary, flitBtnSecondaryStyle,
-} from '../components/flit/flitPageKit';
+import { FlitCard, FlitTable, FlitTh, FlitTr, flitInp } from '../components/flit/flitPageKit';
+import GradientButton from '../components/flit/GradientButton';
+import Pestanas from '../components/flit/Pestanas';
+import PanelFiltros, { type FiltroAplicado } from '../components/flit/PanelFiltros';
+import FlitUploadBox from '../components/flit/FlitUploadBox';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import Paginacion from '../components/flit/Paginacion';
+import InlineAlert from '../components/flit/InlineAlert';
+import { EstadoVista } from '../components/flit/Cargador';
+import { EtiquetaEstado } from '../components/flit/Bloques';
+import { registrarEstados, type EstadoKit } from '../components/flit/kit/tonos';
 import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import ThFiltroMulti from '../components/flit/ThFiltroMulti';
 import RangoFechas from '../components/flit/RangoFechas';
@@ -64,12 +70,12 @@ function ArchivoOrigen({ d }: { d: DerechoRow }) {
   const nombre = d.procesamientoArchivo ?? d.archivoOrigen;
   // Los derechos cargados antes de este cambio no lo tienen, y no es recuperable: en cualquier
   // ventana de diez minutos hubo tres barridos, así que atribuirlos por fecha sería inventárselo.
-  if (!nombre) return <div className="mt-0.5" style={{ color: 'var(--flit-text-muted)' }}>Archivo no registrado</div>;
+  if (!nombre) return <div className="mt-0.5 text-[color:var(--color-text-tertiary)]">Archivo no registrado</div>;
   const paginas = d.paginas?.length
     ? ` · pág. ${d.paginas.length > 1 ? `${d.paginas[0]}–${d.paginas[d.paginas.length - 1]}` : d.paginas[0]}`
     : '';
   return (
-    <div className="mt-0.5 break-all" style={{ color: 'var(--flit-text-secondary)' }} title={nombre}>
+    <div className="mt-0.5 break-all text-[color:var(--color-text-secondary)]" title={nombre}>
       {nombre}{paginas}
     </div>
   );
@@ -100,14 +106,18 @@ const ETIQUETA_ESTADO_PROC: Record<string, string> = {
 
 
 // Cada canasta con su tono: lo que exige intervención humana no puede verse igual que lo resuelto.
+// Tono y glifo del UI Kit 2026 (decisión de diseño D7): el duplicado por hash se descarta (papelera,
+// amarillo «revocado»); turquesa no, porque en el kit es un resultado positivo.
 const CANASTAS = [
-  { clave: 'registrados', titulo: 'Registrados', tono: 'success' as ChipTone },
-  { clave: 'enRevision', titulo: 'En revisión', tono: 'warning' as ChipTone },
-  { clave: 'pendientes', titulo: 'Sin trámite asociado', tono: 'active' as ChipTone },
-  { clave: 'duplicados', titulo: 'Duplicados', tono: 'draft' as ChipTone },
-  { clave: 'omitidas', titulo: 'Páginas omitidas', tono: 'neutral' as ChipTone },
-  { clave: 'fallidos', titulo: 'Fallidos', tono: 'danger' as ChipTone },
-] as const;
+  { clave: 'registrados', titulo: 'Registrados', tono: 'ok', glifo: 'doble-check' },
+  { clave: 'enRevision', titulo: 'En revisión', tono: 'warn', glifo: 'espera' },
+  { clave: 'pendientes', titulo: 'Sin trámite asociado', tono: 'info', glifo: 'tramites' },
+  { clave: 'duplicados', titulo: 'Duplicados', tono: 'revocado', glifo: 'papelera' },
+  { clave: 'omitidas', titulo: 'Páginas omitidas', tono: 'neutro', glifo: 'menos' },
+  { clave: 'fallidos', titulo: 'Fallidos', tono: 'danger', glifo: 'alerta' },
+] as const satisfies ReadonlyArray<{ clave: keyof ResultadoCarga; titulo: string } & EstadoKit>;
+
+registrarEstados(Object.fromEntries(CANASTAS.map((c) => [`derecho-${c.clave}`, { tono: c.tono, glifo: c.glifo }])));
 
 const pesos = (v: string | null): string =>
   v === null ? '—' : `$ ${Number(v).toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
@@ -185,150 +195,147 @@ function TabDrive({ onProcesado }: { onProcesado: (r: ResultadoCarga) => void })
     }
   }
 
+  const colsRegistro: ColumnaTabla<RegistroRow>[] = [
+    {
+      key: 'archivo', header: 'Archivo', render: (r) => (
+        <>
+          <div className="font-medium">{r.nombreArchivo ?? '—'}</div>
+          {!r.sigueEnDrive && (
+            <div className="text-xs text-[color:var(--kit-naranja-texto)]">
+              Ya no está en el Drive
+            </div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'estado', header: 'Estado', render: (r) => (
+        <>
+          <StatusChip tone={TONO_ESTADO_PROC[r.estado] ?? 'neutral'}>
+            {ETIQUETA_ESTADO_PROC[r.estado] ?? r.estado}
+          </StatusChip>
+          {r.estado === 'error' && r.error && (
+            <div className="mt-1 text-xs text-[color:var(--kit-rojo-texto)]">{r.error}</div>
+          )}
+        </>
+      ),
+    },
+    { key: 'por', header: 'Subido por', className: 'text-xs', render: (r) => r.modificadoPor ?? '—' },
+    {
+      key: 'extraido', header: 'Extraído', className: 'text-xs tabular-nums', render: (r) => (
+        r.cuentasDetectadas !== null
+          ? `${r.cuentasDetectadas} cuenta(s) · ${r.placasUnicas ?? 0} placa(s)`
+          : '—'
+      ),
+    },
+    { key: 'valor', header: 'Valor', className: 'text-xs tabular-nums', render: (r) => pesos(r.valorTotal) },
+    { key: 'procesado', header: 'Procesado', className: 'text-xs', render: (r) => fechaHora(r.procesadoEn) },
+  ];
+
+  const colsArchivos: ColumnaTabla<ArchivoDrive>[] = [
+    { key: 'archivo', header: 'Archivo', className: 'font-medium', render: (a) => a.nombre },
+    {
+      // La fecha sola no era accionable: en una carpeta compartida lo que hace falta es saber a quién preguntar.
+      key: 'modificado', header: 'Modificado', className: 'text-xs', render: (a) => (
+        <>
+          <div>{a.modificadoEn ? fechaHora(a.modificadoEn) : '—'}</div>
+          {a.modificadoPor && (
+            <div className="text-[color:var(--color-text-tertiary)]">por {a.modificadoPor}</div>
+          )}
+        </>
+      ),
+    },
+    { key: 'tamano', header: 'Tamaño', className: 'text-xs tabular-nums', render: (a) => tamano(a.tamanoBytes) },
+    {
+      // Informativo, no una prohibición: si el organismo reemplazó el archivo del día hay que poder
+      // releerlo. Lo que impide duplicar es el hash de cada recibo.
+      key: 'procesado', header: 'Procesado', className: 'text-xs', render: (a) => (
+        a.procesadoEn
+          ? <StatusChip tone="success">{fechaHora(a.procesadoEn)}</StatusChip>
+          : a.omitidoEn
+            // Ya estaba en la carpeta cuando se encendió el barrido: se dio por visto
+            // sin gastar OCR en histórico que nadie pidió. Se puede procesar a mano.
+            ? (
+              <span title="Ya estaba en la carpeta al encender el barrido automático. Se puede procesar a mano.">
+                <StatusChip tone="neutral">Dado por visto</StatusChip>
+              </span>
+            )
+            : <span className="text-[color:var(--color-text-tertiary)]">Nunca</span>
+      ),
+    },
+    {
+      key: 'accion', header: 'Acción', align: 'center', acciones: true, render: (a) => (
+        <GradientButton
+          variant="secondary" size="sm"
+          disabled={procesando !== null}
+          onClick={() => procesar(a)}
+        >
+          {procesando === a.fileId ? 'Procesando…' : a.procesadoEn ? 'Reprocesar' : 'Procesar'}
+        </GradientButton>
+      ),
+    },
+  ];
+
+  // Los 4 estados del listado del Drive. Un fallo al PROCESAR deja la lista a la vista y se avisa encima.
+  const estadoArchivos = !archivos && !error ? 'loading'
+    : error && (archivos ?? []).length === 0 ? 'error'
+      : (archivos ?? []).length === 0 ? 'empty' : 'ready';
+
   return (
     <>
-      <p className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+      <p className="text-sm text-[color:var(--color-text-secondary)]">
         Consolidados que publica la secretaría en su Drive. Elige el día y procésalo: se lee cada
         cuenta, se asocia a su trámite por placa y el resultado aparece en las pestañas de al lado.
         Las demás secretarías se cargan a mano desde arriba.
       </p>
 
-      <div className="flex flex-wrap items-center gap-3 text-xs">
-        <span style={{ color: 'var(--flit-text-secondary)' }}>
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <span className="text-[color:var(--color-text-secondary)]">
           Barrido automático diario a las 9:00. El botón queda para procesar cualquier día a demanda.
         </span>
-        <button type="button" className="underline" style={{ color: 'var(--flit-blue-text)' }}
-          onClick={() => setVerRegistro((v) => !v)}>
+        <GradientButton variant="ghost" size="sm" onClick={() => setVerRegistro((v) => !v)}>
           {verRegistro ? 'Ocultar el registro' : `Ver el registro${registro ? ` (${registro.length})` : ''}`}
-        </button>
+        </GradientButton>
       </div>
 
       {verRegistro && (
         <FlitCard>
-          <h3 className="mb-1 text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+          <h3 className="mb-1 text-base font-bold text-[color:var(--color-action)]">
             Registro de procesamientos
           </h3>
-          <p className="mb-3 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+          <p className="mb-3 text-sm text-[color:var(--color-text-tertiary)]">
             Queda constancia de cada pasada, incluidas las de archivos que ya <strong>no están</strong> en
             el Drive: la carpeta la manejan personas del organismo y un consolidado puede desaparecer.
           </p>
-          {!registro && <p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando…</p>}
-          {registro && registro.length === 0 && <FlitEmpty>Todavía no se ha procesado ningún archivo.</FlitEmpty>}
-          {registro && registro.length > 0 && (
-            <div className="overflow-x-auto">
-              <FlitTable>
-                <thead>
-                  <FlitTr>
-                    <FlitTh>Archivo</FlitTh><FlitTh>Estado</FlitTh><FlitTh>Subido por</FlitTh>
-                    <FlitTh>Extraído</FlitTh><FlitTh>Valor</FlitTh><FlitTh>Procesado</FlitTh>
-                  </FlitTr>
-                </thead>
-                <tbody>
-                  {registro.map((r) => (
-                    <FlitTr key={r.id}>
-                      <td className="px-4 py-2 text-sm">
-                        <div className="font-medium">{r.nombreArchivo ?? '—'}</div>
-                        {!r.sigueEnDrive && (
-                          <div className="text-[11px]" style={{ color: 'var(--flit-warning)' }}>
-                            Ya no está en el Drive
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-2">
-                        <StatusChip tone={TONO_ESTADO_PROC[r.estado] ?? 'neutral'}>
-                          {ETIQUETA_ESTADO_PROC[r.estado] ?? r.estado}
-                        </StatusChip>
-                        {r.estado === 'error' && r.error && (
-                          <div className="mt-1 text-[11px]" style={{ color: 'var(--flit-danger)' }}>{r.error}</div>
-                        )}
-                      </td>
-                      <td className="px-4 py-2 text-xs">{r.modificadoPor ?? '—'}</td>
-                      <td className="px-4 py-2 text-xs tabular-nums">
-                        {r.cuentasDetectadas !== null
-                          ? `${r.cuentasDetectadas} cuenta(s) · ${r.placasUnicas ?? 0} placa(s)`
-                          : '—'}
-                      </td>
-                      <td className="px-4 py-2 text-xs tabular-nums">{pesos(r.valorTotal)}</td>
-                      <td className="px-4 py-2 text-xs">{fechaHora(r.procesadoEn)}</td>
-                    </FlitTr>
-                  ))}
-                </tbody>
-              </FlitTable>
-            </div>
-          )}
+          <DataTable
+            ariaLabel="Registro de procesamientos"
+            columnas={colsRegistro}
+            filas={registro ?? []}
+            getKey={(r) => String(r.id)}
+            status={registro ? 'ready' : 'loading'}
+            emptyMessage="Todavía no se ha procesado ningún archivo."
+          />
         </FlitCard>
       )}
 
-      {error && <FlitCard><p className="text-sm text-red-600">{error}</p></FlitCard>}
+      {error && (archivos ?? []).length > 0 && <InlineAlert tono="danger">{error}</InlineAlert>}
 
-      {!archivos && !error && (
-        <FlitCard><p className="text-sm" style={{ color: 'var(--flit-text-muted)' }}>Consultando el Drive…</p></FlitCard>
-      )}
-
-      {archivos && archivos.length === 0 && !error && (
-        <FlitCard><FlitEmpty>No hay PDF en la carpeta del Drive.</FlitEmpty></FlitCard>
-      )}
-
-      {archivos && archivos.length > 0 && (
-        <FlitCard>
-          <FlitTable>
-            <thead>
-              <tr>
-                <FlitTh>Archivo</FlitTh>
-                <FlitTh>Modificado</FlitTh>
-                <FlitTh>Tamaño</FlitTh>
-                <FlitTh>Procesado</FlitTh>
-                <FlitTh center>Acción</FlitTh>
-              </tr>
-            </thead>
-            <tbody>
-              {archivos.map((a) => (
-                <FlitTr key={a.fileId}>
-                  <td className="px-4 py-2.5 text-sm font-medium">{a.nombre}</td>
-                  {/* La fecha sola no era accionable: en una carpeta compartida lo que hace falta
-                      es saber a quién preguntar. */}
-                  <td className="px-4 py-2.5 text-xs">
-                    <div>{a.modificadoEn ? fechaHora(a.modificadoEn) : '—'}</div>
-                    {a.modificadoPor && (
-                      <div style={{ color: 'var(--flit-text-muted)' }}>por {a.modificadoPor}</div>
-                    )}
-                  </td>
-                  <td className="px-4 py-2.5 text-xs tabular-nums">{tamano(a.tamanoBytes)}</td>
-                  <td className="px-4 py-2.5 text-xs">
-                    {/* Informativo, no una prohibición: si el organismo reemplazó el archivo del día
-                        hay que poder releerlo. Lo que impide duplicar es el hash de cada recibo. */}
-                    {a.procesadoEn
-                      ? <StatusChip tone="success">{fechaHora(a.procesadoEn)}</StatusChip>
-                      : a.omitidoEn
-                        // Ya estaba en la carpeta cuando se encendió el barrido: se dio por visto
-                        // sin gastar OCR en histórico que nadie pidió. Se puede procesar a mano.
-                        ? (
-                          <span title="Ya estaba en la carpeta al encender el barrido automático. Se puede procesar a mano.">
-                            <StatusChip tone="neutral">Dado por visto</StatusChip>
-                          </span>
-                        )
-                        : <span style={{ color: 'var(--flit-text-muted)' }}>Nunca</span>}
-                  </td>
-                  <td className="px-4 py-2.5 text-center">
-                    <button
-                      type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-                      disabled={procesando !== null}
-                      onClick={() => procesar(a)}
-                    >
-                      {procesando === a.fileId ? 'Procesando…' : a.procesadoEn ? 'Reprocesar' : 'Procesar'}
-                    </button>
-                  </td>
-                </FlitTr>
-              ))}
-            </tbody>
-          </FlitTable>
-          {procesando && (
-            <p className="mt-2 text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-              Se lee cada página con OCR, así que un consolidado grande tarda. No cierres la pestaña.
-            </p>
-          )}
-        </FlitCard>
-      )}
+      <FlitCard>
+        <EstadoVista
+          status={estadoArchivos}
+          cargando="Consultando el Drive…"
+          errorMessage={error ?? undefined}
+          onRetry={() => setNonce((n) => n + 1)}
+          emptyMessage="No hay PDF en la carpeta del Drive."
+        >
+          <DataTable ariaLabel="Consolidados del Drive" columnas={colsArchivos} filas={archivos ?? []} getKey={(a) => a.fileId} />
+        </EstadoVista>
+        {procesando && (
+          <p className="mt-2 text-sm text-[color:var(--color-text-tertiary)]">
+            Se lee cada página con OCR, así que un consolidado grande tarda. No cierres la pestaña.
+          </p>
+        )}
+      </FlitCard>
     </>
   );
 }
@@ -419,31 +426,57 @@ export default function FlitoDerechos() {
   }
 
 
+  // Chips de filtros aplicados del panel del kit: cada X hace lo mismo que vaciar ese filtro a mano.
+  const aplicados: FiltroAplicado[] = [
+    ...(organismosSel.length ? [{ id: 'organismos', etiqueta: `Secretaría: ${organismosSel.join(', ')}` }] : []),
+    ...(origenesSel.length
+      ? [{ id: 'origenes', etiqueta: `Origen: ${origenesSel.map((o) => ETIQUETA_ORIGEN[o] ?? o).join(', ')}` }] : []),
+    ...(pagado.desde || pagado.hasta
+      ? [{ id: 'pagado', etiqueta: `Pagado: ${pagado.desde || '…'} – ${pagado.hasta || '…'}` }] : []),
+    ...(preset ? [{ id: 'preset', etiqueta: preset }] : []),
+  ];
+  function quitarFiltro(id: string) {
+    if (id === 'organismos') setOrganismosSel([]);
+    if (id === 'origenes') setOrigenesSel([]);
+    if (id === 'pagado') setPagado({ desde: '', hasta: '' });
+    if (id === 'preset') { setConAdvertencia(false); setPreset(null); }
+    setPage(1);
+  }
+
+  const colsCanasta: ColumnaTabla<ItemDerecho & { _k: string }>[] = [
+    { key: 'archivo', header: 'Archivo', className: 'text-xs', render: (it) => it.archivo },
+    { key: 'placa', header: 'Placa', className: 'text-xs font-semibold', render: (it) => it.placa ?? '—' },
+    { key: 'tramite', header: 'Trámite', className: 'text-xs', render: (it) => it.idFlit ?? '—' },
+    { key: 'valor', header: 'Valor', className: 'text-xs', render: (it) => pesos(it.valor) },
+    {
+      key: 'detalle', header: 'Detalle', className: 'text-xs text-[color:var(--color-text-secondary)]',
+      render: (it) => it.detalle,
+    },
+  ];
+
   return (
     <div className="flex flex-col gap-5">
       <PageHeaderCard
         title="Derechos de tránsito"
+        icono="flito-derechos"
+        miga={[]}
         subtitle="Carga los recibos que emite el organismo de tránsito. El sistema lee la placa, la fecha y el valor, y los asocia al trámite."
       />
 
       <FlitCard>
-        <h2 className="mb-3 text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>Cargar recibos</h2>
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="block flex-1 min-w-[260px]">
-            <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
-              Archivos — PDF, imagen, ZIP, o un PDF con varios recibos
-            </span>
-            <input
-              type="file"
-              multiple
-              accept=".pdf,.png,.jpg,.jpeg,.zip"
-              className={flitInp}
-              disabled={cargando}
-              onChange={(e) => setArchivos(Array.from(e.target.files ?? []))}
-            />
-          </label>
-          <label className="block w-[200px]">
-            <span className="mb-1 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-primary)' }}>
+        <h2 className="mb-3 text-base font-bold text-[color:var(--color-action)]">Cargar recibos</h2>
+        <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-[minmax(0,1fr)_220px_auto]">
+          <FlitUploadBox
+            label="Archivos — PDF, imagen, ZIP, o un PDF con varios recibos"
+            accept=".pdf,.png,.jpg,.jpeg,.zip"
+            multiple
+            state={cargando ? 'uploading' : archivos.length > 0 ? 'verified' : 'idle'}
+            count={archivos.length}
+            onFiles={(lista) => setArchivos(lista)}
+            onFile={(f) => setArchivos([f])}
+          />
+          <label className="campo block">
+            <span className="mb-1 block text-xs font-semibold text-[color:var(--color-text-primary)]">
               Organismo (opcional)
             </span>
             <input
@@ -455,72 +488,53 @@ export default function FlitoDerechos() {
               onChange={(e) => setOrganismo(e.target.value)}
             />
           </label>
-          <button
-            type="button"
-            className={flitBtnPrimary}
-            style={flitBtnPrimaryStyle}
+          <GradientButton
             disabled={cargando || archivos.length === 0}
             onClick={cargar}
           >
             {cargando ? 'Procesando…' : `Cargar${archivos.length > 0 ? ` (${archivos.length})` : ''}`}
-          </button>
+          </GradientButton>
         </div>
-        <p className="mt-2 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>
+        <p className="mt-2 text-xs text-[color:var(--color-text-tertiary)]">
           El organismo solo ajusta el umbral de lectura y las pistas del OCR; el trámite se determina por la placa del recibo.
         </p>
       </FlitCard>
 
-
-      <FlitPillGroup>
-        <FlitPillButton active={pestana === 'registrados'} onClick={() => setPestana('registrados')}>
-          Registrados ({total})
-        </FlitPillButton>
-        <FlitPillButton active={pestana === 'drive'} onClick={() => setPestana('drive')}>
-          Drive · Medellín
-        </FlitPillButton>
-      </FlitPillGroup>
+      <Pestanas
+        etiqueta="Derechos de tránsito"
+        activa={pestana}
+        onElegir={(id) => setPestana(id as 'registrados' | 'drive')}
+        pestanas={[
+          { id: 'registrados', etiqueta: `Registrados (${total})` },
+          { id: 'drive', etiqueta: 'Drive · Medellín' },
+        ]}
+      />
 
       {resultado && (
         <FlitCard>
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-base font-bold text-[color:var(--color-action)]">
               Resultado de la carga — {totalResultado} documento(s)
             </h2>
-            <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setResultado(null)}>
+            <GradientButton variant="secondary" size="sm" onClick={() => setResultado(null)}>
               Cerrar
-            </button>
+            </GradientButton>
           </div>
           <div className="flex flex-col gap-4">
             {CANASTAS.filter((c) => resultado[c.clave].length > 0).map((c) => (
               <div key={c.clave}>
                 <div className="mb-1.5 flex items-center gap-2">
-                  <StatusChip tone={c.tono}>{c.titulo}</StatusChip>
-                  <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+                  <EtiquetaEstado estado={`derecho-${c.clave}`}>{c.titulo}</EtiquetaEstado>
+                  <span className="text-sm text-[color:var(--color-text-tertiary)]">
                     {resultado[c.clave].length}
                   </span>
                 </div>
-                <FlitTable>
-                  <thead>
-                    <tr>
-                      <FlitTh>Archivo</FlitTh>
-                      <FlitTh>Placa</FlitTh>
-                      <FlitTh>Trámite</FlitTh>
-                      <FlitTh>Valor</FlitTh>
-                      <FlitTh>Detalle</FlitTh>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {resultado[c.clave].map((it, i) => (
-                      <FlitTr key={`${c.clave}-${i}`}>
-                        <td className="px-4 py-2 text-xs">{it.archivo}</td>
-                        <td className="px-4 py-2 text-xs font-semibold">{it.placa ?? '—'}</td>
-                        <td className="px-4 py-2 text-xs">{it.idFlit ?? '—'}</td>
-                        <td className="px-4 py-2 text-xs">{pesos(it.valor)}</td>
-                        <td className="px-4 py-2 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{it.detalle}</td>
-                      </FlitTr>
-                    ))}
-                  </tbody>
-                </FlitTable>
+                <DataTable
+                  ariaLabel={c.titulo}
+                  columnas={colsCanasta}
+                  filas={resultado[c.clave].map((it, i) => ({ ...it, _k: `${c.clave}-${i}` }))}
+                  getKey={(it) => it._k}
+                />
               </div>
             ))}
           </div>
@@ -529,116 +543,96 @@ export default function FlitoDerechos() {
 
       {pestana === 'registrados' ? (
         <>
-          <div className="flex flex-wrap items-center gap-3">
-            <input
-              type="search"
-              className={`${flitInp} max-w-[280px]`}
-              placeholder="Buscar por placa o trámite"
-              value={buscar}
-              onChange={(e) => { setBuscar(e.target.value); setPage(1); }}
+          <PanelFiltros
+            busqueda={buscar}
+            onBusqueda={(v) => { setBuscar(v); setPage(1); }}
+            placeholder="Buscar por placa o trámite"
+            aplicados={aplicados}
+            onQuitar={quitarFiltro}
+            campos={(
+              <>
+                <ThFiltroMulti seleccion={organismosSel} onCambio={(v) => { setOrganismosSel(v); setPage(1); }}
+                  placeholder="Secretaría" vacio="Sin secretarías registradas"
+                  opciones={facetas.organismos.map((c) => ({ value: c, label: c }))} />
+                <ThFiltroMulti seleccion={origenesSel} onCambio={(v) => { setOrigenesSel(v); setPage(1); }}
+                  placeholder="Origen" vacio="Sin orígenes"
+                  opciones={facetas.origenes.map((o) => ({ value: o, label: ETIQUETA_ORIGEN[o] ?? o }))} />
+                <FiltrosInteligentes presets={PRESETS} activo={preset}
+                  onAplicar={(p) => {
+                    setOrganismosSel([]); setOrigenesSel([]); setPagado({ desde: '', hasta: '' }); setBuscar('');
+                    setConAdvertencia(p.filtros.advertencia); setPreset(p.nombre); setPage(1);
+                  }}
+                  onQuitar={() => { setConAdvertencia(false); setPreset(null); setPage(1); }} />
+                <RangoFechas etiqueta="Pagado" valor={pagado} onCambio={(r) => { setPagado(r); setPage(1); }} />
+              </>
+            )}
+          />
+
+          {/* Esta tabla sigue en FlitTable (scroll del kit): las celdas comunes de trámite, vehículo y
+              fechas (columnasComunes) pintan su propio <td>, y DataTable las envolvería en otro. */}
+          <EstadoVista status={derechos.length === 0 ? 'empty' : 'ready'} emptyMessage="Todavía no hay derechos de tránsito registrados.">
+            <FlitTable>
+              <thead>
+                <tr>
+                  {ENCABEZADOS_COMUNES.map((h) => <FlitTh key={h}>{h}</FlitTh>)}
+                  <FlitTh>Empresa</FlitTh>
+                  <FlitTh>Organismo</FlitTh>
+                  <FlitTh>Concepto del recibo</FlitTh>
+                  <FlitTh>Valor</FlitTh>
+                  <FlitTh>Fecha de pago</FlitTh>
+                  <FlitTh>Origen</FlitTh>
+                  <FlitTh center>Soporte</FlitTh>
+                  <FlitTh center>Documentos</FlitTh>
+                </tr>
+              </thead>
+              <tbody>
+                {derechos.map((d) => (
+                  <FlitTr key={d.id}>
+                    <CeldaTramite idFlit={d.idFlit} tipoTramite={d.tipoTramite} />
+                    <CeldaVehiculo placa={d.placa} vin={d.vin} marca={d.marca} linea={d.linea} />
+                    <CeldaFechas creado={d.fechaCreacion} aprobado={d.fechaAprobacion} />
+                    <td className="px-4 py-2.5 text-sm">{d.empresa ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-sm">{d.organismoCodigo ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-xs">
+                      {d.tipoTramiteRecibo ?? '—'}
+                      {d.advertencias && d.advertencias.length > 0 && (
+                        <span className="ml-2" title={d.advertencias.join(' ')}>
+                          <StatusChip tone="warning">Con advertencia</StatusChip>
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-sm font-semibold">{pesos(d.valor)}</td>
+                    <td className="px-4 py-2.5 text-sm">{fecha(d.fechaPago)}</td>
+                    <td className="px-4 py-2.5 text-xs">
+                      <StatusChip tone={d.origen === 'drive' ? 'active' : 'neutral'}>{ETIQUETA_ORIGEN[d.origen] ?? d.origen}</StatusChip>
+                      <ArchivoOrigen d={d} />
+                    </td>
+                    <td className="px-4 py-2.5 text-center">
+                      {d.soporteId ? (
+                        <GradientButton variant="ghost" size="sm" onClick={() => abrirSoporte(d.soporteId!)}>
+                          Ver PDF
+                        </GradientButton>
+                      ) : '—'}
+                    </td>
+                    <td className="px-4 py-2.5 text-center">
+                      {/* Los tres conceptos del trámite, no solo el derecho: quien revisa un
+                          derecho quiere comprobar si el SOAT y el impuesto están cargados, y
+                          hasta ahora tenía que irse al reporte de costos para averiguarlo. */}
+                      <GradientButton variant="ghost" size="sm"
+                        onClick={() => setSoportesDe({ tramiteId: d.tramiteId, idFlit: d.idFlit })}>
+                        Ver todos
+                      </GradientButton>
+                    </td>
+                  </FlitTr>
+                ))}
+              </tbody>
+            </FlitTable>
+
+            <Paginacion
+              total={total} page={page} totalPaginas={totalPaginas} sustantivo="registro(s)"
+              onPrev={() => setPage((p) => p - 1)} onNext={() => setPage((p) => p + 1)}
             />
-            <ThFiltroMulti seleccion={organismosSel} onCambio={(v) => { setOrganismosSel(v); setPage(1); }}
-              placeholder="Secretaría" vacio="Sin secretarías registradas"
-              opciones={facetas.organismos.map((c) => ({ value: c, label: c }))} />
-            <ThFiltroMulti seleccion={origenesSel} onCambio={(v) => { setOrigenesSel(v); setPage(1); }}
-              placeholder="Origen" vacio="Sin orígenes"
-              opciones={facetas.origenes.map((o) => ({ value: o, label: ETIQUETA_ORIGEN[o] ?? o }))} />
-            <FiltrosInteligentes presets={PRESETS} activo={preset}
-              onAplicar={(p) => {
-                setOrganismosSel([]); setOrigenesSel([]); setPagado({ desde: '', hasta: '' }); setBuscar('');
-                setConAdvertencia(p.filtros.advertencia); setPreset(p.nombre); setPage(1);
-              }}
-              onQuitar={() => { setConAdvertencia(false); setPreset(null); setPage(1); }} />
-            <RangoFechas etiqueta="Pagado" valor={pagado} onCambio={(r) => { setPagado(r); setPage(1); }} />
-          </div>
-
-          {derechos.length === 0 ? (
-            <FlitEmpty>Todavía no hay derechos de tránsito registrados.</FlitEmpty>
-          ) : (
-            <>
-              <FlitTable>
-                <thead>
-                  <tr>
-                    {ENCABEZADOS_COMUNES.map((h) => <FlitTh key={h}>{h}</FlitTh>)}
-                    <FlitTh>Empresa</FlitTh>
-                    <FlitTh>Organismo</FlitTh>
-                    <FlitTh>Concepto del recibo</FlitTh>
-                    <FlitTh>Valor</FlitTh>
-                    <FlitTh>Fecha de pago</FlitTh>
-                    <FlitTh>Origen</FlitTh>
-                    <FlitTh center>Soporte</FlitTh>
-                    <FlitTh center>Documentos</FlitTh>
-                  </tr>
-                </thead>
-                <tbody>
-                  {derechos.map((d) => (
-                    <FlitTr key={d.id}>
-                      <CeldaTramite idFlit={d.idFlit} tipoTramite={d.tipoTramite} />
-                      <CeldaVehiculo placa={d.placa} vin={d.vin} marca={d.marca} linea={d.linea} />
-                      <CeldaFechas creado={d.fechaCreacion} aprobado={d.fechaAprobacion} />
-                      <td className="px-4 py-2.5 text-sm">{d.empresa ?? '—'}</td>
-                      <td className="px-4 py-2.5 text-sm">{d.organismoCodigo ?? '—'}</td>
-                      <td className="px-4 py-2.5 text-xs">
-                        {d.tipoTramiteRecibo ?? '—'}
-                        {d.advertencias && d.advertencias.length > 0 && (
-                          <span className="ml-2" title={d.advertencias.join(' ')}>
-                            <StatusChip tone="warning">Con advertencia</StatusChip>
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 text-sm font-semibold">{pesos(d.valor)}</td>
-                      <td className="px-4 py-2.5 text-sm">{fecha(d.fechaPago)}</td>
-                      <td className="px-4 py-2.5 text-xs">
-                        <StatusChip tone={d.origen === 'drive' ? 'active' : 'neutral'}>{ETIQUETA_ORIGEN[d.origen] ?? d.origen}</StatusChip>
-                        <ArchivoOrigen d={d} />
-                      </td>
-                      <td className="px-4 py-2.5 text-center">
-                        {d.soporteId ? (
-                          <button
-                            type="button"
-                            className="text-xs font-semibold underline"
-                            style={{ color: 'var(--flit-blue)' }}
-                            onClick={() => abrirSoporte(d.soporteId!)}
-                          >
-                            Ver PDF
-                          </button>
-                        ) : '—'}
-                      </td>
-                      <td className="px-4 py-2.5 text-center">
-                        {/* Los tres conceptos del trámite, no solo el derecho: quien revisa un
-                            derecho quiere comprobar si el SOAT y el impuesto están cargados, y
-                            hasta ahora tenía que irse al reporte de costos para averiguarlo. */}
-                        <button type="button" className="text-xs font-semibold underline"
-                          style={{ color: 'var(--flit-blue)' }}
-                          onClick={() => setSoportesDe({ tramiteId: d.tramiteId, idFlit: d.idFlit })}>
-                          Ver todos
-                        </button>
-                      </td>
-                    </FlitTr>
-                  ))}
-                </tbody>
-              </FlitTable>
-
-              <div className="flex items-center justify-between text-xs" style={{ color: 'var(--flit-text-muted)' }}>
-                <span>{total} registro(s)</span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-                    disabled={page <= 1} onClick={() => setPage((p) => p - 1)}
-                  >
-                    Anterior
-                  </button>
-                  <span>Página {page} de {totalPaginas}</span>
-                  <button
-                    type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-                    disabled={page >= totalPaginas} onClick={() => setPage((p) => p + 1)}
-                  >
-                    Siguiente
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
+          </EstadoVista>
         </>
       ) : (
         <TabDrive onProcesado={(r) => { setResultado(r); recargar(); }} />

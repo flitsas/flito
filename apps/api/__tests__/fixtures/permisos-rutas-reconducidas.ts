@@ -226,6 +226,11 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/solicitar-ambos', codigo: 'tramites.solicitud.pedir_ambos' },
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/novedades/buscar', codigo: 'tramites.cola.ver' },
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/buscar', codigo: 'tramites.cola.ver' },
+  // Épica #14560 (ADR-0046): el detalle del trámite reutiliza `tramites.cola.ver`.
+  { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'GET', ruta: '/:id/detalle', codigo: 'tramites.cola.ver' },
+  // Épica #14560 (ADR-0045): administrar vistas de columnas (nace en el árbol, 0305, solo `admin`).
+  { fichero: 'flito-vistas-columnas/flito-vistas-columnas.routes.ts', metodo: 'PUT', ruta: '/:tablaId/predeterminada/general', codigo: 'tramites.vistas_columnas.administrar' },
+  { fichero: 'flito-vistas-columnas/flito-vistas-columnas.routes.ts', metodo: 'POST', ruta: '*', condicion: 'compartidas', codigo: 'tramites.vistas_columnas.administrar' },
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/entregar', codigo: 'tramites.tramite.entregar' },
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/:id/desbloquear-autogestion', codigo: 'tramites.autogestion.desbloquear' },
   { fichero: 'flito-tramites/flito-tramites.routes.ts', metodo: 'POST', ruta: '/:id/revocar-autogestion', codigo: 'tramites.autogestion.revocar' },
@@ -632,6 +637,7 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'finanzas/finanzas.routes.ts', metodo: 'GET', ruta: '/reporte-costos/facetas', codigo: 'finanzas.reporte_costos.ver' },
   { fichero: 'finanzas/finanzas.routes.ts', metodo: 'GET', ruta: '/reporte-costos/facturacion-electronica', codigo: 'finanzas.reporte_costos.ver' },
   { fichero: 'finanzas/finanzas.routes.ts', metodo: 'GET', ruta: '/reporte-costos/consolidado', codigo: 'finanzas.reporte_costos.ver' },
+  { fichero: 'finanzas/finanzas.routes.ts', metodo: 'GET', ruta: '/reporte-costos/totales', codigo: 'finanzas.reporte_costos.ver' }, // Épica #14560
   // HU #13427: las guardas partidas de `finanzas.reporte_costos.ver` y la de gastos diarios (P-19).
   { fichero: 'finanzas/finanzas.routes.ts', metodo: 'POST', ruta: '/reporte-costos/export', codigo: 'finanzas.reporte_costos.exportar' },
   { fichero: 'finanzas/finanzas.routes.ts', metodo: 'POST', ruta: '/reporte-costos/consolidado/export', codigo: 'finanzas.reporte_costos.exportar' },

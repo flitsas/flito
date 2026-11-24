@@ -141,8 +141,8 @@ const filaDe = (page: Page, nombre: string) =>
 const nombreDe = (page: Page) => page.getByRole('textbox', { name: 'Nombre' });
 const descripcionDe = (page: Page) => page.getByRole('textbox', { name: 'Descripción (opcional)' });
 const valorDe = (page: Page) => page.getByRole('textbox', { name: 'Valor en pesos' });
-/** Primarias (gradiente de marca) dentro del contenido: la del shell no cuenta. Los modales cuelgan de body. */
-const primarias = (page: Page) => page.locator('main button[style*="flit-gradient-primary"], [role="dialog"] button[style*="flit-gradient-primary"]');
+/** Primarias (variante azul del kit) dentro del contenido: la del shell no cuenta. Los modales cuelgan de body. */
+const primarias = (page: Page) => page.locator('main button[data-variante="primario"], [role="dialog"] button[data-variante="primario"]');
 
 async function abrirPagina(page: Page) {
   await page.goto('/flito/servicios-adicionales');
@@ -691,7 +691,14 @@ test.describe('FLITO — Servicios adicionales · ficha de ayuda (AC7)', () => {
     expect(md).toMatch(/Editar/);
     expect(md).toMatch(/Dar de baja/);
     expect(md).toMatch(/Administrador y Financiera/);
-    expect(md).not.toMatch(/!\[[^\]]*\]\(/);
+    // Desde la HU #13707 la ficha cita capturas (datos demo) y su diagrama: toda imagen es local a su
+    // carpeta y lleva alt; nada de imágenes remotas ni sin texto alternativo.
+    const imagenes = [...md.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)];
+    expect(imagenes.length).toBeGreaterThan(0);
+    for (const [, alt, ruta] of imagenes) {
+      expect(alt.trim().length, ruta).toBeGreaterThan(0);
+      expect(ruta).toMatch(/^\.\/flito_servicios_adicionales\/[\w-]+\.(png|svg)$/);
+    }
     expect(md).not.toMatch(/\/api\//);
     expect(md).not.toMatch(/\b(CREATE TABLE|FROM public\.|pg_)/i);
   });

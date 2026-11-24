@@ -5,7 +5,8 @@ import { useEscape } from '../lib/hooks';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
 import GradientButton from '../components/flit/GradientButton';
 import FlitModal from '../components/flit/FlitModal';
-import { flitBtnSecondary, flitBtnSecondaryStyle } from '../components/flit/flitPageKit';
+import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
+import { EstadoVista, type EstadoUi } from '../components/flit/Cargador';
 
 interface Training {
   id: number;
@@ -19,8 +20,42 @@ interface Training {
   attendedCount: number;
 }
 
-const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
+const inputCls = 'control';
+const MIGA = [{ etiqueta: 'Cumplimiento' }, { etiqueta: 'LAFT', to: '/laft' }];
+
+const COLUMNAS: ColumnaTabla<Training>[] = [
+  {
+    key: 'titulo',
+    header: 'Título',
+    render: (t) => (
+      <>
+        <p className="text-sm font-medium text-text-primary">{t.title}</p>
+        {t.description && <p className="mt-0.5 max-w-md truncate text-[11px] text-text-tertiary">{t.description}</p>}
+      </>
+    ),
+  },
+  { key: 'capacitador', header: 'Capacitador', render: (t) => <span className="text-xs text-text-secondary">{t.trainerName || '—'}</span> },
+  {
+    key: 'fecha',
+    header: 'Fecha',
+    render: (t) => (
+      <span className="text-xs text-text-secondary">
+        {new Date(t.scheduledAt).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
+      </span>
+    ),
+  },
+  { key: 'duracion', header: 'Duración', render: (t) => <span className="text-xs text-text-secondary">{t.durationHours ? `${t.durationHours}h` : '—'}</span> },
+  {
+    key: 'asistencia',
+    header: 'Asistencia',
+    render: (t) => (
+      <>
+        <span className="text-xs font-semibold tabular-nums text-text-primary">{t.attendedCount}/{t.attendeesCount}</span>
+        <span className="ml-1.5 text-[11px] text-text-tertiary">asistieron</span>
+      </>
+    ),
+  },
+];
 
 export default function LaftTrainings() {
   const [data, setData] = useState<Training[]>([]);
@@ -47,72 +82,37 @@ export default function LaftTrainings() {
 
   useEffect(() => { load(); }, [load]);
 
+  const estado: EstadoUi = loading ? 'loading' : error ? 'error' : data.length === 0 ? 'empty' : 'ready';
+
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5 lg:gap-6">
       <PageHeaderCard
         title="Programa de capacitaciones"
         subtitle="Mínimo una capacitación anual al personal sobre prevención LA/FT/FPADM"
+        icono="flito-laft"
+        miga={MIGA}
         actions={<GradientButton type="button" onClick={() => setShowForm(true)}>Programar</GradientButton>}
       />
 
-      <section className="overflow-hidden bg-white" style={CARD}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr>{['Título', 'Capacitador', 'Fecha', 'Duración', 'Asistencia'].map((h) => <Th key={h}>{h}</Th>)}</tr>
-            </thead>
-            <tbody>
-              {loading && <tr><td colSpan={5} className="py-12 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Cargando...</td></tr>}
-              {!loading && error && (
-                <tr>
-                  <td colSpan={5} className="py-12 text-center">
-                    {/* `--flit-danger-ink`, no `--flit-danger`: el segundo es token de SUPERFICIE y
-                        como texto no llega a 4,5:1. Ver LaftUnusual.tsx y `styles/flit-tokens.css`. */}
-                    <p role="alert" className="text-sm" style={{ color: 'var(--flit-danger-ink)' }}>
-                      No se pudo cargar el programa de capacitaciones. {error}
-                    </p>
-                    <button type="button" onClick={load} className={`${flitBtnSecondary} mt-3`} style={flitBtnSecondaryStyle}>
-                      Reintentar
-                    </button>
-                  </td>
-                </tr>
-              )}
-              {!loading && !error && data.length === 0 && <tr><td colSpan={5} className="py-12 text-center text-sm" style={{ color: 'var(--flit-text-muted)' }}>Sin capacitaciones registradas</td></tr>}
-              {!loading && !error && data.map((t) => (
-                <tr key={t.id} className="border-t transition-colors hover:bg-[color:var(--flit-bg-app)]" style={{ borderColor: 'var(--flit-border-soft)' }}>
-                  <td className="px-4 py-3">
-                    <p className="text-sm font-medium" style={{ color: 'var(--flit-text-primary)' }}>{t.title}</p>
-                    {t.description && <p className="mt-0.5 max-w-md truncate text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>{t.description}</p>}
-                  </td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{t.trainerName || '—'}</td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
-                    {new Date(t.scheduledAt).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
-                  </td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{t.durationHours ? `${t.durationHours}h` : '—'}</td>
-                  <td className="px-4 py-3">
-                    <span className="font-mono text-xs" style={{ color: 'var(--flit-text-primary)' }}>{t.attendedCount}/{t.attendeesCount}</span>
-                    <span className="ml-1.5 text-[11px]" style={{ color: 'var(--flit-text-muted)' }}>asistieron</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <EstadoVista
+        status={estado}
+        cargando="Cargando..."
+        onRetry={load}
+        errorMessage={`No se pudo cargar el programa de capacitaciones. ${error ?? ''}`}
+        emptyMessage="Sin capacitaciones registradas"
+      >
+        <DataTable ariaLabel="Programa de capacitaciones" columnas={COLUMNAS} filas={data} getKey={(t) => String(t.id)} />
+      </EstadoVista>
 
       {showForm && <TrainingForm onClose={() => setShowForm(false)} onCreated={load} />}
     </div>
   );
 }
 
-function Th({ children }: { children: ReactNode }) {
-  return <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>{children}</th>;
-}
-
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="block">
-      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>{label}</span>
+    <label className="campo">
+      <span className="etiqueta">{label}</span>
       {children}
     </label>
   );
@@ -149,20 +149,20 @@ function TrainingForm({ onClose, onCreated }: { onClose: () => void; onCreated: 
   };
 
   return (
-    <FlitModal title="Nueva capacitación" onClose={onClose}>
+    <FlitModal title="Nueva capacitación" onClose={onClose} icono="calendario">
       <form onSubmit={submit} className="space-y-3">
         <Field label="Título"><input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} required minLength={3} maxLength={200} className={inputCls} /></Field>
         <Field label="Descripción"><textarea value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} rows={3} className={inputCls + ' resize-none'} /></Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Capacitador"><input value={f.trainerName} onChange={(e) => setF({ ...f, trainerName: e.target.value })} maxLength={120} className={inputCls} /></Field>
           <Field label="Duración (horas)"><input type="number" step="0.5" min="0.5" max="99" value={f.durationHours} onChange={(e) => setF({ ...f, durationHours: e.target.value })} className={inputCls} /></Field>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Fecha y hora"><input type="datetime-local" value={f.scheduledAt} onChange={(e) => setF({ ...f, scheduledAt: e.target.value })} required className={inputCls} /></Field>
           <Field label="Puntaje aprobatorio (%)"><input type="number" min={0} max={100} value={f.passingScore} onChange={(e) => setF({ ...f, passingScore: Number(e.target.value) })} className={inputCls} /></Field>
         </div>
-        <div className="mt-2 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="flit-focus inline-flex h-11 items-center rounded-[999px] border bg-white px-5 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>Cancelar</button>
+        <div className="mt-2 flex flex-wrap justify-end gap-2">
+          <GradientButton type="button" variant="alerta" onClick={onClose}>Cancelar</GradientButton>
           <GradientButton type="submit" disabled={submitting}>{submitting ? 'Guardando...' : 'Programar'}</GradientButton>
         </div>
       </form>

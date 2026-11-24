@@ -1,11 +1,11 @@
-// Combobox con búsqueda en el servidor (BUG #14569, punto 8 — spec `docs/ux/flito-revisiones-buscador-tramite.md`).
+// Combobox con búsqueda en el servidor (BUG 14569, punto 8 — spec `docs/ux/flito-revisiones-buscador-tramite.md`).
 //
 // Presentacional: no consulta la API. La página le pasa el texto, el estado de la búsqueda y las
 // opciones ya resueltas. Estructura visual de `FlitOrganismoCombobox` (trigger + panel con input y
 // lista) y teclado de `ComboboxTramite` (↓/↑ con tope, Enter elige, Esc cierra y PARA la
 // propagación), con el ARIA corregido: el input del panel es el `role="combobox"` con
 // `aria-activedescendant`, y la opción es el propio `<li role="option">` (sin `<button>` dentro).
-// Resaltado con el token `--flit-bg-hover` (tiene par oscuro). 44 px de alto bajo `lg`.
+// Resaltado con el token `--kit-hover` (tiene par oscuro). 44 px de alto bajo `lg`.
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import StatusChip, { type ChipTone } from './StatusChip';
@@ -152,13 +152,13 @@ export default function FlitComboboxBuscable({
         aria-describedby={describedBy}
         onClick={() => onAbiertoChange(!abierto)}
         onKeyDown={onTriggerKey}
-        className={`flit-focus flex w-full items-center justify-between gap-2 rounded-[10px] border border-[color:var(--flit-border-input)] bg-flit-card px-3 py-2 text-left text-sm text-[color:var(--flit-text-primary)] outline-none transition-colors hover:border-[color:var(--flit-text-muted)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-[color:var(--flit-border-input)] ${TACTIL}`}
+        className={`flit-focus flex w-full items-center justify-between gap-2 rounded-[9px] border border-[color:var(--color-border-control)] bg-[var(--color-surface-elevated)] px-3 py-2 text-left text-sm text-[color:var(--color-text-primary)] outline-none transition-colors hover:border-[color:var(--kit-azul)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-[color:var(--color-border-control)] ${TACTIL}`}
       >
-        <span className={`w-0 min-w-0 flex-1 truncate ${etiquetaSeleccion ? '' : 'text-[color:var(--flit-text-muted)]'}`}>
+        <span className={`w-0 min-w-0 flex-1 truncate ${etiquetaSeleccion ? '' : 'text-[color:var(--color-text-tertiary)]'}`}>
           {etiquetaSeleccion ?? placeholder}
         </span>
         {!disabled && (
-          <svg className={`h-4 w-4 shrink-0 text-[color:var(--flit-text-muted)] ${abierto ? 'rotate-180' : ''}`}
+          <svg className={`h-4 w-4 shrink-0 text-[color:var(--color-text-tertiary)] ${abierto ? 'rotate-180' : ''}`}
             fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
           </svg>
@@ -166,9 +166,9 @@ export default function FlitComboboxBuscable({
       </button>
 
       {abierto && !disabled && (
-        <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-xl border bg-flit-card"
-          style={{ borderColor: 'var(--flit-border-input)', boxShadow: 'var(--flit-shadow-card)' }}>
-          <div className="space-y-1.5 border-b p-2" style={{ borderColor: 'var(--flit-border-soft)' }}>
+        <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-[9px] border bg-[var(--color-surface-elevated)]"
+          style={{ borderColor: 'var(--color-border-control)', boxShadow: 'var(--kit-sombra)' }}>
+          <div className="space-y-1.5 border-b p-2" style={{ borderColor: 'var(--color-border)' }}>
             <input
               ref={searchRef}
               type="text"
@@ -184,36 +184,36 @@ export default function FlitComboboxBuscable({
               aria-controls={listboxId}
               aria-autocomplete="list"
               aria-activedescendant={conLista && activo >= 0 ? idOpcion(activo) : undefined}
-              className={`flit-focus w-full rounded-lg border border-[color:var(--flit-border-input)] bg-flit-card px-3 py-2 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-colors hover:border-[color:var(--flit-text-muted)] ${TACTIL}`}
+              className={`flit-focus w-full rounded-[9px] border border-[color:var(--color-border-control)] bg-[var(--color-surface-elevated)] px-3 py-2 text-sm text-[color:var(--color-text-primary)] placeholder:text-[color:var(--kit-gris)] outline-none transition-colors hover:border-[color:var(--kit-azul)] ${TACTIL}`}
             />
-            {encabezado && conLista && <p className="px-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{encabezado}</p>}
+            {encabezado && conLista && <p className="px-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>{encabezado}</p>}
           </div>
 
           <p role="status" aria-live="polite" className="sr-only">{anuncio}</p>
 
-          {estado === 'pista' && <p className="px-3 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{copy.pista}</p>}
+          {estado === 'pista' && <p className="px-3 py-3 text-xs" style={{ color: 'var(--color-text-secondary)' }}>{copy.pista}</p>}
           {estado === 'cargando' && (
             <div aria-hidden className="space-y-3 px-3 py-3">
               {[0, 1, 2].map((i) => (
                 <div key={i} className="space-y-1.5">
-                  <div className="h-3 w-2/5 rounded" style={{ background: 'var(--flit-bg-hover)' }} />
-                  <div className="h-2.5 w-3/5 rounded" style={{ background: 'var(--flit-bg-hover)' }} />
+                  <div className="h-3 w-2/5 rounded" style={{ background: 'var(--kit-hover)' }} />
+                  <div className="h-2.5 w-3/5 rounded" style={{ background: 'var(--kit-hover)' }} />
                 </div>
               ))}
             </div>
           )}
           {estado === 'error' && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
-              <p role="alert" style={{ color: 'var(--flit-danger-ink)' }}>{copy.error}</p>
+              <p role="alert" style={{ color: 'var(--kit-rojo-texto)' }}>{copy.error}</p>
               <button type="button" onClick={onReintentar}
-                className={`flit-focus rounded-md px-2 text-sm font-medium underline-offset-2 transition-colors hover:bg-[color:var(--flit-bg-hover)] hover:underline ${TACTIL}`}
-                style={{ color: 'var(--flit-blue-text)' }}>
+                className={`flit-focus rounded-[9px] px-2 text-sm font-medium underline-offset-2 transition-colors hover:bg-[color:var(--kit-hover)] hover:underline ${TACTIL}`}
+                style={{ color: 'var(--color-action)' }}>
                 Reintentar
               </button>
             </div>
           )}
           {estado === 'lista' && opciones.length === 0 && (
-            <div role="status" className="space-y-1 px-3 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{copy.sinResultados}</div>
+            <div role="status" className="space-y-1 px-3 py-3 text-xs" style={{ color: 'var(--color-text-secondary)' }}>{copy.sinResultados}</div>
           )}
 
           <ul id={listboxId} role="listbox" aria-label={ariaLabelLista}
@@ -228,9 +228,9 @@ export default function FlitComboboxBuscable({
                   onClick={() => elegir(i)}
                   className={`flex flex-col justify-center gap-0.5 border-b px-3 py-2 text-sm transition-colors last:border-0 ${o.deshabilitada ? 'cursor-not-allowed' : 'cursor-pointer'} min-h-[44px] lg:min-h-0`}
                   style={{
-                    borderColor: 'var(--flit-border-soft)',
-                    color: o.deshabilitada ? 'var(--flit-text-muted)' : 'var(--flit-text-primary)',
-                    background: i === activo ? 'var(--flit-bg-hover)' : undefined,
+                    borderColor: 'var(--color-border)',
+                    color: o.deshabilitada ? 'var(--color-text-tertiary)' : 'var(--color-text-primary)',
+                    background: i === activo ? 'var(--kit-hover)' : undefined,
                   }}>
                   <span className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
                     <span className="whitespace-nowrap">
@@ -240,14 +240,14 @@ export default function FlitComboboxBuscable({
                     </span>
                     {o.chip && <StatusChip tone={o.chip.tone}>{o.chip.texto}</StatusChip>}
                   </span>
-                  {o.detalle && <span className="truncate text-xs" style={{ color: 'var(--flit-text-secondary)' }}>{o.detalle}</span>}
+                  {o.detalle && <span className="truncate text-xs" style={{ color: 'var(--color-text-secondary)' }}>{o.detalle}</span>}
                 </li>
               );
             })}
           </ul>
 
           {estado === 'lista' && truncado && opciones.length > 0 && (
-            <p className="border-t px-3 py-2 text-xs" style={{ borderColor: 'var(--flit-border-soft)', color: 'var(--flit-text-secondary)' }}>{copy.truncado}</p>
+            <p className="border-t px-3 py-2 text-xs" style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-secondary)' }}>{copy.truncado}</p>
           )}
         </div>
       )}

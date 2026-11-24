@@ -57,8 +57,7 @@ const initialForm = (): FormState => ({
   observaciones: '',
 });
 
-const inputCls = 'flit-focus w-full rounded-[10px] border border-[color:var(--flit-border-input)] bg-white px-4 py-2.5 text-sm text-[color:var(--flit-text-primary)] placeholder:text-[color:var(--flit-text-muted)] outline-none transition-shadow';
-const CARD = { borderRadius: 'var(--flit-radius-card)', border: '1px solid var(--flit-border-soft)', boxShadow: 'var(--flit-shadow-card)' } as const;
+const inputCls = 'control w-full';
 
 export default function RndcRemesaForm() {
   const { id } = useParams();
@@ -153,13 +152,15 @@ export default function RndcRemesaForm() {
   };
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-5">
+    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5">
       <PageHeaderCard
         title={isEdit ? 'Editar remesa' : 'Nueva remesa'}
         subtitle="RNDC · Documento de despacho — se asocia luego a un manifiesto electrónico"
+        icono="flito-rndc"
+        miga={[{ etiqueta: 'Cumplimiento' }, { etiqueta: 'RNDC', to: '/rndc' }, { etiqueta: 'Remesas', to: '/rndc/remesas' }]}
       />
 
-      <div className="space-y-6 bg-white p-6" style={CARD}>
+      <div className="card w-full max-w-4xl space-y-6 p-6">
         <Section title="Partes">
           <Field label="Cliente"><Select value={form.clientId} onChange={(v) => setForm({ ...form, clientId: v as number | null })} options={clientes.map((c) => (esInactivo({ activo: c.active }) ? [c.id, `${c.name} (${NOTA_INACTIVO})`, c.id !== form.clientId] : [c.id, c.name]))} placeholder="(Sin cliente)" /></Field>
           <Field label="Propietario de carga"><Select value={form.propietarioCargaId} onChange={(v) => setForm({ ...form, propietarioCargaId: v as number | null })} options={propietarios.map((p) => [p.id, `${p.nombre} (${p.documento})`])} placeholder="(Sin propietario)" /></Field>
@@ -197,8 +198,8 @@ export default function RndcRemesaForm() {
           <textarea value={form.observaciones} onChange={(e) => setForm({ ...form, observaciones: e.target.value })} rows={3} className={inputCls} />
         </Field>
 
-        <div className="flex justify-end gap-2 border-t pt-4" style={{ borderColor: 'var(--flit-border-soft)' }}>
-          <button onClick={() => nav('/rndc/remesas')} className="flit-focus inline-flex h-11 items-center gap-2 rounded-[999px] border bg-white px-4 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-primary)' }}>Cancelar</button>
+        <div className="flex flex-wrap justify-end gap-2 border-t border-[color:var(--color-border)] pt-4">
+          <GradientButton type="button" variant="alerta" onClick={() => nav('/rndc/remesas')}>Cancelar</GradientButton>
           <GradientButton type="button" onClick={submit} disabled={submitting}>{submitting ? 'Guardando...' : (isEdit ? 'Actualizar' : 'Crear remesa')}</GradientButton>
         </div>
       </div>
@@ -209,19 +210,14 @@ export default function RndcRemesaForm() {
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div>
-      <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-[0.3em]" style={{ color: 'var(--flit-text-muted)' }}>{title}</h3>
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.03em] text-[color:var(--color-text-tertiary)]">{title}</h3>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">{children}</div>
     </div>
   );
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div>
-      <label className="mb-1.5 block text-[11px] font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>{label}</label>
-      {children}
-    </div>
-  );
+  return <label className="campo"><span className="etiqueta">{label}</span>{children}</label>;
 }
 
 function Input({ type = 'text', value, onChange }: { type?: string; value: string | number; onChange: (v: string) => void }) {

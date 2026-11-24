@@ -4,11 +4,12 @@
 // desplegar (disclosure), no `role="tree"`. Plegado, el panel se DESMONTA (nada oculto en el orden de
 // tabulación). Tri-estado: `indeterminate` por ref y `aria-checked="mixed"` solo en el parcial.
 // `aria-describedby` en el orden de la ficha: descripción → nota exclusiva (#13951) → cuenta → explicación → origen.
-// Colores solo por token `--flit-*`; gris = inactivo, nunca `opacity` (decisión 30 de #12717).
+// Colores solo por token del kit (`--color-*`, `--kit-*`); gris = inactivo, nunca `opacity` (decisión 30 de #12717).
+// Rediseño 2026 (Épica #14560): el árbol se viste como la matriz del kit — filas con línea, hover `--kit-hover`.
 
 import { useEffect, useRef, type ReactNode } from 'react';
-import { ChevronRight } from 'lucide-react';
 import { flitBtnSecondarySm, flitBtnSecondaryStyle } from '../../components/flit/flitPageKit';
+import { Icono } from '../../components/flit/kit/Icono';
 import {
   COPY_AYUDA_DERIVADA, ancestroDesmarcadoCercano, ancestroFaltante, avisoSinAcciones, codigosDesmarcarTodo,
   codigosMarcarTodo, cuentaDe, descendientes, estadoDe, esHoja, explicacionDesmarcado, explicacionElementoAntiguo,
@@ -18,23 +19,24 @@ import {
 } from './arbol';
 import { idDe, sufijoQuien, useArbol } from './contextoArbol';
 
-const SECUNDARIO = { color: 'var(--flit-text-secondary)' } as const;
+const SECUNDARIO = { color: 'var(--color-text-secondary)' } as const;
+const LINEA = { borderColor: 'var(--color-border)' } as const;
 
 export function BotonDesplegar({ nombre, abierto, panelId, onClick }: { nombre: string; abierto: boolean; panelId: string; onClick: () => void }) {
   return (
     <button
       type="button"
-      className="flit-focus grid h-7 w-7 shrink-0 place-items-center rounded-lg transition-colors hover:bg-[var(--flit-bg-hover)]"
+      className="flit-focus grid h-7 w-7 shrink-0 place-items-center rounded-[9px] transition-colors hover:bg-[var(--kit-hover)]"
       aria-expanded={abierto}
       aria-controls={panelId}
       aria-label={`Contenido de ${nombre}`}
       onClick={onClick}
     >
-      <ChevronRight
-        aria-hidden="true"
-        size={16}
+      <Icono
+        nombre="derecha"
+        size={14}
         className="transition-transform motion-reduce:transition-none"
-        style={{ color: 'var(--flit-text-secondary)', transform: abierto ? 'rotate(90deg)' : 'rotate(0deg)' }}
+        style={{ color: 'var(--color-action)', transform: abierto ? 'rotate(90deg)' : 'rotate(0deg)' }}
       />
     </button>
   );
@@ -58,7 +60,7 @@ function CasillaTri({ codigo, estado, deshabilitada, bloqueada = false, describe
     <input
       ref={(el) => { ref.current = el; inputRef(el); }}
       type="checkbox"
-      className="flit-focus mt-0.5 h-4 w-4 shrink-0 disabled:cursor-not-allowed aria-disabled:cursor-not-allowed"
+      className="flit-focus mt-0.5 h-[18px] w-[18px] shrink-0 accent-[var(--color-action)] disabled:cursor-not-allowed aria-disabled:cursor-not-allowed"
       data-codigo={codigo}
       data-estado={estado}
       checked={estado === 'marcada'}
@@ -67,7 +69,6 @@ function CasillaTri({ codigo, estado, deshabilitada, bloqueada = false, describe
       aria-disabled={bloqueada ? true : undefined}
       aria-describedby={describedBy}
       onChange={bloqueada ? () => undefined : onChange}
-      style={{ accentColor: 'var(--flit-blue)' }}
     />
   );
 }
@@ -81,7 +82,7 @@ function EtiquetaOrigen({ id, origen, elemento }: { id: string; origen: Origen; 
   if (origen === 'no_lo_trae' && !elemento) return null;
   const resalta = origen === 'anadido' || origen === 'quitado' || origen === 'anadido_sin_efecto';
   return (
-    <span id={id} style={resalta ? { color: 'var(--flit-blue-text)' } : SECUNDARIO} className={resalta ? 'font-semibold' : undefined}>
+    <span id={id} style={resalta ? { color: 'var(--color-action)' } : SECUNDARIO} className={resalta ? 'font-semibold' : undefined}>
       {ETIQUETA_ORIGEN[origen]}
       {origen === 'anadido_sin_efecto' && <span className="font-normal" style={SECUNDARIO}> · sin efecto</span>}
     </span>
@@ -91,13 +92,13 @@ function EtiquetaOrigen({ id, origen, elemento }: { id: string; origen: Origen; 
 /** «Ayuda»: derivada, sin casilla, sin chevron, sin cuenta y sin hover (no es un control). */
 export function FilaAyuda({ nodo }: { nodo: Nodo }) {
   return (
-    <li className="border-t py-3" style={{ borderColor: 'var(--flit-border-soft)' }} data-codigo-fila={nodo.codigo}>
+    <li className="border-t px-2 py-3 sm:px-3" style={LINEA} data-codigo-fila={nodo.codigo}>
       <div className="flex items-start gap-1">
         <Hueco ancho="chevron" />
         <div className="flex min-w-0 flex-1 items-start gap-3 px-1 py-1">
           <Hueco ancho="casilla" />
           <div className="min-w-0">
-            <p className="text-sm font-bold" style={{ color: 'var(--flit-text-primary)' }}>{nodo.nombre}</p>
+            <p className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>{nodo.nombre}</p>
             <p className="mt-0.5 text-sm" style={SECUNDARIO}>{COPY_AYUDA_DERIVADA}</p>
           </div>
         </div>
@@ -158,13 +159,13 @@ export function FilaNodo({ nodo, padre, idRotulo }: { nodo: Nodo; padre?: Nodo; 
   ].filter(Boolean).join(' ') || undefined;
 
   const apagada = cerradoPor !== null || (exclusiva && trato === 'fuera');
-  const nombreColor = apagada ? 'var(--flit-text-secondary)' : esElemento && !estaInactivo ? 'var(--flit-blue-text)' : estaInactivo ? 'var(--flit-text-secondary)' : 'var(--flit-text-primary)';
-  const hover = deshabilitada ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-[var(--flit-bg-hover)]';
+  const nombreColor = apagada || estaInactivo ? 'var(--color-text-tertiary)' : 'var(--color-text-primary)';
+  const hover = deshabilitada ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-[var(--kit-hover)]';
 
   return (
     <li
-      className={esElemento ? 'border-t py-3 first:border-t-0 first:pt-0' : 'py-0.5'}
-      style={esElemento ? { borderColor: 'var(--flit-border-soft)' } : undefined}
+      className={esElemento ? 'border-t px-2 py-3 first:border-t-0 sm:px-3' : 'py-0.5'}
+      style={esElemento ? LINEA : undefined}
       data-codigo-fila={nodo.codigo}
     >
       <div className="flex items-start gap-1">
@@ -173,7 +174,7 @@ export function FilaNodo({ nodo, padre, idRotulo }: { nodo: Nodo; padre?: Nodo; 
           : <Hueco ancho="chevron" />}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-start gap-x-3">
-            <label className={`flex min-w-0 flex-[1_1_12rem] items-start gap-3 rounded-lg px-1 py-1 transition-colors ${hover}`}>
+            <label className={`flex min-w-0 flex-[1_1_12rem] items-start gap-3 rounded-[9px] px-1 py-1 transition-colors ${hover}`}>
               <CasillaTri
                 codigo={nodo.codigo}
                 estado={estado}
@@ -183,7 +184,7 @@ export function FilaNodo({ nodo, padre, idRotulo }: { nodo: Nodo; padre?: Nodo; 
                 inputRef={(el) => ctx.registrarInput(nodo.codigo, el)}
                 onChange={() => ctx.onToggle(nodo.codigo)}
               />
-              <span className={`min-w-0 break-words text-sm ${esElemento ? 'font-bold' : 'font-medium'}`} style={{ color: nombreColor }}>
+              <span className={`min-w-0 break-words text-sm ${esElemento ? 'font-semibold' : 'font-normal'}`} style={{ color: nombreColor }}>
                 {nodo.nombre}
                 <span className="sr-only"> · {sufijoQuien(modo)}</span>
               </span>
@@ -252,7 +253,7 @@ function PanelNodo({ nodo, panelId }: { nodo: Nodo; panelId: string }) {
 
 export function ContenedorPanel({ id, leyenda, children }: { id: string; leyenda: string; children: ReactNode }) {
   return (
-    <div id={id} className="ml-3 mt-1 border-l pl-3 sm:pl-5" style={{ borderColor: 'var(--flit-border-soft)' }}>
+    <div id={id} className="ml-3 mt-1 border-l-2 pl-3 sm:pl-5" style={LINEA}>
       <fieldset className="flex min-w-0 flex-col gap-2">
         <legend className="sr-only">{leyenda}</legend>
         {children}

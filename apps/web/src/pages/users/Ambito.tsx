@@ -31,7 +31,8 @@ export function AmbitoCelda({ user: u, tipoEnlace, nombreCompania, organismos }:
   organismos: CatalogoOrganismos;
 }) {
   return (
-    <td className="px-4 py-3 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+    // Rediseño 2026: la celda la pone `DataTable` (con su `data-etiqueta` en modo tarjeta); aquí va su contenido.
+    <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
       {tipoEnlace === 'organismos_transito' ? (
         u.organismosCodigos.length > 0 ? (
           // `title` con la lista completa es COMPLEMENTARIO, nunca el único
@@ -44,7 +45,7 @@ export function AmbitoCelda({ user: u, tipoEnlace, nombreCompania, organismos }:
             {resumenOrganismos(etiquetasOrganismos(organismos.data, u.organismosCodigos))}
           </span>
         ) : (
-          <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
+          <span style={{ color: 'var(--kit-naranja-texto)' }}>Sin asignar</span>
         )
       ) : tipoEnlace === 'compania' ? (
         u.companiaId ? (
@@ -54,18 +55,18 @@ export function AmbitoCelda({ user: u, tipoEnlace, nombreCompania, organismos }:
             ? <span>{nombreCompania(u.companiaId)}</span>
             : <span className="font-mono">{u.companiaId}</span>
         ) : (
-          <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
+          <span style={{ color: 'var(--kit-naranja-texto)' }}>Sin asignar</span>
         )
       ) : tipoEnlace === 'proveedor' ? (
         proveedorDeUsuario(u) ? (
           <span>{u.proveedorNombre ?? 'Proveedor asignado'}</span>
         ) : (
-          <span style={{ color: 'var(--flit-warning)' }}>Sin asignar</span>
+          <span style={{ color: 'var(--kit-naranja-texto)' }}>Sin asignar</span>
         )
       ) : (
         '—'
       )}
-    </td>
+    </span>
   );
 }
 

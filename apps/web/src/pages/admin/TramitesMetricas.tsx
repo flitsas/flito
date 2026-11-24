@@ -6,7 +6,11 @@ import { api } from '../../lib/api';
 import NoAccess from '../../components/NoAccess';
 import { useAuth } from '../../lib/auth';
 import PageHeaderCard from '../../components/flit/PageHeaderCard';
-import StatusChip, { type ChipTone } from '../../components/flit/StatusChip';
+import KpiCard from '../../components/flit/KpiCard';
+import InlineAlert from '../../components/flit/InlineAlert';
+import GradientButton from '../../components/flit/GradientButton';
+import { Dona, SERIE_KIT } from '../../components/flit/Graficos';
+import { FlitPillButton, FlitPillGroup, FlitTable, FlitTh, FlitTr } from '../../components/flit/flitPageKit';
 
 interface MetricsResponse {
   ok: boolean;
@@ -23,46 +27,31 @@ interface MetricsResponse {
 
 const DAY_OPTIONS = [7, 30, 90] as const;
 
-const PREFLIGHT_TONE: Record<string, ChipTone> = { green: 'success', yellow: 'warning', red: 'danger' };
 const PREFLIGHT_LABEL: Record<string, string> = { green: 'Verde', yellow: 'Amarillo', red: 'Rojo' };
-
-const CARD = 'bg-white p-5';
-const CARD_STYLE = { borderRadius: 'var(--flit-radius-card)', boxShadow: 'var(--flit-shadow-card)', border: '1px solid var(--flit-border-soft)' } as const;
-
-function KpiCard({ label, value, hint, tone = 'neutral' }: { label: string; value: string; hint?: string; tone?: ChipTone }) {
-  const color = tone === 'success' ? 'var(--flit-success)' : tone === 'warning' ? 'var(--flit-warning)' : tone === 'danger' ? 'var(--flit-danger)' : 'var(--flit-text-primary)';
-  return (
-    <div className={CARD} style={CARD_STYLE}>
-      <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--flit-text-muted)' }}>{label}</p>
-      <p className="mt-2 text-2xl font-bold tabular-nums" style={{ color }}>{value}</p>
-      {hint && <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-muted)' }}>{hint}</p>}
-    </div>
-  );
-}
 
 function MiniTable({ title, head, rows, empty }: { title: string; head: string[]; rows: (string | number)[][]; empty: string }) {
   return (
-    <div className="overflow-x-auto bg-white" style={CARD_STYLE}>
-      <p className="px-5 pt-4 text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>{title}</p>
-      <table className="mt-2 w-full text-left text-sm">
+    <section className="card">
+      <p className="mb-3 text-base font-semibold text-[color:var(--color-text-primary)]">{title}</p>
+      <FlitTable label={title}>
         <thead>
-          <tr style={{ background: 'var(--flit-bg-table-header)', color: 'var(--flit-text-secondary)' }}>
-            {head.map((h) => <th key={h} className="px-5 py-2.5 font-semibold">{h}</th>)}
-          </tr>
+          <tr>{head.map((h) => <FlitTh key={h}>{h}</FlitTh>)}</tr>
         </thead>
-        <tbody>
+        <tbody className="text-sm">
           {rows.length === 0 ? (
-            <tr><td colSpan={head.length} className="px-5 py-6 text-center" style={{ color: 'var(--flit-text-muted)' }}>{empty}</td></tr>
+            <tr><td colSpan={head.length} className="px-4 py-6 text-center text-[color:var(--color-text-tertiary)]">{empty}</td></tr>
           ) : rows.map((r, i) => (
-            <tr key={i} className="border-t" style={{ borderColor: 'var(--flit-border-soft)' }}>
-              {r.map((c, j) => <td key={j} className="px-5 py-2.5 tabular-nums" style={{ color: j === 0 ? 'var(--flit-text-primary)' : 'var(--flit-text-secondary)' }}>{c}</td>)}
-            </tr>
+            <FlitTr key={i}>
+              {r.map((c, j) => <td key={j} className={`px-4 py-2.5 tabular-nums ${j === 0 ? 'text-[color:var(--color-text-primary)]' : 'text-[color:var(--color-text-secondary)]'}`}>{c}</td>)}
+            </FlitTr>
           ))}
         </tbody>
-      </table>
-    </div>
+      </FlitTable>
+    </section>
   );
 }
+
+const PREFLIGHT_SERIE: Record<string, string> = { green: SERIE_KIT.verde, yellow: SERIE_KIT.amarillo, red: SERIE_KIT.rojo };
 
 const pct = (a: number, b: number) => (b > 0 ? `${Math.round((a / b) * 100)}%` : '—');
 
@@ -95,42 +84,45 @@ export default function TramitesMetricas() {
   const rechazos = data?.rechazosOt.rechazos ?? 0;
   const enviados = data?.rechazosOt.enviados ?? 0;
 
+  const esqueleto = <span className="kit-esqueleto inline-block h-6 w-16 align-middle" aria-hidden="true" />;
+
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col">
       <PageHeaderCard
         title="Métricas de trámites"
         subtitle={`KPIs del epic TRAM-INNOV · ventana ${days} días`}
+        icono="flito-tramites"
+        miga={[{ etiqueta: 'Administración' }]}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            {DAY_OPTIONS.map((d) => (
-              <button key={d} type="button" onClick={() => setDays(d)}
-                className="flit-focus h-9 rounded-[999px] border px-4 text-sm font-medium transition-colors"
-                style={{ borderColor: days === d ? 'var(--flit-blue)' : 'var(--flit-border-input)', background: days === d ? 'var(--flit-blue-soft)' : 'white', color: days === d ? 'var(--flit-blue)' : 'var(--flit-text-secondary)' }}>
-                {d} días
-              </button>
-            ))}
-            <button type="button" onClick={() => load()} disabled={loading}
-              className="flit-focus h-9 rounded-[999px] border px-4 text-sm font-medium" style={{ borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' }}>
+            <FlitPillGroup>
+              {DAY_OPTIONS.map((d) => (
+                <FlitPillButton key={d} active={days === d} onClick={() => setDays(d)}>
+                  {d} días
+                </FlitPillButton>
+              ))}
+            </FlitPillGroup>
+            <GradientButton variant="secondary" onClick={() => load()} disabled={loading}>
               {loading ? 'Cargando…' : 'Actualizar'}
-            </button>
+            </GradientButton>
           </div>
         }
       />
 
       {error && (
-        <p className="rounded-xl border px-4 py-3 text-sm" style={{ borderColor: 'var(--flit-danger)', color: 'var(--flit-danger)' }}>{error}</p>
+        <div className="espacio-abajo"><InlineAlert tono="danger">{error}</InlineAlert></div>
       )}
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <KpiCard label="Pre-vuelo en verde" value={loading ? '·' : pct(preflightVerde, preflightTotal)} hint={`${preflightVerde}/${preflightTotal} pre-vuelos`} tone="success" />
-        <KpiCard label="Mediana wizard → tránsito" value={loading ? '·' : data?.tiempoTransito.horas_mediana != null ? `${data.tiempoTransito.horas_mediana} h` : '—'} hint={`${data?.tiempoTransito.n ?? 0} enviados`} tone="neutral" />
-        <KpiCard label="Rechazo OT" value={loading ? '·' : pct(rechazos, enviados)} hint={`${rechazos} de ${enviados} enviados`} tone={rechazos > 0 ? 'warning' : 'success'} />
-        <KpiCard label="Trámites en lote" value={loading ? '·' : String(data?.lotes.tramites_creados ?? 0)} hint={`${data?.lotes.lotes ?? 0} lote(s) · ${data?.lotes.filas ?? 0} filas`} tone="neutral" />
+      <div className="metricas" aria-busy={loading}>
+        <KpiCard label="Pre-vuelo en verde" value={loading ? esqueleto : pct(preflightVerde, preflightTotal)} hint={`${preflightVerde}/${preflightTotal} pre-vuelos`} icono="flito-checklists" />
+        <KpiCard label="Mediana wizard → tránsito" value={loading ? esqueleto : data?.tiempoTransito.horas_mediana != null ? `${data.tiempoTransito.horas_mediana} h` : '—'} hint={`${data?.tiempoTransito.n ?? 0} enviados`} icono="flito-jornadas" />
+        <KpiCard label="Rechazo OT" value={loading ? esqueleto : pct(rechazos, enviados)} hint={`${rechazos} de ${enviados} enviados`} icono="flito-incidentes" pendiente={rechazos > 0} />
+        <KpiCard label="Trámites en lote" value={loading ? esqueleto : String(data?.lotes.tramites_creados ?? 0)} hint={`${data?.lotes.lotes ?? 0} lote(s) · ${data?.lotes.filas ?? 0} filas`} icono="flito-bolsas" />
       </div>
 
       {/* Tablas */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="rejilla rejilla--2 espacio-abajo">
         <MiniTable
           title="Pre-vuelo por resultado"
           head={['Estado', 'Trámites']}
@@ -163,19 +155,18 @@ export default function TramitesMetricas() {
         />
       </div>
 
-      {/* Semáforo pre-vuelo (chips FLIT) */}
+      {/* Semáforo pre-vuelo (dona del kit) */}
       {(data?.preflight.length ?? 0) > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>Distribución pre-vuelo:</span>
-          {data!.preflight.map((p) => (
-            <StatusChip key={p.overall_status} tone={PREFLIGHT_TONE[p.overall_status] ?? 'neutral'}>
-              {PREFLIGHT_LABEL[p.overall_status] ?? p.overall_status}: {p.n}
-            </StatusChip>
-          ))}
-        </div>
+        <section className="card espacio-abajo">
+          <p className="mb-3 text-base font-semibold text-[color:var(--color-text-primary)]">Distribución pre-vuelo:</p>
+          <Dona
+            etiqueta="Distribución pre-vuelo"
+            partes={data!.preflight.map((p) => ({ t: PREFLIGHT_LABEL[p.overall_status] ?? p.overall_status, v: p.n, c: PREFLIGHT_SERIE[p.overall_status] ?? SERIE_KIT.gris }))}
+          />
+        </section>
       )}
 
-      <p className="text-xs" style={{ color: 'var(--flit-text-muted)' }}>
+      <p className="text-xs text-[color:var(--color-text-tertiary)]">
         Solo agregados — sin datos personales. Fuente: tablas del epic TRAM-INNOV (§11). Baseline al merge de A1, remedir a 30/60 días.
       </p>
     </div>

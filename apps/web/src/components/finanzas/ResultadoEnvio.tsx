@@ -73,7 +73,7 @@ export default function ResultadoEnvio({
           que el foco viene aquí: quien navega con teclado se quedaría si no en un botón que ya no
           significa lo mismo. */}
       <h3 ref={encabezadoRef} tabIndex={-1} className="font-semibold"
-        style={{ color: 'var(--flit-text-primary)' }}>
+        style={{ color: 'var(--color-text-primary)' }}>
         {resumen.encolados} enviados a la cola · {resumen.yaEstaban} ya estaban ·{' '}
         {resumen.rechazados} no se pudieron enviar
       </h3>
@@ -86,15 +86,15 @@ export default function ResultadoEnvio({
           // entre renders, así que plegar o desplegar a mano se respeta. `<details>` y no un
           // acordeón propio: el navegador ya resuelve abrir, cerrar y teclado.
           <details key={r} {...(ABIERTO[r] ? { open: true } : {})}
-            className="rounded-lg border px-3 py-2" style={{ borderColor: 'var(--flit-border-soft)' }}>
+            className="rounded-lg border px-3 py-2" style={{ borderColor: 'var(--color-border)' }}>
             <summary className="flit-focus flex cursor-pointer list-none items-center gap-2">
               <StatusChip tone={TONO[r]}>{SIIGO_RESULTADO_ENVIO_ETIQUETA[r]}</StatusChip>
-              <span className="tabular-nums" style={{ color: 'var(--flit-text-secondary)' }}>
+              <span className="tabular-nums" style={{ color: 'var(--color-text-secondary)' }}>
                 ({grupo.length})
               </span>
             </summary>
 
-            <p className="mt-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+            <p className="mt-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
               {SIIGO_RESULTADO_ENVIO_EXPLICACION[r]}
             </p>
 
@@ -104,14 +104,14 @@ export default function ResultadoEnvio({
                   <li key={i.tramiteId}>
                     <span className="font-semibold">{idFlitDe(i.tramiteId)}</span>
                     {/* Los motivos del servidor, uno por línea y palabra por palabra (AC4). */}
-                    <ul className="list-disc pl-5 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+                    <ul className="list-disc pl-5 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                       {i.motivos.map((m) => <li key={m.motivo}>{m.detalle}</li>)}
                     </ul>
                   </li>
                 ))}
               </ul>
             ) : r === 'error' ? (
-              <ul className="mt-2 space-y-1 text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+              <ul className="mt-2 space-y-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                 {grupo.map((i) => (
                   <li key={i.tramiteId}>
                     <span className="font-semibold">{idFlitDe(i.tramiteId)}</span>
@@ -143,7 +143,7 @@ export default function ResultadoEnvio({
   );
 }
 
-const SECUNDARIO = { borderColor: 'var(--flit-border-input)', color: 'var(--flit-text-secondary)' } as const;
+const SECUNDARIO = { borderColor: 'var(--color-border-control)', color: 'var(--color-text-secondary)' } as const;
 
 /** Identificadores en fila. Son texto, no controles: sin `role` y sin `tabIndex`. */
 function Identificadores({ ids }: { ids: string[] }) {
@@ -151,7 +151,7 @@ function Identificadores({ ids }: { ids: string[] }) {
     <div className="mt-2 flex max-h-40 flex-wrap gap-1 overflow-y-auto">
       {ids.map((id) => (
         <span key={id} className="rounded-[999px] px-2 py-0.5 text-xs"
-          style={{ background: 'var(--flit-bg-app)', color: 'var(--flit-text-secondary)' }}>
+          style={{ background: 'var(--color-surface)', color: 'var(--color-text-secondary)' }}>
           {id}
         </span>
       ))}

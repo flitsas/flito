@@ -78,6 +78,7 @@ const CPR = 'flito-comprobantes/flito-comprobantes.routes.ts';
 const LOGV = 'flito-logistica/flito-logistica-viajes.routes.ts';
 const BDOC = 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts'; // HU #13889 (ADR-0028)
 const DRF = 'flito-dr-flit/dr-flit.funciones.ts'; // HU #13941
+const VCOL = 'flito-vistas-columnas/flito-vistas-columnas.routes.ts'; // Épica #14560 (ADR-0045)
 
 const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // ── SOAT (portal FLITO) ───────────────────────────────────────────────────────────────────────
@@ -206,6 +207,13 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${TRA} GET /`, 'tramites.cola.ver', 'Ver la cola de trámites FLITO', 'Abrir la bandeja de trámites de SOAT e impuestos.'),
   op(`${TRA} GET /facetas`, 'tramites.cola.filtrar', 'Filtrar la cola de trámites FLITO', 'Leer los contadores y las facetas de la bandeja.'),
   op(`${TRA} GET /:id/historial`, 'tramites.tramite.ver_historial', 'Ver el historial de un trámite FLITO', 'Consultar la línea de tiempo del trámite.'),
+  // Épica #14560 (ADR-0046): el detalle del trámite reutiliza `tramites.cola.ver` del listado (sin función nueva ni siembra).
+  op(`${TRA} GET /:id/detalle`, 'tramites.cola.ver', 'Ver la cola de trámites FLITO', 'Abrir la bandeja de trámites de SOAT e impuestos.'),
+  // Épica #14560 (ADR-0045): vistas compartidas y predeterminada general. Nace en el árbol, absorbida por
+  // `accion.tramites.administrar_vistas_columnas` (solo `admin`, 0305). En la general va en la ruta; en las
+  // compartidas, en línea (`tieneFuncion` en `actorDe`), porque el alcance viene en el cuerpo.
+  op(`${VCOL} PUT /:tablaId/predeterminada/general`, 'tramites.vistas_columnas.administrar', 'Administrar vistas de columnas', 'Crear vistas de columnas para todos y fijar la predeterminada general.'),
+  op(`${VCOL} POST * [compartidas]`, 'tramites.vistas_columnas.administrar', 'Administrar vistas de columnas', 'Crear vistas de columnas para todos y fijar la predeterminada general.'),
   op(`${TRA} GET /:id/soportes`, 'tramites.tramite.ver_soportes', 'Ver los soportes de un trámite FLITO', 'Listar y abrir los documentos del trámite.'),
   op(`${TRA} POST /soportes/zip`, 'tramites.soportes.descargar', 'Descargar soportes de trámites en ZIP', 'Bajar en un solo archivo los soportes de los trámites seleccionados.'),
   op(`${TRA} POST /crear-empresa`, 'tramites.empresa.crear', 'Crear una empresa cliente', 'Dar de alta la compañía a la que se le van a radicar trámites.'),

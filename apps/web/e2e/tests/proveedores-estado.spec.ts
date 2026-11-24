@@ -78,7 +78,7 @@ async function montar(page: Page, m: Montaje = {}) {
     return json(route, 200, {});
   });
   await page.goto('/clients');
-  await page.getByRole('button', { name: 'Proveedores', exact: true }).click();
+  await page.getByRole('tab', { name: 'Proveedores', exact: true }).click();
   return { lista, patches, ediciones, listados: () => listados };
 }
 
@@ -256,7 +256,7 @@ test.describe('HU #13961 · Proveedores — estado, filtro, activar y desactivar
     await loginAdmin(page);
     let falla = true;
     const m = await montar(page, { listaFalla: () => falla });
-    await expect(page.getByRole('alert')).toHaveText('No pudimos cargar los proveedores.');
+    await expect(page.getByRole('alert')).toContainText('No pudimos cargar los proveedores.');
     await expect(page.getByText('boom interno')).toHaveCount(0);
     falla = false;
     await page.getByRole('button', { name: 'Reintentar' }).click();

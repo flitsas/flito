@@ -112,14 +112,25 @@ export interface Totales {
   serviciosAdicionales: number;
 }
 export interface Resumen { listo: number; incompleto: number; porFacturar: number; facturado: number }
-export interface Reporte {
-  items: Fila[]; total: number; page: number; pageSize: number; totales: Totales; resumen: Resumen;
+/**
+ * Los agregados del universo filtrado: `GET /finanzas/reporte-costos/totales` (Épica #14560). La
+ * pantalla los pide aparte del listado, que viaja con `sinTotales=1`.
+ */
+export interface TotalesReporte {
+  totales: Totales;
   /**
    * El costo de proveedor agregado sobre el universo filtrado (ADR-0041 §13, Épica #13763). Va
    * aparte de `totales` a propósito: no es cobro y no se suma a él. Mismas cuatro claves que el
    * consolidado; `tramitesCostoSinConfigurar > 0` significa que las sumas son parciales.
    */
   totalesCostosProveedor: TotalesCostosProveedor;
+}
+/**
+ * El listado. Con `sinTotales=1` el API no manda los agregados (vienen de `TotalesReporte`); sin el
+ * parámetro sí, y por eso quedan opcionales.
+ */
+export interface Reporte extends Partial<TotalesReporte> {
+  items: Fila[]; total: number; page: number; pageSize: number; resumen: Resumen;
 }
 export interface Opcion { valor: string; nombre: string }
 export interface Facetas { estados: string[]; empresas: Opcion[]; tipos: string[]; organismos: Opcion[] }

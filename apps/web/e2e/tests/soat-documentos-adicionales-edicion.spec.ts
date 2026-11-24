@@ -462,7 +462,8 @@ test.describe('HU #13365 · AC7: ocupado, accesibilidad y 360 px', () => {
     await page.keyboard.press('Escape');
     const papelera = seccion(page).getByRole('button', { name: `Eliminar ${DOC_LARGO}` });
     await expect(papelera).toBeFocused();
-    await expect(papelera).not.toHaveCSS('box-shadow', 'none');
+    // UI Kit 2026 (S0): el foco del kit es un contorno de 2 px (`outline`), ya no un anillo de sombra.
+    await expect(papelera).toHaveCSS('outline-style', 'solid');
 
     await elegir(page, [pdf(DOC_LARGO), txt(`${'x'.repeat(80)}.txt`)]);
     await panel(page).getByLabel('Etiqueta (opcional)').fill('e'.repeat(150));

@@ -30,7 +30,8 @@ import { pathToFileURL } from 'node:url';
 
 const RE_TABLA = /<table[\s>]/;
 const RE_HEX = /#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?(?:[0-9a-fA-F]{2})?\b/g;
-const RE_CONTROL_ALTURA = /<(button|input|select)\b[^>]*className\s*=\s*\{?\s*["'`][^"'`]*\bh-(?:[0-9]|1[12])\b/;
+// `(?<![\w-])`: `min-h-11` / `max-h-12` son pisos y techos (táctiles de 44 px del responsive), no altura fija.
+const RE_CONTROL_ALTURA = /<(button|input|select)\b[^>]*className\s*=\s*\{?\s*["'`][^"'`]*(?<![\w-])h-(?:[0-9]|1[12])\b/;
 
 /**
  * Excepciones declaradas. Rutas relativas a la raíz del repo, con `/`, por regla.
@@ -45,19 +46,6 @@ export const EXCEPCIONES = {
   },
   'apps/web/src/components/flito/soat/CargaMasivaSoat.tsx': {
     U1: { veces: 1, motivo: 'Deuda declarada: migración a FlitTable pendiente (requiere HU propia).' },
-  },
-  'apps/web/src/pages/FlitoTramites.tsx': {
-    U2: { veces: 2, motivo: '`#fff` sobre estilos inline de estados de trámite; migrar a tokens --flit-* (HU propia).' },
-    U3: { veces: 2, motivo: 'Filtros con `flitInp h-9` (override ad-hoc de la altura canónica h-10); alineación de barra pendiente (HU propia).' },
-  },
-  'apps/web/src/pages/FlitoBitacora.tsx': {
-    U3: { veces: 1, motivo: '`flitInp h-8 w-20` en el límite de filas (override ad-hoc); alineación de barra pendiente (HU propia).' },
-  },
-  'apps/web/src/components/flito/FirmaCanvas.tsx': {
-    U2: { veces: 1, motivo: '`strokeStyle` del canvas 2D (no es CSS): el kit no expone token de tinta de firma.' },
-  },
-  'apps/web/src/components/flito/conciliacion/BloqueConciliar.tsx': {
-    U2: { veces: 1, motivo: 'Fondo de alerta `#FDE8E3` sin token equivalente en el kit; migrar cuando exista (HU propia).' },
   },
 };
 

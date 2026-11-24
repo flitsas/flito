@@ -166,7 +166,7 @@ test.describe('FLITO — Gestión Trámites · estado de FLIT 2 (HU #13098 · #1
     await page.route(RUTA_ESTADO, async (r) => { await pendiente; return json(r, 200, { ...SANO, ultimaExitosaEn: null, ultimoAvisoEn: null }); });
     await abrir(page);
     await expect(linea(page)).toHaveAttribute('aria-busy', 'true');
-    await expect(linea(page).locator('.animate-pulse')).toHaveCount(2);
+    await expect(linea(page).locator('[data-kit="esqueleto"]')).toHaveCount(2);
     await expect(linea(page)).toContainText('Conexión');
     await expect(linea(page)).toContainText('Última actualización');
     soltar();

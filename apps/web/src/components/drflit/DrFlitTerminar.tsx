@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { flitBtnSecondarySm } from '../flit/flitPageKit';
+import GradientButton, { claseBoton } from '../flit/GradientButton';
 import { DRFLIT_ACCIONES_ID } from './DrFlitMarco';
 
 // Dr. Flit — «Terminar chat» (HU #13767 AC2; spec UX «Conversación restaurada y Terminar chat»).
@@ -27,7 +27,8 @@ export function DrFlitBotonTerminar({ onPedir, expandido, botonRef }: {
       type="button"
       onClick={onPedir}
       aria-expanded={expandido}
-      className={flitBtnSecondarySm}
+      data-variante="alerta"
+      className={claseBoton('alerta', 'sm', 'flit-focus-light')}
     >
       Terminar chat
     </button>,
@@ -58,7 +59,7 @@ export function DrFlitConfirmarTerminar({ onConfirmar, onCancelar, conBorrador =
       role="group"
       aria-labelledby={CONFIRMAR_TITULO_ID}
       onKeyDown={onKeyDown}
-      className="border-b border-flit-soft bg-flit-app px-4 py-3 text-sm text-flit-ink"
+      className="border-b border-[color:var(--color-border)] bg-[var(--color-surface)] px-4 py-3 text-sm text-flit-ink"
     >
       <p id={CONFIRMAR_TITULO_ID} className="font-semibold">¿Terminar el chat?</p>
       <p className="mt-1 text-flit-secondary">
@@ -67,17 +68,10 @@ export function DrFlitConfirmarTerminar({ onConfirmar, onCancelar, conBorrador =
           : 'Se borrará esta conversación y no podrá recuperarla.'}
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={onConfirmar}
-          className={flitBtnSecondarySm}
-          // Color en línea a propósito (patrón del kit para «peligro»): una clase de texto empataría
-          // con la tinta secundaria del kit. El hover sigue dando fondo.
-          style={{ color: 'var(--flit-danger-ink)' }}
-        >
+        <GradientButton type="button" variant="alerta" size="sm" onClick={onConfirmar}>
           Sí, terminar
-        </button>
-        <button ref={cancelarRef} type="button" onClick={onCancelar} className={flitBtnSecondarySm}>
+        </GradientButton>
+        <button ref={cancelarRef} type="button" onClick={onCancelar} data-variante="secundario" className={claseBoton('secondary', 'sm')}>
           Cancelar
         </button>
       </div>

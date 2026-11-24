@@ -8,10 +8,10 @@ import { rotuloEvento } from './rotuloEvento';
 import { api, ApiError } from '../../../lib/api';
 import { flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
 
-const SECUNDARIO = { color: 'var(--flit-text-secondary)' } as const;
-const MUTED = { color: 'var(--flit-text-muted)' } as const;
-const PELIGRO = { color: 'var(--flit-danger-ink)' } as const;
-const FRANJA = { background: 'color-mix(in srgb, var(--flit-blue) 16%, transparent)' } as const;
+const SECUNDARIO = { color: 'var(--color-text-secondary)' } as const;
+const MUTED = { color: 'var(--color-text-tertiary)' } as const;
+const PELIGRO = { color: 'var(--kit-rojo-texto)' } as const;
+const FRANJA = { background: 'var(--kit-hover)', boxShadow: 'inset 3px 0 0 var(--kit-azul)' } as const;
 
 const VACIO_SIN_DOCUMENTO = 'Aún no hay recorrido de esta licencia. Lo verá usted aquí cuando el mensajero la recoja en el organismo.';
 const VACIO_SIN_HITOS = 'Esta licencia no tiene hitos registrados. Lo verá usted aquí cuando se registre un movimiento.';
@@ -35,10 +35,10 @@ function Esqueleto() {
     <div role="status" aria-busy="true" aria-label="Cargando la línea de tiempo.">
       {[0, 1, 2].map((i) => (
         <div key={i} className="mb-3 flex items-start gap-3 last:mb-0" aria-hidden="true">
-          <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: 'var(--flit-border-soft)' }} />
+          <span className="kit-esqueleto mt-1 h-2.5 w-2.5 shrink-0 !rounded-full" />
           <span className="flex min-w-0 flex-1 flex-col gap-1.5">
-            <span className="h-3 w-2/5 rounded" style={{ background: 'var(--flit-border-soft)' }} />
-            <span className="h-2 w-1/4 rounded" style={{ background: 'var(--flit-border-soft)' }} />
+            <span className="kit-esqueleto h-3 w-2/5" />
+            <span className="kit-esqueleto h-2 w-1/4" />
           </span>
         </div>
       ))}
@@ -51,15 +51,15 @@ function Riel({ reciente, unirArriba, ultimo }: { reciente: boolean; unirArriba:
     <div className="flex w-3 shrink-0 flex-col items-center" aria-hidden="true">
       <span
         className="w-px shrink-0"
-        style={{ height: '0.45rem', background: unirArriba ? 'var(--flit-border-soft)' : 'transparent' }}
+        style={{ height: '0.45rem', background: unirArriba ? 'var(--color-border)' : 'transparent' }}
       />
       <span
         className={reciente
           ? 'h-2.5 w-2.5 shrink-0 rounded-full'
           : 'box-border h-2 w-2 shrink-0 rounded-full border bg-transparent'}
-        style={reciente ? { background: 'var(--flit-blue)' } : { borderColor: 'var(--flit-text-muted)' }}
+        style={reciente ? { background: 'var(--kit-azul)' } : { borderColor: 'var(--color-text-tertiary)' }}
       />
-      {!ultimo && <span className="mt-1 w-px min-h-3 flex-1" style={{ background: 'var(--flit-border-soft)' }} />}
+      {!ultimo && <span className="mt-1 w-px min-h-3 flex-1" style={{ background: 'var(--color-border)' }} />}
     </div>
   );
 }
@@ -76,7 +76,7 @@ function FilaHito({ hito, reciente, unirArriba, ultimo, fecha }: {
     <li className="flex items-stretch gap-3">
       <Riel reciente={reciente} unirArriba={unirArriba} ultimo={ultimo} />
       <div className={`min-w-0 flex-1 ${ultimo ? '' : 'pb-3'}`}>
-        <div className={reciente ? 'rounded-lg px-3 py-2' : undefined} style={reciente ? FRANJA : undefined}>
+        <div className={reciente ? 'rounded-[9px] px-3 py-2' : undefined} style={reciente ? FRANJA : undefined}>
           {reciente ? (
             <div className="flex items-baseline justify-between gap-3">
               <span className="min-w-0 flex-1 text-sm font-bold">{rotuloEvento(hito)}</span>

@@ -19,7 +19,7 @@
 // lectura automática según `automaticaActiva` (null = no se sabe: la frase neutra, sin promesas) y
 // `onGuardado` pide un GET silencioso del estado para que la cabecera vea arrancar la lectura.
 
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import { toastOk } from '../../flit/ToastFlito';
 import type { Flit2AccesoMeta, Flit2GuardarAccesoInput } from '@operaciones/shared-types';
 import { ApiError, api } from '../../../lib/api';
@@ -131,8 +131,8 @@ function useMetaAcceso() {
 function Dato({ etiqueta, children }: { etiqueta: string; children: ReactNode }) {
   return (
     <div className="grid gap-0.5 py-1.5 sm:grid-cols-[10rem_1fr] sm:gap-3">
-      <dt className="text-xs font-semibold" style={{ color: 'var(--flit-text-secondary)' }}>{etiqueta}</dt>
-      <dd className="text-sm break-words" style={{ color: 'var(--flit-text-primary)' }}>{children}</dd>
+      <dt className="text-xs font-semibold" style={{ color: 'var(--color-text-secondary)' }}>{etiqueta}</dt>
+      <dd className="text-sm break-words" style={{ color: 'var(--color-text-primary)' }}>{children}</dd>
     </div>
   );
 }
@@ -142,8 +142,8 @@ function Esqueleto() {
     <div aria-busy="true" aria-label="Cargando el acceso a FLIT 2" role="status" className="space-y-3 py-1.5">
       {[0, 1, 2, 3].map((i) => (
         <div key={i} className="grid gap-1.5 sm:grid-cols-[10rem_1fr] sm:gap-3" aria-hidden="true">
-          <div className="h-3 w-24 animate-pulse rounded" style={{ background: 'var(--flit-bg-hover)' }} />
-          <div className="h-4 w-40 animate-pulse rounded" style={{ background: 'var(--flit-bg-hover)' }} />
+          <div data-kit="esqueleto" className="kit-esqueleto h-3 w-24" />
+          <div data-kit="esqueleto" className="kit-esqueleto h-4 w-40" />
         </div>
       ))}
     </div>
@@ -151,15 +151,15 @@ function Esqueleto() {
 }
 
 function Aviso({ rol: ariaRole, children }: { rol: 'alert' | 'status'; children: ReactNode }) {
+  // Aviso en página del kit (`.kit-alerta`): sin data-tono (el panel no pinta tonos fuera de la prueba).
   return (
     <div
       role={ariaRole}
-      className="rounded-lg px-3 py-2.5 text-sm"
+      className="kit-alerta flex-col gap-1 text-sm"
       style={{
-        border: '1px solid var(--flit-border-soft)',
-        background: 'var(--flit-bg-card)',
-        color: ariaRole === 'alert' ? 'var(--flit-danger-ink)' : 'var(--flit-text-primary)',
-      }}
+        '--c': ariaRole === 'alert' ? 'var(--kit-rojo)' : 'var(--kit-azul)',
+        ...(ariaRole === 'alert' ? { color: 'var(--kit-rojo-texto)' } : {}),
+      } as CSSProperties}
     >
       {children}
     </div>
@@ -238,7 +238,7 @@ function PanelAccesoFlit2({ onCerrar, automaticaActiva = null, onGuardado }: Pro
   return (
     <FlitModal title="Acceso a FLIT 2" onClose={onCerrar} lateral cierreBloqueado={guardando || prueba.probando}>
       <div className="h-full space-y-4 overflow-y-auto pb-2">
-        <p className="text-sm" style={{ color: 'var(--flit-text-secondary)' }}>
+        <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
           Con qué usuario entra FLITO a FLIT 2 para leer sus trámites. La contraseña se cifra al guardar
           y no vuelve a mostrarse.
         </p>
@@ -248,7 +248,7 @@ function PanelAccesoFlit2({ onCerrar, automaticaActiva = null, onGuardado }: Pro
         {estado === 'error' && (
           <Aviso rol="alert">
             <p>No se pudo consultar el acceso a FLIT 2. Vuelve a intentarlo.</p>
-            <button type="button" className={`${flitBtnSecondary} mt-2 w-full sm:w-auto`} style={flitBtnSecondaryStyle}
+            <button type="button" className={`${flitBtnSecondary} mt-2 w-full sm:w-auto`} style={flitBtnSecondaryStyle} data-variante="secundario"
               onClick={recargar}>
               Reintentar
             </button>
@@ -271,7 +271,7 @@ function PanelAccesoFlit2({ onCerrar, automaticaActiva = null, onGuardado }: Pro
             {!meta.configurado && (
               <Aviso rol="status">
                 <p>FLITO aún no tiene acceso a FLIT 2 en este ambiente.</p>
-                <p className="mt-1" style={{ color: 'var(--flit-text-secondary)' }}>
+                <p className="mt-1" style={{ color: 'var(--color-text-secondary)' }}>
                   {puedeGuardar
                     ? 'Escribe el usuario de servicio y la contraseña que entregó FLIT 2.'
                     : 'Pídele a un administrador con permiso de guardar el acceso que lo configure.'}
@@ -289,8 +289,8 @@ function PanelAccesoFlit2({ onCerrar, automaticaActiva = null, onGuardado }: Pro
 
             {puedeGuardar && (
               <form onSubmit={guardar} noValidate className="space-y-3 pt-4"
-                style={{ borderTop: '1px solid var(--flit-border-soft)' }} aria-labelledby="flit2-acceso-form-titulo">
-                <h3 id="flit2-acceso-form-titulo" className="text-sm font-bold" style={{ color: 'var(--flit-blue-text)' }}>
+                style={{ borderTop: '1px solid var(--color-border)' }} aria-labelledby="flit2-acceso-form-titulo">
+                <h3 id="flit2-acceso-form-titulo" className="text-sm font-bold" style={{ color: 'var(--color-action)' }}>
                   {meta.configurado ? 'Reemplazar acceso' : 'Configurar acceso'}
                 </h3>
                 <FlitField label="Usuario de servicio">
@@ -308,7 +308,7 @@ function PanelAccesoFlit2({ onCerrar, automaticaActiva = null, onGuardado }: Pro
                   />
                 </FlitField>
                 {errUsuario && (
-                  <p id="flit2-acceso-usuario-error" className="text-xs" style={{ color: 'var(--flit-danger-ink)' }}>{errUsuario}</p>
+                  <p id="flit2-acceso-usuario-error" className="text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>{errUsuario}</p>
                 )}
                 <FlitField label="Contraseña">
                   {/* No controlado, sin `name` y sin `maxLength` (el recorte de un secreto no se ve). */}
@@ -324,16 +324,16 @@ function PanelAccesoFlit2({ onCerrar, automaticaActiva = null, onGuardado }: Pro
                   />
                 </FlitField>
                 {errClave && (
-                  <p id="flit2-acceso-clave-error" className="text-xs" style={{ color: 'var(--flit-danger-ink)' }}>{errClave}</p>
+                  <p id="flit2-acceso-clave-error" className="text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>{errClave}</p>
                 )}
-                <p id="flit2-acceso-ayuda" className="text-xs" style={{ color: 'var(--flit-text-secondary)' }}>
+                <p id="flit2-acceso-ayuda" className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                   Los campos se vacían al guardar. No pegues la contraseña en chats ni la dejes en capturas.
                 </p>
                 {errorGuardar && (
                   <Aviso rol="alert">
                     <p>{errorGuardar.texto}</p>
                     {errorGuardar.conflicto && (
-                      <button type="button" className={`${flitBtnSecondary} mt-2 w-full sm:w-auto`} style={flitBtnSecondaryStyle}
+                      <button type="button" className={`${flitBtnSecondary} mt-2 w-full sm:w-auto`} style={flitBtnSecondaryStyle} data-variante="secundario"
                         onClick={() => { setErrorGuardar(null); recargar(); }}>
                         Actualizar estado
                       </button>
@@ -341,7 +341,7 @@ function PanelAccesoFlit2({ onCerrar, automaticaActiva = null, onGuardado }: Pro
                   </Aviso>
                 )}
                 <div className="flex justify-end">
-                  <button type="submit" className={`${flitBtnPrimary} w-full sm:w-auto`} style={flitBtnPrimaryStyle}
+                  <button type="submit" className={`${flitBtnPrimary} w-full sm:w-auto`} style={flitBtnPrimaryStyle} data-variante="primario"
                     disabled={guardando} aria-busy={guardando}>
                     {guardando ? 'Guardando…' : 'Guardar acceso'}
                   </button>
@@ -365,7 +365,7 @@ export default function AccesoFlit2({ automaticaActiva = null, onGuardado, clase
   if (!hasFuncion(FUNCION_VER)) return null;
   return (
     <>
-      <button type="button" className={`${flitBtnSecondary} ${claseBoton}`} style={flitBtnSecondaryStyle} onClick={() => setAbierto(true)}>
+      <button type="button" className={`${flitBtnSecondary} ${claseBoton}`} style={flitBtnSecondaryStyle} data-variante="secundario" onClick={() => setAbierto(true)}>
         Acceso a FLIT 2
       </button>
       {abierto && <PanelAccesoFlit2 onCerrar={() => setAbierto(false)} automaticaActiva={automaticaActiva} onGuardado={onGuardado} />}
