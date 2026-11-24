@@ -114,6 +114,7 @@ describe('TC-09b — el script solo LEE y los montajes salen del fuente de app.t
       { prefijo: '/api/flito/logistica', modulo: 'logistica' },
       { prefijo: '/api/flito/logistica', modulo: 'logistica' },
       { prefijo: '/api/flito/bolsas', modulo: 'bolsas' },
+      { prefijo: '/api/flito/bolsas-documentos', modulo: 'bolsas' },
       { prefijo: '/api/flito/comprobantes', modulo: 'comprobantes' },
       { prefijo: '/api/transito', modulo: 'transito' },
     ]);

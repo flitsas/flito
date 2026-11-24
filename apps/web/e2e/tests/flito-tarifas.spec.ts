@@ -31,7 +31,7 @@ const CLIENTES = [
   { id: 7, name: ANDINOS, document: '900777', logisticaAutogestionable: false },
 ];
 
-/** Vigencias abiertas de TODOS: Andinos 2/4, Coomotor 4/4, Agrocarga 0/4. */
+/** Vigencias abiertas de TODOS: Andinos 2/5, Coomotor 5/5, Agrocarga 0/5. */
 const ABIERTAS = [
   { id: 'v-mat-7', companiaId: 7, concepto: 'tramite_digital', tipoTramite: 'MATRICULA', valor: 270000, activo: true },
   { id: 'v-log-7', companiaId: 7, concepto: 'logistica', tipoTramite: null, valor: 45000, activo: true },
@@ -39,6 +39,7 @@ const ABIERTAS = [
   { id: 'v-tra-5', companiaId: 5, concepto: 'tramite_digital', tipoTramite: 'TRASPASO', valor: 1, activo: true },
   { id: 'v-otr-5', companiaId: 5, concepto: 'tramite_digital', tipoTramite: 'OTROS', valor: 1, activo: true },
   { id: 'v-log-5', companiaId: 5, concepto: 'logistica', tipoTramite: null, valor: 1, activo: true },
+  { id: 'v-flit-5', companiaId: 5, concepto: 'logistica_flit', tipoTramite: null, valor: 1, activo: true },
 ];
 
 const LAURA = { id: 10, nombre: 'Laura Restrepo' };
@@ -109,6 +110,9 @@ function espiar(page: Page): string[] {
 const filaDe = (page: Page, nombre: string) =>
   page.getByRole('row').filter({ has: page.getByRole('rowheader', { name: new RegExp(`^${nombre}`) }) });
 
+/** Un precio de logística (HU #14107): `<section>` con el rótulo del destino. */
+const panelDe = (page: Page, nombre: string) => page.getByRole('region', { name: nombre, exact: true });
+
 /** Lleva el calendario del rango al mes pedido (0 = enero), desde el mes actual de la máquina. */
 async function irAlMes(page: Page, anio: number, mes: number): Promise<void> {
   const hoy = new Date();
@@ -167,8 +171,8 @@ test.describe('FLITO — Tarifas · lista y matriz (AC1, AC2, AC3)', () => {
 
     await page.goto('/flito/tarifas');
     const lista = page.getByRole('list', { name: 'Clientes' });
-    await expect(lista.getByRole('button', { name: /^Agrocarga del Norte/ })).toContainText('Faltan 4');
-    await expect(lista.getByRole('button', { name: /^Transportes Andinos/ })).toContainText('Faltan 2');
+    await expect(lista.getByRole('button', { name: /^Agrocarga del Norte/ })).toContainText('Faltan 5');
+    await expect(lista.getByRole('button', { name: /^Transportes Andinos/ })).toContainText('Faltan 3');
     await expect(lista.getByRole('button', { name: /^Coomotor/ })).not.toContainText(/Falta/);
 
     await page.getByRole('button', { name: /^Con faltantes · 2/ }).click();
@@ -195,9 +199,9 @@ test.describe('FLITO — Tarifas · lista y matriz (AC1, AC2, AC3)', () => {
 
     await page.goto('/flito/tarifas/7');
     const tabla = page.getByRole('region', { name: `Valores de ${ANDINOS}` });
-    await expect(tabla.getByRole('rowheader')).toHaveCount(4);
+    await expect(tabla.getByRole('rowheader')).toHaveCount(3);
     await expect(filaDe(page, 'Matrícula')).toContainText('$270.000');
-    await expect(filaDe(page, 'Logística')).toContainText('$45.000');
+    await expect(panelDe(page, 'Entrega a cliente')).toContainText('$45.000');
     await expect(filaDe(page, 'Traspaso')).toContainText('Sin configurar');
     await expect(filaDe(page, 'Otros')).toContainText('Sin configurar');
     await expect(tabla.getByText('$0', { exact: true })).toHaveCount(0);
@@ -207,10 +211,10 @@ test.describe('FLITO — Tarifas · lista y matriz (AC1, AC2, AC3)', () => {
     await expect(filaDe(page, 'Matrícula')).toContainText('Laura Restrepo');
 
     // AC1: el chip de logística no es un control.
-    const logistica = filaDe(page, 'Logística');
-    await expect(logistica.getByText('Gestiona FLITO')).toBeVisible();
+    const logistica = panelDe(page, 'Entrega a cliente');
+    await expect(page.getByText('Gestiona FLITO')).toHaveCount(1);
     await expect(logistica.getByRole('checkbox')).toHaveCount(0);
-    await expect(logistica.getByRole('button', { name: /Gestiona FLITO|Autogestiona/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Gestiona FLITO|Autogestiona/ })).toHaveCount(0);
 
     // AC11: el cliente de la URL queda elegido y la vista se pidió al montar y no vuelve a pedirse
     // sola. El tope es 2 y no 1 porque el dev server corre con `StrictMode`, que monta dos veces;
@@ -394,22 +398,22 @@ test.describe('FLITO — Tarifas · dejar de cobrar e historial (AC8, AC9, AC10)
     ])));
 
     await page.goto('/flito/tarifas/7');
-    await page.getByRole('button', { name: `Dejar de cobrar · Logística de ${ANDINOS}` }).click();
-    const modal = page.getByRole('dialog', { name: 'Dejar de cobrar la logística' });
+    await page.getByRole('button', { name: `Dejar de cobrar · Entrega a cliente de ${ANDINOS}` }).click();
+    const modal = page.getByRole('dialog', { name: 'Dejar de cobrar Entrega a cliente' });
     await expect(modal).toContainText('La vigencia de $45.000 queda cerrada');
     await modal.getByRole('button', { name: 'Dejar de cobrar' }).click();
 
     expect(cuerpos).toEqual([{ activo: false }]);
     await expect(page.getByRole('status').filter({ hasText: '$45.000 → Sin configurar' })).toBeVisible();
-    const logistica = filaDe(page, 'Logística');
+    const logistica = panelDe(page, 'Entrega a cliente');
     await expect(logistica).toContainText('Sin configurar');
     await expect(logistica.getByRole('button', { name: /^Fijar valor/ })).toBeVisible();
-    await expect(logistica.getByRole('button', { name: /^Dejar de cobrar/ })).toHaveCount(0);
+    await expect(logistica.getByRole('button', { name: /^Dejar de cobrar/ })).toBeDisabled();
     // El foco no se pierde en <body>: vuelve a la cabecera de la fila.
-    await expect(logistica.getByRole('rowheader')).toBeFocused();
+    await expect(logistica).toBeFocused();
 
     await logistica.getByRole('button', { name: /^Historial/ }).click();
-    const historial = page.getByRole('region', { name: `Historial de Logística de ${ANDINOS}` });
+    const historial = page.getByRole('region', { name: `Historial de Entrega a cliente de ${ANDINOS}` });
     await expect(historial.getByRole('row').nth(1)).toContainText('Financiera E2E');
     await expect(historial.getByRole('row').nth(1)).toContainText('10 sep 2026');
     await expect(historial.getByText('Vigente')).toHaveCount(0);
@@ -524,7 +528,7 @@ test.describe('FLITO — Tarifas · cuatro estados (AC13, AC14, AC15, AC16)', ()
     const antes = n;
     reintentado = true;
     await page.getByRole('button', { name: 'Reintentar' }).click();
-    await expect(page.getByRole('rowheader')).toHaveCount(4);
+    await expect(page.getByRole('rowheader')).toHaveCount(3);
     expect(n).toBe(antes + 1);
   });
 
@@ -606,8 +610,8 @@ test.describe('FLITO — Tarifas · accesibilidad con axe (AC16)', () => {
     await mockVista(page);
 
     await page.goto('/flito/tarifas/7');
-    await page.getByRole('button', { name: `Dejar de cobrar · Logística de ${ANDINOS}` }).click();
-    await expect(page.getByRole('dialog', { name: 'Dejar de cobrar la logística' })).toBeVisible();
+    await page.getByRole('button', { name: `Dejar de cobrar · Entrega a cliente de ${ANDINOS}` }).click();
+    await expect(page.getByRole('dialog', { name: 'Dejar de cobrar Entrega a cliente' })).toBeVisible();
     esperarSinViolacionesGraves(await correrAxe(page), 'tarifas · modal dejar de cobrar');
   });
 });

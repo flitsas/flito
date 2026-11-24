@@ -140,7 +140,7 @@ describe('AC1 — consolidado por cliente y mes (CF-12, RN-02, RN-06)', () => {
       expect(sel[k], k).toBe(SELECT_TOTALES[k]);
     }
     const { select } = trozos(SQL_CONSOLIDADO('mes').sql);
-    // Número EXACTO, no «≥ 9» (un centinela débil que ni ve una suma que desaparece): 22.
+    // Número EXACTO, no «≥ 9» (un centinela débil que ni ve una suma que desaparece): 28.
     //   · 10 agregados de `SELECT_TOTALES` (los seis conceptos —con `serviciosAdicionales` de la
     //     HU #12546—, el GMF, el total y los dos subtotales de RN-02);
     //   · 6 `SUM("valor")` de la SUBCONSULTA correlacionada de servicios, que se renderiza una vez
@@ -151,9 +151,13 @@ describe('AC1 — consolidado por cliente y mes (CF-12, RN-02, RN-06)', () => {
     //     el mismo camino: la propia columna, `gmf`, `total` (dos veces) y `totalReintegro` (que
     //     lleva la logística DOS veces: como término propio y dentro del GMF). No entra en
     //     `totalServicio`: la logística es reintegro.
+    //   · 6 `SUM("precio")` de la SUBCONSULTA correlacionada de líneas de traslado que cobran
+    //     (HU #14118, `SUMA_TRASLADOS_QUE_COBRAN`), embebida por cada `EXPR_LOGISTICA` (los mismos
+    //     seis sitios que la de viajes).
     // Si alguien convierte una de las subconsultas en un LEFT JOIN + GROUP BY, este número baja y el
     // aserto de joins byte a byte de más abajo también cae.
-    expect(select.match(/SUM\(/g)!.length).toBe(22);
+    expect(select.match(/SUM\(/g)!.length).toBe(28);
+    expect(select.match(/SUM\("flito_logistica_traslado_lts"\."precio"\)/g)!.length).toBe(6);
     // Y las seis de viajes son exactamente seis: ni una copia de `EXPR_LOGISTICA` sin viajes
     // (bajaría) ni un join (subiría a 0 aquí y cambiaría la lista de joins).
     expect(select.match(/SUM\("flito_tramite_viajes_logistica"\."valor"\)/g)!.length).toBe(6);

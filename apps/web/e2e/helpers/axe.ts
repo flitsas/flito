@@ -111,11 +111,15 @@ export async function cargarAxe(page: Page): Promise<void> {
  * incumplimiento de contraste sobre los gradientes lo cierra `npm run check:contraste`, que no
  * necesita navegador y mide el token en vez del píxel.
  */
-export async function correrAxe(page: Page): Promise<ViolacionAxe[]> {
+/**
+ * `incluir` (opcional, HU #13896): selector CSS que acota el análisis a ese subárbol, para que un
+ * test de un componente no herede violaciones preexistentes del resto de la página.
+ */
+export async function correrAxe(page: Page, incluir?: string): Promise<ViolacionAxe[]> {
   await cargarAxe(page);
-  const { violaciones, incompletos } = await page.evaluate(async () => {
+  const { violaciones, incompletos } = await page.evaluate(async (incluir) => {
     // @ts-expect-error axe se inyecta en tiempo de ejecución
-    const r = await window.axe.run(document, {
+    const r = await window.axe.run(incluir ? { include: [incluir] } : document, {
       runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag22aa'] },
     });
     // ── Redacción de los selectores (Bug #11766) ─────────────────────────────────────────
@@ -166,7 +170,7 @@ export async function correrAxe(page: Page): Promise<ViolacionAxe[]> {
       selectores: v.nodes.slice(0, 5).map((n) => JSON.stringify(redactarTarget(n.target))),
     });
     return { violaciones: r.violations.map(resumir), incompletos: r.incomplete.map(resumir) };
-  });
+  }, incluir ?? null);
   if (incompletos.length > 0) {
     console.log(
       `[a11y · axe NO PUDO MEDIR] ${incompletos.length} regla(s) incompletas — no son un`

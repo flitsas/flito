@@ -11,7 +11,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scanForTxControl } from '../../src/scripts/db-apply.js';
-import { sqlSiembraArbol } from '../../src/modules/permisos/arbol/sql-arbol.js';
+import { accionesSembradasDe, sqlSiembraArbol } from '../../src/modules/permisos/arbol/sql-arbol.js';
 import { ACCIONES_POR_AREA } from '../../src/modules/permisos/arbol/expansion.js';
 import { bloqueGenerado, leerFuncionesSembradas, literalesDeRol } from '../helpers/permisos-seed-sql.js';
 
@@ -42,7 +42,9 @@ describe('0234 — análisis estático', () => {
 
   it('siembra las 41 acciones del área (y ninguna de Gestión), con upsert idempotente', () => {
     const sembradas = leerFuncionesSembradas([ARCHIVO]);
-    expect([...sembradas.keys()].sort()).toEqual([...ACCIONES_POR_AREA.finanzas]);
+    // HU #13889: las dos del expediente documental nacen después (0248); la 0234 aplicada no cambia.
+    expect([...sembradas.keys()].sort()).toEqual(accionesSembradasDe('finanzas'));
+    expect(ACCIONES_POR_AREA.finanzas.length - accionesSembradasDe('finanzas').length).toBe(2);
     for (const f of sembradas.values()) expect(f.tipo, f.codigo).toBe('accion');
     expect(SIN_COMENTARIOS).toMatch(/ON CONFLICT \(codigo\) DO UPDATE SET/);
     expect(SIN_COMENTARIOS).toMatch(/IS DISTINCT FROM \(EXCLUDED\.modulo/);

@@ -410,3 +410,14 @@ describe('AC3 — la guarda del conteo es la de LECTURA, la misma del resto del 
     expect(resumenMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('HU #13947 — cliente inactivo', () => {
+  it('`cliente_inactivo` → 409 con el mensaje y el código, como el resto de `SiigoTerceroError`', async () => {
+    asegurarMock.mockRejectedValue(new SiigoTerceroError('cliente_inactivo', 'El cliente Transportes Andes está inactivo o eliminado.'));
+    const app = await buildApp();
+    const r = await request(app).post('/api/siigo/terceros/cliente/41')
+      .set('Authorization', await auth('admin'));
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: 'El cliente Transportes Andes está inactivo o eliminado.', codigo: 'cliente_inactivo' });
+  });
+});

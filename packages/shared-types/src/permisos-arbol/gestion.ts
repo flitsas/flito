@@ -105,8 +105,16 @@ export const ITEMS_CLIENTES_Y_BITACORA: readonly ItemDef[] = [
     a('crear_editar_clientes', 'Crear y editar clientes', 'Crear clientes y empresas, y editar sus datos generales.'),
     a('crear_editar_proveedores', 'Crear y editar proveedores', 'Crear y editar los proveedores de SOAT.'),
     a('autogestion', 'Habilitar o revocar la autogestión del cliente', 'Habilitar o revocar la autogestión de SOAT, impuestos y logística de un cliente.'),
-    a('soat_sin_tramite', 'Configurar «SOAT sin trámite»', 'Permitir a un cliente solicitar SOAT sin trámite y elegir su proveedor.'),
+    a('soat_sin_tramite', 'Elegir proveedor de SOAT sin trámite', 'Elegir el proveedor al que van los SOAT sin trámite de un cliente.'),
     a('datos_fiscales', 'Datos fiscales', 'Registrar y editar los datos fiscales de un cliente.'),
+    // HU #13945: exclusiva del Administrador (FUNCIONES_EXCLUSIVAS_ADMIN, HU #13944). Nace tras la siembra (0255).
+    a('activar_desactivar', 'Activar o desactivar clientes', 'Desactivar un cliente (sus usuarios pierden el acceso) o volver a activarlo, viendo antes el impacto.'),
+    // HU #13954: exclusiva del Administrador. Nace tras la siembra (0258).
+    a('eliminar', 'Eliminar clientes', 'Eliminar un cliente inactivo, sin procesos abiertos ni saldo en su bolsa. Sus usuarios quedan dados de baja.'),
+    // HU #13958: exclusiva del Administrador. Nace tras la siembra (0261).
+    a('activar_desactivar_proveedores', 'Activar o desactivar proveedores', 'Desactivar un proveedor SOAT (sus usuarios pierden el acceso) o volver a activarlo, viendo antes el impacto.'),
+    // HU #13960: exclusiva del Administrador. Nace tras la siembra (0263).
+    a('eliminar_proveedores', 'Eliminar proveedores', 'Eliminar un proveedor SOAT inactivo, sin SOAT en curso ni compañías asignadas. Sus usuarios quedan inactivos.'),
   ] },
   { slug: 'flito_bitacora', clave: 'bitacora', nombre: 'Bitácora', elemento: 'gestion', orden: 100, acciones: [
     a('ver', 'Ver la bitácora', 'Consultar la bitácora de cambios y la de cada registro.'),

@@ -54,7 +54,7 @@ export default function FlitTopbar({ onOpenPalette, onOpenSidebar }: FlitTopbarP
 
   return (
     <header
-      className="flit-app sticky top-0 z-30 flex items-center gap-3 border-b px-4 sm:px-6"
+      className="flit-app sticky top-0 z-30 flex items-center gap-2 border-b px-3 sm:gap-3 sm:px-6"
       role="banner"
       style={{
         height: 'var(--flit-topbar-height)',
@@ -71,14 +71,14 @@ export default function FlitTopbar({ onOpenPalette, onOpenSidebar }: FlitTopbarP
         type="button"
         onClick={onOpenSidebar}
         aria-label="Abrir menú de navegación"
-        className="flit-focus grid h-10 w-10 place-items-center rounded-xl lg:hidden"
+        className="flit-focus grid h-10 w-10 shrink-0 place-items-center rounded-xl transition-colors hover:bg-flit-card lg:hidden"
         style={{ color: 'var(--flit-text-secondary)' }}
       >
         <IconMenu className="h-5 w-5" />
       </button>
 
       {/* Marca FLIT (antes en el sidebar) */}
-      <div className="flex items-center gap-2.5 pr-1 sm:pr-3">
+      <div className="flex shrink-0 items-center gap-2.5 sm:pr-3">
         <span
           className="grid h-9 w-9 place-items-center rounded-xl text-white"
           style={{ background: 'var(--flit-gradient-primary)' }}
@@ -94,12 +94,15 @@ export default function FlitTopbar({ onOpenPalette, onOpenSidebar }: FlitTopbarP
         </span>
       </div>
 
-      {/* Trigger ⌘K — botón con look de input */}
+      {/* Trigger ⌘K — botón con look de input. `min-w-0` + `overflow-hidden`: sin ellos su ancho mínimo
+          es el texto completo y en un teléfono (<sm) la barra desbordaba y ensanchaba el layout viewport
+          (iPhone 12: innerWidth 453 vs 390 visibles), dejando fuera de pantalla el «Cerrar» de Dr. Flit
+          (retrabajo HU #13764, AC7). Los vecinos van `shrink-0`: el que cede es el buscador. */}
       <button
         type="button"
         onClick={onOpenPalette}
         aria-label={`Buscar o ir a sección (${isMac ? 'Command' : 'Control'} K)`}
-        className="flit-focus group flex h-10 max-w-xl flex-1 items-center gap-3 bg-flit-card px-3 text-left text-sm transition-colors sm:px-4"
+        className="flit-focus group flex h-10 min-w-0 max-w-xl flex-1 items-center gap-2 overflow-hidden bg-flit-card px-3 text-left text-sm transition-colors sm:gap-3 sm:px-4"
         style={{
           borderRadius: 'var(--flit-radius-input)',
           border: '1px solid var(--flit-border-input)',
@@ -107,7 +110,8 @@ export default function FlitTopbar({ onOpenPalette, onOpenSidebar }: FlitTopbarP
         }}
       >
         <IconSearch className="h-4 w-4 shrink-0" />
-        <span className="flex-1 truncate">Buscar o ir a sección…</span>
+        {/* <360 px no cabe ni «Buscar…»: queda la lupa (el nombre accesible lo da el aria-label). */}
+        <span className="flex-1 truncate max-[359px]:hidden">Buscar o ir a sección…</span>
         <kbd
           aria-hidden="true"
           className="hidden items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-medium sm:inline-flex"
@@ -120,7 +124,7 @@ export default function FlitTopbar({ onOpenPalette, onOpenSidebar }: FlitTopbarP
       <div className="hidden flex-1 lg:block" aria-hidden="true" />
 
       {/* Grupo derecho: toggle tema, campana, usuario */}
-      <div className="flex items-center gap-1 sm:gap-2">
+      <div className="flex shrink-0 items-center gap-1 sm:gap-2">
         <ThemeCycleButton />
 
         <button

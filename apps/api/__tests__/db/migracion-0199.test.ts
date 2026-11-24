@@ -147,8 +147,8 @@ describe('0199 — análisis estático', () => {
   });
 
   it('los cardinales del catálogo: 3 operaciones logistica.viajes.*, y las 3 llaves del fichero de rutas', () => {
-    expect(catalogoPlano().filter((c) => c.tipo === 'operacion' && c.codigo.startsWith('logistica.viajes.'))).toHaveLength(3);
-    expect(OPERACIONES_DECLARADAS.filter((o) => o.llave.startsWith(`${FICHERO} `))).toHaveLength(3);
+    expect(catalogoPlano().filter((c) => c.tipo === 'operacion' && c.codigo.startsWith('logistica.viajes.'))).toHaveLength(3); // 4 llaves, 3 códigos: POST /viajes/masivo comparte `registrar` (HU #14127)
+    expect(OPERACIONES_DECLARADAS.filter((o) => o.llave.startsWith(`${FICHERO} `))).toHaveLength(4);
   });
 
   it('no retira nada y el helper de paridad la lee justo después de la 0198; plegado, admin sí y nadie más', () => {

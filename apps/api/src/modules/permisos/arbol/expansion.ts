@@ -23,6 +23,7 @@ import { ACCIONES_ADMINISTRACION, ITEMS_ADMINISTRACION_OPS, PARTIDA_DE_OPERACION
 import { ACCIONES_FINANZAS, PARTIDA_DE_OPERACION_NUEVA } from './acciones-finanzas.js';
 import { ACCIONES_GESTION, CONJUNCIONES_GESTION, type AccionArbol } from './acciones-gestion.js';
 import { ACCIONES_LEGADO, ITEMS_LEGADO_OPS, OPERACIONES_INCORPORADAS_13588 } from './acciones-legado.js';
+import { ACCIONES_DR_FLIT } from './acciones-dr-flit.js';
 
 /**
  * HU #12873 AC8 (decisión del PO del 2026-10-13) — el rol que recibe TODAS las acciones del árbol, también
@@ -36,11 +37,14 @@ export const ROL_CON_TODAS_LAS_ACCIONES = 'admin';
  * Todas las acciones del árbol: Gestión y Tránsito (#12873), Finanzas (#13427), Administración, Clientes,
  * Bitácora, Tablero y Perfil (#13428) y el «Administrar» de los ítems PESV (#13429, P-24 A1).
  */
-export const ACCIONES_ARBOL: Readonly<Record<string, AccionArbol>> = { ...ACCIONES_GESTION, ...ACCIONES_FINANZAS, ...ACCIONES_ADMINISTRACION, ...ACCIONES_LEGADO };
+export const ACCIONES_ARBOL: Readonly<Record<string, AccionArbol>> = {
+  ...ACCIONES_GESTION, ...ACCIONES_FINANZAS, ...ACCIONES_ADMINISTRACION, ...ACCIONES_LEGADO, ...ACCIONES_DR_FLIT,
+};
 export const CONJUNCIONES_ARBOL = [...CONJUNCIONES_GESTION];
 
 /** Las áreas del árbol con su par de migraciones propio (siembra + reparto). */
-export type AreaArbol = 'gestion' | 'finanzas' | 'administracion' | 'legado';
+/** HU #13941: `dr-flit` (General · Dr. Flit) tiene UNA migración, la 0254 (siembra + reparto propio). */
+export type AreaArbol = 'gestion' | 'finanzas' | 'administracion' | 'legado' | 'dr-flit';
 
 /** Las acciones de cada área (para generar SU migración y SU reporte en seco). */
 export const ACCIONES_POR_AREA: Readonly<Record<AreaArbol, readonly string[]>> = {
@@ -48,6 +52,7 @@ export const ACCIONES_POR_AREA: Readonly<Record<AreaArbol, readonly string[]>> =
   finanzas: Object.keys(ACCIONES_FINANZAS).sort(),
   administracion: Object.keys(ACCIONES_ADMINISTRACION).sort(),
   legado: Object.keys(ACCIONES_LEGADO).sort(),
+  'dr-flit': Object.keys(ACCIONES_DR_FLIT).sort(),
 };
 
 /** HU #13429 — El padre de cada NODO del árbol (sin «Ayuda», derivada: no es un permiso). */

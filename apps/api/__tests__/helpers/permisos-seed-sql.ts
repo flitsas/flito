@@ -71,6 +71,19 @@ export const MIGRACIONES_CON_REPARTO = [
   '0239_permisos_arbol_legado_reparto.sql', // HU #13429: «Administrar» PESV (A1), cadena de roles y retiro del legado
   '0240_permisos_sueltos_a_su_item.sql', // HU #13588: ítem «Rendimiento» (copia de `rum.resumen.ver`) y retiro de los 5 sueltos
   '0243_permisos_retirar_sync_lanzar.sql', // HU #13631: retiro de `sync.sync.lanzar` (sincronización manual de FLIT 1)
+  '0248_flito_bolsas_documentos.sql', // HU #13889 (ADR-0028): acciones del expediente documental, solo a `admin`
+  '0254_flito_dr_flit_permiso_funciones.sql', // HU #13941: ítem Dr. Flit + 4 acciones; universal «ver manuales», `admin` las 4
+  '0255_permisos_clientes_activar_desactivar.sql', // HU #13945: «Activar o desactivar clientes», exclusiva de `admin`
+  '0258_permisos_clientes_eliminar.sql', // HU #13954: «Eliminar clientes», exclusiva de `admin`
+  '0261_permisos_proveedores_soat_estado.sql', // HU #13958: «Activar o desactivar proveedores», exclusiva de `admin`
+  '0263_permisos_proveedores_eliminar.sql', // HU #13960: «Eliminar proveedores», exclusiva de `admin`
+  '0262_flito_soat_canal_por_proveedor.sql', // HU #13967: renombre de `accion.clientes.soat_sin_tramite`
+  '0281_flito_logistica_permiso_ver_documento_firmante.sql', // HU #14110: operación nueva de logística (PII), solo a `admin`
+  '0282_flito_logistica_permiso_resolver_tramite.sql', // HU #14143: resolver el trámite de una LT pendiente, solo a `admin`
+  '0283_flito_logistica_permiso_traslado_registrar.sql', // HU #14114: registrar viaje a cliente; solo admin
+  '0284_flito_logistica_permiso_traslado_anular.sql', // HU #14115: anular viaje registrado; solo admin
+  '0285_flito_logistica_motivos_permiso.sql', // HU #14119: catálogo de motivos de llegada a FLIT; solo admin
+  '0286_flito_logistica_permiso_firmar_flit.sql', // HU #14122: firmar la llegada a FLIT; solo admin
 ] as const;
 
 /**
@@ -78,7 +91,9 @@ export const MIGRACIONES_CON_REPARTO = [
  * salen también del catálogo plano (`catalogoPlano()`, la foto `inventario.generado.ts`), así que el
  * pliegue del mundo plano tiene que verlos para seguir cuadrando con el generador de hoy.
  */
-const RETIROS_DEL_MUNDO_PLANO: ReadonlySet<string> = new Set(['0243_permisos_retirar_sync_lanzar.sql']);
+// HU #14110: la 0281 también entra aquí, pero por ALTA: `logistica.actas.ver_documento_firmante` es una operación con guarda en la
+// foto (`inventario.generado.ts`), así que el catálogo plano la trae y el pliegue plano tiene que sembrarla para cuadrar.
+const RETIROS_DEL_MUNDO_PLANO: ReadonlySet<string> = new Set(['0243_permisos_retirar_sync_lanzar.sql', '0281_flito_logistica_permiso_ver_documento_firmante.sql', '0282_flito_logistica_permiso_resolver_tramite.sql', '0283_flito_logistica_permiso_traslado_registrar.sql', '0284_flito_logistica_permiso_traslado_anular.sql', '0285_flito_logistica_motivos_permiso.sql', '0286_flito_logistica_permiso_firmar_flit.sql']);
 
 /**
  * HU #12873 — Las migraciones del mundo PLANO (antes del árbol, ≤ 0231, más `RETIROS_DEL_MUNDO_PLANO`). Los tests de cada migración
@@ -188,7 +203,9 @@ const literales = (texto: string): string[] =>
 function tuplas(bloque: string): string[][] {
   if (!bloque.includes('(')) return literales(bloque).map((l) => [l]);
   const salida: string[][] = [];
-  for (const m of bloque.matchAll(/\(((?:'(?:[^']|'')*'\s*,?\s*)+)\)/g)) salida.push(literales(m[1]!));
+  // HU #13945: la 0255 cierra la tupla con un booleano sin comillas (`exclusiva_admin = true`, mecanismo de la 0253).
+  // Se admite SOLO como último elemento y no entra en la tupla (las columnas que se pliegan van antes).
+  for (const m of bloque.matchAll(/\(((?:'(?:[^']|'')*'\s*,?\s*)+)(?:,?\s*(?:true|false)\s*)?\)/g)) salida.push(literales(m[1]!));
   return salida;
 }
 

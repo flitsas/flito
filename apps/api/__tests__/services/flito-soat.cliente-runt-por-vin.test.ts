@@ -116,7 +116,7 @@ function escenario(over: Partial<Record<string, unknown[]>> = {}) {
   kdb.when.scenario({
     users: [{ c: COMPANIA, s: null }],
     clients: [{
-      id: COMPANIA, sinTramite: true, carpeta: 'clientes/acme',
+      id: COMPANIA, carpeta: 'clientes/acme',
       proveedorId: '55555555-5555-4555-8555-555555555555', activo: true,
     }],
     flito_soat: [],
@@ -687,7 +687,7 @@ describe('ADR-0012 §8.2 — el sondeo es visible: los intentos que no entregan 
     {
       nombre: '409 el vehículo ya está en FLITO',
       preparar: () => undefined,
-      montar: () => escenario({ flito_soat: [{ id: 'aaaa', estado: 'pagado', companiaId: COMPANIA }] }),
+      montar: () => escenario({ flito_soat: [{ id: 'aaaa', estado: 'pendiente', companiaId: COMPANIA }] }),
       status: 409, codigo: 'vin_ya_tiene_soat',
     },
   ] as const;
@@ -792,7 +792,7 @@ describe('ADR-0012 §8.2 — el sondeo es visible: los intentos que no entregan 
     },
     {
       nombre: 'canal_desactivado (403) — la compañía no tiene el canal abierto',
-      montar: () => escenario({ clients: [{ id: COMPANIA, sinTramite: false, carpeta: null }] }),
+      montar: () => escenario({ clients: [] }),
       peticion: (app: express.Express, token: string) => preconsultar(app, token),
       status: 403, codigo: 'canal_desactivado',
     },
@@ -890,7 +890,7 @@ describe('AC2 — el `tipoDocPropietario` de la vía directa no se persiste ni s
     // La proyección de la preconsulta es cerrada: vehículo, organismo, propietario y —desde la
     // HU #12212— el aviso de vigencia próxima, que va SIEMPRE presente y vale `null` cuando no hay.
     // Si alguien devolviera `datos` entero, esta comparación de claves lo vería antes que ninguna otra.
-    expect(Object.keys(r.body).sort()).toEqual(['organismo', 'propietario', 'vehiculo', 'vigenciaProxima']);
+    expect(Object.keys(r.body).sort()).toEqual(['flito', 'organismo', 'propietario', 'tipo', 'vehiculo', 'vigenciaProxima']);
   });
 
   it('el tipo de documento que SÍ se guarda es el del formulario, no el del RUNT', async () => {

@@ -70,6 +70,8 @@ export interface FicheroEnAlcance {
 export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'soat', fichero: 'flito-soat/flito-soat.routes.ts' },
   { modulo: 'soat', fichero: 'flito-soat/flito-soat-cliente.routes.ts' },
+  { modulo: 'soat', fichero: 'flito-soat/flito-soat-masivo.routes.ts' }, // HU #14131
+  { modulo: 'soat', fichero: 'flito-soat/flito-soat-incompletas-completar.routes.ts' }, // HU #14136
   { modulo: 'impuestos', fichero: 'flito-impuestos/flito-impuestos.routes.ts' },
   { modulo: 'derechos', fichero: 'flito-derechos/flito-derechos.routes.ts' },
   { modulo: 'revisiones', fichero: 'flito-revisiones/flito-revisiones.routes.ts' },
@@ -83,6 +85,7 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'comparendos', fichero: 'flito-comparendos/flito-comparendos.routes.ts' },
   { modulo: 'liquidacion', fichero: 'flito-liquidacion/flito-liquidacion.routes.ts' },
   { modulo: 'parametrizacion', fichero: 'flito-parametrizacion/flito-parametrizacion.routes.ts' },
+  { modulo: 'parametrizacion', fichero: 'flito-parametrizacion/flito-proveedores-logistica.routes.ts' }, // HU #14103
   { modulo: 'sync', fichero: 'flito-sync/flito-sync.routes.ts' },
   { modulo: 'tramite', fichero: 'tramites/tramites.routes.ts' },
   { modulo: 'tramite', fichero: 'tramites/ocr-docs.routes.ts' },
@@ -98,6 +101,7 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   { modulo: 'comprobantes', fichero: 'flito-comprobantes/flito-comprobantes.routes.ts' },
   // HU #12619: viajes adicionales de logística; fichero hermano bajo /api/flito/logistica.
   { modulo: 'logistica', fichero: 'flito-logistica/flito-logistica-viajes.routes.ts' },
+  { modulo: 'logistica', fichero: 'flito-logistica/flito-logistica-motivos.routes.ts' }, // HU #14119
   // HU #13061: el acceso de FLITO a FLIT 2; fichero hermano bajo /api/flito/sync, funciones del módulo tramites.
   { modulo: 'tramites', fichero: 'flito-sync/flit2.routes.ts' },
   // HU #13237: interruptor por fuente (PUT); el GET, que reutiliza el código, vive en
@@ -111,6 +115,15 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   // HU #12997: lectura de las solicitudes SOAT incompletas (RUNT caído); fichero hermano de soat.
   { modulo: 'soat', fichero: 'flito-soat/flito-soat-incompletas.routes.ts' },
   { modulo: 'soat', fichero: 'flito-soat/flito-soat-documentos.routes.ts' }, // HU #13362
+  // HU #13889 (ADR-0028): expediente documental de la compañía; submódulo propio de bolsas.
+  { modulo: 'bolsas', fichero: 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts' },
+  // HU #13900 (ADR-0029): catálogo del modelo único de bolsa; sub-router de flito-bolsas.routes.ts.
+  { modulo: 'bolsas', fichero: 'flito-bolsas/flito-bolsas.catalogo.routes.ts' },
+  // HU #13907: rama tránsito del catálogo (mismas rutas, fichero propio para que su llave sea distinta).
+  { modulo: 'bolsas', fichero: 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts' },
+  // HU #13941: las funciones de Dr. Flit, en línea (`tieneFuncion`) en su fichero de guardas; las usan
+  // `dr-flit.routes.ts`, `dr-flit-chat.routes.ts` y los POST /buscar de trámites, SOAT, impuestos y derechos.
+  { modulo: 'drflit', fichero: 'flito-dr-flit/dr-flit.funciones.ts' },
 ];
 
 /**
@@ -219,7 +232,8 @@ export function sinComentarios(fuente: string): string {
 const RUTAS = /router\.(get|post|put|patch|delete)\(\s*'([^']*)'\s*,([\s\S]{0,500}?)(?:async\s*\(|\(\s*_?req\b|\(\s*\)\s*=>|\);)/g;
 
 // El objeto admite dígitos desde la HU #13061 (`tramites.flit2.*`); módulo y acción siguen sin ellos.
-const CODIGO = /^'([a-z_]+\.[a-z0-9_]+\.[a-z_]+)'$/;
+// HU #13907: admite UN sub-objeto opcional (`bolsas.transito.cierres.ver`, `bolsas.transito.cierre.crear`, ADR-0029 Q3).
+const CODIGO = /^'([a-z_]+\.[a-z0-9_]+(?:\.[a-z_]+)?\.[a-z_]+)'$/;
 
 function codigoDe(argumentos: string, fichero: string, forma: string): string {
   const literal = CODIGO.exec(argumentos.trim());

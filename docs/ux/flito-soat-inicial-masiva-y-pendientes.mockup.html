@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FLITO · SOAT inicial en masa y pendientes en Por validar (mockup HU #14137)</title>
+<style>
+/* Tokens espejo de apps/web/src/styles/flit-tokens.css (valores representativos; el código manda). */
+:root{
+  --flit-bg-app:#EAF2FF; --flit-bg-card:#fff; --flit-bg-hover:rgba(22,39,68,.06);
+  --flit-text-primary:#162744; --flit-text-secondary:#59677D; --flit-text-muted:#6B788C;
+  --flit-border-soft:#DDE5F0; --flit-border-input:#B9C6DA; --flit-border-focus:#2F6FE4;
+  --flit-blue-text:#1D4FB8; --flit-danger-ink:#C02F24; --flit-warning-ink:#B94120; --flit-success-ink:#2E7A12;
+  --flit-chip-success-bg:#E4F5D9; --flit-chip-warning-bg:#FDE9DF; --flit-chip-danger-bg:#FCE3E0; --flit-chip-active-bg:#E1ECFF; --flit-chip-draft-bg:#EEF1F6;
+  --flit-chip-draft-ink:#4A5568; --flit-chip-active-ink:#1D4FB8;
+  --flit-gradient-primary:linear-gradient(135deg,#2F6FE4,#1D4FB8); --flit-radius-card:16px;
+  --flit-shadow-card:0 1px 2px rgba(22,39,68,.08); --page:#F5F8FD;
+}
+[data-tema="oscuro"]{
+  --flit-bg-app:#0F1B2E; --flit-bg-card:#16253E; --flit-bg-hover:rgba(255,255,255,.08);
+  --flit-text-primary:#F2F6FC; --flit-text-secondary:#BCC8DA; --flit-text-muted:#A5B3C9;
+  --flit-border-soft:#3A4E78; --flit-border-input:#4E6490; --flit-border-focus:#8AB4FF;
+  --flit-blue-text:#8AB4FF; --flit-danger-ink:#FF9C93; --flit-warning-ink:#FFB48F; --flit-success-ink:#9BE070;
+  --flit-chip-success-bg:#1F3A1A; --flit-chip-warning-bg:#472A1C; --flit-chip-danger-bg:#4A2220; --flit-chip-active-bg:#1B3563; --flit-chip-draft-bg:#2A3956;
+  --flit-chip-draft-ink:#D3DCEB; --flit-chip-active-ink:#BFD5FF; --page:#0A1424;
+}
+*{box-sizing:border-box} body{margin:0;font:14px/1.45 system-ui,sans-serif;background:var(--page);color:var(--flit-text-primary)}
+.rev{display:flex;flex-wrap:wrap;gap:8px;padding:10px 16px;background:#111;color:#fff;font-size:12px;align-items:center}
+.rev select,.rev button{font:inherit;padding:4px 8px}
+.wrap{margin:16px auto;padding:0 16px;max-width:1040px}.wrap.movil{max-width:390px}
+.card{background:var(--flit-bg-card);border:1px solid var(--flit-border-soft);border-radius:var(--flit-radius-card);box-shadow:var(--flit-shadow-card);padding:16px;margin-bottom:16px}
+h1{font-size:20px;margin:0}.sub{margin:4px 0 0;color:var(--flit-text-secondary)} h2{font-size:15px;margin:0 0 10px} h3{font-size:14px;margin:0 0 6px}
+.grid{display:grid;gap:12px;grid-template-columns:1fr}
+@media(min-width:640px){.wrap:not(.movil) .grid{grid-template-columns:1fr 1fr}}
+.opt{position:relative;display:flex;gap:12px;min-height:44px;padding:16px;border:1px solid var(--flit-border-soft);border-radius:10px;transition:background-color .15s}
+.opt:hover{background:var(--flit-bg-hover)} .opt.on{border:2px solid var(--flit-blue-text);background:var(--flit-bg-app);padding:15px}
+.opt:has(:focus-visible){box-shadow:0 0 0 3px var(--flit-border-focus)}
+.opt label{font-weight:600;cursor:pointer}.opt label::after{content:"";position:absolute;inset:0}
+.opt p{margin:2px 0 0;font-size:12px;color:var(--flit-text-secondary)} .opt input{position:relative;z-index:1;accent-color:var(--flit-blue-text);margin-top:4px}
+.btn{font:inherit;height:40px;border-radius:999px;padding:0 20px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;transition:box-shadow .15s,background-color .15s}
+.btn.sm{height:32px;padding:0 14px;font-size:13px}
+.btn:focus-visible,.up:focus-within,a.lnk:focus-visible,.fld input:focus-visible,.fld select:focus-visible{outline:none;box-shadow:0 0 0 3px var(--flit-border-focus)}
+.pri{border:0;color:#fff;background:var(--flit-gradient-primary)} .pri:hover:not([aria-disabled=true]){box-shadow:inset 0 0 0 999px rgba(0,0,0,.12)}
+.pri[aria-disabled=true]{opacity:.55;cursor:not-allowed}
+.sec{background:var(--flit-bg-card);color:var(--flit-text-primary);border:1px solid var(--flit-border-input)} .sec:hover{background:var(--flit-bg-hover)}
+.acc{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:12px}
+.wrap.movil .acc{flex-direction:column}.wrap.movil .acc .btn{width:100%}
+/* Pie del modal: espacio entre la línea divisoria y los botones (pt-4 mt-4 border-t) en escritorio y móvil */
+.modal .acc{margin-top:16px;padding-top:16px;border-top:1px solid var(--flit-border-soft)}
+.paso{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-bottom:12px}
+.up{display:block;text-align:center;padding:16px;border:2px dashed var(--flit-blue-text);border-radius:12px;cursor:pointer;transition:background-color .15s}
+.up:hover{background:var(--flit-bg-hover)} .up b{display:block;font-size:12px}.up small{color:var(--flit-text-secondary);font-size:11px}
+.up.ok{border-color:var(--flit-success-ink)} .up input{position:absolute;opacity:0;width:1px;height:1px}
+.msg{margin:8px 0 0;padding:10px 12px;border-radius:10px;font-size:13px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.msg.err{background:var(--flit-chip-danger-bg);color:var(--flit-danger-ink);font-weight:600}
+.msg.warn{background:var(--flit-chip-warning-bg);color:var(--flit-warning-ink);font-weight:600}
+.msg.st{background:var(--flit-bg-app);color:var(--flit-text-primary)}
+.razon{font-size:12px;color:var(--flit-text-secondary);margin:8px 0 0}
+.tw{overflow-x:auto;border:1px solid var(--flit-border-soft);border-radius:var(--flit-radius-card);margin-top:12px}
+table{width:100%;border-collapse:collapse;min-width:560px} th{text-align:left;font-size:12px;color:var(--flit-text-secondary);padding:10px 12px;background:var(--flit-bg-app)}
+td{padding:10px 12px;border-top:1px solid var(--flit-border-soft);vertical-align:top} tbody tr:hover{background:var(--flit-bg-hover)}
+.mut{font-size:12px;color:var(--flit-text-secondary)} .mono{font-family:ui-monospace,monospace;font-weight:600}
+.tag{font-size:11px;padding:1px 8px;border-radius:999px;background:var(--flit-chip-draft-bg);color:var(--flit-chip-draft-ink);margin-left:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600}
+.chip i{width:6px;height:6px;border-radius:50%;background:currentColor}
+.c-draft{background:var(--flit-chip-draft-bg);color:var(--flit-chip-draft-ink)}.c-active{background:var(--flit-chip-active-bg);color:var(--flit-chip-active-ink)}
+.c-ok{background:var(--flit-chip-success-bg);color:var(--flit-success-ink)}.c-warn{background:var(--flit-chip-warning-bg);color:var(--flit-warning-ink)}.c-bad{background:var(--flit-chip-danger-bg);color:var(--flit-danger-ink)}
+.sk td div{height:12px;border-radius:6px;background:var(--flit-border-soft)}
+.cifras{display:flex;flex-wrap:wrap;gap:12px 24px;margin-bottom:8px}.wrap.movil .cifras{flex-direction:column;gap:6px}
+a.lnk{color:var(--flit-blue-text);font-weight:600;text-decoration:none}a.lnk:hover{text-decoration:underline}
+ul.rech{margin:8px 0;padding-left:18px}
+.nota{font-size:12px;color:var(--flit-text-secondary);margin:0 0 12px}
+.modal{border:1px solid var(--flit-border-input);border-radius:var(--flit-radius-card);background:var(--flit-bg-card);box-shadow:0 8px 24px rgba(0,0,0,.25);padding:16px}
+.modal .cab{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.caja{background:var(--flit-bg-app);border:1px solid var(--flit-border-soft);border-radius:12px;padding:12px;margin-bottom:12px}
+dl.d{display:grid;grid-template-columns:1fr;gap:8px 16px;margin:16px 0 0;padding-top:12px;border-top:1px solid var(--flit-border-soft)}
+@media(min-width:640px){.wrap:not(.movil) dl.d{grid-template-columns:1fr 1fr}}
+dl.d dt{font-size:11px;text-transform:uppercase;color:var(--flit-text-muted)} dl.d dd{margin:0;font-weight:500}
+.fld{display:flex;flex-direction:column;gap:4px;font-size:13px}
+.fld input,.fld select{font:inherit;height:40px;padding:0 10px;border-radius:10px;border:1px solid var(--flit-border-input);background:var(--flit-bg-card);color:var(--flit-text-primary)}
+.fld input[aria-invalid=true]{border-color:var(--flit-danger-ink)} .fld .e{color:var(--flit-danger-ink);font-size:12px}
+.ff{display:grid;gap:12px;grid-template-columns:1fr}
+@media(min-width:640px){.wrap:not(.movil) .ff{grid-template-columns:1fr 1fr}}
+.toast{position:sticky;bottom:12px;margin:0 0 12px auto;max-width:360px;padding:12px;border-radius:8px;background:var(--flit-bg-card);color:var(--flit-text-primary);border:1px solid var(--flit-border-soft);display:flex;gap:12px;justify-content:space-between;font-size:13px}
+.toast button{background:none;border:0;color:inherit;font:inherit;cursor:pointer;text-decoration:underline}
+.toast button:focus-visible{outline:none;box-shadow:0 0 0 3px var(--flit-border-focus)}
+.sr{position:absolute;left:-9999px}
+/* AvisoProcesando: pastilla tonal + borde + semibold + spinner a la izquierda. Tono activo = chip-active (>= 4.5:1 claro y oscuro). */
+.proc{display:inline-flex;align-items:center;gap:8px;max-width:100%;padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600;
+  background:var(--flit-chip-active-bg);color:var(--flit-chip-active-ink);border:1px solid color-mix(in srgb,var(--flit-chip-active-ink) 45%,transparent)}
+.proc.neutro{background:var(--flit-chip-draft-bg);color:var(--flit-chip-draft-ink)}
+.wrap.movil .proc{display:flex;width:100%;border-radius:14px}
+.spin{flex:none;width:14px;height:14px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:giro .8s linear infinite}
+.spin.xs{width:10px;height:10px;border-width:2px}
+@keyframes giro{to{transform:rotate(360deg)}}
+.pun{display:none;letter-spacing:1px}
+@media(prefers-reduced-motion:reduce){.spin{animation:none;border-right-color:currentColor;border-style:dotted}}
+.forzar-quieto .spin{animation:none;border-right-color:currentColor;border-style:dotted}
+.procwrap{margin:8px 0 0}
+</style>
+</head>
+<body data-tema="claro">
+<div class="rev" role="toolbar" aria-label="Controles de revisión del mockup (no forman parte de la interfaz)">
+  <label>Vista
+    <select id="estado">
+      <optgroup label="Carga masiva · SOAT inicial">
+        <option value="vacio">Vacío (sin archivo)</option>
+        <option value="elegido">Archivo elegido</option>
+        <option value="subiendo">Cargando: subiendo</option>
+        <option value="errVacio">Error: archivo sin vehículos</option>
+        <option value="errPlantilla">Error: plantilla equivocada</option>
+        <option value="errSubida">Error: red al subir (Reintentar)</option>
+        <option value="cargandoAvance">Cargando: primer avance</option>
+        <option value="curso">Lleno: en curso</option>
+        <option value="errAvance">Error: al leer avance</option>
+        <option value="fin" selected>Lleno: terminado con rechazadas</option>
+        <option value="finPend">Lleno: terminado sin rechazadas, con pendientes</option>
+        <option value="finOk">Lleno: terminado, nada pendiente</option>
+        <option value="finRen">Renovación: terminado (faltan datos del propietario)</option>
+      </optgroup>
+      <optgroup label="Por validar">
+        <option value="lista">Lista con pendientes nuevas</option>
+        <option value="listaCargando">Lista: cargando</option>
+        <option value="listaError">Lista: error (Reintentar)</option>
+        <option value="listaConsultando">Lista: fila consultando el RUNT</option>
+      </optgroup>
+      <optgroup label="Completar · factura (Inicial)">
+        <option value="dCarga">Detalle: cargando datos</option>
+        <option value="dErr">Detalle: error al cargar (Reintentar)</option>
+        <option value="f0">Falta factura: sin archivo</option>
+        <option value="f1">Falta factura: leyendo (aviso de procesamiento)</option>
+        <option value="fVin">Falta factura: VIN no coincide</option>
+        <option value="fRed">Falta factura: error de red (Reintentar)</option>
+        <option value="fOk">Formulario prellenado (lectura ok)</option>
+        <option value="fDudoso">Formulario: VIN dudoso</option>
+        <option value="fOcr">Formulario: OCR caído, a mano</option>
+        <option value="fDoc">Formulario: documento difiere</option>
+        <option value="fVal">Formulario: validación al crear</option>
+        <option value="fEnv">Formulario: creando solicitud</option>
+        <option value="fErrConf">Formulario: error del servidor (Reintentar)</option>
+        <option value="fRunt">Formulario: RUNT no cuadra</option>
+        <option value="fYa">Ya fue completada por otra persona</option>
+        <option value="fExito">Éxito: modal cerrado + toast</option>
+      </optgroup>
+      <optgroup label="Completar · propietario (Renovación)">
+        <option value="p0">Faltan datos del propietario: formulario vacío</option>
+        <option value="pFac">Con factura opcional leída</option>
+      </optgroup>
+      <optgroup label="Patrón AvisoProcesando">
+        <option value="muestra">Variantes (tonos, botón, reduced-motion)</option>
+      </optgroup>
+    </select>
+  </label>
+  <button id="tema" type="button">Tema: claro</button>
+  <button id="ancho" type="button">Ancho: escritorio</button>
+  <button id="quieto" type="button">Movimiento: normal</button>
+  <span>Datos ficticios (VIN 9ZZDEMO…, placas ZZA…). Tokens espejo de flit-tokens.css.</span>
+</div>
+<div class="wrap" id="wrap"><div id="panel"></div></div>
+<script>
+const $=id=>document.getElementById(id);
+const CHIP={encola:['c-draft','En cola'],consultando:['c-active','Consultando'],creada:['c-ok','Creada'],porvalidar:['c-warn','Por validar'],rechazada:['c-bad','Rechazada']};
+const chip=k=>k==='consultando'
+  ?`<span class="chip c-active"><span class="spin xs" aria-hidden="true"></span>Consultando</span>`
+  :`<span class="chip ${CHIP[k][0]}"><i aria-hidden="true"></i>${CHIP[k][1]}</span>`;
+/* AvisoProcesando(texto, tono): role=status aria-live=polite; spinner a la izquierda; sin giro con reduced-motion */
+const proc=(t,tono='')=>`<div class="procwrap" role="status" aria-live="polite"><span class="proc ${tono}"><span class="spin" aria-hidden="true"></span>${t}</span></div>`;
+const spinBtn='<span class="spin" aria-hidden="true"></span>';
+/* ---------- encabezado de la solicitud (Tipo + Forma de cargar) ---------- */
+const cab=(inicial=true)=>`<div class="card"><h1>Solicitud de SOAT</h1><p class="sub">${inicial?'Solicite el SOAT de sus vehículos nuevos.':'Renueve el SOAT de sus vehículos.'}</p></div>
+<div class="card"><h2>Compañía (solo Operaciones)</h2><label for="c1" class="sr">Compañía</label><select id="c1" style="font:inherit;padding:8px;width:100%;max-width:360px"><option>Transportes Andina S.A.S.</option></select></div>
+<div class="card"><h2>Tipo de SOAT</h2><div class="grid" role="radiogroup" aria-label="Tipo de SOAT">
+ <div class="opt ${inicial?'on':''}"><input type="radio" name="t" id="t1" ${inicial?'checked':''}><div><label for="t1">SOAT inicial</label><p>Vehículo nuevo o que nunca ha tenido SOAT. Se consulta por el VIN.</p></div></div>
+ <div class="opt ${inicial?'':'on'}"><input type="radio" name="t" id="t2" ${inicial?'':'checked'}><div><label for="t2">Renovación</label><p>El vehículo ya tuvo SOAT. Se consulta por placa y documento del propietario.</p></div></div></div></div>
+<div class="card"><h2>Forma de cargar</h2><div class="grid" role="radiogroup" aria-label="Forma de cargar">
+ <div class="opt"><input type="radio" name="m" id="m1"><div><label for="m1">Individual</label><p>Un vehículo a la vez.</p></div></div>
+ <div class="opt on"><input type="radio" name="m" id="m2" checked><div><label for="m2">Masiva</label><p>${inicial?'Hasta 200 vehículos desde un Excel.':'Hasta 200 renovaciones desde un Excel.'}</p></div></div></div></div>`;
+/* ---------- panel masivo ---------- */
+const FILAS=[
+ ['9ZZDEMO0000000001','MAZDA CX-30 · 2025 · ZZA101','porvalidar','Falta la factura de venta'],
+ ['9ZZDEMO0000000002','RENAULT KWID · 2025 · ZZA102','porvalidar','Falta la factura de venta'],
+ ['9ZZDEMO0000000003','KIA SONET · 2025 · ZZA103','creada',''],
+ ['9ZZDEMO0000000004','—','consultando',''],
+ ['9ZZDEMO0000000005','—','encola',''],
+ ['9ZZDEMO0000000006','—','rechazada','El RUNT no tiene registrado ese VIN']];
+const FILAS_REN=[['ZZA201','RENAULT LOGAN · 2019','creada',''],['ZZA202','CHEVROLET SPARK · 2018','porvalidar','Faltan datos del propietario'],['ZZA203','—','rechazada','El vehículo ya tiene SOAT vigente']];
+function tabla(filas,clave){
+  return `<div class="tw" role="region" aria-label="Filas de la carga en masa" tabindex="0"><table><thead><tr><th scope="col">${clave}</th><th scope="col">Vehículo (RUNT)</th><th scope="col">Estado</th><th scope="col">Detalle</th></tr></thead><tbody>`+
+  filas.map(f=>`<tr><td class="mono">${f[0]}</td><td>${f[1]}</td><td>${chip(f[2])}</td><td>${f[3]||'—'}</td></tr>`).join('')+`</tbody></table></div>`;}
+const esq=c=>`<div class="tw"><table><thead><tr><th>${c}</th><th>Vehículo (RUNT)</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>`+Array(5).fill('<tr class="sk"><td><div style="width:120px"></div></td><td><div style="width:140px"></div></td><td><div style="width:80px"></div></td><td><div style="width:120px"></div></td></tr>').join('')+`</tbody></table></div>`;
+const T='SOAT inicial en masa';
+const paso=(caja,btn,msg='')=>`<div class="card"><h2>${T}</h2>
+ <div class="paso"><span>1. Descargue la plantilla y escriba el VIN de cada vehículo, una fila por vehículo.</span><button class="btn sec" type="button">⭳ Descargar plantilla</button></div>
+ <p class="razon" style="margin:-4px 0 10px">La factura de venta se carga después, en Por validar.</p>
+ <p style="margin:0 0 8px">2. Suba el archivo con los vehículos.</p>${caja}${msg}<div class="acc">${btn}</div></div>`;
+const caja=(ok,n)=>`<label class="up ${ok?'ok':''}" for="f"><b>${ok?n:'Elegir archivo de vehículos'}</b><small>${ok?'Pulse para cambiar el archivo':'Excel .xlsx · hasta 200 filas'}</small><input id="f" type="file" accept=".xlsx"></label>`;
+const prim=(t,dis)=>`<button class="btn pri" type="button" ${dis?'aria-disabled="true"':''}>${t}</button>`;
+const err=(t,b)=>`<div class="msg err" role="alert"><span>${t}</span>${b||''}</div>`;
+const reint='<button class="btn sec sm" type="button">Reintentar</button>';
+const razon='<p class="razon">Elija un archivo para continuar.</p>';
+function resumen({rech,pend,ren}){
+  const cre=ren?1:12, rc=rech?(ren?1:2):0;
+  const lineas=[];
+  if(pend.fac) lineas.push(`${pend.fac} esperan la factura de venta`);
+  if(pend.prop) lineas.push(`${pend.prop} falta datos del propietario`);
+  if(pend.runt) lineas.push(`${pend.runt} esperan al RUNT`);
+  const totPend=(pend.fac||0)+(pend.prop||0)+(pend.runt||0);
+  const primaria= rech?'rech': totPend&&(pend.fac||pend.prop)?'pv':'otro';
+  const bRech=`<button class="btn ${primaria==='rech'?'pri':'sec'}" type="button">⭳ Descargar rechazadas</button>`;
+  const bPv=`<button class="btn ${primaria==='pv'?'pri':'sec'}" type="button">Ir a Por validar</button>`;
+  const bOtro=`<button class="btn ${primaria==='otro'?'pri':'sec'}" type="button">Cargar otro archivo</button>`;
+  const acc= primaria==='rech'? bOtro+bRech : primaria==='pv'? bOtro+bPv : bOtro;
+  return `<div class="card" tabindex="-1"><h2>Resultado de la carga</h2>
+  <div class="cifras"><span class="chip c-ok"><i></i>${cre} creadas</span>${totPend?`<span class="chip c-warn"><i></i>${totPend} en Por validar</span>`:''}${rc?`<span class="chip c-bad"><i></i>${rc} rechazadas</span>`:''}</div>
+  ${totPend?`<p style="margin:0 0 4px;color:var(--flit-text-secondary)">${lineas.join(' · ')}. <a class="lnk" href="#" onclick="return false">Ver en Por validar →</a></p>`:''}
+  ${rech?`<b>Rechazadas</b><ul class="rech">${ren?'<li>ZZA203 · El vehículo ya tiene SOAT vigente</li>':'<li>9ZZDEMO0000000006 · El RUNT no tiene registrado ese VIN</li><li>9ZZDEMO0000000007 · El VIN está repetido en el archivo</li>'}</ul>`:''}
+  <div class="acc">${acc}</div></div>`;}
+const detalle=(f,c)=>`<div class="card"><h2>Detalle por ${c.toLowerCase()}</h2>${tabla(f,c)}</div>`;
+/* ---------- Por validar ---------- */
+const LISTA=[
+ ['9ZZDEMO0000000001','Inicial','Falta la factura de venta','Completar',false],
+ ['9ZZDEMO0000000002','Inicial','Falta la factura de venta','Completar',false],
+ ['ZZA202','Renovación','Faltan datos del propietario','Completar',false],
+ ['9ZZDEMO0000000009','Inicial','El RUNT no respondió','Reintentar',true]];
+const lista=(consultando=false)=>`<div class="card"><h2>Por validar</h2><div class="tw" style="margin-top:0"><table><thead><tr><th scope="col">Vehículo</th><th scope="col">Estado</th><th scope="col">Solicitado</th><th scope="col"><span class="sr">Acciones</span></th></tr></thead><tbody>`+
+ LISTA.map(r=>`<tr><td><span class="mono">${r[0]}</span><span class="tag">${r[1]}</span>${r[4]?'<div class="mut">Datos del RUNT pendientes</div>':''}</td>
+ <td><span class="chip c-warn"><i></i>Por validar</span><div class="mut" style="margin-top:4px">${r[4]?'Último intento: 28/10/2026 09:12<br>':''}${r[2]}</div></td><td class="mut">28/10/2026</td>
+ <td><div style="display:flex;gap:8px;flex-wrap:wrap">${r[4]?(consultando?'<button class="btn sec sm" type="button" disabled aria-busy="true"><span class="spin xs" aria-hidden="true"></span>Consultando…</button>':'<button class="btn sec sm" type="button">↻ Reintentar consulta</button>')+'<button class="btn sec sm" type="button">Ver ›</button>':'<button class="btn sec sm" type="button">Completar ›</button>'}</div></td></tr>`).join('')+`</tbody></table></div>
+ <p class="nota" style="margin-top:8px">Las dos primeras filas llegan de la carga masiva; «Completar» abre el detalle. «Reintentar consulta» solo aparece cuando el motivo es el RUNT.</p></div>`;
+/* ---------- modal de detalle ---------- */
+const modal=(titulo,cuerpo)=>`<div class="modal" role="dialog" aria-modal="true" aria-labelledby="mt"><div class="cab"><h2 id="mt" style="margin:0">${titulo}</h2><button class="btn sec sm" type="button" aria-label="Cerrar">✕</button></div>${cuerpo}</div>`;
+const datos=(ren,extra='')=>`<dl class="d"><div><dt>${ren?'Placa':'VIN de la solicitud'}</dt><dd class="mono">${ren?'ZZA202':'9ZZDEMO0000000001'}</dd></div><div><dt>Compañía</dt><dd>Transportes Andina S.A.S.</dd></div><div><dt>Solicitado por</dt><dd>Usuario Demo</dd></div><div><dt>Solicitado</dt><dd>28/10/2026</dd></div>${extra}</dl>`;
+const encab=(ren)=>`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><span class="chip c-warn"><i></i>Por validar</span><span class="chip c-draft">${ren?'Renovación':'SOAT inicial'}</span></div>`;
+const secFac=(ren,inner)=>`<section class="caja" aria-labelledby="sf"><h3 id="sf">${ren?'Faltan datos del propietario':'Falta la factura de venta'}</h3>${inner}</section>`;
+const caja2=(txt,ok)=>`<label class="up ${ok?'ok':''}" for="pdf"><b>${txt}</b><small>${ok?'Pulse para cambiar el archivo':'PDF · hasta 15 MB'}</small><input id="pdf" type="file" accept="application/pdf"></label>`;
+const fld=(l,v,o={})=>`<div class="fld"><label for="${o.id||l}">${l}</label><input id="${o.id||l}" value="${v||''}" ${o.inv?'aria-invalid="true" aria-describedby="e-'+(o.id||l)+'"':''} ${o.ro?'readonly':''}>${o.inv?`<span class="e" id="e-${o.id||l}">${o.inv}</span>`:''}</div>`;
+function form(v={},o={}){
+  const ro=o.ro, bad=o.bad||{};
+  return `<form aria-label="Datos del propietario"><div class="ff">
+   <div class="fld"><label for="td">Tipo de documento</label><select id="td"><option>${v.td||'Cédula de ciudadanía'}</option></select></div>
+   ${fld('Número de documento',v.doc,{id:'nd',ro,inv:bad.doc})}
+   ${fld('Nombres',v.nom,{id:'nom',ro,inv:bad.nom})}${fld('Apellidos',v.ape,{id:'ape',ro})}
+   ${fld('Correo electrónico',v.cor,{id:'cor',ro,inv:bad.cor})}${fld('Celular',v.cel,{id:'cel',ro,inv:bad.cel})}
+   ${fld('Dirección',v.dir,{id:'dir',ro})}${fld('Municipio',v.mun,{id:'mun',ro})}${fld('Departamento',v.dep,{id:'dep',ro})}
+  </div>
+  <p class="razon">${o.razon||'Al pulsar «Crear solicitud», la solicitud sale al gestor.'}</p>
+  <div class="acc"><button class="btn sec" type="button">Cerrar</button><button class="btn pri" type="button" ${o.dis?'aria-disabled="true"':''} ${o.env?'aria-busy="true"':''}>${o.env?spinBtn+'Creando solicitud…':'Crear solicitud'}</button></div></form>`;}
+const OK={td:'Cédula de ciudadanía',doc:'1000000001',nom:'Persona',ape:'Demo Uno',cor:'demo@example.com',cel:'3000000000',dir:'Calle 0 # 0-00',mun:'Bogotá D.C.',dep:'Bogotá D.C.'};
+const aviso=(t,k='warn')=>`<div class="msg ${k}" role="${k==='err'?'alert':'status'}" style="margin:0 0 12px">${t}</div>`;
+const subida=(ok,txt)=>caja2(txt||'Elegir la factura de venta (PDF)',ok);
+const leyendo=proc('Leyendo la factura…');
+const intro='Cargue la factura de venta en PDF. Revisaremos que el VIN coincida y llenaremos los datos del propietario por usted.';
+const D=(t,c)=>modal(t,c);
+const solFac=(inner,extra='')=>D('Solicitud · 9ZZDEMO0000000001',encab(false)+secFac(false,inner)+extra+datos(false));
+const formDespues=(avisos,v,o)=>D('Solicitud · 9ZZDEMO0000000001',encab(false)+`<section class="caja" aria-labelledby="sf"><h3 id="sf">Revise los datos del propietario</h3><p class="mut" style="margin:0 0 8px">Los leímos de la factura de venta (<b>factura-demo.pdf</b>). Revíselos antes de crear la solicitud.</p>${caja2('factura-demo.pdf',true)}</section>`+avisos+form(v,o)+datos(false));
+const ES={
+ vacio:()=>cab()+paso(caja(false),prim('Cargar vehículos',true),razon),
+ elegido:()=>cab()+paso(caja(true,'vehiculos-octubre.xlsx'),prim('Cargar vehículos')),
+ subiendo:()=>cab()+paso(caja(true,'vehiculos-octubre.xlsx'),`<button class="btn pri" type="button" aria-disabled="true" aria-busy="true">${spinBtn}Cargando…</button>`,proc('Recibiendo el archivo…')),
+ errVacio:()=>cab()+paso(caja(false),prim('Cargar vehículos',true),err('El archivo no tiene vehículos. Llene al menos una fila de la plantilla.')),
+ errPlantilla:()=>cab()+paso(caja(false),prim('Cargar vehículos',true),err('Este archivo es de la plantilla de Renovación. Elija Renovación o descargue la plantilla Inicial.','<button class="btn sec sm" type="button">⭳ Descargar plantilla</button>')),
+ errSubida:()=>cab()+paso(caja(true,'vehiculos-octubre.xlsx'),prim('Cargar vehículos'),err('No pudimos cargar el archivo. Revise su conexión e intente de nuevo.',reint)),
+ cargandoAvance:()=>cab()+`<div class="card"><h2>${T}</h2>${proc('Preparando el avance…')}${esq('VIN')}</div>`,
+ curso:()=>cab()+`<div class="card"><h2>${T}</h2>${proc('Procesando: 12 de 40 filas. Puede salir de esta página; el proceso continúa.')}${tabla(FILAS,'VIN')}</div>`,
+ errAvance:()=>cab()+`<div class="card"><h2>${T}</h2>${err('No pudimos actualizar el avance. El proceso continúa en FLITO.',reint)}${tabla(FILAS,'VIN')}</div>`,
+ fin:()=>cab()+resumen({rech:1,pend:{fac:2}})+detalle(FILAS.filter(f=>f[2]!=='consultando'&&f[2]!=='encola'),'VIN'),
+ finPend:()=>cab()+resumen({rech:0,pend:{fac:2}})+detalle(FILAS.filter(f=>['creada','porvalidar'].includes(f[2])),'VIN'),
+ finOk:()=>cab()+resumen({rech:0,pend:{}})+detalle(FILAS.filter(f=>f[2]==='creada'),'VIN'),
+ finRen:()=>cab(false)+resumen({rech:1,pend:{prop:1},ren:1})+detalle(FILAS_REN,'Placa'),
+ lista:()=>lista(),
+ listaConsultando:()=>lista(true),
+ listaCargando:()=>`<div class="card"><h2>Por validar</h2><div class="msg st" role="status" aria-busy="true">Cargando las solicitudes…</div>${esq('Vehículo').replace('Vehículo (RUNT)','Estado').replace('Detalle','Solicitado')}</div>`,
+ listaError:()=>`<div class="card"><h2>Por validar</h2>${err('No pudimos cargar las solicitudes por validar.',reint)}</div>`,
+ dCarga:()=>D('Solicitud · 9ZZDEMO0000000001',encab(false)+secFac(false,`<p class="mut" style="margin:0">${intro}</p>`)+datos(false)+'<p role="status" aria-busy="true" class="mut">Cargando el propietario y la factura…</p>'),
+ dErr:()=>D('Solicitud · 9ZZDEMO0000000001',encab(false)+datos(false)+err('No pudimos cargar el propietario y la factura.',reint)),
+ f0:()=>solFac(`<p class="mut" style="margin:0 0 8px">${intro}</p>${subida(false)}`),
+ f1:()=>solFac(`<p class="mut" style="margin:0 0 8px">${intro}</p>${subida(true,'factura-demo.pdf')}${leyendo}`),
+ fVin:()=>solFac(`<p class="mut" style="margin:0 0 8px">${intro}</p>${subida(false)}${err('El VIN de la factura no coincide con el de la solicitud. Cargue la factura correcta.')}`),
+ fRed:()=>solFac(`<p class="mut" style="margin:0 0 8px">${intro}</p>${subida(true,'factura-demo.pdf')}${err('No pudimos leer la factura. Revise su conexión e intente de nuevo.',reint)}`),
+ fOk:()=>formDespues('',OK,{}),
+ fDudoso:()=>formDespues(aviso('<span>No pudimos confirmar el VIN de la factura; compárelo con el de la solicitud.<br><span style="font-weight:400">VIN de la solicitud: <b class="mono">9ZZDEMO0000000001</b></span></span>'),OK,{}),
+ fOcr:()=>formDespues(aviso('No pudimos leer la factura, pero quedó guardada. Escriba los datos del propietario a mano.','st'),{},{dis:true,razon:'Complete los datos del propietario para crear la solicitud.'}),
+ fDoc:()=>formDespues(aviso('El documento de la factura es distinto al que consultamos en el RUNT. Dejamos el del RUNT; revise que sea correcto.'),OK,{}),
+ fVal:()=>formDespues('',{...OK,cor:'demo@'},{bad:{cor:'Escriba un correo válido.',cel:'Escriba un celular de 10 dígitos.'},razon:'Revise los campos marcados.'}),
+ fEnv:()=>formDespues('',OK,{ro:true,env:true,dis:true}),
+ fErrConf:()=>formDespues(err('No pudimos crear la solicitud. Lo que escribió sigue aquí; intente de nuevo.',reint),OK,{}),
+ fRunt:()=>formDespues(aviso('El documento no corresponde al registrado en el RUNT para este vehículo. Revise el número de documento.','err'),OK,{bad:{doc:'Revise este número.'}}),
+ fYa:()=>D('Solicitud · 9ZZDEMO0000000001',encab(false)+aviso('Esta solicitud ya fue completada por otra persona. Actualice la lista para verla.','st')+'<div class="acc"><button class="btn pri" type="button">Actualizar lista</button></div>'),
+ fExito:()=>lista().replace('Las dos primeras filas llegan de la carga masiva; «Completar» abre el detalle. «Reintentar consulta» solo aparece cuando el motivo es el RUNT.','La solicitud creada salió de la lista (aquí quedan 3).')+'<div class="toast" role="status"><span>Solicitud creada y enviada al gestor.</span><button type="button" aria-label="Cerrar aviso">Cerrar</button></div>',
+ p0:()=>D('Solicitud · ZZA202',encab(true)+`<section class="caja" aria-labelledby="sf"><h3 id="sf">Faltan datos del propietario</h3><p class="mut" style="margin:0 0 8px">Escriba los datos del propietario. Si tiene la factura de venta, puede cargarla (opcional) y llenamos los datos por usted.</p>${caja2('Elegir la factura de venta (PDF, opcional)',false)}</section>`+form({},{dis:true,razon:'Complete los datos del propietario para crear la solicitud.'})+datos(true)),
+ pFac:()=>D('Solicitud · ZZA202',encab(true)+`<section class="caja" aria-labelledby="sf"><h3 id="sf">Revise los datos del propietario</h3><p class="mut" style="margin:0 0 8px">Los leímos de la factura de venta (<b>factura-demo.pdf</b>). Revíselos antes de crear la solicitud.</p>${caja2('factura-demo.pdf',true)}</section>`+form(OK,{})+datos(true)),
+ muestra:()=>`<div class="card"><h2>AvisoProcesando · variantes</h2>
+  <p class="nota">Tono «activo» (por defecto): leer factura, recibir archivo, avance del lote.</p>${proc('Leyendo la factura…')}
+  <p class="nota" style="margin-top:12px">Tono «neutro»: esperas sin acción del usuario (reservado).</p>${proc('Preparando el avance…','neutro')}
+  <p class="nota" style="margin-top:12px">Texto largo (envuelve, no se trunca):</p>${proc('Procesando: 12 de 40 filas. Puede salir de esta página; el proceso continúa.')}
+  <p class="nota" style="margin-top:12px">En botón (solo spinner + texto del botón) y en chip de fila:</p>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center"><button class="btn pri" type="button" aria-disabled="true" aria-busy="true">${spinBtn}Creando solicitud…</button>${chip('consultando')}</div>
+  <p class="nota" style="margin-top:12px">Con «Movimiento: reducido» el spinner no gira y queda como anillo punteado estático; el texto sigue siendo el portador del estado.</p></div>`
+};
+const sel=$('estado');
+function pintar(){$('panel').innerHTML=(ES[sel.value]||ES.fin)();}
+sel.onchange=pintar;
+$('tema').onclick=e=>{const o=document.body.dataset.tema==='claro';document.body.dataset.tema=o?'oscuro':'claro';e.target.textContent='Tema: '+(o?'oscuro':'claro');};
+$('ancho').onclick=e=>{const m=$('wrap').classList.toggle('movil');e.target.textContent='Ancho: '+(m?'móvil (375)':'escritorio');};
+$('quieto').onclick=e=>{const q=document.body.classList.toggle('forzar-quieto');e.target.textContent='Movimiento: '+(q?'reducido':'normal');};
+pintar();
+</script>
+</body>
+</html>

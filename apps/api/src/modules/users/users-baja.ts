@@ -12,7 +12,7 @@ import { invalidarPermisosDe } from '../../shared/permisos-efectivos.js';
 import { BloqueoAdministracionError } from '../../shared/permisos-anti-bloqueo.js';
 import { audit } from '../../shared/middleware/audit.js';
 import { actorDeRequest, registrarRechazoAntiBloqueo } from '../../shared/historial/permisos-auditoria.js';
-import { darDeBaja, reactivarUsuario } from './users.service.js';
+import { ProveedorSoatDelUsuarioEliminadoError, darDeBaja, reactivarUsuario } from './users.service.js';
 
 /** DELETE /api/users/:id — marca deleted_at (nunca hard-delete). */
 export async function handleDarDeBaja(req: Request, res: Response): Promise<void> {
@@ -69,7 +69,14 @@ export async function handleReactivar(req: Request, res: Response): Promise<void
     return;
   }
 
-  const updated = await reactivarUsuario(id, actorDeRequest(req));
+  let updated;
+  try {
+    updated = await reactivarUsuario(id, actorDeRequest(req));
+  } catch (e) {
+    // HU #13960 (AC7): su proveedor SOAT fue eliminado; la transacción revirtió.
+    if (e instanceof ProveedorSoatDelUsuarioEliminadoError) { res.status(409).json({ error: e.message }); return; }
+    throw e;
+  }
   if (!updated) {
     res.status(404).json({ error: 'Usuario no encontrado' });
     return;

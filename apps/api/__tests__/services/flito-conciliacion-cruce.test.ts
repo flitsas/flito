@@ -113,7 +113,7 @@ beforeEach(() => {
     .select('clients', [{ id: COMPANIA, name: 'ACME S.A.S.' }])
     .select('flito_conciliacion_boletas', [])
     .select('flito_conciliacion_lineas', [])
-    .select('flito_bolsa_movimientos', [])
+    .select('flito_bolsas_unicas_movimientos', [])
     .insert('flito_conciliacion_boletas', [filaBoleta()])
     .insert('flito_conciliacion_lineas', ecoDeLineas)
     .update('flito_conciliacion_boletas', []);
@@ -145,7 +145,7 @@ describe('flito-conciliacion · AC1 y AC2 · los SIETE desenlaces, cada uno con 
         { soatId: S(8), referencia: 'BOL-000009', fechaPago: '2026-07-30' },
       ])
       // Y del S1 la liquidación ya reservó la salida de bolsa — de ESTA compañía.
-      .select('flito_bolsa_movimientos', [{
+      .select('flito_bolsas_unicas_movimientos', [{
         llave: `salida:soat:${S(1)}`, origen: 'automatico', companiaId: COMPANIA,
       }])
       .insert('flito_conciliacion_boletas', [filaBoleta({ filas: 7 })]);
@@ -241,7 +241,7 @@ describe('flito-conciliacion · AC3 · la comparación de valor es estricta', ()
       .select('clients', [{ id: COMPANIA, name: 'ACME S.A.S.' }])
       .select('flito_conciliacion_boletas', [])
       .select('flito_conciliacion_lineas', [])
-      .select('flito_bolsa_movimientos', [])
+      .select('flito_bolsas_unicas_movimientos', [])
       .select('flito_soat', [soat({ id: S(1), numeroPoliza: 'P1', valorPagado: '740800.10' })])
       .insert('flito_conciliacion_boletas', [filaBoleta()])
       .insert('flito_conciliacion_lineas', ecoDeLineas)
@@ -400,7 +400,7 @@ describe('flito-conciliacion · AC5 · volver a cruzar', () => {
       .select('flito_conciliacion_lineas', [])
       // El gestor ya pagó el SOAT desde que se cargó la boleta.
       .select('flito_soat', [soat({ id: S(1), numeroPoliza: 'P1' })])
-      .select('flito_bolsa_movimientos', [])
+      .select('flito_bolsas_unicas_movimientos', [])
       .update('flito_conciliacion_lineas', [])
       .update('flito_conciliacion_boletas', []);
 
@@ -421,7 +421,7 @@ describe('flito-conciliacion · AC5 · volver a cruzar', () => {
       .selectOnce('flito_conciliacion_lineas', [lineaGuardada({ soatId: S(1) })])
       .select('flito_conciliacion_lineas', [])
       .select('flito_soat', [soat({ id: S(1), numeroPoliza: 'P1' })])
-      .select('flito_bolsa_movimientos', [])
+      .select('flito_bolsas_unicas_movimientos', [])
       .update('flito_conciliacion_lineas', [])
       .update('flito_conciliacion_boletas', []);
 
@@ -441,7 +441,7 @@ describe('flito-conciliacion · AC5 · volver a cruzar', () => {
       .selectOnce('flito_conciliacion_lineas', [lineaGuardada({ soatId: S(1) })])
       .select('flito_conciliacion_lineas', [])
       .select('flito_soat', [soat({ id: S(1), numeroPoliza: 'P1', estado: 'solicitado', valorPagado: null })])
-      .select('flito_bolsa_movimientos', [])
+      .select('flito_bolsas_unicas_movimientos', [])
       .update('flito_conciliacion_boletas', []);
 
     const { recruzarBoleta } = await import('../../src/modules/flito-conciliacion/flito-conciliacion.service.js');
@@ -479,7 +479,7 @@ describe('Bug #11773 · cobrado_otro_cliente — la llave en OTRA compañía no 
     // detalle no lleva placa ni póliza.
     kdb.when
       .select('flito_soat', [soat({ id: S(1), numeroPoliza: 'P1' })])
-      .select('flito_bolsa_movimientos', [{
+      .select('flito_bolsas_unicas_movimientos', [{
         llave: `salida:soat:${S(1)}`,
         origen: 'automatico',
         companiaId: OTRA_COMPANIA,
@@ -501,7 +501,7 @@ describe('Bug #11773 · cobrado_otro_cliente — la llave en OTRA compañía no 
   it('cualquier origen, no solo automatico: un asiento de conciliación ajeno también bloquea', async () => {
     kdb.when
       .select('flito_soat', [soat({ id: S(1), numeroPoliza: 'P1' })])
-      .select('flito_bolsa_movimientos', [{
+      .select('flito_bolsas_unicas_movimientos', [{
         llave: `salida:soat:${S(1)}`,
         origen: 'conciliacion',
         companiaId: OTRA_COMPANIA,
@@ -516,7 +516,7 @@ describe('Bug #11773 · cobrado_otro_cliente — la llave en OTRA compañía no 
   it('el automatico de ESTA compañía sigue en ok con yaDescontadoEnLiquidacion', async () => {
     kdb.when
       .select('flito_soat', [soat({ id: S(1), numeroPoliza: 'P1' })])
-      .select('flito_bolsa_movimientos', [{
+      .select('flito_bolsas_unicas_movimientos', [{
         llave: `salida:soat:${S(1)}`, origen: 'automatico', companiaId: COMPANIA,
       }]);
 

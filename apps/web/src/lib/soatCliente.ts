@@ -12,10 +12,11 @@
 // sabe LEER lo que vuelve, y por eso se puede probar y reusar sin montar nada.
 
 import { ApiError } from './api';
+import { desenlaceRenovacion } from './mensajesTipoSoat';
 import {
   CAMPOS_COMPRADOR_FACTURA, CODIGOS_REVISE_LOS_DATOS, CodigoErrorSolicitudSoat,
-  DIAS_RENOVACION_ANTICIPADA, TIPOS_DOCUMENTO_RUNT,
-  type CampoCompradorFactura, type EstadoSoat, type ExtraccionFacturaVenta, type SoatActivoRunt,
+  DIAS_RENOVACION_ANTICIPADA, TIPOS_DOCUMENTO_RUNT, TipoSoat,
+  type CampoCompradorFactura, type EstadoSoat, type ExtraccionFacturaVenta, type SoatActivoRunt, type SoatFlitoContexto,
   type TipoDocumentoRunt, type VigenciaProximaSoat,
 } from '@operaciones/shared-types';
 
@@ -62,6 +63,8 @@ export function fechaLarga(iso: string): string {
  * única prueba visible de que el RUNT habla de su vehículo.
  */
 export interface PreconsultaRunt {
+  /** «Ya en FLITO» (HU #14019). Ausente si la API va por detrás del bundle: se comporta como `yaEnFlito: false`. */
+  flito?: SoatFlitoContexto;
   vehiculo: {
     /** Lo que devuelve el registro, jamás un eco: el Cliente ya no teclea placa (HU #12091, AC1). */
     placa: string | null;
@@ -264,7 +267,12 @@ export interface FalloCanal {
    * de VINes —los de una flota son consecutivos, así que se acierta a fuerza de intentos—. Si
    * alguien «mejora» el copy con ese dato, abre la fuga.
    */
-  campo?: 'vin';
+  campo?: 'vin' | 'placa';
+  /**
+   * «Ya en FLITO» del 409 de RN-01 (HU #14019, Feature #14012). **Solo con `propia === true`**: el 409 de un
+   * vehículo ajeno no lo trae y aquí tampoco se lee (frontera de no-sondeo).
+   */
+  flito?: SoatFlitoContexto;
 }
 
 const CODIGOS: ReadonlySet<string> = new Set(Object.values(CodigoErrorSolicitudSoat));
@@ -310,10 +318,27 @@ export function leerFallo(e: unknown): FalloCanal {
   }
   // Solo se reconoce `'vin'`: es el único valor del contrato, y un valor nuevo servido por una API
   // desfasada no debe marcar como inválido un campo que la pantalla no sabe cuál es.
-  if (cuerpo.campo === 'vin') fallo.campo = 'vin';
+  if (cuerpo.campo === 'vin' || cuerpo.campo === 'placa') fallo.campo = cuerpo.campo;
+  const flito = cuerpo.propia === true ? leerContextoFlito(cuerpo.flito) : null;
+  if (flito) fallo.flito = flito;
   const soat = leerSoatActivo(cuerpo.soatActivo);
   if (soat) fallo.soatActivo = soat;
   return fallo;
+}
+
+/** El `flito` del 409 propio, validado por forma: lo que no cuadra se descarta y el modal es el de hoy. */
+function leerContextoFlito(v: unknown): SoatFlitoContexto | null {
+  if (!v || typeof v !== 'object') return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o.yaEnFlito !== 'boolean' || typeof o.abierto !== 'boolean' || typeof o.renovable !== 'boolean') return null;
+  return {
+    yaEnFlito: o.yaEnFlito, abierto: o.abierto, renovable: o.renovable,
+    estadoAbierto: typeof o.estadoAbierto === 'string' ? o.estadoAbierto as EstadoSoat : null,
+    soatId: typeof o.soatId === 'string' ? o.soatId : null,
+    diasVigencia: typeof o.diasVigencia === 'number' ? o.diasVigencia : null,
+    venceEl: typeof o.venceEl === 'string' ? o.venceEl : null,
+    fuenteVigencia: o.fuenteVigencia === 'runt' || o.fuenteVigencia === 'flito' ? o.fuenteVigencia : null,
+  };
 }
 
 /**
@@ -347,7 +372,7 @@ export interface DesenlaceRunt {
   /** Segunda línea: qué puede hacer. */
   detalle: string;
   /** A dónde va el foco cuando se pinta la banda. */
-  foco: 'vin' | 'boton';
+  foco: 'vin' | 'boton' | 'placa' | 'documento';
   /**
    * HU #12996: el desenlace abre la salida «Guardar pendiente de validar». Solo `runt_no_disponible`:
    * el RUNT calló. Una respuesta del RUNT (no cuadra, sin registro) o un fallo de FLITO no la abren.
@@ -492,7 +517,7 @@ export const DESENLACE_SIN_RED: DesenlaceRunt = {
  * `if (/revise/i.test(mensaje))` se rompe con la primera corrección de una tilde y clasifica al
  * revés un 503 cuyo texto hable de datos.
  */
-export function reaccionA(f: FalloCanal, companiaEscogida = false): ReaccionCanal {
+export function reaccionA(f: FalloCanal, companiaEscogida = false, tipoSoat?: TipoSoat | null): ReaccionCanal {
   if (f.status === 0) return { tipo: 'incierto' };
   const deCompania = reaccionCompania(f, companiaEscogida);
   if (deCompania) return deCompania;
@@ -512,6 +537,11 @@ export function reaccionA(f: FalloCanal, companiaEscogida = false): ReaccionCana
       return { tipo: 'archivo' };
     default:
       break;
+  }
+  // HU #14019: la renovación habla de la placa y del documento, no del VIN; `soat_sin_anterior` solo existe ahí.
+  if (tipoSoat === TipoSoat.RENOVACION || f.codigo === CodigoErrorSolicitudSoat.SOAT_SIN_ANTERIOR) {
+    const d = desenlaceRenovacion(f);
+    if (d) return { tipo: 'runt', desenlace: d };
   }
   // El `campo` del `422 runt_no_cuadra` ya no reparte nada, y eso es la HU #12091: con un bloque 1
   // de un solo dato, lo único que puede no cuadrar es el VIN, así que su desenlace es el de

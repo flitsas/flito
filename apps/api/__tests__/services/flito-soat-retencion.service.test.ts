@@ -233,6 +233,17 @@ describe('AC1 — purga completa', () => {
   });
 });
 
+describe('HU #14018 — descartada de renovación SIN factura (clave NULL)', () => {
+  it('se salta el paso de la factura, suma 0 bytes, no deja pendiente y marca la purga igual', async () => {
+    f.candidatas = [{ id: ID_A, facturaStorageKey: null, facturaTamanoBytes: null }];
+    f.adicionales.set(ID_A, [adic(ADIC1, CLAVE_ADIC1, 200)]);
+    const r = await svc.ejecutarPurgaRetencion({ ahora: AHORA });
+    expect(storage.remove.mock.calls.map((c) => c[0])).toEqual([CLAVE_ADIC1]);
+    expect(marcas()).toHaveLength(1);
+    expect(r).toEqual({ consideradas: 1, purgadas: 1, conPendientes: 0, archivos: 1, bytes: 200 });
+  });
+});
+
 describe('AC4 — idempotencia y «no existe»', () => {
   it('TC4.2 NoSuchKey / NotFound de la factura o de un adicional = borrado: marca y Bitácora', async () => {
     f.candidatas = [candidata(ID_A)];

@@ -31,8 +31,12 @@ import {
   asumirEnOperaciones, cambiarProveedor, cargarFactura, cargarFacturasMasivo, cola, contextoSoat,
   devolverAlGestor, facetasCola, detalle, enviarAlGestor, historialConAcceso,
   reactivar, rechazar, registrosZipSoat, reversar, SoatError,
+  type SoatColaItemSalida,
 } from './flito-soat.service.js';
-import { soatPdfContrasenaLimiter, soatPdfNombreClaveLimiter } from '../../shared/middleware/rateLimiter.js';
+import { drFlitGestionLimiter, soatPdfContrasenaLimiter, soatPdfNombreClaveLimiter } from '../../shared/middleware/rateLimiter.js';
+import { busquedaGestionSchema, PAGINA_GESTION } from '../../shared/dr-flit-gestion.js';
+import { exigirConsultaGestionDrFlit } from '../flito-dr-flit/dr-flit.funciones.js';
+import type { ResultadoGestion, TarjetaSoatGestion } from '@operaciones/shared-types';
 import type { ArchivoConClave } from './flito-soat-factura-cifrada.js';
 import {
   construirFilasExportSoat, nombreArchivoExportSoat,
@@ -167,6 +171,33 @@ const fechaSchema = z.string().regex(FORMATO_FECHA, 'La fecha debe ser yyyy-mm-d
 // tercera. El registro va DESPUÉS de la consulta y con `await`, como en `clients.routes.ts`:
 // `filas` no se sabe antes, y esperar cuesta una inserción best-effort a cambio de que el rastro
 // esté escrito antes de que la respuesta salga.
+
+// HU #13941 (AC4/AC6): consulta de gestión de Dr. Flit. Función «Consultar la gestión» PRIMERO.
+const CAMPOS_PII_TARJETA_SOAT = ['placa', 'vin'] as const;
+
+function aTarjetaSoat(f: SoatColaItemSalida, conCompania: boolean): TarjetaSoatGestion {
+  return {
+    id: f.id, placa: f.placa,
+    ...(f.placa ? {} : { vin: f.vin }),
+    estado: f.estado,
+    ...(conCompania ? { compania: f.companiaNombre } : {}),
+    solicitado: f.enviadoEn, pagado: f.pagadoEn,
+  };
+}
+
+router.post('/buscar', exigirConsultaGestionDrFlit, exigirFuncion('soat.cola.ver'), drFlitGestionLimiter, async (req: Request, res: Response) => {
+  const parsed = busquedaGestionSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+  const ctx = await contextoSoat(req.user!);
+  const { items, total } = await cola(ctx, { buscar: parsed.data.valor, ...PAGINA_GESTION });
+  await registrarAccesoSoat(req, { accion: 'search', filas: items.length, campos: CAMPOS_PII_TARJETA_SOAT });
+  const cuerpo: ResultadoGestion<TarjetaSoatGestion> = {
+    total, items: items.map((f) => aTarjetaSoat(f, !ctx.proyeccionCliente)),
+  };
+  res.set('Cache-Control', 'no-store');
+  res.json(cuerpo);
+});
+
 router.get('/', exigirFuncion('soat.cola.ver'), async (req: Request, res: Response) => {
   const ctx = await contextoSoat(req.user!);
   const estados = lista(req.query.estado)

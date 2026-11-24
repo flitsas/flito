@@ -71,9 +71,9 @@ type Fila = Record<string, unknown>;
 interface EstadoBd {
   saldoCliente: number;
   saldoTransito: number;
-  /** `flito_bolsa_movimientos`: lo que ven los pre-chequeos de idempotencia y el reverso. */
+  /** `flito_bolsas_unicas_movimientos`: lo que ven los pre-chequeos de idempotencia y el reverso. */
   libroCliente: Fila[];
-  /** `flito_bolsa_transito_movimientos`. */
+  /** Movimientos de la bolsa de tránsito: desde la 0257 (HU #13906) en el MISMO libro único, por `bolsaId`. */
   libroTransito: Fila[];
   boleta: Fila;
   lineas: Fila[];
@@ -173,7 +173,9 @@ function paramsDe(cond: unknown): string[] {
     if (Array.isArray(n)) { n.forEach(visitar); return; }
     const o = n as Record<string, unknown>;
     if (typeof o.value === 'string') out.push(o.value);
-    if (Array.isArray(o.queryChunks)) o.queryChunks.forEach(visitar);
+    // `like(col, 'salida:%')` deja el patrón como cadena suelta: distingue el barrido del cliente del
+    // de tránsito, que desde la HU #13906 recorren el mismo libro único.
+    if (Array.isArray(o.queryChunks)) o.queryChunks.forEach((c) => (typeof c === 'string' ? out.push(c) : visitar(c)));
   };
   visitar(cond);
   return out;
@@ -189,17 +191,13 @@ function paramsDe(cond: unknown): string[] {
  */
 function aplicar(tabla: string, datos: Fila, filtros: string[]): void {
   const id = filtros[0];
-  if (tabla === 'flito_bolsas' && typeof datos.saldo === 'string') {
-    bd.saldoCliente = Number(datos.saldo);
-    return;
-  }
-  if (tabla === 'flito_bolsas_transito' && typeof datos.saldo === 'string') {
-    bd.saldoTransito = Number(datos.saldo);
+  if (tabla === 'flito_bolsas_unicas' && typeof datos.saldo === 'string') {
+    if (id === BOLSA_TRANSITO) bd.saldoTransito = Number(datos.saldo);
+    else bd.saldoCliente = Number(datos.saldo);
     return;
   }
   const destino: Record<string, Fila[]> = {
-    flito_bolsa_movimientos: bd.libroCliente,
-    flito_bolsa_transito_movimientos: bd.libroTransito,
+    flito_bolsas_unicas_movimientos: [...bd.libroCliente, ...bd.libroTransito],
     flito_conciliacion_lineas: bd.lineas,
     flito_conciliacion_boletas: [bd.boleta],
   };
@@ -254,16 +252,20 @@ function espiar(): void {
 
 const insertsEn = (tabla: string) => inserts.filter((m) => m.tabla === tabla);
 const updatesEn = (tabla: string) => updates.filter((m) => m.tabla === tabla);
-const salidasCliente = () => insertsEn('flito_bolsa_movimientos').map((m) => m.datos)
-  .filter((d) => d.tipo === 'salida');
-const entradasCliente = () => insertsEn('flito_bolsa_movimientos').map((m) => m.datos)
-  .filter((d) => d.tipo === 'entrada');
-const movsTransito = () => insertsEn('flito_bolsa_transito_movimientos').map((m) => m.datos);
+/** HU #13906: un solo libro físico; el lado lo da la bolsa del movimiento. */
+const esDeTransito = (d: Fila) => d.bolsaId === BOLSA_TRANSITO;
+const movsCliente = () => insertsEn('flito_bolsas_unicas_movimientos').map((m) => m.datos).filter((d) => !esDeTransito(d));
+const salidasCliente = () => movsCliente().filter((d) => d.tipo === 'salida');
+const entradasCliente = () => movsCliente().filter((d) => d.tipo === 'entrada');
+const movsTransito = () => insertsEn('flito_bolsas_unicas_movimientos').map((m) => m.datos).filter(esDeTransito);
+/** UPDATE sobre movimientos del libro del CLIENTE (la adopción de tránsito también escribe en la tabla única). */
+const updatesLibroCliente = () => updatesEn('flito_bolsas_unicas_movimientos')
+  .filter((u) => bd.libroCliente.some((f) => f.id === u.filtros[0]));
 
 // ─────────────────────────── Resolvers por tabla ─────────────────────────────
 
 /**
- * `flito_bolsa_movimientos` tiene TRES consultas distintas y se distinguen por su filtro:
+ * `flito_bolsas_unicas_movimientos` tiene TRES consultas distintas y se distinguen por su filtro:
  *   · un solo parámetro                → pre-chequeo de idempotencia por llave;
  *   · el último es 'salida'            → el barrido del reverso (trámite + origen + tipo + like);
  *   · el resto, llaves `salida:soat:*` → el cruce (Bug #11773: cualquier origen, con `companiaId`).
@@ -282,54 +284,41 @@ const consultaLibroCliente: Resolver = () => {
   });
   if (f.length === 1) {
     const fila = bd.libroCliente.find((x) => x.llaveIdempotencia === f[0]);
-    return fila ? [conAliasCruce(fila)] : [];
+    if (fila) return [conAliasCruce(fila)];
+    // HU #13906: la llave `consumo:*` vive en el mismo libro único.
+    const deTransito = bd.libroTransito.find((x) => x.llaveIdempotencia === f[0]);
+    return deTransito ? [{ ...deTransito, companiaId: null }] : [];
   }
-  if (f[f.length - 1] === 'salida') {
-    const tramite = f[0];
-    return bd.libroCliente.filter((x) =>
-      x.tramiteId === tramite && x.origen === 'automatico' && x.tipo === 'salida'
-      && String(x.llaveIdempotencia).startsWith('salida:'));
+  if (f.length === 4 && f[2] === 'salida' && String(f[3]).endsWith('%')) {
+    // Barrido del reverso: el prefijo del `like` dice qué familia (cliente `salida:` / tránsito `consumo:`).
+    const [tramite, origen, , patron] = f;
+    const prefijo = String(patron).replace(/%$/, '');
+    return [...bd.libroCliente, ...bd.libroTransito].filter((x) =>
+      x.tramiteId === tramite && x.origen === origen && x.tipo === 'salida'
+      && String(x.llaveIdempotencia).startsWith(prefijo));
   }
   return bd.libroCliente
     .filter((x) => f.includes(String(x.llaveIdempotencia)))
     .map((x) => conAliasCruce(x));
 };
 
-/** Igual, con dos consultas: por llave (1 parámetro) o el barrido del reverso de tránsito. */
-const consultaLibroTransito: Resolver = () => {
-  const f = ultimosFiltros;
-  if (f.length === 1) {
-    const fila = bd.libroTransito.find((x) => x.llaveIdempotencia === f[0]);
-    return fila ? [fila] : [];
-  }
-  const tramite = f[0];
-  return bd.libroTransito.filter((x) =>
-    x.tramiteId === tramite && x.origen === 'automatico' && x.tipo === 'salida'
-    && String(x.llaveIdempotencia).startsWith('consumo:'));
-};
-
 /** `bolsaQueCubre`: el índice único garantiza que como mucho salga una fila. */
 const consultaCobertura: Resolver = () => {
-  const [organismoCodigo, concepto] = ultimosFiltros;
+  // HU #13906: (alcance 'transito', organismo, concepto) sobre la cobertura del modelo único.
+  const [, organismoCodigo, concepto] = ultimosFiltros;
   const hay = bd.cobertura.some((c) =>
     c.organismoCodigo === organismoCodigo && c.concepto === concepto);
-  return hay ? [{ id: BOLSA_TRANSITO, nombre: 'Bolsa de tránsito de Medellín' }] : [];
+  return hay ? [{ bolsaId: BOLSA_TRANSITO, nombre: 'Bolsa de tránsito de Medellín' }] : [];
 };
 
-/** Sirve al `FOR UPDATE` del asiento y a la lectura final del saldo: la proyección es compatible. */
-const consultaBolsasTransito: Resolver = () => {
-  const ids = ultimosFiltros;
-  if (!ids.includes(BOLSA_TRANSITO)) return [];
-  return [{
-    id: BOLSA_TRANSITO,
-    nombre: 'Bolsa de tránsito de Medellín',
-    saldo: String(bd.saldoTransito),
-  }];
-};
-
-/** La bolsa del cliente se filtra por un `companiaId` numérico, así que no llega ningún parámetro. */
-const consultaBolsaCliente: Resolver = () =>
-  [{ id: BOLSA_CLIENTE, saldo: String(bd.saldoCliente) }];
+/**
+ * `flito_bolsas_unicas` sirve a los dos alcances (HU #13906). Por el id de tránsito (lock del asiento
+ * y resumen del aviso) → la de tránsito; lo demás —la del cliente se filtra por un `companiaId`
+ * numérico, así que no llega ningún parámetro— → la del cliente.
+ */
+const consultaBolsas: Resolver = () => (ultimosFiltros.includes(BOLSA_TRANSITO)
+  ? [{ id: BOLSA_TRANSITO, nombre: 'Bolsa de tránsito de Medellín', saldo: String(bd.saldoTransito), companiaId: null, activa: true }]
+  : [{ id: BOLSA_CLIENTE, saldo: String(bd.saldoCliente), companiaId: COMPANIA, activa: true }]);
 
 /**
  * `flito_conciliacion_lineas` se consulta de dos formas: las líneas de la boleta (un solo filtro, el
@@ -387,12 +376,10 @@ function escenarioConciliacion(): void {
     .select('flito_conciliacion_lineas', consultaLineas)
     .select('flito_soat', consultaSoat)
     .select('clients', consultaCliente)
-    .select('flito_bolsa_movimientos', consultaLibroCliente)
-    .select('flito_bolsas', consultaBolsaCliente)
-    .select('flito_bolsa_cierres', [])
-    .select('flito_bolsa_transito_cobertura', consultaCobertura)
-    .select('flito_bolsas_transito', consultaBolsasTransito)
-    .select('flito_bolsa_transito_movimientos', consultaLibroTransito)
+    .select('flito_bolsas_unicas_movimientos', consultaLibroCliente)
+    .select('flito_bolsas_unicas', consultaBolsas)
+    .select('flito_bolsas_unicas_cierres', [])
+    .select('flito_bolsas_unicas_cobertura', consultaCobertura)
     .update('flito_conciliacion_lineas', [])
     .update('flito_conciliacion_boletas', []);
 }
@@ -445,16 +432,16 @@ beforeEach(() => {
 
   // `returning()` devuelve la fila que el servicio acaba de escribir y la deja en el libro: los
   // pre-chequeos y el reverso trabajan después sobre ella, igual que contra la tabla real.
-  kdb.when.insert('flito_bolsa_movimientos', () => {
-    const datos = insertsEn('flito_bolsa_movimientos').at(-1)?.datos ?? {};
-    const fila: Fila = { id: `mov-${++secuenciaCliente}`, createdAt: AHORA, ...datos };
+  kdb.when.insert('flito_bolsas_unicas_movimientos', () => {
+    const datos = insertsEn('flito_bolsas_unicas_movimientos').at(-1)?.datos ?? {};
+    // HU #13906: mismo libro físico; el lado lo da la bolsa (tránsito no tiene compañía).
+    if (esDeTransito(datos)) {
+      const fila: Fila = { id: `tra-${++secuenciaTransito}`, createdAt: AHORA, companiaId: null, ...datos };
+      bd.libroTransito.push(fila);
+      return [fila];
+    }
+    const fila: Fila = { id: `mov-${++secuenciaCliente}`, createdAt: AHORA, companiaId: COMPANIA, ...datos }; // HU #13899: compañía por join a la bolsa
     bd.libroCliente.push(fila);
-    return [fila];
-  });
-  kdb.when.insert('flito_bolsa_transito_movimientos', () => {
-    const datos = insertsEn('flito_bolsa_transito_movimientos').at(-1)?.datos ?? {};
-    const fila: Fila = { id: `tra-${++secuenciaTransito}`, createdAt: AHORA, ...datos };
-    bd.libroTransito.push(fila);
     return [fila];
   });
 });
@@ -605,8 +592,8 @@ describe('conciliar — AC2: una línea que no cuadra para la boleta entera', ()
       estado: 409, codigo: 'boleta_incompleta',
     });
 
-    expect(insertsEn('flito_bolsa_movimientos')).toHaveLength(0);
-    expect(insertsEn('flito_bolsa_transito_movimientos')).toHaveLength(0);
+    expect(insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
+    expect(movsTransito()).toHaveLength(0);
     expect(bd.saldoCliente).toBe(10_000_000);
     expect(bd.saldoTransito).toBe(5_000_000);
     expect(bd.boleta.estado).toBe('cargada');
@@ -645,10 +632,10 @@ describe('conciliar — AC3: todo o nada', () => {
   it('si el asiento de la última línea falla, ninguna de las anteriores queda asentada', async () => {
     escenarioConciliacion();
     // La segunda salida revienta al escribir, como reventaría un 23514 o un fallo de red.
-    kdb.when.insert('flito_bolsa_movimientos', () => {
-      const datos = insertsEn('flito_bolsa_movimientos').at(-1)?.datos ?? {};
+    kdb.when.insert('flito_bolsas_unicas_movimientos', () => {
+      const datos = insertsEn('flito_bolsas_unicas_movimientos').at(-1)?.datos ?? {};
       if (datos.llaveIdempotencia === `salida:soat:${SOAT_B}`) throw new Error('fallo al asentar');
-      const fila: Fila = { id: `mov-${++secuenciaCliente}`, createdAt: AHORA, ...datos };
+      const fila: Fila = { id: `mov-${++secuenciaCliente}`, createdAt: AHORA, companiaId: COMPANIA, ...datos }; // HU #13899: compañía por join a la bolsa
       bd.libroCliente.push(fila);
       return [fila];
     });
@@ -747,9 +734,13 @@ describe('AC5 · orden 2: liquido y DESPUÉS concilio', () => {
     expect(consumo).toMatchObject({ origen: 'conciliacion' });
 
     // La llave NO se toca: sigue reservada, así que un segundo sellado tampoco podría cobrar.
-    const adopciones = updatesEn('flito_bolsa_movimientos');
+    // HU #13906: los dos libros son ya la misma tabla; una adopción por lado, cada una solo con `origen`.
+    const adopciones = updatesLibroCliente();
     expect(adopciones).toHaveLength(1);
     expect(adopciones[0].datos).toEqual({ origen: 'conciliacion' });
+    const adopcionesTransito = updatesEn('flito_bolsas_unicas_movimientos').filter((u) => u.filtros[0] === consumo?.id);
+    expect(adopcionesTransito).toHaveLength(1);
+    expect(adopcionesTransito[0].datos).toEqual({ origen: 'conciliacion' });
 
     expect(r.adoptados).toHaveLength(1);
     expect(r.adoptados[0]).toMatchObject({
@@ -962,7 +953,7 @@ describe('conciliar — guardas del asiento', () => {
     // la defensa de PRIMERA línea. La de segunda línea (`sin_valor_pagado`) solo se alcanza si el
     // cruce dijera `ok`, y este test fija que el camino feliz nunca descuenta cero.
     await expect(conciliarBoleta(BOLETA, CTX)).rejects.toMatchObject({ estado: 409 });
-    expect(insertsEn('flito_bolsa_movimientos')).toHaveLength(0);
+    expect(insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
   });
 });
 
@@ -1000,9 +991,9 @@ describe('Bug #11773 · cobrado a otro cliente — no se cobra a A ni se suelta 
     expect(movB).toMatchObject({
       origen: 'automatico', valor: String(VALOR_A), companiaId: OTRA_COMPANIA,
     });
-    expect(insertsEn('flito_bolsa_movimientos').filter((m) => m.datos.companiaId === COMPANIA))
+    expect(insertsEn('flito_bolsas_unicas_movimientos').filter((m) => m.datos.companiaId === COMPANIA))
       .toHaveLength(0);
-    expect(updatesEn('flito_bolsa_movimientos')).toHaveLength(0);
+    expect(updatesEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
     expect(bd.boleta.estado).toBe('cargada');
     expect(bd.saldoCliente).toBe(10_000_000);
   });
@@ -1016,8 +1007,8 @@ describe('Bug #11773 · cobrado a otro cliente — no se cobra a A ni se suelta 
 
     const movSoat = bd.libroCliente.find((m) => m.llaveIdempotencia === `salida:soat:${SOAT_A}`);
     expect(movSoat).toMatchObject({ origen: 'conciliacion', companiaId: COMPANIA });
-    expect(updatesEn('flito_bolsa_movimientos')).toHaveLength(1);
-    expect(updatesEn('flito_bolsa_movimientos')[0].datos).toEqual({ origen: 'conciliacion' });
+    expect(updatesLibroCliente()).toHaveLength(1);
+    expect(updatesLibroCliente()[0].datos).toEqual({ origen: 'conciliacion' });
     expect(r.adoptados).toHaveLength(1);
     expect(r.adoptados[0]).toMatchObject({ soatId: SOAT_A, adoptado: true });
   });
@@ -1042,6 +1033,71 @@ describe('Bug #11773 · cobrado a otro cliente — no se cobra a A ni se suelta 
       COMPANIA,
     )).rejects.toMatchObject({ estado: 409, codigo: 'boleta_incompleta' });
 
-    expect(updatesEn('flito_bolsa_movimientos')).toHaveLength(0);
+    expect(updatesEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
+  });
+});
+
+// ─────────────── HU #13899 (AC5, AC8): conciliación sobre el libro único ───────────────
+
+describe('conciliar — HU #13899 AC5/AC8: libro único y bolsa activa', () => {
+  it('TC-14 · con bolsa activa asienta una salida salida:soat:<soatId> en flito_bolsas_unicas_movimientos, una sola vez', async () => {
+    escenarioConciliacion();
+    await conciliarBoleta(BOLETA, CTX);
+
+    const salidas = salidasCliente();
+    expect(salidas.map((s) => s.llaveIdempotencia)).toEqual([`salida:soat:${SOAT_A}`, `salida:soat:${SOAT_B}`]);
+    expect(salidas.every((s) => s.bolsaId === BOLSA_CLIENTE)).toBe(true);
+    // La línea queda amarrada al movimiento del libro único (mismo id que devolvió el INSERT).
+    const lineas = updatesEn('flito_conciliacion_lineas').map((u) => u.datos.movimientoBolsaId);
+    expect(lineas.every((id) => typeof id === 'string' && String(id).startsWith('mov-'))).toBe(true);
+  });
+
+  it.each([
+    ['sin bolsa', [] as Fila[]],
+    ['con la bolsa inactiva', [{ id: BOLSA_CLIENTE, saldo: '5000000', companiaId: COMPANIA, activa: false }]],
+  ])('TC-15 · %s no asienta del lado cliente ni crea bolsa, y la boleta se concilia', async (_caso, filas) => {
+    escenarioConciliacion();
+    kdb.when.select('flito_bolsas_unicas', filas);
+
+    const r = await conciliarBoleta(BOLETA, CTX);
+
+    expect(salidasCliente()).toHaveLength(0);
+    expect(insertsEn('flito_bolsas_unicas')).toHaveLength(0);
+    expect(updatesEn('flito_bolsas_unicas')).toHaveLength(0);
+    expect(r.cliente.descontado).toBe(0);
+    // La línea se sella sin movimiento de cliente (permitido por flito_concil_linea_mov_chk).
+    expect(updatesEn('flito_conciliacion_lineas').every((u) => u.datos.movimientoBolsaId === null)).toBe(true);
+  });
+});
+
+// ─────────────── HU #13906 (AC5): el lado tránsito sobre el libro único ───────────────
+
+describe('conciliar — HU #13906 AC5: consumo de tránsito en el libro único', () => {
+  it('AC5 · boleta SOAT de secretaría cubierta → consumo consumo:soat:<soatId> en el libro único, amarrado a la línea; repetirlo no cobra dos veces', async () => {
+    const { registrarConsumoTransito } =
+      await import('../../src/modules/flito-bolsas/flito-bolsas-transito.service.js');
+    escenarioConciliacion();
+
+    await conciliarBoleta(BOLETA, CTX);
+
+    const consumos = movsTransito();
+    expect(consumos).toHaveLength(1);
+    expect(consumos[0]).toMatchObject({
+      bolsaId: BOLSA_TRANSITO, tipo: 'salida', origen: 'conciliacion', organismoCodigo: ORG_CUBIERTO,
+      concepto: 'soat', llaveIdempotencia: `consumo:soat:${SOAT_A}`, valor: String(VALOR_A),
+    });
+    const consumo = bd.libroTransito[0];
+    expect(bd.lineas.find((l) => l.id === LINEA_A)).toMatchObject({ movimientoTransitoId: consumo.id });
+    const saldoTrasConciliar = bd.saldoTransito;
+    expect(saldoTrasConciliar).toBe(5_000_000 - VALOR_A);
+
+    // Segundo escritor con la MISMA llave (el sellado, o un reintento): no asienta ni mueve el saldo.
+    const repetido = await registrarConsumoTransito(kdb.db as never, {
+      organismoCodigo: ORG_CUBIERTO, concepto: 'soat', tramiteId: null, valor: VALOR_A,
+      fecha: FECHA_PAGO, llave: `soat:${SOAT_A}`, origen: 'conciliacion',
+    }, CTX);
+    expect(repetido).toBeNull();
+    expect(movsTransito()).toHaveLength(1);
+    expect(bd.saldoTransito).toBe(saldoTrasConciliar);
   });
 });

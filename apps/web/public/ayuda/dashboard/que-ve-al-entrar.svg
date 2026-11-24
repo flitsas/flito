@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 400" width="1000" height="400" role="img" aria-labelledby="t">
+  <title id="t">Qué ve al iniciar sesión: con el Tablero FLITO, ese tablero; con el Tablero de control, el Panel operativo; sin ninguno de los dos, la primera pantalla que su usuario puede abrir (diagrama demo, sin datos reales)</title>
+  <rect width="1000" height="400" fill="#ffffff"/>
+  <defs>
+    <marker id="f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0L10 5L0 10z" fill="#4a5568"/>
+    </marker>
+  </defs>
+  <g font-family="Arial, Helvetica, sans-serif" text-anchor="middle" fill="#1a202c">
+    <rect x="10" y="40" width="140" height="70" rx="12" fill="#e0ecff" stroke="#2b6cb0" stroke-width="2"/>
+    <text x="80" y="80" font-size="16">Inicia sesión</text>
+    <path d="M300 30 L410 75 L300 120 L190 75 Z" fill="#fff4e0" stroke="#b7791f" stroke-width="2"/>
+    <text x="300" y="72" font-size="14">¿Tiene el</text>
+    <text x="300" y="90" font-size="14">Tablero FLITO?</text>
+    <rect x="500" y="40" width="250" height="70" rx="12" fill="#e6f6ec" stroke="#2f855a" stroke-width="2"/>
+    <text x="625" y="72" font-size="16">Tablero</text>
+    <text x="625" y="94" font-size="13">ficha «Tablero»</text>
+    <path d="M300 180 L410 225 L300 270 L190 225 Z" fill="#fff4e0" stroke="#b7791f" stroke-width="2"/>
+    <text x="300" y="222" font-size="14">¿Tiene el Tablero</text>
+    <text x="300" y="240" font-size="14">de control?</text>
+    <rect x="500" y="190" width="250" height="70" rx="12" fill="#e6f6ec" stroke="#2f855a" stroke-width="2"/>
+    <text x="625" y="222" font-size="16">Panel operativo</text>
+    <text x="625" y="244" font-size="13">esta ficha</text>
+    <rect x="200" y="320" width="200" height="60" rx="12" fill="#edf2f7" stroke="#4a5568" stroke-width="2"/>
+    <text x="300" y="346" font-size="15">Primera pantalla</text>
+    <text x="300" y="366" font-size="13">que puede abrir</text>
+    <line x1="150" y1="75" x2="188" y2="75" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <line x1="410" y1="75" x2="498" y2="75" stroke="#2f855a" stroke-width="2" marker-end="url(#f)"/>
+    <text x="455" y="65" font-size="13">Sí</text>
+    <line x1="300" y1="120" x2="300" y2="178" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <text x="315" y="155" font-size="13" text-anchor="start">No</text>
+    <line x1="410" y1="225" x2="498" y2="225" stroke="#2f855a" stroke-width="2" marker-end="url(#f)"/>
+    <text x="455" y="215" font-size="13">Sí</text>
+    <line x1="300" y1="270" x2="300" y2="318" stroke="#4a5568" stroke-width="2" marker-end="url(#f)"/>
+    <text x="315" y="300" font-size="13" text-anchor="start">No</text>
+  </g>
+</svg>

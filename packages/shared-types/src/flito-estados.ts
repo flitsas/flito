@@ -45,7 +45,7 @@ export const ESTADOS_TRAMITE_FLITO_TERMINADOS: readonly EstadoTramiteFlito[] = [
  * que se leen del documento pagado. Estos dos son honorarios propios de FLIT, y por eso varían de
  * un cliente a otro (el requerimiento cita $200.000 en una compañía y $1.500 en otra).
  */
-export const CONCEPTOS_TARIFA = ['tramite_digital', 'logistica'] as const;
+export const CONCEPTOS_TARIFA = ['tramite_digital', 'logistica', 'logistica_cliente', 'logistica_flit'] as const;
 export type ConceptoTarifa = (typeof CONCEPTOS_TARIFA)[number];
 
 export const esConceptoTarifa = (v: unknown): v is ConceptoTarifa =>
@@ -54,7 +54,18 @@ export const esConceptoTarifa = (v: unknown): v is ConceptoTarifa =>
 export const CONCEPTO_TARIFA_LABEL: Record<ConceptoTarifa, string> = {
   tramite_digital: 'Trámite digital FLIT',
   logistica: 'Negociación logística',
+  logistica_cliente: 'Logística: entrega a cliente',
+  logistica_flit: 'Logística: entrega a FLIT',
 };
+
+/** Conceptos de logística (sin tipo de trámite): el legado `logistica` y los dos de la HU #14106. */
+export const esConceptoLogistica = (c: ConceptoTarifa): boolean =>
+  c === 'logistica' || c === 'logistica_cliente' || c === 'logistica_flit';
+
+/**
+ * El concepto tal como se PERSISTE: `logistica` es alias de `logistica_cliente` (HU #14106, ADR-0030 §6).
+ */
+export const conceptoAlmacenado = (c: ConceptoTarifa): ConceptoTarifa => (c === 'logistica' ? 'logistica_cliente' : c);
 
 /**
  * Cómo normalizar el tipo de trámite antes de compararlo. En `flito_tramites.tipo_tramite` es texto
@@ -168,8 +179,9 @@ export const ESTADO_SOAT_LABEL: Record<EstadoSoat, string> = {
 };
 
 /**
- * RN-01: un SOAT se adquiere una sola vez por VIN. Solicitado y Pagado bloquean el reencolado;
- * Con novedad NO (se comporta como Pendiente: se corrige y se reenvía).
+ * RN-01 (ADR-0031, Feature #14012): un vehículo puede tener VARIOS SOAT, pero a lo sumo UNO ABIERTO a
+ * la vez. Solicitado y Pagado bloquean el reencolado de un trámite de FLIT; Con novedad NO (se
+ * comporta como Pendiente: se corrige y se reenvía).
  *
  * Desde la HU #12080 no hay más estados que estos cuatro, así que la lista no tiene que declarar
  * ninguna exclusión: los dos del canal Cliente que el ADR-0008 §2 dejaba fuera ya no existen.
@@ -180,6 +192,51 @@ export const ESTADOS_SOAT_BLOQUEAN_REENCOLADO: readonly EstadoSoat[] = [
 
 export function soatBloqueaReencolado(estado: EstadoSoat): boolean {
   return (ESTADOS_SOAT_BLOQUEAN_REENCOLADO as readonly string[]).includes(estado);
+}
+
+/**
+ * Estados TERMINALES del SOAT: solo `pagado` (decisión cerrada del Feature #14012). Un SOAT terminal
+ * es historial del vehículo; los otros tres (`pendiente`, `solicitado`, `con_novedad`) son ABIERTOS
+ * ("en proceso") y de ellos puede haber uno solo por vehículo (índices únicos parciales de la 0267).
+ */
+export const ESTADOS_SOAT_TERMINALES: readonly EstadoSoat[] = ['pagado'];
+
+/** ¿El SOAT está abierto (en proceso), es decir, NO terminal? */
+export function soatEstaAbierto(estado: EstadoSoat): boolean {
+  return !(ESTADOS_SOAT_TERMINALES as readonly string[]).includes(estado);
+}
+
+/**
+ * Tipo de SOAT de una solicitud del canal Cliente (Feature #14012, HU #14017, ADR-0030).
+ * El contrato lo expone en MAYÚSCULAS; la columna `flito_soat_solicitud.tipo_soat` guarda
+ * 'inicial' | 'renovacion'. `null` en la cola/detalle = fila de trámite, sin solicitud del canal.
+ */
+export const TipoSoat = { INICIAL: 'INICIAL', RENOVACION: 'RENOVACION' } as const;
+export type TipoSoat = (typeof TipoSoat)[keyof typeof TipoSoat];
+export const TIPOS_SOAT: readonly TipoSoat[] = [TipoSoat.INICIAL, TipoSoat.RENOVACION];
+
+/**
+ * «Ya en FLITO» de un vehículo, para la preconsulta y para los 409 de RN-01 (Feature #14012).
+ * Aditivo y presente solo cuando el vehículo es de la compañía de quien consulta: el 409 de un
+ * vehículo AJENO no lleva este bloque (no se sondea cartera ajena).
+ */
+export interface SoatFlitoContexto {
+  /** Existe al menos un `flito_soat` de ESE vehículo y de ESA compañía. */
+  yaEnFlito: boolean;
+  /** Hay uno no terminal (en proceso): nunca renovable. */
+  abierto: boolean;
+  /** Estado del abierto; `null` si no hay abierto. */
+  estadoAbierto: EstadoSoat | null;
+  /** El abierto, o el último terminal. */
+  soatId: string | null;
+  /** `venceEl` - hoy (día Bogotá). `<= 0` = vencido. `null` = sin fecha. */
+  diasVigencia: number | null;
+  /** 'YYYY-MM-DD'. */
+  venceEl: string | null;
+  /** El RUNT recién consultado manda; si no trae fecha, `flito_soat.vence_el`. */
+  fuenteVigencia: 'runt' | 'flito' | null;
+  /** `!abierto && diasVigencia !== null && diasVigencia <= DIAS_RENOVACION_ANTICIPADA (30)`. */
+  renovable: boolean;
 }
 
 /**
@@ -451,17 +508,13 @@ export type DocumentosImpuesto = 'liquidacion' | 'pago' | 'ambos';
  *
  * Son dos documentos de dos orígenes con el mismo literal. Reutilizar el enum habría hecho que
  * «marcar factura de venta» en Trámites metiera en el ZIP el adjunto del cliente creyendo que mete
- * la factura de FLIT —o las dos—, sin que ningún tipo lo impidiera.
- *
- * Las dos fases del recibo del impuesto (HU #12590) son DOS tipos del ZIP y no uno (Bug #14532):
- * `LIQUIDACION_IMPUESTO` resuelve SOLO a `recibo_impuesto_sin_marca_agua` y `PAGO_IMPUESTO` SOLO a
- * `recibo_impuesto` (el que lleva el sello PAGADO). Sin caída cruzada: antes había un único
- * `RECIBO_IMPUESTO` que prefería la liquidación y caía al pago solo si no la había, así que el
- * soporte pagado nunca se descargaba en un impuesto ya liquidado. Ver `shared/soportes/soportes-zip.ts`.
+ * la factura de FLIT —o las dos—, sin que ningún tipo lo impidiera. Y `RECIBO_IMPUESTO` tampoco es
+ * un alias: en el ZIP resuelve a `recibo_impuesto_sin_marca_agua` con caída a `recibo_impuesto` (ver
+ * `shared/soportes/soportes-zip.ts`), o sea a UN documento de entre DOS tipos de la tabla.
  *
  * Lo que este catálogo nombra es «qué puede marcar el usuario en la pantalla», no «qué fila hay en
- * la base». Cada superficie admite un subconjunto: SOAT solo `FACTURA_SOAT`, Impuestos los tres
- * primeros, Trámites los cuatro.
+ * la base». Cada superficie admite un subconjunto: SOAT solo `FACTURA_SOAT`, Impuestos los dos
+ * primeros, Trámites los tres.
  */
 export const TipoSoporteZip = {
   /** La factura de venta que emite FLIT (S3 de FLIT), NO el adjunto del canal Cliente. */
@@ -676,7 +729,11 @@ export type TipoDocumentoRunt = (typeof TIPOS_DOCUMENTO_RUNT)[number];
 export const CodigoErrorSolicitudSoat = {
   /** El usuario `cliente` no tiene compañía (el CHECK de la 0168 lo impide; esto es la red). */
   SIN_COMPANIA: 'sin_compania',
-  /** La compañía tiene el flag «SOAT sin trámite» APAGADO (AC5). */
+  /**
+   * La compañía no tiene el canal «SOAT sin trámite» abierto. HU #13967: el canal lo abre el PROVEEDOR
+   * elegido (`clients.flito_proveedor_soat_sin_tramite_id IS NOT NULL`), no un interruptor; `null` =
+   * «Sin proveedor» = cerrado. El mensaje que lo acompaña es neutro y no menciona al proveedor.
+   */
   CANAL_DESACTIVADO: 'canal_desactivado',
   /**
    * HU #12874: un usuario SIN enlace radica a nombre de una compañía que escoge en el formulario y
@@ -727,6 +784,8 @@ export const CodigoErrorSolicitudSoat = {
   RUNT_SIN_VIN: 'runt_sin_vin',
   /** El RUNT dice que el vehículo YA tiene SOAT vigente (AC3) → modal, y no se compra. */
   SOAT_VIGENTE: 'soat_vigente',
+  /** Renovación: el RUNT no registra SOAT anterior para la placa → pida un SOAT inicial (HU #14017, AC6). */
+  SOAT_SIN_ANTERIOR: 'soat_sin_anterior',
   /** Ese VIN ya tiene fila en `flito_soat`, de trámite o de este canal, incluida una Rechazada (AC4). */
   VIN_YA_TIENE_SOAT: 'vin_ya_tiene_soat',
   /** El adjunto no es un PDF por CONTENIDO, no solo por extensión (AC5). */
@@ -780,6 +839,13 @@ export const CodigoErrorSolicitudSoat = {
    * estado actual; la fila no se toca (AC6/AC7).
    */
   INCOMPLETA_YA_RESUELTA: 'incompleta_ya_resuelta',
+
+  /**
+   * HU #14018: el reintento llegó a una incompleta cuyo `motivo_pendiente` no es `runt_sin_respuesta`
+   * (falta factura / faltan datos del propietario, de la carga masiva futura): se resuelve completando,
+   * no reintentando el RUNT.
+   */
+  INCOMPLETA_NO_REINTENTABLE: 'incompleta_no_reintentable',
 } as const;
 
 export type CodigoErrorSolicitudSoat =
@@ -816,9 +882,23 @@ export type EstadoSolicitudIncompletaSoat =
  */
 export const MOTIVOS_DESCARTE_SOAT = [
   'soat_vigente', 'runt_no_cuadra', 'runt_sin_registro', 'runt_sin_vin', 'solicitud_existente',
+  /** HU #14018: la renovación reintentada y el RUNT dice que el vehículo no registra SOAT. */
+  'sin_soat_anterior',
 ] as const;
 
 export type MotivoDescarteSoat = (typeof MOTIVOS_DESCARTE_SOAT)[number];
+
+/** HU #14018: cómo consulta el RUNT una incompleta (0269): por VIN (Inicial) o por placa + documento (Renovación). */
+export type ModalidadConsultaRunt = 'vin' | 'placa';
+
+/**
+ * HU #14018: por qué una incompleta está pendiente (0269). Los valores son los del CHECK
+ * `flito_soat_incompletas_motivo_pendiente_chk`. Los dos últimos son de la carga masiva futura.
+ */
+export const MOTIVOS_PENDIENTE_INCOMPLETA = [
+  'runt_sin_respuesta', 'falta_factura_venta', 'faltan_datos_propietario',
+] as const;
+export type MotivoPendienteIncompleta = (typeof MOTIVOS_PENDIENTE_INCOMPLETA)[number];
 
 /**
  * Autor que ve quien mira un descarte hecho por alguien FUERA de su enlace de compañía (Q6 / P-4 del
@@ -829,17 +909,22 @@ export const AUTOR_DESCARTE_FLITO = 'FLITO';
 /**
  * Una fila de `POST /api/flito/soat/cliente/incompletas/buscar` (HU #12997, diseño §4.1).
  *
- * `placa`, `marca` y `linea` son SIEMPRE `null` (R5 del UX): el RUNT no respondió y no hay de dónde
- * sacarlas. Viajan igualmente para que la tabla de la cola no tenga que distinguir la forma.
+ * `marca` y `linea` son SIEMPRE `null` (R5 del UX): el RUNT no respondió y no hay de dónde sacarlas.
+ * `placa` es la tecleada (renovación por placa) o `null` (Inicial). `vin` es `null` en una renovación con
+ * RUNT caído (HU #14018).
  * `descarte` solo en `estado = 'descartada'`; `soatId` solo en `completada`.
  */
 export interface SolicitudIncompletaFila {
   id: string;
   estado: EstadoSolicitudIncompletaSoat;
-  vin: string;
+  vin: string | null;
   companiaId: number;
   companiaNombre: string | null;
-  placa: null;
+  placa: string | null;
+  /** HU #14018. */
+  tipoSoat: TipoSoat;
+  modalidadConsulta: ModalidadConsultaRunt;
+  motivoPendiente: MotivoPendienteIncompleta;
   marca: null;
   linea: null;
   /** Nombre del titular (derivado, como el de la cola): el mismo dato personal que la cola ya muestra. */
@@ -872,7 +957,8 @@ export interface PropietarioSolicitudIncompleta {
 /** `GET /api/flito/soat/cliente/incompletas/:id` (HU #12997). */
 export interface SolicitudIncompletaDetalle extends SolicitudIncompletaFila {
   propietario: PropietarioSolicitudIncompleta | null;
-  factura: { nombreArchivo: string; contentType: string; tamanoBytes: number };
+  /** `null` en una renovación sin factura (HU #14018). */
+  factura: { nombreArchivo: string; contentType: string; tamanoBytes: number } | null;
   /**
    * HU #13409: ISO de cuándo la retención (30 días tras el descarte) borró la factura y los
    * documentos adicionales del almacenamiento. `null` = no purgada.

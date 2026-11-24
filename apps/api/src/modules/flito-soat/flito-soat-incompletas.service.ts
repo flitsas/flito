@@ -48,8 +48,8 @@ import { and, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { clients, flitoCompradores, flitoSoatIncompletas, users } from '../../db/schema.js';
 import {
-  AUTOR_DESCARTE_FLITO, EstadoSolicitudIncompletaSoat,
-  type MotivoDescarteSoat, type PropietarioSolicitudIncompleta, type RespuestaBuscarIncompletas,
+  AUTOR_DESCARTE_FLITO, EstadoSolicitudIncompletaSoat, TipoSoat,
+  type ModalidadConsultaRunt, type MotivoDescarteSoat, type MotivoPendienteIncompleta, type PropietarioSolicitudIncompleta, type RespuestaBuscarIncompletas,
   type SolicitudIncompletaDetalle, type SolicitudIncompletaFila,
 } from '@operaciones/shared-types';
 import { carpetaDe } from '../flito-parametrizacion/flito-parametrizacion.service.js';
@@ -60,6 +60,7 @@ import {
   CARPETA_ADICIONALES, compensarAdicionales, insertarAdicionales, subirAdicionales,
   type AdicionalAceptado, type AdicionalGuardado,
 } from './flito-soat-documentos.service.js';
+import type { TipoSoatCanal } from './flito-soat-cliente-consulta.js';
 import type {
   ArchivoSolicitud,
   PropietarioSolicitud,
@@ -79,25 +80,40 @@ export const MENSAJE_SOLICITUD_INCOMPLETA =
   'El RUNT no respondió. Su solicitud quedó guardada, pendiente de validar, y no se enviará al gestor hasta que el RUNT confirme el vehículo.';
 
 /** Lo que el alta ya validó y resolvió antes de aparcar: nada de esto se vuelve a decidir aquí. */
+export type PropietarioAparcable = Omit<PropietarioSolicitud, 'tipoDocumento' | 'direccion' | 'municipio' | 'departamento'> & {
+  tipoDocumento: PropietarioSolicitud['tipoDocumento'] | null;
+  direccion: string | null; municipio: string | null; departamento: string | null;
+};
+
 export interface EntradaAparcar {
-  /** VIN tecleado y normalizado (`normalizarId`): el RUNT no respondió, no hay VIN efectivo. */
-  vin: string;
+  /** HU #14018: 'inicial' (VIN + factura obligatoria) o 'renovacion' (placa + documento, factura opcional). */
+  tipoSoat: TipoSoatCanal;
+  /** Cómo se consultó el RUNT; decide qué clave ocupa la incompleta (VIN o placa). */
+  modalidad: ModalidadConsultaRunt;
+  /** VIN tecleado y normalizado (`normalizarId`) — solo Inicial: el RUNT no respondió, no hay VIN efectivo. */
+  vin: string | null;
+  /** Placa tecleada y normalizada — solo renovación por placa. El documento es el del propietario. */
+  placa?: string | null;
   companiaId: number;
   carpetaStorage: string | null;
-  propietario: PropietarioSolicitud;
+  /** La carga masiva (HU #14132) no trae tipo de documento ni ubicación: llegan `null`, no inventados. */
+  propietario: PropietarioAparcable;
   /** Nombre derivado (`nombreCompletoDe`), el mismo que escribe el alta normal. */
   nombreCompleto: string;
   /** Mapa completo (`procedenciaCompleta`), igual que el alta normal. */
   procedencia: ProcedenciaComprador;
-  archivo: ArchivoSolicitud;
+  /** `null` solo en renovación (factura opcional, HU #14018). */
+  archivo: ArchivoSolicitud | null;
   /** HU #13362 (D3-bis): los adicionales aceptados también se guardan, contra la por validar. */
   adicionales?: AdicionalAceptado[];
+  /** HU #14132 (AC9): el id que la carga masiva fijó al reclamar la fila; ausente = uno nuevo (alta individual). */
+  soatIdReservado?: string;
 }
 
 export type ResultadoAparcar =
   | { aparcada: true; id: string; soatIdReservado: string; adicionalesGuardados: AdicionalGuardado[] }
   /**
-   * Otra petición abrió una incompleta para el mismo VIN entre la comprobación de la RN-01 y el
+   * (VIN o placa) Otra petición abrió una incompleta para la misma clave entre la comprobación de la RN-01 y el
    * INSERT (el índice único parcial saltó). Quien llama decide el 409 volviendo a mirar la RN-01,
    * que sabe distinguir la forma propia de la ajena.
    */
@@ -116,13 +132,15 @@ export type ResultadoAparcar =
  * deshacer un PUT en S3, y retenerla abierta mientras sube el PDF es peor.
  */
 export async function aparcarSolicitud(entrada: EntradaAparcar, ctx: SoatCtx): Promise<ResultadoAparcar> {
-  const soatIdReservado = randomUUID();
+  const soatIdReservado = entrada.soatIdReservado ?? randomUUID();
   const { archivo } = entrada;
-  const hash = createHash('sha256').update(archivo.buffer).digest('hex');
-  const storageKey = await uploadEntityDocument(
-    carpetaDe({ id: entrada.companiaId, flitoCarpetaStorage: entrada.carpetaStorage }, 'soat/facturas-venta'),
-    soatIdReservado, archivo.originalname, archivo.buffer, archivo.mimetype,
-  );
+  const hash = archivo ? createHash('sha256').update(archivo.buffer).digest('hex') : null;
+  const storageKey = archivo
+    ? await uploadEntityDocument(
+      carpetaDe({ id: entrada.companiaId, flitoCarpetaStorage: entrada.carpetaStorage }, 'soat/facturas-venta'),
+      soatIdReservado, archivo.originalname, archivo.buffer, archivo.mimetype,
+    )
+    : null;
   // Mismo `entityId` que la factura: al completar, el `soat_id` final ES el reservado (D3-bis §2).
   const subidos = await subirAdicionales(
     carpetaDe({ id: entrada.companiaId, flitoCarpetaStorage: entrada.carpetaStorage }, CARPETA_ADICIONALES),
@@ -138,12 +156,16 @@ export async function aparcarSolicitud(entrada: EntradaAparcar, ctx: SoatCtx): P
         soatIdReservado,
         companiaId: entrada.companiaId,
         vin: entrada.vin,
+        placa: entrada.placa ?? null,
+        tipoSoat: entrada.tipoSoat,
+        modalidadConsulta: entrada.modalidad,
+        motivoPendiente: 'runt_sin_respuesta',
         estado: EstadoSolicitudIncompletaSoat.INCOMPLETA,
         facturaStorageKey: storageKey,
         facturaHash: hash,
-        facturaNombreArchivo: archivo.originalname,
-        facturaContentType: archivo.mimetype,
-        facturaTamanoBytes: archivo.size,
+        facturaNombreArchivo: archivo?.originalname ?? null,
+        facturaContentType: archivo?.mimetype ?? null,
+        facturaTamanoBytes: archivo?.size ?? null,
         solicitadoPorId: ctx.userId,
         solicitadoPorNombre: ctx.username,
         solicitadoEn: ahora,
@@ -179,8 +201,8 @@ export async function aparcarSolicitud(entrada: EntradaAparcar, ctx: SoatCtx): P
     // AC7 de la HU #13362: si no hay COMMIT, ningún adicional queda en storage (también con `vin_ocupado`).
     await compensarAdicionales(subidos);
     if ((e as { code?: string })?.code === UNIQUE_VIOLATION) {
-      log.warn({ companiaId: entrada.companiaId, desenlace: 'vin_ocupado' },
-        'Solicitud SOAT incompleta no aparcada: el VIN ya tenía una incompleta abierta');
+      log.warn({ companiaId: entrada.companiaId, desenlace: 'vin_ocupado', modalidad: entrada.modalidad },
+        'Solicitud SOAT incompleta no aparcada: el vehículo ya tenía una incompleta abierta');
       return { aparcada: false, motivo: 'vin_ocupado' };
     }
     throw e;
@@ -221,6 +243,7 @@ function condicionTexto(texto: string): SQL {
   const limpio = texto.trim();
   return or(
     ilike(flitoSoatIncompletas.vin, `%${escaparLike(limpio.toUpperCase())}%`),
+    ilike(flitoSoatIncompletas.placa, `%${escaparLike(limpio.toUpperCase())}%`),
     sql`EXISTS (SELECT 1 FROM ${flitoCompradores}
       WHERE ${flitoCompradores.soatIncompletaId} = ${flitoSoatIncompletas.id}
         AND ${flitoCompradores.numeroDocumento} = ${limpio})`,
@@ -231,6 +254,10 @@ const COLUMNAS_FILA = {
   id: flitoSoatIncompletas.id,
   estado: flitoSoatIncompletas.estado,
   vin: flitoSoatIncompletas.vin,
+  placa: flitoSoatIncompletas.placa,
+  tipoSoat: flitoSoatIncompletas.tipoSoat,
+  modalidadConsulta: flitoSoatIncompletas.modalidadConsulta,
+  motivoPendiente: flitoSoatIncompletas.motivoPendiente,
   companiaId: flitoSoatIncompletas.companiaId,
   companiaNombre: clients.name,
   titular: flitoCompradores.nombreCompleto,
@@ -246,7 +273,8 @@ const COLUMNAS_FILA = {
 };
 
 interface FilaCruda {
-  id: string; estado: string; vin: string; companiaId: number; companiaNombre: string | null;
+  id: string; estado: string; vin: string | null; placa: string | null; tipoSoat: string;
+  modalidadConsulta: string; motivoPendiente: string; companiaId: number; companiaNombre: string | null;
   titular: string | null; solicitadoPorNombre: string; solicitadoEn: Date; intentos: number;
   ultimoIntentoEn: Date; motivoDescarte: string | null; resueltaEn: Date | null;
   resueltaPorId: number | null; resueltaPorNombre: string | null; soatId: string | null;
@@ -287,8 +315,12 @@ function aFila(f: FilaCruda, ctx: SoatCtx, companias: Map<number, number | null>
     vin: f.vin,
     companiaId: f.companiaId,
     companiaNombre: f.companiaNombre,
-    // R5 del UX: el RUNT no respondió, no hay de dónde sacarlas.
-    placa: null, marca: null, linea: null,
+    // La placa es la TECLEADA (renovación) o null (Inicial). R5 del UX: marca y línea no existen: el RUNT no respondió.
+    placa: f.placa,
+    tipoSoat: f.tipoSoat === 'renovacion' ? TipoSoat.RENOVACION : TipoSoat.INICIAL,
+    modalidadConsulta: f.modalidadConsulta as ModalidadConsultaRunt,
+    motivoPendiente: f.motivoPendiente as MotivoPendienteIncompleta,
+    marca: null, linea: null,
     titular: f.titular,
     solicitadoPorNombre: f.solicitadoPorNombre,
     solicitadoEn: iso(f.solicitadoEn),
@@ -357,7 +389,7 @@ export async function detalleIncompleta(id: string, ctx: SoatCtx): Promise<Solic
     .leftJoin(flitoCompradores, and(
       eq(flitoCompradores.soatIncompletaId, flitoSoatIncompletas.id), eq(flitoCompradores.orden, 0)))
     .where(and(eq(flitoSoatIncompletas.id, id), alcance))
-    .limit(1) as (FilaCruda & { facturaNombreArchivo: string; facturaContentType: string; facturaTamanoBytes: number; archivosPurgadosEn: Date | string | null })[];
+    .limit(1) as (FilaCruda & { facturaNombreArchivo: string | null; facturaContentType: string | null; facturaTamanoBytes: number | null; archivosPurgadosEn: Date | string | null })[];
   if (!fila) return null;
 
   const [p] = await db.select({
@@ -386,11 +418,10 @@ export async function detalleIncompleta(id: string, ctx: SoatCtx): Promise<Solic
   return {
     ...aFila(fila, ctx, companias),
     propietario,
-    factura: {
-      nombreArchivo: fila.facturaNombreArchivo,
-      contentType: fila.facturaContentType,
-      tamanoBytes: fila.facturaTamanoBytes,
-    },
+    // Renovación sin factura (HU #14018): las cinco columnas son NULL a la vez (CHECK factura_completa).
+    factura: fila.facturaNombreArchivo !== null && fila.facturaContentType !== null && fila.facturaTamanoBytes !== null
+      ? { nombreArchivo: fila.facturaNombreArchivo, contentType: fila.facturaContentType, tamanoBytes: fila.facturaTamanoBytes }
+      : null,
     // HU #13409 (AC8): la retención ya borró los archivos; null si no.
     archivosPurgadosEn: fila.archivosPurgadosEn ? iso(fila.archivosPurgadosEn) : null,
   };

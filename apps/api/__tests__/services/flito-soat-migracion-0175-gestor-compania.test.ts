@@ -277,10 +277,11 @@ describe('paridad 0175 ↔ schema.ts', () => {
     expect(fk!.reference().foreignColumns.map((c) => c.name)).toEqual(['id']);
   });
 
-  it('la columna vive PEGADA a `soat_sin_tramite`: son el mismo hecho partido en dos', () => {
-    // El CHECK las ata; separarlas en el esquema invitaría a leer una sin la otra.
+  it('HU #13967: `soat_sin_tramite` SALIÓ del esquema Drizzle — el proveedor es el canal', () => {
+    // La 0175 las ataba con un CHECK; la 0262 lo retira y la columna física queda sin uso (#13968).
     const nombres = config.columns.map((c) => c.name);
-    expect(nombres.indexOf(COLUMNA)).toBe(nombres.indexOf('soat_sin_tramite') + 1);
+    expect(nombres).toContain(COLUMNA);
+    expect(nombres).not.toContain('soat_sin_tramite');
   });
 });
 

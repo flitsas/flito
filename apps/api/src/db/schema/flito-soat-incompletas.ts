@@ -28,13 +28,22 @@ export const flitoSoatIncompletas = pgTable('flito_soat_incompletas', {
   soatIdReservado: uuid('soat_id_reservado').notNull().unique(),
   soatId: uuid('soat_id').references(() => flitoSoat.id),
   companiaId: integer('compania_id').notNull().references(() => clients.id),
-  vin: varchar('vin', { length: 17 }).notNull(),
+  /** NULL en una renovación con RUNT caído (0269): no hay VIN hasta que el RUNT responda. */
+  vin: varchar('vin', { length: 17 }),
+  /** HU #14018 (0269): 'inicial' | 'renovacion'. Las existentes = inicial. */
+  tipoSoat: varchar('tipo_soat', { length: 10 }).notNull().default('inicial'),
+  /** HU #14018 (0269): cómo se consulta el RUNT: 'vin' | 'placa'. */
+  modalidadConsulta: varchar('modalidad_consulta', { length: 5 }).notNull().default('vin'),
+  /** La tecleada y normalizada (renovación). El documento NO estrena columna: es el del propietario. */
+  placa: varchar('placa', { length: 10 }),
+  /** HU #14018 (0269): por qué está pendiente. F1 solo escribe 'runt_sin_respuesta'. */
+  motivoPendiente: varchar('motivo_pendiente', { length: 30 }).notNull().default('runt_sin_respuesta'),
   estado: varchar('estado', { length: 12 }).notNull().default('incompleta'),
-  facturaStorageKey: text('factura_storage_key').notNull(),
-  facturaHash: varchar('factura_hash', { length: 64 }).notNull(),
-  facturaNombreArchivo: varchar('factura_nombre_archivo', { length: 255 }).notNull(),
-  facturaContentType: varchar('factura_content_type', { length: 100 }).notNull(),
-  facturaTamanoBytes: integer('factura_tamano_bytes').notNull(),
+  facturaStorageKey: text('factura_storage_key'),
+  facturaHash: varchar('factura_hash', { length: 64 }),
+  facturaNombreArchivo: varchar('factura_nombre_archivo', { length: 255 }),
+  facturaContentType: varchar('factura_content_type', { length: 100 }),
+  facturaTamanoBytes: integer('factura_tamano_bytes'),
   solicitadoPorId: integer('solicitado_por_id').references(() => users.id),
   solicitadoPorNombre: varchar('solicitado_por_nombre', { length: 150 }).notNull(),
   solicitadoEn: timestamp('solicitado_en', { withTimezone: true }).notNull().defaultNow(),
@@ -56,13 +65,15 @@ export const flitoSoatIncompletas = pgTable('flito_soat_incompletas', {
 }, (t) => ({
   vinAbiertaUq: uniqueIndex('uq_flito_soat_incompletas_vin_abierta').on(t.vin)
     .where(sql`${t.estado} = 'incompleta'`),
+  placaAbiertaUq: uniqueIndex('uq_flito_soat_incompletas_placa_abierta').on(t.placa)
+    .where(sql`${t.estado} = 'incompleta' AND ${t.placa} IS NOT NULL`),
   companiaEstadoIdx: index('idx_flito_soat_incompletas_compania_estado').on(t.companiaId, t.estado),
   retencionPendienteIdx: index('idx_flito_soat_incompletas_retencion_pendiente').on(t.resueltaEn)
     .where(sql`${t.estado} = 'descartada' AND ${t.archivosPurgadosEn} IS NULL`),
   estadoChk: check('flito_soat_incompletas_estado_chk',
     sql`${t.estado} IN ('incompleta', 'completada', 'descartada')`),
   motivoChk: check('flito_soat_incompletas_motivo_chk',
-    sql`${t.motivoDescarte} IS NULL OR ${t.motivoDescarte} IN ('soat_vigente', 'runt_no_cuadra', 'runt_sin_registro', 'runt_sin_vin', 'solicitud_existente')`),
+    sql`${t.motivoDescarte} IS NULL OR ${t.motivoDescarte} IN ('soat_vigente', 'runt_no_cuadra', 'runt_sin_registro', 'runt_sin_vin', 'solicitud_existente', 'sin_soat_anterior')`),
   causaChk: check('flito_soat_incompletas_causa_chk',
     sql`${t.ultimaCausaCaida} IS NULL OR ${t.ultimaCausaCaida} IN ('timeout', 'red', 'circuito', 'otro')`),
   intentosChk: check('flito_soat_incompletas_intentos_chk', sql`${t.intentos} >= 1`),
@@ -70,4 +81,15 @@ export const flitoSoatIncompletas = pgTable('flito_soat_incompletas', {
     sql`(${t.estado} = 'descartada') = (${t.motivoDescarte} IS NOT NULL AND ${t.resueltaEn} IS NOT NULL AND ${t.resueltaPorNombre} IS NOT NULL)`),
   completadaChk: check('flito_soat_incompletas_completada_chk',
     sql`(${t.estado} = 'completada') = (${t.soatId} IS NOT NULL AND ${t.soatId} = ${t.soatIdReservado} AND ${t.resueltaEn} IS NOT NULL)`),
+  tipoSoatChk: check('flito_soat_incompletas_tipo_soat_chk', sql`${t.tipoSoat} IN ('inicial', 'renovacion')`),
+  modalidadConsultaChk: check('flito_soat_incompletas_modalidad_consulta_chk',
+    sql`${t.modalidadConsulta} IN ('vin', 'placa')`),
+  modalidadChk: check('flito_soat_incompletas_modalidad_chk',
+    sql`(${t.modalidadConsulta} = 'vin' AND ${t.vin} IS NOT NULL) OR (${t.modalidadConsulta} = 'placa' AND ${t.placa} IS NOT NULL)`),
+  facturaCompletaChk: check('flito_soat_incompletas_factura_completa_chk',
+    sql`(${t.facturaStorageKey} IS NULL) = (${t.facturaHash} IS NULL) AND (${t.facturaStorageKey} IS NULL) = (${t.facturaNombreArchivo} IS NULL) AND (${t.facturaStorageKey} IS NULL) = (${t.facturaContentType} IS NULL) AND (${t.facturaStorageKey} IS NULL) = (${t.facturaTamanoBytes} IS NULL)`),
+  motivoPendienteChk: check('flito_soat_incompletas_motivo_pendiente_chk',
+    sql`${t.motivoPendiente} IN ('runt_sin_respuesta', 'falta_factura_venta', 'faltan_datos_propietario')`),
+  facturaInicialChk: check('flito_soat_incompletas_factura_inicial_chk',
+    sql`${t.tipoSoat} = 'renovacion' OR ${t.facturaStorageKey} IS NOT NULL OR ${t.motivoPendiente} = 'falta_factura_venta'`),
 }));

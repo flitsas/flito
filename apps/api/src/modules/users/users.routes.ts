@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import argon2 from 'argon2';
 import { and, eq, inArray, sql } from 'drizzle-orm';
+import { clienteVigente } from '../clients/cliente-operable.js';
 import { db } from '../../db/client.js';
 import { clients, permisosRoles, users } from '../../db/schema.js';
 import { authMiddleware, invalidateSessionCacheFor } from '../../shared/middleware/auth.js';
@@ -23,7 +24,7 @@ import { actorDeRequest, registrarRechazoAntiBloqueo } from '../../shared/histor
 import {
   actualizarUsuario, cambiarActivo, crearUsuario, funcionesDeVarios, listarUsuarios, nombresDeAmbito,
   organismosDe, organismosDeVarios, organismosInexistentes, proveedorSoatExiste, restablecerContrasena,
-  resumenUsuarios, rolAsignable as rolAsignableCrudo,
+  ProveedorSoatDelUsuarioEliminadoError, resumenUsuarios, rolAsignable as rolAsignableCrudo,
   type FiltrosUsuarios, type PaginacionUsuarios,
 } from './users.service.js';
 import { handleDarDeBaja, handleReactivar } from './users-baja.js';
@@ -39,10 +40,33 @@ async function rolAsignable(codigo: string): Promise<{ tipoEnlace: string } | nu
 }
 // HU #12087: la existencia de los códigos se pregunta al mismo sitio que el cuadro del rol
 // (dependencia en un solo sentido: `users` → `permisos`; `permisos` no importa nada de aquí).
-import { FuncionesInexistentesError, funcionesInexistentes } from '../permisos/permisos-roles.service.js';
+import { FuncionesInexistentesError } from '../permisos/permisos-roles.service.js';
+import { comprobarExcepcionesExclusivas, FuncionExclusivaAdminError, leerFunciones } from '../permisos/permisos-exclusivas.js';
 import { listarAuditoria, titularesAuditoria } from './users-auditoria.service.js';
 
 const log = loggerFor('users');
+/**
+ * HU #12087 (AC1) + HU #13944: las excepciones por usuario se comprueban ANTES de la transacción, en una sola
+ * lectura. Código inexistente → 400; excepción `conceder` o `revocar` sobre una función exclusiva del
+ * Administrador → 409 (`{ error, funcion }`). Devuelve `true` si ya respondió.
+ */
+async function rechazarFunciones(res: Response, funciones: { codigo: string; efecto: string }[]): Promise<boolean> {
+    const { inexistentes, exclusivas } = await leerFunciones(funciones.map((f) => f.codigo));
+    if (inexistentes.length > 0) {
+        res.status(400).json({ error: 'Funciones inexistentes', funciones: inexistentes });
+        return true;
+    }
+    try {
+        comprobarExcepcionesExclusivas(funciones, exclusivas);
+    }
+    catch (e) {
+        if (!(e instanceof FuncionExclusivaAdminError))
+            throw e;
+        res.status(409).json({ error: e.message, funcion: e.funcion });
+        return true;
+    }
+    return false;
+}
 const router = Router();
 // Roles asignables: fuente única en @operaciones/shared-types (incluye 'auditor').
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])/;
@@ -366,7 +390,8 @@ const organismosCodigosSchema = z.array(z.string().regex(/^\d{5}$/, 'Código DIV
 // HU #12088: mensajes genéricos por tipo de enlace (el admin puede haber creado un rol con otro nombre).
 const MSG_COMPANIA_REQUERIDA = 'Compañía requerida para este rol';
 const MSG_COMPANIA_SOBRA = 'Solo los roles con ámbito de compañía pueden tener compañía asignada';
-const MSG_COMPANIA_NO_EXISTE = 'La compañía no existe';
+// HU #13953 (AC3): un cliente eliminado no se puede enlazar a un usuario; el mensaje cubre ambos casos.
+const MSG_COMPANIA_NO_EXISTE = 'La compañía seleccionada no existe o fue eliminada.';
 const MSG_PROVEEDOR_REQUERIDO = 'Proveedor SOAT requerido para este rol';
 const MSG_PROVEEDOR_SOBRA = 'Solo los roles con ámbito de proveedor SOAT pueden tener proveedor asignado';
 const MSG_PROVEEDOR_NO_EXISTE = 'El proveedor SOAT no existe';
@@ -427,9 +452,13 @@ function assertAmbitoSegunEnlace(tipoEnlace: string, body: AmbitoBody): string |
  */
 const codigoRolSchema = z.string().min(1).max(40)
     .regex(/^[a-z][a-z0-9_]*$/, 'El código de rol solo admite minúsculas, números y guion bajo');
-/** ¿Existe esa compañía? Sin esto, un id inventado sería un 23503 sin mensaje útil. */
+/**
+ * ¿Existe esa compañía y está VIGENTE? Sin esto, un id inventado sería un 23503 sin mensaje útil. RN-CLI-9
+ * (HU #13953): un cliente eliminado cuenta como inexistente.
+ */
 async function companiaExiste(id: number): Promise<boolean> {
-    const [c] = await db.select({ id: clients.id }).from(clients).where(eq(clients.id, id)).limit(1);
+    const [c] = await db.select({ id: clients.id }).from(clients)
+        .where(and(eq(clients.id, id), clienteVigente())).limit(1);
     return !!c;
 }
 const createSchema = z.object({
@@ -547,13 +576,8 @@ router.post('/', exigirFuncion('usuarios.usuario.crear'), async (req: Request, r
     }
     // HU #12087 (AC1): los códigos se comprueban ANTES de abrir la transacción, como `guardarCuadro`:
     // un 400 por función inexistente no escribe nada.
-    if (funciones?.length) {
-        const faltan = await funcionesInexistentes(funciones.map((f) => f.codigo));
-        if (faltan.length > 0) {
-            res.status(400).json({ error: 'Funciones inexistentes', funciones: faltan });
-            return;
-        }
-    }
+    if (funciones?.length && await rechazarFunciones(res, funciones))
+        return;
     const passwordHash = await argon2.hash(password);
     // Ámbito por tipoEnlace; `transitoCodigo` siempre null (fuente = puente, HU #12088).
     let user;
@@ -702,13 +726,8 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
         }
     }
     // HU #12087 (AC1): antes de la transacción, como en el alta. Un código inexistente → 400 sin escribir.
-    if (data.funciones?.length) {
-        const faltan = await funcionesInexistentes(data.funciones.map((f) => f.codigo));
-        if (faltan.length > 0) {
-            res.status(400).json({ error: 'Funciones inexistentes', funciones: faltan });
-            return;
-        }
-    }
+    if (data.funciones?.length && await rechazarFunciones(res, data.funciones))
+        return;
     const updates: Record<string, unknown> = {};
     if (data.name !== undefined)
         updates.name = data.name;
@@ -821,6 +840,10 @@ router.patch('/:id/toggle', exigirFuncion('usuarios.usuario.activar'), async (re
         if (e instanceof BloqueoAdministracionError) {
             await registrarRechazoAntiBloqueo(req, { operacion: 'desactivar', objetivo: { tipo: 'usuario', id }, funcion: e.funcion });
             res.status(409).json({ error: e.message, funcion: e.funcion });
+            return;
+        }
+        if (e instanceof ProveedorSoatDelUsuarioEliminadoError) {
+            res.status(409).json({ error: e.message });
             return;
         }
         throw e;

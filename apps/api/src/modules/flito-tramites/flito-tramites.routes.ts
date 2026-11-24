@@ -26,7 +26,11 @@ import {
   type FiltrosListado, type TramitesCtx,
 } from './flito-tramites.service.js';
 import { MAX_VISIBLES_NOVEDADES, novedades } from './flito-tramites-novedades.service.js';
-import { novedadesTramitesLimiter } from '../../shared/middleware/rateLimiter.js';
+import { drFlitGestionLimiter, novedadesTramitesLimiter } from '../../shared/middleware/rateLimiter.js';
+import { busquedaGestionSchema, motivoGestion, PAGINA_GESTION } from '../../shared/dr-flit-gestion.js';
+import { exigirConsultaGestionDrFlit } from '../flito-dr-flit/dr-flit.funciones.js';
+import { logPiiAccess } from '../../shared/pii-audit.js';
+import type { ResultadoGestion, TarjetaTramiteGestion } from '@operaciones/shared-types';
 
 const router = Router();
 router.use(authMiddleware);
@@ -72,6 +76,28 @@ function filtrosDesdeQuery(q: Record<string, unknown>): FiltrosListado {
     page: Number(q.page) || 1, pageSize: Number(q.pageSize) || 50,
   };
 }
+
+
+// HU #13941 (AC4/AC6): consulta de gestión de Dr. Flit.
+function aTarjetaTramite(f: Awaited<ReturnType<typeof listar>>['items'][number]): TarjetaTramiteGestion {
+  return {
+    id: f.tramiteId, placa: f.vehiculo.placa, idFlit: f.idFlit, estado: f.estado, asignado: f.asignado,
+    tipoTramite: f.tipoTramite, empresa: f.companiaNombre, creado: f.fechaCreacion,
+  };
+}
+
+router.post('/buscar', exigirConsultaGestionDrFlit, exigirFuncion('tramites.cola.ver'), drFlitGestionLimiter, async (req: Request, res: Response) => {
+  const parsed = busquedaGestionSchema.safeParse(req.body);
+  if (!parsed.success) { bad(res); return; }
+  const { items, total } = await listar({ buscar: parsed.data.valor, ...PAGINA_GESTION }, await alcanceDe(req));
+  await logPiiAccess(req, {
+    resourceTipo: 'flito_tramites', accion: 'search',
+    camposAccedidos: ['placa', 'id_flit'], motivo: motivoGestion(items.length),
+  });
+  const cuerpo: ResultadoGestion<TarjetaTramiteGestion> = { total, items: items.map(aTarjetaTramite) };
+  res.set('Cache-Control', 'no-store');
+  res.json(cuerpo);
+});
 
 router.get('/', exigirFuncion('tramites.cola.ver'), async (req: Request, res: Response) => {
   res.json(await listar(filtrosDesdeQuery(req.query), await alcanceDe(req)));

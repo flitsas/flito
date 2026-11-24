@@ -22,7 +22,7 @@ import { llaveDe, type GuardaLeida } from './inventario-guardas.js';
 // contenedor. Que el snapshot siga siendo fiel a las guardas lo comprueba `permisos-catalogo.test.ts`,
 // que sí relee los ficheros — en CI el árbol está y en el contenedor no hace falta.
 import { GUARDAS_MEDIDAS } from './inventario.generado.js';
-import { OPERACIONES_DECLARADAS } from './catalogo-operaciones.js';
+import { FUNCIONES_EXCLUSIVAS_ADMIN, OPERACIONES_DECLARADAS } from './catalogo-operaciones.js';
 import { AGRUPACION_DE_OPERACION, AGRUPACION_DE_OPERACION_LEGADO, AGRUPACION_DE_PAGINA, moduloAgrupado } from './catalogo-agrupacion.js';
 import {
   ACCIONES_ARBOL, ACCIONES_POR_ALGUNA, ACCIONES_UNIVERSALES, CODIGOS_ABSORBIDOS, claseDe, esUniversal, operacionesDe,
@@ -30,6 +30,7 @@ import {
   ROL_CON_TODAS_LAS_ACCIONES,
 } from './arbol/expansion.js';
 import { ITEMS_LEGADO_OPS } from './arbol/acciones-legado.js';
+import { ACCIONES_NACIDAS_TRAS_LA_SIEMBRA, OPERACIONES_NACIDAS_EN_EL_ARBOL } from './arbol/acciones-finanzas.js';
 import { ITEMS_ADMINISTRACION_OPS } from './arbol/acciones-administracion.js';
 import { NOMBRES_LEGADO } from './catalogo-operaciones.legado.js';
 
@@ -45,6 +46,8 @@ export interface FuncionCatalogo {
   padre?: string;
   nivel?: number;
   orden?: number;
+  /** HU #13944: solo `admin` la tiene y nadie se la asigna ni se la quita (`FUNCIONES_EXCLUSIVAS_ADMIN`). Ausente = no. */
+  exclusivaAdmin?: true;
 }
 
 /**
@@ -80,7 +83,7 @@ export function moduloDeGrupo(label: string): string {
  * `catalogoPlano()` (que sigue siendo exactamente lo sembrado por las migraciones ≤ 0231) y entran en
  * `catalogoCompleto()` como ítem del árbol.
  */
-export const PAGINAS_NACIDAS_EN_EL_ARBOL: readonly PageSlug[] = ['admin_rendimiento'];
+export const PAGINAS_NACIDAS_EN_EL_ARBOL: readonly PageSlug[] = ['admin_rendimiento', 'flito_dr_flit']; // HU #13941: la 0254
 
 /**
  * Las funciones de tipo `pagina`: una por slug CONCEDIBLE, con el label de `PAGES` como nombre.
@@ -237,6 +240,7 @@ function aCodigoDePartida(operaciones: FuncionCatalogo[]): FuncionCatalogo[] {
   for (const f of [...operaciones].sort((a, b) => Number(a.codigo in PARTIDA_DE_OPERACION_NUEVA) - Number(b.codigo in PARTIDA_DE_OPERACION_NUEVA))) {
     const partida = PARTIDA_DE_OPERACION_NUEVA[f.codigo];
     if (partida?.startsWith('pagina.')) continue;
+    if (OPERACIONES_NACIDAS_EN_EL_ARBOL.has(f.codigo)) continue; // HU #13889: sin partida, no existieron en el plano
     const viva = partida ? vivas.get(partida) : undefined;
     const g = !partida ? f : viva ? { ...viva, roles: f.roles } : deOperacionLegado(partida, f.roles);
     const previa = salida.get(g.codigo);
@@ -261,8 +265,8 @@ function deOperacionLegado(codigo: string, roles: string[]): FuncionCatalogo {
 export function catalogoOperacionesNuevas(guardas?: GuardaLeida[]): FuncionCatalogo[] {
   const plano = new Map(catalogoPlano(guardas).map((f) => [f.codigo, f]));
   return catalogoDeOperaciones(guardas)
-    .filter((f) => f.codigo in PARTIDA_DE_OPERACION_NUEVA)
-    .map((f) => ({ ...f, modulo: plano.get(PARTIDA_DE_OPERACION_NUEVA[f.codigo]!)?.modulo ?? f.modulo }));
+    .filter((f) => f.codigo in PARTIDA_DE_OPERACION_NUEVA || OPERACIONES_NACIDAS_EN_EL_ARBOL.has(f.codigo))
+    .map((f) => ({ ...f, modulo: plano.get(PARTIDA_DE_OPERACION_NUEVA[f.codigo] ?? '')?.modulo ?? f.modulo }));
 }
 
 /** Los nodos de acción del árbol (shared-types), en el orden del árbol. */
@@ -275,14 +279,15 @@ const NODOS_ACCION: readonly NodoArbolDef[] = ARBOL_ITEMS_Y_ACCIONES.filter((n) 
  */
 export function catalogoDeAcciones(plano: FuncionCatalogo[] = catalogoPlano()): FuncionCatalogo[] {
   const porCodigo = new Map(plano.map((f) => [f.codigo, f]));
-  const nuevas = new Set(Object.keys(PARTIDA_DE_OPERACION_NUEVA));
+  const nuevas = new Set([...Object.keys(PARTIDA_DE_OPERACION_NUEVA), ...OPERACIONES_NACIDAS_EN_EL_ARBOL]);
   const nodos = new Map(ARBOL_ITEMS_Y_ACCIONES.map((n) => [n.codigo, n]));
   const enArbol = new Set(NODOS_ACCION.map((n) => n.codigo));
   const errores: string[] = [];
   for (const a of Object.keys(ACCIONES_ARBOL)) if (!enArbol.has(a)) errores.push(`acción sin nodo en el árbol: ${a}`);
   for (const a of enArbol) if (!(a in ACCIONES_ARBOL)) errores.push(`nodo de acción sin operaciones: ${a}`);
   for (const a of Object.keys(ACCIONES_ARBOL)) {
-    if (predecesoresDe(a).length === 0 && !esUniversal(a)) errores.push(`acción sin operaciones: ${a}`);
+    // HU #13889: una acción nacida tras la siembra no tiene predecesores (nadie la tenía): solo la recibe `admin`.
+    if (predecesoresDe(a).length === 0 && !esUniversal(a) && !ACCIONES_NACIDAS_TRAS_LA_SIEMBRA.has(a)) errores.push(`acción sin operaciones: ${a}`);
     for (const op of operacionesDe(a)) if (!porCodigo.has(op) && !nuevas.has(op)) errores.push(`${a} concede un código inexistente: ${op}`);
     for (const p of predecesoresDe(a)) if (!porCodigo.has(p)) errores.push(`${a} tiene un predecesor que el mundo plano no conoce: ${p}`);
     for (const op of ACCIONES_ARBOL[a]!.opcionales ?? []) {
@@ -310,7 +315,7 @@ export function catalogoDeAcciones(plano: FuncionCatalogo[] = catalogoPlano()): 
       // unión, y `exigeItem` la deja solo a quien ya tiene la página del ítem.
       roles: [...new Set([
         ...(esUniversal(n.codigo) ? USER_ROLES
-          : ACCIONES_POR_ALGUNA.has(n.codigo) ? grupos.flat() : grupos[0]!.filter((r) => grupos.every((g) => g.includes(r))))
+          : ACCIONES_POR_ALGUNA.has(n.codigo) ? grupos.flat() : (grupos[0] ?? []).filter((r) => grupos.every((g) => g.includes(r))))
           .filter((r) => !ACCIONES_ARBOL[n.codigo]!.exigeItem || pagina.roles.includes(r)),
         ROL_CON_TODAS_LAS_ACCIONES,
       ])].sort(),
@@ -386,7 +391,26 @@ export function catalogoCompleto(guardas?: GuardaLeida[]): FuncionCatalogo[] {
     });
   }
   if (errores.length) throw new CatalogoIncoherenteError(`El árbol de permisos y el catálogo no coinciden:\n  ${errores.join('\n  ')}`);
-  return salida.sort((a, b) => a.codigo.localeCompare(b.codigo));
+  return marcarExclusivasAdmin(salida).sort((a, b) => a.codigo.localeCompare(b.codigo));
+}
+
+/**
+ * HU #13944 — marca `exclusivaAdmin` en las funciones de `FUNCIONES_EXCLUSIVAS_ADMIN`. Una exclusiva que no está en el
+ * catálogo, o cuyo reparto de partida no es exactamente `['admin']`, es `CatalogoIncoherenteError`: sembrarla en otro
+ * rol contradiría la marca desde el primer día.
+ */
+function marcarExclusivasAdmin(salida: FuncionCatalogo[]): FuncionCatalogo[] {
+  const exclusivas = new Set(FUNCIONES_EXCLUSIVAS_ADMIN);
+  if (exclusivas.size === 0) return salida;
+  const porCodigo = new Map(salida.map((f) => [f.codigo, f]));
+  const errores: string[] = [];
+  for (const c of exclusivas) {
+    const f = porCodigo.get(c);
+    if (!f) errores.push(`exclusiva del Administrador que no está en el catálogo: ${c}`);
+    else if (f.roles.length !== 1 || f.roles[0] !== 'admin') errores.push(`exclusiva del Administrador con reparto [${f.roles.join(',')}] (debe ser [admin]): ${c}`);
+  }
+  if (errores.length) throw new CatalogoIncoherenteError(`Funciones exclusivas del Administrador incoherentes:\n  ${errores.join('\n  ')}`);
+  return salida.map((f) => (exclusivas.has(f.codigo) ? { ...f, exclusivaAdmin: true as const } : f));
 }
 
 /** El reparto rol × función que se siembra: `[rol, codigo]` ordenado y sin repetir. */
