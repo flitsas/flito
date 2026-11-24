@@ -295,28 +295,18 @@ describe('B4 · llamadas migradas', () => {
   }, 15_000);
 
   it('salud de modelos: max_tokens 1 cuenta como éxito, origen sistema, mismo reporte de siempre', async () => {
-    encolar(ok('', { stop_reason: 'max_tokens' }), { status: 404, body: { type: 'error', error: { type: 'not_found_error' } } }, ok('', { stop_reason: 'max_tokens' }));
+    // En release la sonda revisa dos modelos (Haiku y Sonnet); Dr. Flit IA todavía no existe aquí.
+    encolar(ok('', { stop_reason: 'max_tokens' }), { status: 404, body: { type: 'error', error: { type: 'not_found_error' } } });
     const { runAnthropicHealthCheckOnce } = await import('../../src/modules/ai/anthropic-health.js');
     const rep = await runAnthropicHealthCheckOnce();
     expect(rep.status).toBe('degraded');
     expect(rep.models[1]).toMatchObject({ status: 'error', statusCode: 404, errorType: 'not_found_error' });
     const f = await registrado();
     expect(f.map((x) => [x.resultado, x.origen, x.modulo, x.tipoTarea])).toEqual([
-      ['exito', 'sistema', 'sistema', 'salud'], ['error_proveedor', 'sistema', 'sistema', 'salud'], ['exito', 'sistema', 'sistema', 'salud'],
+      ['exito', 'sistema', 'sistema', 'salud'], ['error_proveedor', 'sistema', 'sistema', 'salud'],
     ]);
   });
 
-  it('Dr. Flit: misma forma de resultado, sin reintentos, fila chat de dr_flit', async () => {
-    encolar(ok('{"x":1}', { usage: { input_tokens: 5, output_tokens: 7 } }));
-    const { llamarMensajesIa } = await import('../../src/modules/flito-dr-flit/dr-flit-ia.client.js');
-    const r = await conContextoIa(procesoIa('chat'), () => llamarMensajesIa({ model: 'claude-haiku-5-5', max_tokens: 10, messages: [] }, { timeoutMs: 5000 }));
-    expect(r).toEqual({ ok: true, texto: '{"x":1}', stopReason: 'end_turn', tokensEntrada: 5, tokensSalida: 7 });
-    encolar({ tipo: 'timeout' });
-    const t = await llamarMensajesIa({ model: 'm', messages: [] }, { timeoutMs: 5000 });
-    expect(t).toEqual({ ok: false, motivo: 'ia-timeout', statusCode: null, errorType: 'timeout' });
-    expect(red.peticiones).toHaveLength(2);
-    expect((await registrado())[0]).toMatchObject({ modulo: 'dr_flit', proceso: 'chat', tipoTarea: 'chat' });
-  });
 });
 
 describe('B5/B7 · flito-ocr: proceso, pasada 2, placa del nombre y respaldo Tesseract', () => {
