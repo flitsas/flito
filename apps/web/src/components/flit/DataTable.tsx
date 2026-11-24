@@ -40,7 +40,7 @@ const ALIGN = { left: 'text-left', center: 'text-center', right: 'text-right' } 
 
 export default function DataTable<T>({
   columnas, filas, getKey, status, onRetry, emptyMessage, emptyDetalle, emptyCta, errorMessage, ariaLabel,
-  matriz = false, seleccion, onFilaClick, paginacion, minWidth, filaMarcada, filasPrevias,
+  matriz = false, seleccion, onFilaClick, paginacion, minWidth, filaMarcada, filasPrevias, regionDesplazable,
 }: {
   columnas: ColumnaTabla<T>[];
   filas: T[];
@@ -61,6 +61,8 @@ export default function DataTable<T>({
   filaMarcada?: (row: T) => boolean;
   /** `<tr>` del consumidor que van antes de las filas de datos (p. ej. solicitudes incompletas del SOAT). */
   filasPrevias?: ReactNode;
+  /** El contenedor que se desliza es enfocable, con este `aria-label`. */
+  regionDesplazable?: string;
 }) {
   const hayPrevias = filasPrevias !== undefined && filasPrevias !== null && filasPrevias !== false
     && !(Array.isArray(filasPrevias) && filasPrevias.length === 0);
@@ -74,7 +76,8 @@ export default function DataTable<T>({
     seleccion.onCambio(s);
   };
   return (
-    <div className={`tabla-wrap${matriz ? ' kit-matriz' : ''}`} data-kit="tabla" data-modo={matriz ? 'matriz' : 'tarjetas'}>
+    <div className={`tabla-wrap${matriz ? ' kit-matriz' : ''}${regionDesplazable ? ' flit-focus' : ''}`} data-kit="tabla" data-modo={matriz ? 'matriz' : 'tarjetas'}
+      {...(regionDesplazable ? { tabIndex: 0, role: 'region', 'aria-label': regionDesplazable } : {})}>
       <EstadoVista status={efectivo} onRetry={onRetry} emptyMessage={emptyMessage} emptyDetalle={emptyDetalle} emptyCta={emptyCta} errorMessage={errorMessage}>
         <table className={matriz ? 'matriz kit-matriz__tabla' : undefined} aria-label={ariaLabel} style={minWidth ? { minWidth } : undefined}>
           <thead>
