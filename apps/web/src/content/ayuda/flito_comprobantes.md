@@ -8,7 +8,7 @@ palabras_clave:
 consultas:
   - cómo cargo un comprobante
   - qué leyó FLITO del comprobante
-version: 1.6
+version: 1.7
 fecha: 2026-11-17
 ---
 ## Qué es

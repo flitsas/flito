@@ -9,6 +9,9 @@ import Paginacion from './Paginacion';
  * `matriz`: para RACI, tarifas o ~20 columnas — scroll horizontal dentro del contenedor en vez de tarjetas.
  * `seleccion`: casillas por fila y «todas» en la cabecera (estado en el padre).
  * Trae los 4 estados (status + reintento) y paginación opcional (también modo cursor de Paginacion).
+ * Aditivas para tablas cruzadas (Torre #14590): `encabezadoFila` (la 1.ª columna es `<th scope="row">`, fija en
+ * `matriz`), `pie` (filas de `<tfoot>`, que se repiten en cada página), `caption` (`sr-only`) y `regionDesplazable`
+ * (el contenedor que se desliza es enfocable, con ese `aria-label`).
  * Aditivas para colas con fila marcada y filas especiales (Épica #14560, cola SOAT): `filaMarcada` (velo + filete
  * izquierdo del acento, `data-marcada`) y `filasPrevias` (`<tr>` propios del consumidor, ANTES de las filas de datos;
  * cuentan como contenido para el estado vacío).
@@ -25,6 +28,8 @@ export interface ColumnaTabla<T> {
   /** Celda de «Acciones» (`.fila-abrir`): a la derecha y sin etiqueta en tarjeta. */
   acciones?: boolean;
   className?: string;
+  /** Aditivo (Torre #14590, detalle): `aria-sort` del `<th>` de una columna ordenable. */
+  ariaSort?: 'ascending' | 'descending' | 'none';
 }
 
 export interface SeleccionTabla {
@@ -40,7 +45,8 @@ const ALIGN = { left: 'text-left', center: 'text-center', right: 'text-right' } 
 
 export default function DataTable<T>({
   columnas, filas, getKey, status, onRetry, emptyMessage, emptyDetalle, emptyCta, errorMessage, ariaLabel,
-  matriz = false, seleccion, onFilaClick, paginacion, minWidth, filaMarcada, filasPrevias, regionDesplazable,
+  matriz = false, seleccion, onFilaClick, paginacion, minWidth, encabezadoFila = false, pie, caption, regionDesplazable,
+  filaMarcada, filasPrevias,
 }: {
   columnas: ColumnaTabla<T>[];
   filas: T[];
@@ -57,12 +63,15 @@ export default function DataTable<T>({
   onFilaClick?: (row: T) => void;
   paginacion?: Parameters<typeof Paginacion>[0];
   minWidth?: number;
+  encabezadoFila?: boolean;
+  /** Contenido de `<tfoot>` (`<tr>…</tr>`). */
+  pie?: ReactNode;
+  caption?: string;
+  regionDesplazable?: string;
   /** Fila marcada por el consumidor (selección propia): velo + filete izquierdo, como `FlitTr marcada`. */
   filaMarcada?: (row: T) => boolean;
   /** `<tr>` del consumidor que van antes de las filas de datos (p. ej. solicitudes incompletas del SOAT). */
   filasPrevias?: ReactNode;
-  /** El contenedor que se desliza es enfocable, con este `aria-label`. */
-  regionDesplazable?: string;
 }) {
   const hayPrevias = filasPrevias !== undefined && filasPrevias !== null && filasPrevias !== false
     && !(Array.isArray(filasPrevias) && filasPrevias.length === 0);
@@ -80,6 +89,7 @@ export default function DataTable<T>({
       {...(regionDesplazable ? { tabIndex: 0, role: 'region', 'aria-label': regionDesplazable } : {})}>
       <EstadoVista status={efectivo} onRetry={onRetry} emptyMessage={emptyMessage} emptyDetalle={emptyDetalle} emptyCta={emptyCta} errorMessage={errorMessage}>
         <table className={matriz ? 'matriz kit-matriz__tabla' : undefined} aria-label={ariaLabel} style={minWidth ? { minWidth } : undefined}>
+          {caption && <caption className="sr-only">{caption}</caption>}
           <thead>
             <tr>
               {seleccion && (
@@ -88,7 +98,7 @@ export default function DataTable<T>({
                     onChange={() => seleccion.onCambio(todas ? new Set() : new Set(keys))} />
                 </th>
               )}
-              {columnas.map((c) => <th key={c.key} scope="col" className={`${ALIGN[c.align ?? 'left']} ${c.soloEscritorio ? 'solo-escritorio' : ''}`}>{c.header}</th>)}
+              {columnas.map((c) => <th key={c.key} scope="col" aria-sort={c.ariaSort} className={`${ALIGN[c.align ?? 'left']} ${c.soloEscritorio ? 'solo-escritorio' : ''}`}>{c.header}</th>)}
             </tr>
           </thead>
           <tbody>
@@ -107,18 +117,28 @@ export default function DataTable<T>({
                         aria-label={seleccion.etiquetaFila ? seleccion.etiquetaFila(k) : 'Seleccionar fila'} onChange={() => alternar(k)} />
                     </td>
                   )}
-                  {columnas.map((c) => (
+                  {columnas.map((c, i) => {
+                    if (encabezadoFila && i === 0) {
+                      const contenido = c.render(row);
+                      return (
+                        <th key={c.key} scope="row" title={typeof contenido === 'string' ? contenido : undefined}
+                          className={`${ALIGN[c.align ?? 'left']} ${c.className ?? ''}`}>{contenido}</th>
+                      );
+                    }
+                    return (
                     <td key={c.key}
                       data-etiqueta={c.etiqueta ?? (typeof c.header === 'string' ? c.header : undefined)}
                       className={`${ALIGN[c.align ?? 'left']}${c.soloEscritorio ? ' solo-escritorio' : ''}${c.acciones ? ' fila-abrir' : ''} ${c.className ?? ''}`}
                       onClick={c.acciones ? (e) => e.stopPropagation() : undefined}>
                       {c.render(row)}
                     </td>
-                  ))}
+                    );
+                  })}
                 </tr>
               );
             })}
           </tbody>
+          {pie && <tfoot>{pie}</tfoot>}
         </table>
       </EstadoVista>
       {paginacion && efectivo === 'ready' && <div className="px-3.5 pb-3"><Paginacion {...paginacion} /></div>}

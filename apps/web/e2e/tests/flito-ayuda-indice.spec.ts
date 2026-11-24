@@ -190,7 +190,7 @@ test.describe('FLITO — Ayuda · índice', () => {
     const capitulos = [...cat.matchAll(/clave: '(\w+)', grupo: '(\w+)', etiqueta: '([^']+)'(?:, to: '([^']*)')?[^}]*permiso: '(\w+)'/g)]
       .map((m) => ({ clave: m[1], grupo: m[2], etiqueta: m[3], to: m[4], permiso: m[5] }));
     expect(capitulos.length).toBeGreaterThan(15);
-    const SECCION: Record<string, string> = { general: 'general', gestion: 'gestion', transito: 'transito', finanzas: 'finanzas', administracion: 'admin' };
+    const SECCION: Record<string, string> = { general: 'general', torre: 'torre', gestion: 'gestion', transito: 'transito', finanzas: 'finanzas', administracion: 'admin' };
     // El Tablero de General es el ítem `dashboard` del menú (P-11): su ficha cuelga de `flito_tablero`.
     const itemDelMenu = (permiso: string) => (permiso === 'flito_tablero' ? 'dashboard' : permiso);
     const esperado: Record<string, string[]> = {};
@@ -228,12 +228,12 @@ test.describe('FLITO — Ayuda · índice', () => {
   });
 
   // HU #13775 — grupo Tránsito y ficha «Tablero de control» (docs/ux/flito-ayuda-transito.md).
-  test('HU #13775 — admin ve los 5 grupos en orden: General, Gestión, Tránsito, Finanzas, Administración', async ({ page }) => {
+  test('HU #13775 / Épica #14590 — admin ve los 6 grupos en orden: General, Torre de Control, Gestión, Tránsito, Finanzas, Administración', async ({ page }) => {
     await abrirAyuda(page, OPERACIONES_USER);
     const grupos = page.locator('section[aria-labelledby^="ayuda-grupo-"]');
-    await expect(grupos).toHaveCount(5);
+    await expect(grupos).toHaveCount(6);
     expect(await grupos.evaluateAll((els) => els.map((e) => e.getAttribute('aria-labelledby')))).toEqual([
-      'ayuda-grupo-general', 'ayuda-grupo-gestion', 'ayuda-grupo-transito', 'ayuda-grupo-finanzas', 'ayuda-grupo-administracion',
+      'ayuda-grupo-general', 'ayuda-grupo-torre', 'ayuda-grupo-gestion', 'ayuda-grupo-transito', 'ayuda-grupo-finanzas', 'ayuda-grupo-administracion',
     ]);
     await expect(page.getByRole('heading', { name: 'Tránsito', exact: true })).toBeVisible();
     expect(await page.locator('section[aria-labelledby="ayuda-grupo-transito"] a').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label'))))
@@ -241,6 +241,9 @@ test.describe('FLITO — Ayuda · índice', () => {
     // «Tablero de control» va en General, después de «Tablero».
     expect(await page.locator('section[aria-labelledby="ayuda-grupo-general"] a').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label'))))
       .toEqual(['Abrir ficha de Tablero', 'Abrir ficha de Tablero de control']);
+    // Épica #14590 — una sola ficha para toda la Torre, en su grupo, entre General y Gestión (orden del menú).
+    expect(await page.locator('section[aria-labelledby="ayuda-grupo-torre"] a').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label'))))
+      .toEqual(['Abrir ficha de Torre de Control']);
   });
 
   test('HU #13775 — sin `transito_organismos` no se pinta el grupo Tránsito', async ({ page }) => {

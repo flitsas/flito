@@ -152,13 +152,13 @@ describe('authMiddleware — el JWT ya no lleva allowedPages y, si lo trae, se i
 // (8/7/4) y páginas en 2 (27/23). Estos tests fallan si el catálogo se vuelve
 // a duplicar/desincronizar.
 describe('paridad de catálogos y roles (anti-drift USR-7)', () => {
-  it('ALL_ROLES ⊆ USER_ROLES, son 11 (8 base + FLITO gestor_impuestos/mensajero + finanzas) y contiene auditor', async () => {
+  it('ALL_ROLES ⊆ USER_ROLES, son 14 (8 base + FLITO gestor_impuestos/mensajero + finanzas + cliente + las dos gerencias de la Torre) y contiene auditor', async () => {
     const shared = await import('@operaciones/shared-types');
     const valid = new Set<string>(shared.USER_ROLES);
     for (const r of shared.ALL_ROLES) expect(valid.has(r)).toBe(true);
     // 8 base + `gestor_impuestos` + `mensajero` (FLITO) + `financiera` + `cliente` (#11912).
-    // El antiguo `operaciones` se fusionó en `admin`.
-    expect(shared.USER_ROLES).toHaveLength(12);
+    // El antiguo `operaciones` se fusionó en `admin`. Épica #14590: + `gerencia_comercial` y `gerencia_general`.
+    expect(shared.USER_ROLES).toHaveLength(14);
     expect(shared.ALL_ROLES).toContain('auditor');
     // AC4 de la HU #11913: el catálogo que el producto OFRECE no incluye `operaciones`. El valor
     // sigue existiendo en el enum de Postgres (quitarlo obligaría a recrear el tipo) y eso no lo
@@ -214,6 +214,12 @@ describe('paridad de catálogos y roles (anti-drift USR-7)', () => {
       // HU #12171: el historial de cambios de usuarios y permisos vive en la pantalla de usuarios;
       // el auditor la abre y ve SOLO el historial (sin `usuarios.usuario.listar`: AC4).
       'users',
+      // Épica #14590: la Torre de Control en lectura (la 0303 no le da exportar ni editar umbrales).
+      'torre_360', 'torre_comercial', 'torre_operativa', 'torre_financiera', 'torre_explorador', 'torre_umbrales',
+      // ADR-0047 (B1): el detalle de las cifras, en lectura (su migración no le da exportar).
+      'torre_detalle',
+      // Épica #14590 (B3/B4): Productos y Logística, con el reparto de Operativa (la 0308 y la 0309).
+      'torre_productos', 'torre_logistica',
     ].sort());
   });
 

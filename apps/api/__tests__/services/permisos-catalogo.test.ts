@@ -18,7 +18,7 @@ import { describe, it, expect } from 'vitest';
 import { PAGES, PAGE_GROUPS, USER_ROLES, paginasPorDefecto } from '@operaciones/shared-types';
 import {
   catalogoPlano, catalogoDePaginas, catalogoDeOperaciones, repartoDePartida, moduloDeGrupo,
-  PAGINAS_NO_CONCEDIBLES, CatalogoIncoherenteError,
+  PAGINAS_NO_CONCEDIBLES, PAGINAS_NACIDAS_EN_EL_ARBOL, CatalogoIncoherenteError,
 } from '../../src/modules/permisos/catalogo.js';
 import {
   AGRUPACION_DE_OPERACION, AGRUPACION_DE_OPERACION_LEGADO, AGRUPACION_DE_PAGINA, moduloAgrupado, reagrupaciones,
@@ -47,7 +47,7 @@ const paginas = catalogo.filter((f) => f.tipo === 'pagina');
 const operaciones = catalogo.filter((f) => f.tipo === 'operacion');
 
 describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo era', () => {
-  it('`PAGE_GROUPS` trae 76 entradas para 75 slugs únicos: `transito` está dos veces', () => {
+  it('`PAGE_GROUPS` trae 85 entradas para 84 slugs únicos: `transito` está dos veces', () => {
     // 44 → 45 / 43 → 44 desde la HU #12375: entra `flito_tarifas` en «Finanzas».
     // 45 → 46 / 44 → 45 desde la HU #12085: entra `roles_permisos` en «Administración».
     // 46 → 47 / 45 → 46 desde la HU #12542: entra `flito_servicios_adicionales` en «Finanzas».
@@ -58,9 +58,13 @@ describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo e
     // 71 → 74 / 70 → 73 desde la HU #13422: entran las 3 páginas por ítem del menú Mantenimiento.
     // 74 → 75 / 73 → 74 desde la HU #13588: entra `admin_rendimiento` («Rendimiento») en «Administración».
     // 75 → 76 / 74 → 75 desde la HU #13941: entra `flito_dr_flit` («Dr. Flit») en «General».
+    // 76 → 82 / 75 → 81 desde la Épica #14590: entran las seis páginas de la Torre de Control.
+    // 82 → 83 / 81 → 82 desde el ADR-0047 (Épica #14590, B1): entra `torre_detalle` en «Torre de Control».
+    // 83 → 84 / 82 → 83 desde la Épica #14590 (B3): entra `torre_productos` en «Torre de Control».
+    // 84 → 85 / 83 → 84 desde la Épica #14590 (B4): entra `torre_logistica` en «Torre de Control».
     const entradas = PAGE_GROUPS.flatMap((g) => g.pages);
-    expect(entradas).toHaveLength(76);
-    expect(new Set(entradas).size).toBe(75);
+    expect(entradas).toHaveLength(85);
+    expect(new Set(entradas).size).toBe(84);
     const repetidos = entradas.filter((s, i) => entradas.indexOf(s) !== i);
     expect(repetidos).toEqual(['transito']);
   });
@@ -86,13 +90,15 @@ describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo e
     expect(catalogo.map((f) => f.codigo)).not.toContain('pagina.flito_ayuda');
   });
 
-  it('las funciones de tipo `pagina` del mundo plano son 73: los 76 slugs de PAGES menos `flito_ayuda`, `admin_rendimiento` y `flito_dr_flit`', () => {
+  it('las funciones de tipo `pagina` del mundo plano son 73: los 85 slugs de PAGES menos `flito_ayuda`, `admin_rendimiento`, `flito_dr_flit` y las nueve de la Torre', () => {
     // HU #13255: +1 (`perfil`). HU #13421: +21 (una por ítem del menú PESV). HU #13422: +3 (Mantenimiento).
     // HU #13588: +1 en PAGES (`admin_rendimiento`), que nace en el árbol (la 0240): no es del mundo plano (≤ 0231).
     // HU #13941: +1 en PAGES (`flito_dr_flit`), que también nace en el árbol (la 0254).
-    expect(Object.keys(PAGES)).toHaveLength(76);
+    // Épica #14590: +6 en PAGES (`torre_*`), que nacen en el árbol (la 0303); ADR-0047: +1 (`torre_detalle`, su migración).
+    // B3: +1 (`torre_productos`, la 0308). B4: +1 (`torre_logistica`, la 0309).
+    expect(Object.keys(PAGES)).toHaveLength(85);
     expect(paginas).toHaveLength(73);
-    const esperados = Object.keys(PAGES).filter((s) => s !== 'flito_ayuda' && s !== 'admin_rendimiento' && s !== 'flito_dr_flit').sort();
+    const esperados = Object.keys(PAGES).filter((s) => s !== 'flito_ayuda' && s !== 'admin_rendimiento' && s !== 'flito_dr_flit' && !s.startsWith('torre_')).sort();
     expect(paginas.map((f) => f.codigo.replace('pagina.', '')).sort()).toEqual(esperados);
   });
 });
@@ -190,6 +196,9 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     // HU #13628: `PUT /flit1/parametros-lectura` reutiliza `tramites.sincronizacion.configurar` del interruptor
     // (diseño docs/diseno/hu-13628-parametros-lectura-flit1.md: sin función nueva ni siembra).
     // HU #13684: `POST /novedades/buscar` de flito-tramites reutiliza `tramites.cola.ver` del listado (sin función nueva ni siembra).
+    // HU #13836: `POST /buscar` de flito-tramites (Dr. Flit) reutiliza `tramites.cola.ver` del listado (sin función nueva ni siembra).
+    // HU #13837: `POST /buscar` de flito-soat (Dr. Flit) reutiliza `soat.cola.ver` de la cola (sin función nueva ni siembra).
+    // HU #13838: `POST /buscar` de flito-impuestos y de flito-derechos (Dr. Flit) reutilizan `impuestos.cola.ver` y `derechos.cola.ver`.
     // HU #13889 (ADR-0028 §5): el expediente, el historial y la descarga piden la misma `bolsas.documentos.ver`.
     // HU #13893 (ADR-0028 §5 E6): el estado del lote para el chip también pide `bolsas.documentos.ver`.
     // HU #13890 (ADR-0028 §5 E4): la fecha de expedición manual reutiliza `bolsas.documentos.cargar` de la carga.
@@ -199,9 +208,6 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
     // HU #13907 (ADR-0029): la rama tránsito del catálogo reutilizó los códigos de las rutas `/transito…`; desde la
     // HU #13911 (rutas retiradas) cada `bolsas.transito.*` lo guarda UNA sola ruta, salvo inactivar y reactivar, que
     // piden la misma `bolsas.transito.inactivar`.
-    // HU #13836: `POST /buscar` de flito-tramites (Dr. Flit) reutiliza `tramites.cola.ver` del listado (sin función nueva ni siembra).
-    // HU #13837: `POST /buscar` de flito-soat (Dr. Flit) reutiliza `soat.cola.ver` de la cola (sin función nueva ni siembra).
-    // HU #13838: `POST /buscar` de flito-impuestos y de flito-derechos (Dr. Flit) reutilizan `impuestos.cola.ver` y `derechos.cola.ver`.
     // Certificar sin trámite: las doce rutas de la pantalla piden `impuestos.certificacion_directa.gestionar`. La acción la absorbe.
     // HU #14665: +3 (eliminar, eliminar en lote y el ZIP de certificados; reutilizan la misma función).
     // HU #14142: `POST /consultar-vehiculo` (ingreso manual de la LT) reutiliza `logistica.documento.escanear` de `/escanear` (sin función nueva).
@@ -241,6 +247,19 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       ['permisos.catalogo.ver', 2], ['permisos.cuadro.ver', 2],
       ['revisiones.revision.resolver', 3], // Bug #14569 (puntos 8 y 9): POST /:id/candidatos/buscar y /:id/reintentar-lectura solo sirven a resolver (sin función nueva ni siembra)
       ['soat.cola.ver', 2], ['soat.solicitud.crear', 8], // + 3 de la carga masiva (HU #14131)
+      // Épica #14590: `GET /opciones` reutiliza `torre.metricas.consultar`; cada `/<tablero>/exportar`, la función de su
+      // tablero; el dinero se decide en línea en las dos rutas del explorador y en los dos handlers comunes de los tableros.
+      // ADR-0044: `POST /placa/sugerencias` reutiliza `torre.placa.buscar`, la función de la ficha.
+      // Épica #14590 (B2): `POST /operativa/inventario` y `/operativa/soportes` reutilizan `torre.tablero_operativo.ver`.
+      // Épica #14590 (B5): Equipo = su pestaña (sin Excel) y la función de origen del detalle.
+      ['torre.equipo.ver', 2],
+      // ADR-0047 (B1): el detalle exige en línea el dinero y la función de origen de la cifra (+1 a cada una).
+      ['torre.metricas.consultar', 3], ['torre.metricas.dinero', 5], ['torre.placa.buscar', 2], ['torre.tablero_comercial.ver', 3],
+      // Épica #14590 (B3): Productos = su tablero, su Excel y la función de origen del detalle.
+      // Épica #14590 (B4): Logística = su tablero, su Excel y la función de origen del detalle; Financiera gana Facturación
+      // y Bolsas (tablero + Excel de cada una, +4).
+      ['torre.tablero_ejecutivo.ver', 3], ['torre.tablero_financiero.ver', 7], ['torre.tablero_logistica.ver', 3],
+      ['torre.tablero_operativo.ver', 5], ['torre.tablero_productos.ver', 3],
       // Épica #14560: `GET /:id/detalle` (ADR-0046) reutiliza `tramites.cola.ver`; la administración de vistas de columnas
       // (ADR-0045) la piden la predeterminada general (ruta) y las compartidas (en línea).
       ['tramites.cola.ver', 4], ['tramites.sincronizacion.configurar', 2], ['tramites.vistas_columnas.administrar', 2],
@@ -315,6 +334,21 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /companias/:id [general]',
       'flito-parametrizacion/flito-parametrizacion.routes.ts PATCH /companias/:id [sinTramite]',
       'flito-soat/flito-soat.routes.ts POST /export [incluirPago]',
+      // Épica #14590: el permiso de dinero de la Torre, en línea (explorador ×2, handlers comunes de los tableros ×2).
+      // ADR-0047 (B1): el detalle, en línea: el dinero y la función de origen de la cifra.
+      'flito-torre/flito-torre.detalle.routes.ts POST * [dinero_detalle]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_comercial]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_ejecutivo]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_equipo]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_explorador]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_financiero]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_logistica]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_operativo]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_productos]',
+      'flito-torre/flito-torre.routes.ts POST /metricas/consultar [dinero]',
+      'flito-torre/flito-torre.routes.ts POST /metricas/exportar [dinero]',
+      'flito-torre/flito-torre.tableros.routes.ts POST * [dinero_exportar]',
+      'flito-torre/flito-torre.tableros.routes.ts POST * [dinero_tablero]',
       // Épica #14560 (ADR-0045): vistas compartidas, en línea en `actorDe` (el alcance viene en el cuerpo).
       'flito-vistas-columnas/flito-vistas-columnas.routes.ts POST * [compartidas]',
       'jornadas/jornadas.routes.ts POST /abrir [jornadaAjena]',
@@ -369,8 +403,9 @@ describe('AC4 — el reparto de partida reproduce el estado de hoy (CF-16)', () 
   it('cada rol de sistema tiene una fila `pagina.<slug>` por cada slug que hoy le concede su tabla', () => {
     for (const rol of USER_ROLES) {
       if (rol === 'admin') continue; // el admin va en su propio caso: ya no tiene fila en la tabla
+      // Épica #14590: las páginas nacidas en el árbol (Torre, 0303) no son del reparto de partida (mundo plano).
       const esperadas = paginasPorDefecto(rol)
-        .filter((s) => !PAGINAS_NO_CONCEDIBLES.includes(s))
+        .filter((s) => !PAGINAS_NO_CONCEDIBLES.includes(s) && !PAGINAS_NACIDAS_EN_EL_ARBOL.includes(s))
         .map((s) => `pagina.${s}`).sort();
       const sembradas = porRol(rol).filter((c) => c.startsWith('pagina.')).sort();
       expect(sembradas, `páginas sembradas para ${rol}`).toEqual(esperadas);

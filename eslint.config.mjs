@@ -8,7 +8,7 @@ import globals from 'globals';
 // registrada en el reporte modo D. Al bajar de 800, quitar la entrada.
 const FROZEN_CEILINGS = {
   'apps/api/src/modules/tramites/identidad.routes.ts': 901, // Feature #14097: bajó al sacar el cifrado local
-  'apps/api/src/modules/flito-soat/flito-soat.service.ts': 1069, // staging: 1 línea más que develop al promover el Bug #14569
+  'apps/api/src/modules/flito-soat/flito-soat.service.ts': 1068,
   'apps/api/src/modules/tramites/tramites.service.ts': 880,
   'apps/api/src/modules/tramites/tramites.routes.ts': 860,
   'apps/api/src/modules/flito-derechos/flito-derechos.service.ts': 820,

@@ -322,3 +322,59 @@ html { scroll-padding-top: calc(var(--kit-alto-barra) + var(--space-8)); scroll-
 .btn.ghost[disabled], .btn.ghost[disabled]:hover { background: transparent; color: var(--color-action); }
 [data-theme="dark"] .btn:not(.secondary):not(.navy):not(.ghost):not(.positiva):not(.alerta)[disabled] { --b: var(--kit-azul-relleno); }
 .btn[aria-busy="true"][disabled] { opacity: 1; cursor: progress; }
+
+/* ---------- Gráficos: forma de punto y valor al pasar el cursor (Épica #14590) ---------- */
+.leyenda i[data-forma="cuadrado"] { border-radius: 1px; }
+.leyenda i[data-forma="rombo"] { border-radius: 1px; transform: rotate(45deg) scale(0.85); }
+.grafico { position: relative; }
+.grafico__columna { fill: transparent; pointer-events: all; cursor: crosshair; }
+.grafico__foco { stroke: var(--kit-linea); stroke-width: 1; pointer-events: none; }
+/* Eje fluido (spec Torre vistas flexibles §4): marca de 4 px en cada corte, también en los que no llevan rótulo. */
+.grafico__marca { stroke: var(--color-text-tertiary); stroke-width: 1; }
+/* Valor al pasar el cursor/tocar: aparece al instante (sin el retardo del <title> nativo). */
+.grafico__tip { position: absolute; z-index: 2; pointer-events: none; transform: translate(-50%, calc(-100% - 10px));
+  min-width: 120px; max-width: min(260px, 90%); padding: var(--space-8) var(--space-12); border-radius: 8px;
+  background: var(--color-surface-elevated); color: var(--color-text-primary); border: 1px solid var(--color-border);
+  box-shadow: var(--kit-sombra); font-size: var(--text-caption); line-height: 1.35; }
+.grafico__tip[data-lado="izq"] { transform: translate(-12px, calc(-100% - 10px)); }
+.grafico__tip[data-lado="der"] { transform: translate(calc(-100% + 12px), calc(-100% - 10px)); }
+.grafico__tip[data-abajo] { transform: translate(-50%, 12px); }
+.grafico__tip[data-lado="izq"][data-abajo] { transform: translate(-12px, 12px); }
+.grafico__tip[data-lado="der"][data-abajo] { transform: translate(calc(-100% + 12px), 12px); }
+.grafico__tip-titulo { margin: 0 0 var(--space-4); font-weight: 600; color: var(--color-text-tertiary); }
+.grafico__tip ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.grafico__tip li { display: flex; align-items: center; gap: var(--space-8); white-space: nowrap; }
+.grafico__tip li b { margin-left: auto; padding-left: var(--space-12); font-variant-numeric: tabular-nums; }
+.grafico__tip i { flex: none; width: 10px; height: 10px; border-radius: 50%; }
+.grafico__tip i[data-forma="cuadrado"] { border-radius: 1px; }
+.grafico__tip i[data-forma="rombo"] { border-radius: 1px; transform: rotate(45deg) scale(0.85); }
+
+/* ── Tabla cruzada de la Torre (Épica #14590, spec UX `flito-torre-explorador-flexible.md` §5.3) ──
+   `DataTable matriz encabezadoFila`: la 1.ª columna es `<th scope="row">` y queda FIJA al desplazar, con su esquina de
+   cabecera también fija (encima de todo). Solo afecta a matrices con encabezado de fila (las de antes no lo tienen). */
+.tabla-wrap.kit-matriz table.matriz th[scope="row"],
+.tabla-wrap.kit-matriz table.matriz:has(th[scope="row"]) thead th:first-child {
+  position: sticky; left: 0; z-index: 1; max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: left; background: var(--color-surface-elevated); border-right: 1px solid var(--color-border); }
+.tabla-wrap.kit-matriz table.matriz th[scope="row"] {
+  display: table-cell; text-transform: none; letter-spacing: 0; font-size: inherit; font-weight: 600; color: var(--color-text-primary); }
+.tabla-wrap.kit-matriz table.matriz:has(th[scope="row"]) thead th:first-child { z-index: 2; background: var(--kit-linea); }
+.tabla-wrap.kit-matriz table.matriz tfoot th, .tabla-wrap.kit-matriz table.matriz tfoot td {
+  padding: 12px 14px; background: var(--color-surface-elevated); border-top: 2px solid var(--color-border); font-weight: 700; }
+@media (max-width: 1023px) {
+  .tabla-wrap.kit-matriz table.matriz th[scope="row"],
+  .tabla-wrap.kit-matriz table.matriz:has(th[scope="row"]) thead th:first-child { max-width: 9rem; }
+}
+/* <901 px la matriz heredaba de kit-propuesta.css la «fila tarjeta» de la tabla base (border-spacing 0 6px, celdas con
+   borde y radio) y se descuadraba: se aplana a una rejilla continua, como a ≥901 (solo borde superior, sin radio). */
+@media (max-width: 900px) {
+  .tabla-wrap.kit-matriz table.matriz { border-spacing: 0; }
+  .tabla-wrap.kit-matriz table.matriz td,
+  .tabla-wrap.kit-matriz table.matriz tbody th[scope="row"],
+  .tabla-wrap.kit-matriz table.matriz tfoot th[scope="row"] {
+    border: 0; border-top: 1px solid var(--color-border); border-radius: 0; vertical-align: middle; }
+  .tabla-wrap.kit-matriz table.matriz th[scope="row"] { border-right: 1px solid var(--color-border); }
+  .tabla-wrap.kit-matriz table.matriz th { border-radius: 0; }
+  .tabla-wrap.kit-matriz table.matriz tfoot td,
+  .tabla-wrap.kit-matriz table.matriz tfoot th[scope="row"] { border-top: 2px solid var(--color-border); }
+}

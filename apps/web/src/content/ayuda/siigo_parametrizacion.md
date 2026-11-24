@@ -8,7 +8,7 @@ palabras_clave:
 consultas:
   - cómo mapeo un concepto en Siigo
   - cómo configuro la emisión de facturas
-version: 1.4
+version: 1.5
 fecha: 2026-11-17
 ---
 ## Qué es

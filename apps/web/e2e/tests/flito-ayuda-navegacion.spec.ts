@@ -89,7 +89,7 @@ test.describe('FLITO — Ayuda · navegación, unidad pura (HU #13705)', () => {
   });
 
   test('GRUPOS_ORDEN vive en el catálogo y cubre todos los grupos', () => {
-    expect([...GRUPOS_ORDEN]).toEqual(['general', 'gestion', 'transito', 'finanzas', 'administracion']); // HU #13775: Tránsito
+    expect([...GRUPOS_ORDEN]).toEqual(['general', 'torre', 'gestion', 'transito', 'finanzas', 'administracion']); // HU #13775: Tránsito; Épica #14590: Torre
     for (const e of CATALOGO_AYUDA) expect(GRUPOS_ORDEN).toContain(e.grupo);
   });
 
@@ -220,7 +220,7 @@ Texto.
   test('HU #13775 — Siguiente y Anterior cruzan Gestión → Tránsito → Finanzas', async ({ page }) => {
     const ultimaGestion = CATALOGO_AYUDA.filter((c) => c.grupo === 'gestion').at(-1)!;
     const primeraFinanzas = CATALOGO_AYUDA.find((c) => c.grupo === 'finanzas')!;
-    expect(GRUPOS_ORDEN.slice(1, 4)).toEqual(['gestion', 'transito', 'finanzas']);
+    expect(GRUPOS_ORDEN.slice(2, 5)).toEqual(['gestion', 'transito', 'finanzas']);
     await loginAs(page, OPERACIONES_USER); // admin: ve todas las fichas
     await page.goto(`/flito/ayuda/${ultimaGestion.clave}`);
     const nav = page.getByRole('navigation', { name: 'Navegación entre fichas' });

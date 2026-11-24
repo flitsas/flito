@@ -9,7 +9,7 @@ palabras_clave:
 consultas:
   - cuánto se pagó hoy
   - dónde veo los gastos de un día
-version: 1.5
+version: 1.6
 fecha: 2026-11-17
 ---
 ## Qué es

@@ -484,7 +484,7 @@ describe('historial — filtros por llave y por rango de días (AC13, AC14)', ()
     await historial(7, { concepto: 'tramite_digital', tipoTramite: 'TRASPASO', rango: { desde: '2026-08-01', hasta: '2026-08-31' } });
     const { sql, params } = renderizar(q.where!);
     // La forma exacta de createdInRangeCondition: día calendario de Colombia, límite superior exclusivo.
-    const desde = new RegExp(`${VD.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} >= \\(\\$(\\d+)::date AT TIME ZONE \\$(\\d+)\\)`).exec(sql);
+    const desde = new RegExp(`${VD.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} >= \\(\\$(\\d+)::date::timestamp AT TIME ZONE \\$(\\d+)\\)`).exec(sql);
     const hasta = new RegExp(`${VD.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} < \\(\\(\\$(\\d+)::date \\+ interval '1 day'\\) AT TIME ZONE \\$(\\d+)\\)`).exec(sql);
     expect(desde, sql).not.toBeNull();
     expect(hasta, sql).not.toBeNull();

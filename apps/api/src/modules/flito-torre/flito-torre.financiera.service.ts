@@ -1,0 +1,172 @@
+// Torre de Control Gerencial (Épica #14590, UX §7.3) — tablero Financiero.
+//
+// RN-TOR-FI1 (bolsas, ignora el rango): saldo de hoy de las bolsas activas de cada compañía y consumo diario promedio de
+//   los últimos 30 días (salidas de `flito_bolsas_unicas_movimientos`). Días de cobertura = saldo / consumo diario;
+//   `null` sin consumo; con saldo ≤ 0 la bolsa está agotada: 0 días y crítico. Semáforo: < `dias_cobertura_rojo` crítico, < `dias_cobertura_amarillo` atención, si no ok.
+//   Desde B4 se calcula en SQL (`filasBolsas`, RN-TOR-BO2/LG6).
+// RN-TOR-FI2 (sin facturar): aprobados en el rango que no están en `siigo_factura_tramites` activo, contados y
+//   valorizados con `flito_liquidaciones.total` (sin liquidación, cuentan pero no suman).
+// RN-TOR-FI3 (margen, solo con dinero): cobrado = componentes de la liquidación de los aprobados en el rango; costo =
+//   SOAT `flito_soat.valor_pagado`, impuesto `flito_impuestos.valor_pagado`, derecho `flito_derechos_tramite.valor`,
+//   logística la tarifa del proveedor vigente a la aprobación (`flito_tarifas_proveedor_vigencias`, servicio
+//   `logistica`). El trámite digital no tiene costo en FLITO: «sin costo registrado», igual que un servicio sin ningún
+//   costo encontrado.
+// RN-TOR-FI4 (conciliación 3/3): por aprobado en el rango, cuántos de SOAT, impuesto y derecho tienen soporte vigente en
+//   `flito_soportes` (no descartado; el derecho también vale con su `soporte_id`).
+// RN-TOR-L1 (ADR-0044): `calcularSinFacturar` excluye esas liquidaciones SOLO de la suma (el conteo de trámites no
+//   cambia) y `calcularMargen` en su `WHERE` (`LIQUIDACION_VIGENTE`). El 360° lo hereda.
+import { eq, sql } from 'drizzle-orm';
+import type { ServicioMargenTorre, TableroFinanciero } from '@operaciones/shared-types';
+import {
+  clients, flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones, flitoSoat, flitoTarifasProveedorVigencias, flitoTramites,
+} from '../../db/schema.js';
+import { filasBolsas } from './flito-torre.bolsas.service.js';
+import { LIQUIDACION_VIGENTE, PUNTOS_SOPORTE } from './flito-torre.catalogo.js';
+import { SIN_UMBRALES, dondeFragmento, fragmentoConjunto, type Umbrales } from './flito-torre.conjuntos.js';
+import { aConjunto, explicarFinanciera } from './flito-torre.frases.js';
+import type { RangoResuelto } from './flito-torre.filtro.js';
+import { SIN_COMPANIA, enTorre, nombresCompania, type Ejecutor } from './flito-torre.metricas.service.js';
+import { valoresUmbrales } from './flito-torre.umbrales.service.js';
+import { conCacheTablero, num, pctONull, rangoTablero, type ContextoTablero } from './flito-torre.tablero-comun.js';
+
+const T = flitoTramites;
+const L = flitoLiquidaciones;
+
+type FilaBolsa = TableroFinanciero['bolsas']['filas'][number];
+
+/**
+ * RN-TOR-FI1. Compartido con el 360°. Desde B4 la cobertura y el semáforo salen del SQL de `filasBolsas` (RN-TOR-BO2):
+ * la misma expresión con que cuenta el conjunto `bolsas_cobertura`, así que el Resumen y Bolsas no pueden discrepar.
+ */
+export async function calcularBolsas(q: Ejecutor, ctx: ContextoTablero, rojo: number, amarillo: number): Promise<FilaBolsa[]> {
+  const filas = await filasBolsas(q, ctx, rojo, amarillo);
+  return filas.map((f) => ({
+    companiaId: f.companiaId, compania: f.compania, saldo: ctx.dinero ? f.saldo : null,
+    consumoDiario: ctx.dinero ? f.consumoDiario : null, diasCobertura: f.diasCobertura, severidad: f.severidad,
+  }));
+}
+
+/**
+ * RN-TOR-FI2. Compartido con el 360°. El `WHERE` es el conjunto `sin_facturar` (= `resolverDef('sin_facturar')`, la
+ * métrica del Explorador): KPI, bloque, detalle y Explorador cuentan con el MISMO SQL (ADR-0047). `rango` acota el
+ * 360° al mes en curso.
+ */
+export async function calcularSinFacturar(q: Ejecutor, ctx: ContextoTablero, rango: RangoResuelto) {
+  const f = fragmentoConjunto('sin_facturar', { ...ctx, filtro: { ...ctx.filtro, rango } }, SIN_UMBRALES);
+  const filas = await q<{ id: number | null; n: number; valor: string | null; antiguo: unknown }>(sql`SELECT ${T.companiaId} AS id,
+      count(*)::int AS n, sum(${L.total}) FILTER (WHERE ${LIQUIDACION_VIGENTE}) AS valor, min(${T.fechaAprobacion}) AS antiguo
+    FROM ${f.desde}
+    WHERE ${dondeFragmento(f)}
+    GROUP BY 1 ORDER BY 2 DESC, 1 ASC NULLS LAST`);
+  const nombres = await nombresCompania(q, filas.map((f) => f.id).filter((id): id is number => id != null));
+  const ahora = Date.now();
+  return filas.map((f) => ({
+    companiaId: f.id == null ? null : Number(f.id),
+    compania: f.id == null ? SIN_COMPANIA : nombres.get(Number(f.id)) ?? `Compañía ${f.id}`,
+    tramites: num(f.n), valorEstimado: ctx.dinero ? num(f.valor) : null,
+    masAntiguoDias: f.antiguo ? Math.floor((ahora - new Date(f.antiguo as string).getTime()) / 86_400_000) : 0,
+    destino: aConjunto('sin_facturar', [{ dimension: 'compania', valores: [f.id == null ? null : String(f.id)] }]),
+  }));
+}
+
+const SERVICIOS: { servicio: ServicioMargenTorre; cobrado: string; costo: string | null }[] = [
+  { servicio: 'tramite', cobrado: 'c_tram', costo: null },
+  { servicio: 'soat', cobrado: 'c_soat', costo: 'k_soat' },
+  { servicio: 'impuestos', cobrado: 'c_imp', costo: 'k_imp' },
+  { servicio: 'derechos', cobrado: 'c_der', costo: 'k_der' },
+  { servicio: 'logistica', cobrado: 'c_log', costo: 'k_log' },
+];
+
+/** RN-TOR-FI3. `null` sin permiso de dinero. Compartido con el 360°. */
+export async function calcularMargen(q: Ejecutor, ctx: ContextoTablero, rango: RangoResuelto): Promise<TableroFinanciero['margen']> {
+  if (!ctx.dinero) return null;
+  const I = flitoImpuestos;
+  const D = flitoDerechosTramite;
+  const V = flitoTarifasProveedorVigencias;
+  const filas = await q<Record<string, unknown>>(sql`SELECT ${T.companiaId} AS id,
+      COALESCE(sum(${L.valorTramiteDigital}), 0) AS c_tram, COALESCE(sum(${L.valorSoat}), 0) AS c_soat,
+      COALESCE(sum(${L.valorImpuesto}), 0) AS c_imp, COALESCE(sum(${L.valorDerecho}), 0) AS c_der,
+      COALESCE(sum(${L.valorLogistica}), 0) AS c_log,
+      sum(${flitoSoat.valorPagado}) AS k_soat, sum(imp.v) AS k_imp, sum(der.v) AS k_der,
+      sum(CASE WHEN COALESCE(${L.valorLogistica}, 0) > 0 THEN tar.v END) AS k_log
+    FROM ${L} INNER JOIN ${T} ON ${eq(T.id, L.tramiteId)}
+      LEFT JOIN ${clients} ON ${eq(clients.id, T.companiaId)}
+      LEFT JOIN ${flitoSoat} ON ${eq(flitoSoat.id, T.soatId)}
+      LEFT JOIN LATERAL (SELECT sum(${I.valorPagado}) AS v FROM ${I} WHERE ${I.tramiteId} = ${T.id}) imp ON true
+      LEFT JOIN LATERAL (SELECT sum(${D.valor}) AS v FROM ${D} WHERE ${D.tramiteId} = ${T.id}) der ON true
+      LEFT JOIN LATERAL (SELECT ${V.valor} AS v FROM ${V} WHERE ${V.proveedorId} = ${clients.flitoProveedorLogisticaId}
+        AND ${V.servicio} = 'logistica' AND ${V.vigenteDesde} <= ${T.fechaAprobacion}
+        AND (${V.vigenteHasta} IS NULL OR ${V.vigenteHasta} > ${T.fechaAprobacion})
+        ORDER BY ${V.vigenteDesde} DESC LIMIT 1) tar ON true
+    WHERE ${dondeFragmento(fragmentoConjunto('margen_aprobados', { ...ctx, filtro: { ...ctx.filtro, rango } }, SIN_UMBRALES))}
+    GROUP BY 1`);
+  const nombres = await nombresCompania(q, filas.map((f) => f.id).filter((id) => id != null).map(Number));
+  const porServicio = SERVICIOS.map((s) => {
+    const cobrado = filas.reduce((a, f) => a + num(f[s.cobrado]), 0);
+    const conCosto = s.costo ? filas.filter((f) => f[s.costo!] != null) : [];
+    const costo = conCosto.length ? conCosto.reduce((a, f) => a + num(f[s.costo!]), 0) : null;
+    return { servicio: s.servicio, cobrado, costo, sinCostoRegistrado: costo == null };
+  });
+  const porCliente = filas.map((f) => {
+    const cobrado = SERVICIOS.reduce((a, s) => a + num(f[s.cobrado]), 0);
+    const costos = SERVICIOS.filter((s) => s.costo && f[s.costo] != null);
+    const costo = costos.reduce((a, s) => a + num(f[s.costo!]), 0);
+    const id = f.id == null ? null : Number(f.id);
+    return {
+      companiaId: id, compania: id == null ? SIN_COMPANIA : nombres.get(id) ?? `Compañía ${id}`,
+      cobrado, costo, margenPct: pctONull(cobrado - costo, cobrado), sinCostoRegistrado: costos.length === 0,
+    };
+  }).sort((a, b) => b.cobrado - a.cobrado);
+  return { filtrosIgnorados: [], porServicio, porCliente };
+}
+
+export const margenTotalPct = (m: TableroFinanciero['margen']): number | null => {
+  if (!m) return null;
+  const cobrado = m.porServicio.reduce((a, s) => a + s.cobrado, 0);
+  const costo = m.porServicio.reduce((a, s) => a + (s.costo ?? 0), 0);
+  return pctONull(cobrado - costo, cobrado);
+};
+
+/** RN-TOR-FI4: `GROUP BY` de los puntos sobre el conjunto `soportes_aprobados` (su segmento `nivel` = los puntos). */
+async function conciliacion(q: Ejecutor, ctx: ContextoTablero, u: Umbrales): Promise<TableroFinanciero['conciliacion']> {
+  const f = fragmentoConjunto('soportes_aprobados', ctx, u);
+  const filas = await q<{ p: number; n: number }>(sql`SELECT ${PUNTOS_SOPORTE} AS p, count(*)::int AS n FROM ${f.desde}
+    WHERE ${dondeFragmento(f)} GROUP BY 1`);
+  const de = (p: number) => num(filas.find((x) => Number(x.p) === p)?.n);
+  const total = filas.reduce((a, x) => a + num(x.n), 0);
+  const nivel = (n: string) => aConjunto('soportes_aprobados', [{ dimension: 'nivel', valores: [n] }]);
+  return {
+    filtrosIgnorados: [], completos: de(3), dos: de(2), uno: de(1), cero: de(0), total, pctCompletos: pctONull(de(3), total),
+    destinos: { completos: nivel('3'), dos: nivel('2'), uno: nivel('1'), cero: nivel('0') },
+  };
+}
+
+export async function tableroFinanciero(ctx: ContextoTablero): Promise<TableroFinanciero> {
+  const rango = rangoTablero(ctx);
+  const u = await valoresUmbrales();
+  return conCacheTablero('financiera', ctx, () => enTorre(async (q) => {
+    const bolsas = await calcularBolsas(q, ctx, u.dias_cobertura_rojo, u.dias_cobertura_amarillo);
+    const sinFacturar = await calcularSinFacturar(q, ctx, rango);
+    const margen = await calcularMargen(q, ctx, rango);
+    const conc = await conciliacion(q, ctx, u);
+    const menor = bolsas.find((b) => b.diasCobertura != null);
+    const sinExplicar: Omit<TableroFinanciero, 'explicaciones'> = {
+      rango, dineroVisible: ctx.dinero, generadoEn: new Date().toISOString(),
+      cifras: {
+        menorCobertura: menor ? { companiaId: menor.companiaId, compania: menor.compania, dias: menor.diasCobertura!, severidad: menor.severidad } : null,
+        sinFacturarValor: ctx.dinero ? sinFacturar.reduce((a, f) => a + (f.valorEstimado ?? 0), 0) : null,
+        sinFacturarTramites: sinFacturar.reduce((a, f) => a + f.tramites, 0),
+        margenPct: margenTotalPct(margen),
+        soportesCompletosPct: conc.pctCompletos,
+      },
+      bolsas: {
+        filtrosIgnorados: ['rango', 'organismos', 'departamentos', 'tiposTramite', 'flitEstados'],
+        umbralAtencionDias: u.dias_cobertura_amarillo, umbralCriticoDias: u.dias_cobertura_rojo, filas: bolsas,
+      },
+      sinFacturar: { filtrosIgnorados: [], filas: sinFacturar.slice(0, 50) },
+      margen,
+      conciliacion: conc,
+    };
+    return { ...sinExplicar, explicaciones: explicarFinanciera(sinExplicar, u) };
+  }));
+}

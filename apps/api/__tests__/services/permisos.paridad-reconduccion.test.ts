@@ -65,6 +65,8 @@ const DE_EXCLUSIVAS = new Set([
 import {
   fijarFuenteDePermisos, invalidarPermisosDe, resolverPermisos, type FilasPermisos,
 } from '../../src/shared/permisos-efectivos.js';
+import { ROLES_NUEVOS_TORRE } from '../../src/modules/permisos/arbol/sql-torre.js';
+import { OPERACIONES_TORRE } from '../../src/modules/permisos/arbol/acciones-torre.js';
 
 const ROLES = [...USER_ROLES] as string[];
 /** Un `sub` por rol, fijo: el resolutor cachea por usuario y aquí cada rol es un usuario. */
@@ -205,18 +207,71 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
       'flito-parametrizacion/flito-proveedores.routes.ts PATCH /:id/estado',
       'flito-parametrizacion/flito-proveedores.routes.ts DELETE /:id',
       // HU #13960: `parametrizacion.proveedores.eliminar`, absorbida por `accion.clientes.eliminar_proveedores` (0263).
+      // Épica #14590: las de la Torre de Control nacen en el árbol (la 0303 las da con su acción).
+      'flito-torre/flito-torre.routes.ts POST /metricas/consultar',
+      'flito-torre/flito-torre.routes.ts POST /metricas/exportar',
+      'flito-torre/flito-torre.routes.ts POST /placa/buscar',
+      'flito-torre/flito-torre.routes.ts GET /umbrales',
+      'flito-torre/flito-torre.routes.ts PUT /umbrales/:clave',
+      'flito-torre/flito-torre.tableros.routes.ts POST /ejecutivo',
+      'flito-torre/flito-torre.tableros.routes.ts POST /comercial',
+      'flito-torre/flito-torre.tableros.routes.ts POST /operativa',
+      'flito-torre/flito-torre.tableros.routes.ts POST /financiera',
+      // Y las nueve que la siguen: `GET /opciones`, los cuatro `/<tablero>/exportar` y el dinero EN LÍNEA (×4).
+      'flito-torre/flito-torre.routes.ts GET /opciones',
+      // ADR-0044 (Explorador flexible): las sugerencias de placa reutilizan `torre.placa.buscar`, también del árbol.
+      'flito-torre/flito-torre.routes.ts POST /placa/sugerencias',
+      'flito-torre/flito-torre.tableros.routes.ts POST /ejecutivo/exportar',
+      'flito-torre/flito-torre.tableros.routes.ts POST /comercial/exportar',
+      'flito-torre/flito-torre.tableros.routes.ts POST /operativa/exportar',
+      'flito-torre/flito-torre.tableros.routes.ts POST /financiera/exportar',
+      // Épica #14590 (B2): pestañas del Operativo; reutilizan `torre.tablero_operativo.ver` (nace en el árbol).
+      'flito-torre/flito-torre.tableros.routes.ts POST /operativa/inventario',
+      'flito-torre/flito-torre.tableros.routes.ts POST /operativa/soportes',
+      'flito-torre/flito-torre.routes.ts POST /metricas/consultar [dinero]',
+      'flito-torre/flito-torre.routes.ts POST /metricas/exportar [dinero]',
+      'flito-torre/flito-torre.tableros.routes.ts POST * [dinero_tablero]',
+      'flito-torre/flito-torre.tableros.routes.ts POST * [dinero_exportar]',
+      // ADR-0047 (B1): el detalle universal; sus dos funciones nacen en el árbol (su migración), y en línea reutiliza el
+      // dinero y las funciones de los tableros y del Explorador (también del árbol).
+      'flito-torre/flito-torre.detalle.routes.ts POST /consultar',
+      'flito-torre/flito-torre.detalle.routes.ts POST /exportar',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [dinero_detalle]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_ejecutivo]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_comercial]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_operativo]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_financiero]',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_explorador]',
+      // Épica #14590 (B3): el área Productos; su función nace en el árbol (0308).
+      'flito-torre/flito-torre.tableros.routes.ts POST /productos',
+      'flito-torre/flito-torre.tableros.routes.ts POST /productos/exportar',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_productos]',
+      // Épica #14590 (B4): el área Logística (su función nace en el árbol, 0309) y las subvistas de Financiera.
+      'flito-torre/flito-torre.tableros.routes.ts POST /logistica',
+      'flito-torre/flito-torre.tableros.routes.ts POST /logistica/exportar',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_logistica]',
+      // Épica #14590 (B5): la pestaña Equipo de Operativa (su función nace en el árbol, 0310; sin `/exportar`).
+      'flito-torre/flito-torre.tableros.routes.ts POST /operativa/equipo',
+      'flito-torre/flito-torre.detalle.routes.ts POST * [origen_equipo]',
+      'flito-torre/flito-torre.tableros.routes.ts POST /financiera/facturacion',
+      'flito-torre/flito-torre.tableros.routes.ts POST /financiera/bolsas',
+      'flito-torre/flito-torre.tableros.routes.ts POST /financiera/facturacion/exportar',
+      'flito-torre/flito-torre.tableros.routes.ts POST /financiera/bolsas/exportar',
     ]);
   });
 });
 
 describe('HU #13428 (P-22) — las guardas de Perfil: antes las pasaba cualquiera; después, cada rol por su acción', () => {
-  it('las dos filas de Perfil están en la lista y en la foto con los 12 roles', () => {
+  it('las dos filas de Perfil están en la lista y en la foto con los 12 roles que había el día de la foto', () => {
     const filas = RUTAS_RECONDUCIDAS.filter((f) => DE_TODOS.has(f.codigo));
     expect(filas.map((f) => f.codigo).sort()).toEqual(['perfil.contrasena.cambiar', 'perfil.datos.ver']);
-    for (const f of filas) expect([...antesDe(f)].sort()).toEqual([...ROLES].sort());
+    // Épica #14590: los dos roles de gerencia nacen en la 0303, después de la foto; Perfil se lo da la 0303
+    // como a todo rol nuevo (lo comprueba el test siguiente, que pliega las migraciones).
+    const deLaFoto = ROLES.filter((r) => !(ROLES_NUEVOS_TORRE as readonly string[]).includes(r));
+    for (const f of filas) expect([...antesDe(f)].sort()).toEqual([...deLaFoto].sort());
   });
 
-  it('plegadas las migraciones hasta la 0237, el motor se las concede a los 12 roles', async () => {
+  it('plegadas las migraciones (la 0303 incluida, por los dos roles de gerencia), el motor se las concede a los 14 roles', async () => {
     fijarFuenteDePermisos(fuenteDesde(leerRepartoSembrado()));
     try {
       for (const rol of ROLES) invalidarPermisosDe(subDe(rol));
@@ -248,5 +303,8 @@ describe.skipIf(!URL_BASE)('AC7 — la misma matriz, leyendo permisos_rol_funcio
       }
     } finally { await sql.end(); }
   });
-  matriz('base real', () => repartoDeLaBase);
+  // Épica #14590: la Torre no tiene «antes» (la foto la registra sin rol: nació en el árbol con la 0303), así que la
+  // paridad con el `requireRole` no se puede medir; su reparto rol a rol (`REPARTO_TORRE`) lo fija
+  // `flito-torre/flito-torre-permisos.test.ts` contra el SQL de la 0303.
+  matriz('base real', () => repartoDeLaBase, undefined, new Set(OPERACIONES_TORRE));
 });

@@ -787,4 +787,55 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   // el árbol (0305): solo `admin`. La general en la ruta; las compartidas en línea (`actorDe`).
   { modulo: "tramites", fichero: "flito-vistas-columnas/flito-vistas-columnas.routes.ts", metodo: "PUT", ruta: "/:tablaId/predeterminada/general", roles: ["admin"], heredada: false },
   { modulo: "tramites", fichero: "flito-vistas-columnas/flito-vistas-columnas.routes.ts", metodo: "POST", ruta: "*", condicion: "compartidas", roles: ["admin"], heredada: false },
+  // Épica #14590: la Torre de Control. Sin rol: nacen en el árbol (0303).
+  { modulo: "torre", fichero: "flito-torre/flito-torre.routes.ts", metodo: "POST", ruta: "/metricas/consultar", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.routes.ts", metodo: "POST", ruta: "/metricas/exportar", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.routes.ts", metodo: "POST", ruta: "/placa/buscar", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.routes.ts", metodo: "GET", ruta: "/umbrales", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.routes.ts", metodo: "PUT", ruta: "/umbrales/:clave", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/ejecutivo", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/comercial", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/operativa", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/financiera", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.routes.ts", metodo: "GET", ruta: "/opciones", roles: [], heredada: false },
+  // ADR-0044 (Explorador flexible): sugerencias de placa; reutiliza `torre.placa.buscar`. Sin rol: nace en el árbol (0303).
+  { modulo: "torre", fichero: "flito-torre/flito-torre.routes.ts", metodo: "POST", ruta: "/placa/sugerencias", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/ejecutivo/exportar", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/comercial/exportar", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/operativa/exportar", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/financiera/exportar", roles: [], heredada: false },
+  // Épica #14590: el permiso de dinero, EN LÍNEA (`tieneFuncion`). Sin rol: nace en el árbol (0303).
+  { modulo: "torre", fichero: "flito-torre/flito-torre.routes.ts", metodo: "POST", ruta: "/metricas/consultar", condicion: "dinero", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.routes.ts", metodo: "POST", ruta: "/metricas/exportar", condicion: "dinero", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "*", condicion: "dinero_tablero", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "*", condicion: "dinero_exportar", roles: [], heredada: false },
+  // ADR-0047 (B1): el detalle universal. Las dos rutas y, en línea, el dinero y las funciones de origen. Sin rol: nace en el árbol (su migración).
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "/consultar", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "/exportar", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "dinero_detalle", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_ejecutivo", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_comercial", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_operativo", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_financiero", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_explorador", roles: [], heredada: false },
+  // Épica #14590 (B2): pestañas Inventario por estado y Soportes del Operativo; reutilizan `torre.tablero_operativo.ver`.
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/operativa/inventario", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/operativa/soportes", roles: [], heredada: false },
+  // Épica #14590 (B3): el área Productos (tablero + Excel) y su función de origen en el detalle. Nace en el árbol (0308).
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/productos", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/productos/exportar", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_productos", roles: [], heredada: false },
+  // Épica #14590 (B4): el área Logística (tablero + Excel, nace en el árbol: 0309) y su función de origen en el detalle;
+  // las subvistas Facturación y Bolsas de Financiera reutilizan `torre.tablero_financiero.ver`.
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/logistica", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/financiera/facturacion", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/financiera/bolsas", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/logistica/exportar", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/financiera/facturacion/exportar", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/financiera/bolsas/exportar", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_logistica", roles: [], heredada: false },
+  // Épica #14590 (B5): la pestaña Equipo de Operativa (solo gerencia_general y admin; nace en el árbol: 0310) y su
+  // función de origen en el detalle. Sin `/exportar` del tablero.
+  { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/operativa/equipo", roles: [], heredada: false },
+  { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_equipo", roles: [], heredada: false },
 ];

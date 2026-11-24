@@ -30,6 +30,16 @@ const SiigoOperacion = lazy(() => import('./pages/SiigoOperacion'));
 const SiigoCredenciales = lazy(() => import('./pages/SiigoCredenciales'));
 const FinanzasReporteCostos = lazy(() => import('./pages/FinanzasReporteCostos'));
 const FinanzasGastosDiarios = lazy(() => import('./pages/FinanzasGastosDiarios'));
+// Torre de Control (Épica #14590): cinco páginas + Umbrales (Administración). La ficha de placa es un Drawer, sin ruta.
+const Torre360 = lazy(() => import('./pages/torre/Torre360'));
+const TorreComercial = lazy(() => import('./pages/torre/TorreComercial'));
+const TorreOperativa = lazy(() => import('./pages/torre/TorreOperativa'));
+const TorreProductos = lazy(() => import('./pages/torre/TorreProductos'));
+const TorreLogistica = lazy(() => import('./pages/torre/TorreLogistica'));
+const TorreFinanciera = lazy(() => import('./pages/torre/TorreFinanciera'));
+const TorreExplorador = lazy(() => import('./pages/torre/TorreExplorador'));
+const TorreUmbrales = lazy(() => import('./pages/torre/TorreUmbrales'));
+const TorreDetalle = lazy(() => import('./pages/torre/TorreDetalle'));
 const FlitoRevisiones = lazy(() => import('./pages/FlitoRevisiones'));
 const FlitoSoat = lazy(() => import('./pages/FlitoSoat'));
 const FlitoSoatSolicitud = lazy(() => import('./pages/FlitoSoatSolicitud'));
@@ -268,6 +278,15 @@ function AppRoutes() {
         <Route path="/flito/ayuda/:slug" element={<AyudaFlitoGate><Lazy><FlitoAyuda /></Lazy></AyudaFlitoGate>} />
         <Route path="/flito/bolsas" element={<ProtectedRoute page="flito_bolsas"><Lazy><FlitoBolsas /></Lazy></ProtectedRoute>} />
         <Route path="/flito/comparendos" element={<ProtectedRoute page="flito_comparendos"><Lazy><FlitoComparendos /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/torre/resumen" element={<ProtectedRoute page="torre_360"><Lazy><Torre360 /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/torre/comercial" element={<ProtectedRoute page="torre_comercial"><Lazy><TorreComercial /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/torre/operativa" element={<ProtectedRoute page="torre_operativa"><Lazy><TorreOperativa /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/torre/productos" element={<ProtectedRoute page="torre_productos"><Lazy><TorreProductos /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/torre/logistica" element={<ProtectedRoute page="torre_logistica"><Lazy><TorreLogistica /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/torre/financiera" element={<ProtectedRoute page="torre_financiera"><Lazy><TorreFinanciera /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/torre/explorador" element={<ProtectedRoute page="torre_explorador"><Lazy><TorreExplorador /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/torre/umbrales" element={<ProtectedRoute page="torre_umbrales"><Lazy><TorreUmbrales /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/torre/detalle" element={<ProtectedRoute page="torre_detalle"><Lazy><TorreDetalle /></Lazy></ProtectedRoute>} />
         {/* Conciliación: las DOS rutas comparten `PageSlug`. Son el mismo trabajo y la misma
             persona; partirlo obligaría a conceder dos permisos para una sola tarea. El detalle va en
             ruta propia —con el uuid opaco en el path— porque el reporte de costos tiene que poder

@@ -1,0 +1,116 @@
+/*
+ * Maquetas DESCARTABLES de la Torre de Control (Épica #14590). Spec: docs/ux/flito-torre-control.md.
+ * No se importa a apps/web. Las maquetas cargan antes el CSS REAL del kit (apps/web/src/styles/…), en el
+ * orden de apps/web/src/index.css. Este archivo solo pone lo que en la app resuelven Tailwind (preflight y
+ * utilidades de rejilla) y las rutas absolutas (/fonts, /kit), que en file:// no resuelven.
+ * Sin colores propios: todo color sale de un token del kit.
+ */
+
+/* Fuentes del kit por ruta relativa (en la app viven en /fonts). */
+@font-face { font-family: 'Poppins'; font-weight: 300; src: url('../../../apps/web/public/fonts/poppins-latin-300-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Poppins'; font-weight: 400; src: url('../../../apps/web/public/fonts/poppins-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Poppins'; font-weight: 500; src: url('../../../apps/web/public/fonts/poppins-latin-500-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Poppins'; font-weight: 600; src: url('../../../apps/web/public/fonts/poppins-latin-600-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Poppins'; font-weight: 700; src: url('../../../apps/web/public/fonts/poppins-latin-700-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow Condensed'; font-weight: 700; src: url('../../../apps/web/public/fonts/barlow-condensed-latin-700-normal.woff2') format('woff2'); }
+
+/* Lo mínimo del preflight de Tailwind. */
+h1, h2, h3, p, ul, ol, dl, dd, figure { margin: 0; }
+ul, ol { padding: 0; list-style: none; }
+.placa { background-image: url('../../../apps/web/public/kit/ilustraciones/placa-colombia.webp'); }
+
+/* Conmutador de vistas de la maqueta (no es producto). */
+.maqueta-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: var(--space-16); font-size: var(--text-caption); }
+.maqueta-nav a { color: var(--color-action); }
+[data-vista]:not(.activa) { display: none !important; }
+
+/* Utilidades de rejilla que en la app da Tailwind. */
+.pila > * + * { margin-top: var(--space-16); }
+.fila { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-10); }
+.fila > .campo { flex: 1 1 220px; min-width: 0; }
+@media (min-width: 1024px) { .fila > .campo { flex: 0 1 280px; } }
+.fila--fin { justify-content: flex-end; }
+.rejilla-kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: var(--space-16); }
+.rejilla-2 { display: grid; grid-template-columns: 1fr; gap: var(--space-16); }
+@media (min-width: 1024px) { .rejilla-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.rejilla-2 > .card + .card, .pila > .card + .card, .rejilla-kpi > .card + .card { margin-top: 0; }
+.nota { color: var(--color-text-tertiary); font-size: var(--text-caption); }
+.tabular { font-variant-numeric: tabular-nums; }
+.derecha { text-align: right; }
+.oracion { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-10) var(--space-12); }
+.oracion .campo { flex: 1 1 240px; min-width: 0; }
+@media (min-width: 1024px) { .oracion .campo { flex: 0 1 300px; } }
+.oracion__texto { padding-bottom: 12px; color: var(--color-text-tertiary); }
+@media (max-width: 640px) { .oracion__texto { display: none; } }
+.cifra-grande { font-size: 2.5rem; font-weight: 700; line-height: 1.1; color: var(--kit-azul); font-variant-numeric: tabular-nums; }
+.ranking { display: grid; gap: var(--space-10); }
+.ranking li { display: grid; grid-template-columns: minmax(0, 10rem) minmax(0, 1fr) auto; align-items: center; gap: var(--space-12); font-size: var(--text-caption); }
+.ranking strong { font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) { .ranking li { grid-template-columns: minmax(0, 1fr) auto; } .ranking .avance { grid-column: 1 / -1; } }
+.esq-kpi { height: 104px; }
+.esq-graf { height: 260px; }
+.esq-fila { height: 40px; }
+.drawer-demo { position: relative; min-height: 780px; overflow: clip; border-radius: 9px; }
+.drawer-demo .kit-velo { position: absolute; justify-content: flex-end; }
+.drawer-demo .kit-modal--lateral { width: min(520px, 100%); height: auto; min-height: 100%; }
+@media (max-width: 640px) { .drawer-demo .kit-modal--lateral { width: 100%; border-radius: 0; } }
+.duracion { display: grid; gap: 2px; padding: var(--space-16); border-radius: 9px; background: var(--kit-hover); }
+.svg-ico { width: 56%; height: 56%; }
+.disco-72 { width: 72px; height: 72px; }
+.celda-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ===== Detalle universal (Épica #14590 · spec docs/ux/flito-torre-detalle-universal.md) ===== */
+/* KPI explicable: <div> con dos controles reales; la frase reemplaza al hint. */
+.kpi-exp { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-20);
+  border-radius: var(--radius-lg); background: var(--color-surface-elevated); border: 1px solid var(--color-border); box-shadow: var(--shadow-card); }
+.kpi-exp__cabeza { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-8); }
+.kpi-exp--pendiente { border-color: var(--color-highlight-decor); }
+.kpi-exp__etiqueta { color: var(--color-text-secondary); font-size: var(--text-caption); font-weight: 500; }
+.kpi-exp__cifra { font-size: var(--text-cifra); font-weight: 700; color: var(--color-text-primary); line-height: 1.1; font-variant-numeric: tabular-nums; }
+.kpi-exp__frase { color: var(--color-text-secondary); font-size: var(--text-caption); line-height: 1.45; }
+.kpi-exp__acciones { margin-top: auto; padding-top: var(--space-8); display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--space-8); }
+.enlace-btn { border: 0; background: transparent; padding: 4px 6px; margin: -4px -6px; border-radius: 6px; cursor: pointer; font: inherit;
+  font-size: var(--text-caption); color: var(--color-action); font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;
+  transition: background-color var(--motion-fast) var(--ease); }
+.enlace-btn:hover { background: var(--kit-hover); text-decoration: underline; text-underline-offset: 3px; }
+.enlace-btn:focus-visible, .celda-btn:focus-visible { outline: 2px solid var(--color-action); outline-offset: 2px; }
+.enlace-btn--secundario { color: var(--color-text-secondary); font-weight: 500; }
+.enlace-btn[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.chev { transition: transform var(--motion-fast) var(--ease); }
+.kpi-exp__definicion { margin-top: var(--space-4); padding-top: var(--space-10); border-top: 1px solid var(--color-divider);
+  color: var(--color-text-secondary); font-size: var(--text-caption); line-height: 1.5; }
+.chip-foto { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: var(--text-micro); font-weight: 500;
+  color: var(--color-text-secondary); background: var(--color-surface-sunken); border: 1px solid var(--color-border); white-space: nowrap; }
+.area-titulo { font-size: var(--text-body); font-weight: 600; color: var(--color-heading); }
+
+/* Encabezado del detalle */
+.det-def { color: var(--color-text-secondary); font-size: var(--text-caption); line-height: 1.5; max-width: 72ch; }
+.det-def strong { color: var(--color-text-primary); font-weight: 600; }
+.clave { font-weight: 700; color: var(--color-text-primary); }
+.col-clave { text-decoration: underline; text-decoration-color: var(--color-action); text-underline-offset: 4px; }
+.chips-falta { display: flex; flex-wrap: wrap; gap: 4px; }
+.barra-detalle { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-10); }
+
+/* Matriz de inventario: celdas-botón */
+.celda-btn { display: inline-flex; justify-content: flex-end; min-width: 3.5rem; border: 0; background: transparent; padding: 6px 8px; border-radius: 6px;
+  font: inherit; font-variant-numeric: tabular-nums; color: var(--color-action); font-weight: 600; cursor: pointer; transition: background-color var(--motion-fast) var(--ease); }
+.celda-btn:hover { background: var(--kit-hover); text-decoration: underline; text-underline-offset: 3px; }
+.celda-btn--umbral { color: var(--color-warning); }
+.celda-cero { display: inline-block; min-width: 3.5rem; text-align: right; padding: 6px 8px; color: var(--color-text-tertiary); }
+.tabla-wrap.kit-matriz table.matriz td.num { text-align: right; }
+.tabla-wrap.kit-matriz th[scope="row"] { position: sticky; left: 0; z-index: 1; background: var(--color-surface-elevated); }
+.fila-total th, .fila-total td { border-top: 2px solid var(--color-border-strong); }
+
+/* Para hoy */
+.frentes { display: grid; gap: var(--space-8); }
+.frente { display: grid; grid-template-columns: 7.5rem 4rem minmax(0, 1fr) auto; align-items: center; gap: var(--space-12);
+  padding: var(--space-12) var(--space-16); border-radius: 9px; background: var(--color-surface-sunken); border: 1px solid var(--color-border); }
+.frente__cifra { font-size: 1.5rem; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; color: var(--color-text-primary); }
+.frente__frase { color: var(--color-text-primary); font-size: var(--text-caption); line-height: 1.45; }
+@media (max-width: 1023.98px) {
+  .frente { grid-template-columns: auto 1fr; }
+  .frente__cifra { text-align: left; }
+  .frente__frase, .frente .enlace-btn { grid-column: 1 / -1; }
+  .frente .enlace-btn { justify-self: start; }
+}
+.pie-gris { color: var(--color-text-tertiary); font-size: var(--text-caption); margin-top: var(--space-10); }

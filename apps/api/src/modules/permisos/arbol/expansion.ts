@@ -24,6 +24,7 @@ import { ACCIONES_FINANZAS, PARTIDA_DE_OPERACION_NUEVA } from './acciones-finanz
 import { ACCIONES_GESTION, CONJUNCIONES_GESTION, type AccionArbol } from './acciones-gestion.js';
 import { ACCIONES_LEGADO, ITEMS_LEGADO_OPS, OPERACIONES_INCORPORADAS_13588 } from './acciones-legado.js';
 import { ACCIONES_DR_FLIT } from './acciones-dr-flit.js';
+import { ACCIONES_TORRE } from './acciones-torre.js';
 
 /**
  * HU #12873 AC8 (decisión del PO del 2026-10-13) — el rol que recibe TODAS las acciones del árbol, también
@@ -39,6 +40,7 @@ export const ROL_CON_TODAS_LAS_ACCIONES = 'admin';
  */
 export const ACCIONES_ARBOL: Readonly<Record<string, AccionArbol>> = {
   ...ACCIONES_GESTION, ...ACCIONES_FINANZAS, ...ACCIONES_ADMINISTRACION, ...ACCIONES_LEGADO, ...ACCIONES_DR_FLIT,
+  ...ACCIONES_TORRE, // Épica #14590: la Torre de Control (0303)
 };
 export const CONJUNCIONES_ARBOL = [...CONJUNCIONES_GESTION];
 

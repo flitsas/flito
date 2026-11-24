@@ -9,6 +9,9 @@ import type {
   DocumentoBolsaDto, EstadoExpedienteLoteBody, EstadoExpedienteLoteRespuesta, ExpedienteCompaniaDto,
   DocumentoExpedienteDto, HistorialDocumentoBolsaDto, RetirarDocumentoBolsaBody, TipoDocumentoBolsa,
 } from '@operaciones/shared-types';
+import type {
+  ConsultaDetalle, ExportarDetalle, FiltroTorre, InventarioEstadoTorre, ResultadoDetalle, SoportesFaltantesTorre,
+} from '@operaciones/shared-types';
 
 const BASE = '/api';
 
@@ -667,4 +670,23 @@ export const bolsasDocumentosApi = {
     );
     entregarArchivo(blob, nombre);
   },
+};
+
+// ── Torre de Control: detalle universal (Épica #14590, ADR-0047) ─────────────
+//
+// Las dos rutas son POST: el filtro de placa (PII, AGENTS §14) viaja SOLO en el body, nunca en la URL.
+// La exportación descarga con el nombre que declara el servidor (`torre-detalle-<conjunto>-<fecha>.xlsx`, sin placa).
+export const torreDetalleApi = {
+  consultar: (consulta: ConsultaDetalle) => api.post<ResultadoDetalle>('/flito/torre/detalle/consultar', consulta),
+  exportar: (consulta: ExportarDetalle) =>
+    api.downloadPostNamed('/flito/torre/detalle/exportar', 'torre-detalle.xlsx', consulta),
+};
+
+// Torre de Control › Operativa: subvistas Inventario por estado y Soportes (Épica #14590 B2, spec UX §6.2). POST con
+// `{ filtro }` como los tableros; el organismo (código DANE, opaco) se suma al filtro de la Torre.
+export const torreOperativaApi = {
+  inventario: (filtro: FiltroTorre, organismo: string | null) =>
+    api.post<InventarioEstadoTorre>('/flito/torre/tableros/operativa/inventario', { filtro, organismo }),
+  soportes: (filtro: FiltroTorre) =>
+    api.post<SoportesFaltantesTorre>('/flito/torre/tableros/operativa/soportes', { filtro }),
 };
