@@ -766,7 +766,7 @@ router.patch('/:id', exigirFuncion('usuarios.usuario.editar'), async (req: Reque
     if (data.role !== undefined && tipoEnlaceEfectivo !== 'compania' && data.companiaId === undefined) {
         updates.companiaId = null;
     }
-    // HU #14341: solo la columna nueva; el trigger `users_proveedor_sync` deja la vieja coherente (AC1, AC2, AC6).
+    // HU #14341: solo `flito_proveedor_id`; la columna vieja se eliminó en la 0314 (HU #14355).
     if (proveedorCambia)
         updates.flitoProveedorId = pedido;
     if (data.role !== undefined && tipoEnlaceEfectivo !== 'proveedor' && pedido === undefined) {

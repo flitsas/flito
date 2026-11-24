@@ -78,8 +78,7 @@ export const flitoSoatEstadoEnum = pgEnum('flito_soat_estado', ['pendiente', 'so
 
 // Proveedor que adquiere el SOAT (RN-05: determina la estrategia de flujo). HU #13957 (0259): baja lógica (`deleted_at`/
 // `deleted_by`) y nombre único solo entre vigentes (exacto, como la constraint que reemplaza): un eliminado lo libera.
-// HU #14673 (0313): `nombre`, `activo` y su índice siguen en la BD como espejo del padre que llenan los triggers, pero
-// el código ya no los declara: Drizzle los nombraría en cada select/insert y la imagen no sobreviviría a su DROP (#14355).
+// Las columnas viejas `nombre`, `activo` y su índice se retiraron de la BD en la 0314 (HU #14355).
 export const flitoProveedoresSoat = pgTable('flito_proveedores_soat', {
   id: uuid('id').primaryKey().defaultRandom(),
   estrategia: varchar('estrategia', { length: 40 }).notNull().default('portal'),

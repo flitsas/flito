@@ -79,8 +79,7 @@ async function main(): Promise<void> {
   ]);
 
   // ── Proveedores de SOAT ─────────────────────────────────────────────────────
-  // HU #14673: primero el padre y después el perfil con el mismo UUID. El perfil ya no declara el nombre: su espejo lo
-  // copia del padre `perfil_crea_padre` (0313).
+  // HU #14673: primero el padre y después el perfil con el mismo UUID. El nombre vive solo en el padre (0314, HU #14355).
   const proveedores = await db.insert(flitoProveedores).values([{ nombre: 'Seguros del Estado' }, { nombre: 'SURA' }])
     .returning({ id: flitoProveedores.id, nombre: flitoProveedores.nombre });
   const estado = proveedores.find((p) => p.nombre === 'Seguros del Estado')!;
@@ -93,7 +92,7 @@ async function main(): Promise<void> {
   // ── Proveedor logístico por defecto (Fase 1: mensajería propia de FLIT) ──────
   // Se consulta antes de insertar: un nombre ya sembrado por una migración chocaría con el índice único del padre.
   // HU #14673: se reutiliza el padre vigente con ese nombre o se crea, y después va el perfil con el mismo UUID si aún
-  // no lo tiene (su `estrategia` toma el DEFAULT `pwa_propia` de la BD y el espejo lo copia `perfil_crea_padre`, 0313).
+  // no lo tiene. Los datos generales viven solo en el padre (0314, HU #14355).
   const [mensajeria] = await db.select({ id: flitoProveedores.id, perfil: flitoProveedoresLogistica.id }).from(flitoProveedores)
     .leftJoin(flitoProveedoresLogistica, eq(flitoProveedoresLogistica.id, flitoProveedores.id))
     .where(and(eq(flitoProveedores.nombre, 'Mensajería FLIT'), isNull(flitoProveedores.deletedAt))).limit(1);
