@@ -111,7 +111,7 @@ function escenarioCargaOk(): void {
       companiaId: COMPANIA, companiaNombre: 'ACME S.A.S.', placa: 'ABC123',
     }])
     .select('flito_conciliacion_lineas', [])
-    .select('flito_bolsa_movimientos', [])
+    .select('flito_bolsas_unicas_movimientos', [])
     .insert('flito_conciliacion_boletas', [filaBoleta()])
     .insert('flito_conciliacion_lineas', [filaLinea()])
     .update('flito_conciliacion_boletas', []);
@@ -363,7 +363,7 @@ describe('flito-conciliacion · lectura de una boleta', () => {
         id: SOAT_ID, numeroPoliza: 'P1', estado: 'pagado', valorPagado: '740800.00',
         companiaId: COMPANIA, companiaNombre: 'ACME S.A.S.', placa: 'ABC123',
       }])
-      .select('flito_bolsa_movimientos', []);
+      .select('flito_bolsas_unicas_movimientos', []);
 
     const app = await buildApp();
     const res = await request(app).get(`/api/flito/conciliacion/boletas/${BOLETA_ID}`)
@@ -424,7 +424,7 @@ describe('flito-conciliacion · AC5 y AC6 · re-cruce y descarte por HTTP', () =
         id: SOAT_ID, numeroPoliza: 'P1', estado: 'pagado', valorPagado: '740800.00',
         companiaId: COMPANIA, companiaNombre: 'ACME S.A.S.', placa: 'ABC123',
       }])
-      .select('flito_bolsa_movimientos', [])
+      .select('flito_bolsas_unicas_movimientos', [])
       .update('flito_conciliacion_lineas', [])
       .update('flito_conciliacion_boletas', []);
     kdb.when.select('clients', [{ nombre: 'ACME S.A.S.' }]);
@@ -518,12 +518,12 @@ describe('flito-conciliacion · HU #11677 · POST /boletas/:id/conciliar', () =>
         organismoCodigo: '05001',
       }])
       .select('clients', [{ nombre: 'ACME S.A.S.' }])
-      .select('flito_bolsa_movimientos', [])
-      .select('flito_bolsas', [{ id: 'bolsa-cliente', saldo: '5000000' }])
+      .select('flito_bolsas_unicas_movimientos', [])
+      .select('flito_bolsas_unicas', [{ id: 'bolsa-cliente', saldo: '5000000', companiaId: COMPANIA, activa: true }])
       .select('flito_bolsa_cierres', [])
       // Ninguna bolsa de tránsito cubre este par: la línea descuenta solo la del cliente.
       .select('flito_bolsa_transito_cobertura', [])
-      .insert('flito_bolsa_movimientos', [{
+      .insert('flito_bolsas_unicas_movimientos', [{
         id: MOVIMIENTO_ID, companiaId: COMPANIA, tipo: 'salida', origen: 'conciliacion',
         concepto: 'soat', organismoCodigo: '05001', tramiteId: null, valor: '740800.00',
         saldoResultante: '4259200.00', periodo: '2026-07', fecha: '2026-08-13',
@@ -531,7 +531,7 @@ describe('flito-conciliacion · HU #11677 · POST /boletas/:id/conciliar', () =>
         registradoPorNombre: 'financiera@flit.io', createdAt: AHORA,
         llaveIdempotencia: `salida:soat:${SOAT_ID}`,
       }])
-      .update('flito_bolsas', [])
+      .update('flito_bolsas_unicas', [])
       .update('flito_conciliacion_lineas', [])
       .update('flito_conciliacion_boletas', []);
   }
@@ -590,7 +590,7 @@ describe('flito-conciliacion · HU #11677 · POST /boletas/:id/conciliar', () =>
         organismoCodigo: '05001',
       }])
       .select('clients', [{ nombre: 'ACME S.A.S.' }])
-      .select('flito_bolsa_movimientos', [])
+      .select('flito_bolsas_unicas_movimientos', [])
       .update('flito_conciliacion_lineas', [])
       .update('flito_conciliacion_boletas', []);
   }
@@ -605,7 +605,7 @@ describe('flito-conciliacion · HU #11677 · POST /boletas/:id/conciliar', () =>
     expect(res.status).toBe(409);
     expect(res.body.codigo).toBe('boleta_incompleta');
     expect(res.body.boleta.lineas[0].resultado).toBe('no_pagado');
-    expect(espia.insertsEn('flito_bolsa_movimientos')).toHaveLength(0);
+    expect(espia.insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
     // No hubo CAMBIO que registrar: no se conciliró nada.
     expect(auditMock).not.toHaveBeenCalled();
   });

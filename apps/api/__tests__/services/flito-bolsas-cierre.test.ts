@@ -57,8 +57,8 @@ function espiarMutaciones(): void {
 
 const insertsEn = (tabla: string) => inserts.filter((m) => m.tabla === tabla);
 const updatesEn = (tabla: string) => updates.filter((m) => m.tabla === tabla);
-const ultimoCierreEscrito = () => insertsEn('flito_bolsa_cierres').at(-1)?.datos ?? {};
-const ultimoMovimientoEscrito = () => insertsEn('flito_bolsa_movimientos').at(-1)?.datos ?? {};
+const ultimoCierreEscrito = () => insertsEn('flito_bolsas_unicas_cierres').at(-1)?.datos ?? {};
+const ultimoMovimientoEscrito = () => insertsEn('flito_bolsas_unicas_movimientos').at(-1)?.datos ?? {};
 
 // ─────────────────────────── Periodos relativos a hoy ────────────────────────
 
@@ -98,7 +98,7 @@ let cierres: Fila[] = [];
 let saldoBolsa = 0;
 let secuenciaCierre = 0;
 
-const bolsaVigente: Resolver = () => [{ id: BOLSA_ID, saldo: String(saldoBolsa) }];
+const bolsaVigente: Resolver = () => [{ id: BOLSA_ID, saldo: String(saldoBolsa), companiaId: COMPANIA, activa: true }];
 
 const cierreDelPeriodo = (periodo: string) => cierres.filter((c) => c.periodo === periodo);
 /** Cierre inmediatamente anterior: el que aporta el saldo de arranque del siguiente. */
@@ -108,7 +108,7 @@ const cierrePrevioA = (periodo: string) =>
     .slice(0, 1);
 
 /**
- * Encola las dos consultas que `cerrarPeriodo` hace sobre `flito_bolsa_cierres` — «¿ya está
+ * Encola las dos consultas que `cerrarPeriodo` hace sobre `flito_bolsas_unicas_cierres` — «¿ya está
  * cerrado?» y «¿cuál fue el anterior?» —, ambas resueltas contra los cierres ya sellados.
  *
  * Van encoladas y no enrutadas por filtro porque las dos preguntan por la misma tabla con el mismo
@@ -116,10 +116,10 @@ const cierrePrevioA = (periodo: string) =>
  */
 function escenarioCierre(periodo: string, totales: Fila = {}): void {
   kdb.when
-    .select('flito_bolsas', bolsaVigente)
-    .selectOnce('flito_bolsa_cierres', () => cierreDelPeriodo(periodo))
-    .selectOnce('flito_bolsa_cierres', () => cierrePrevioA(periodo))
-    .select('flito_bolsa_movimientos', [{ entradas: '0', salidas: '0', movimientos: 0, ...totales }]);
+    .select('flito_bolsas_unicas', bolsaVigente)
+    .selectOnce('flito_bolsas_unicas_cierres', () => cierreDelPeriodo(periodo))
+    .selectOnce('flito_bolsas_unicas_cierres', () => cierrePrevioA(periodo))
+    .select('flito_bolsas_unicas_movimientos', [{ entradas: '0', salidas: '0', movimientos: 0, ...totales }]);
 }
 
 beforeEach(() => {
@@ -132,7 +132,7 @@ beforeEach(() => {
   espiarMutaciones();
   // `returning()` devuelve lo que el servicio acaba de sellar y lo deja registrado: el siguiente
   // cierre y el chequeo de «ya cerrado» trabajan sobre él, como harían contra la tabla real.
-  kdb.when.insert('flito_bolsa_cierres', () => {
+  kdb.when.insert('flito_bolsas_unicas_cierres', () => {
     const fila: Fila = { id: `cierre-${++secuenciaCierre}`, cerradoEn: CERRADO_EN, ...ultimoCierreEscrito() };
     cierres.push(fila);
     return [fila];
@@ -179,7 +179,8 @@ describe('cerrarPeriodo — AC1: sella el reporte del mes', () => {
     await cerrarPeriodo(COMPANIA, MES_PASADO, null, CTX);
 
     expect(ultimoCierreEscrito()).toMatchObject({
-      bolsaId: BOLSA_ID, companiaId: COMPANIA, periodo: MES_PASADO,
+      // HU #13899: el cierre del modelo único es por bolsa; ya no lleva compania_id.
+      bolsaId: BOLSA_ID, periodo: MES_PASADO,
       saldoInicial: '0', totalEntradas: '500000', totalSalidas: '320000', saldoFinal: '180000',
       movimientos: 12,
     });
@@ -257,17 +258,17 @@ describe('cerrarPeriodo — AC4: un periodo cerrado no se vuelve a cerrar', () =
     await expect(cerrarPeriodo(COMPANIA, MES_PASADO, null, CTX))
       .rejects.toMatchObject({ name: 'BolsaError', estado: 409, message: 'El periodo ya está cerrado' });
 
-    expect(insertsEn('flito_bolsa_cierres')).toHaveLength(1);
+    expect(insertsEn('flito_bolsas_unicas_cierres')).toHaveLength(1);
   });
 
   it('periodoEstaCerrado distingue el mes sellado del que no lo está', async () => {
     escenarioCierre(MES_PASADO);
     await cerrarPeriodo(COMPANIA, MES_PASADO, null, CTX);
 
-    kdb.when.select('flito_bolsa_cierres', () => cierreDelPeriodo(MES_PASADO));
+    kdb.when.select('flito_bolsas_unicas_cierres', () => cierreDelPeriodo(MES_PASADO));
     expect(await periodoEstaCerrado(kdb.db as never, COMPANIA, MES_PASADO)).toBe(true);
 
-    kdb.when.select('flito_bolsa_cierres', () => cierreDelPeriodo(periodoDesplazado(-9)));
+    kdb.when.select('flito_bolsas_unicas_cierres', () => cierreDelPeriodo(periodoDesplazado(-9)));
     expect(await periodoEstaCerrado(kdb.db as never, COMPANIA, periodoDesplazado(-9))).toBe(false);
   });
 });
@@ -318,8 +319,8 @@ describe('cerrarPeriodo — cerrar es reportar, no mover saldo', () => {
     escenarioCierre(MES_PASADO, { entradas: '500000', salidas: '320000', movimientos: 12 });
     await cerrarPeriodo(COMPANIA, MES_PASADO, null, CTX);
 
-    expect(updatesEn('flito_bolsas')).toHaveLength(0);
-    expect(insertsEn('flito_bolsa_movimientos')).toHaveLength(0);
+    expect(updatesEn('flito_bolsas_unicas')).toHaveLength(0);
+    expect(insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
     expect(saldoBolsa).toBe(1_000_000);
   });
 });
@@ -328,7 +329,7 @@ describe('cerrarPeriodo — cerrar es reportar, no mover saldo', () => {
 
 describe('cierresDe — la lista que ve Financiera', () => {
   it('los numeric llegan como número, no como string', async () => {
-    kdb.when.select('flito_bolsa_cierres', [{
+    kdb.when.select('flito_bolsas_unicas_cierres', [{
       id: 'c1', companiaId: COMPANIA, periodo: MES_PASADO,
       saldoInicial: '1200000.00', totalEntradas: '500000.00', totalSalidas: '320000.50',
       saldoFinal: '1379999.50', movimientos: 12, observaciones: 'Conciliado',
@@ -345,7 +346,7 @@ describe('cierresDe — la lista que ve Financiera', () => {
   });
 
   it('cliente sin cierres → lista vacía, no error', async () => {
-    kdb.when.select('flito_bolsa_cierres', []);
+    kdb.when.select('flito_bolsas_unicas_cierres', []);
     expect(await cierresDe(COMPANIA)).toEqual([]);
   });
 });
@@ -362,11 +363,11 @@ const SOPORTE = {
 /** Deja el mock listo para una recarga, con los periodos ya cerrados que se le indiquen. */
 function escenarioRecarga(periodosCerrados: string[]): void {
   kdb.when
-    .select('flito_bolsa_movimientos', [])
-    .select('flito_bolsas', bolsaVigente)
-    .select('flito_bolsa_cierres', periodosCerrados.map((periodo) => ({ periodo })))
+    .select('flito_bolsas_unicas_movimientos', [])
+    .select('flito_bolsas_unicas', bolsaVigente)
+    .select('flito_bolsas_unicas_cierres', periodosCerrados.map((periodo) => ({ periodo })))
     .insert('flito_soportes', [{ id: SOPORTE_ID }])
-    .insert('flito_bolsa_movimientos', () => [{
+    .insert('flito_bolsas_unicas_movimientos', () => [{
       id: 'mov-1', createdAt: CERRADO_EN, ...ultimoMovimientoEscrito(),
     }]);
 }
@@ -443,5 +444,30 @@ describe('BolsaError — el cierre usa los mismos códigos que el resto del mód
 
     escenarioCierre(MES_PASADO);
     await expect(cerrarPeriodo(COMPANIA, MES_PASADO, null, CTX)).rejects.toBeInstanceOf(BolsaError);
+  });
+});
+
+// ─────────────── HU #13899 (AC8, Q7): el cierre mensual sí se permite con la bolsa inactiva ───────────────
+
+describe('cerrarPeriodo — HU #13899 AC8', () => {
+  it('TC-25 · el cierre mensual de una bolsa inactiva se permite', async () => {
+    escenarioCierre(MES_PASADO, { entradas: '500000', salidas: '320000', movimientos: 12 });
+    kdb.when.select('flito_bolsas_unicas', [{ id: BOLSA_ID, saldo: '180000', companiaId: COMPANIA, activa: false }]);
+
+    const cierre = await cerrarPeriodo(COMPANIA, MES_PASADO, null, CTX);
+
+    expect(cierre).toMatchObject({ companiaId: COMPANIA, periodo: MES_PASADO, saldoFinal: 180000 });
+    expect(insertsEn('flito_bolsas_unicas_cierres')).toHaveLength(1);
+    expect(ultimoCierreEscrito()).toMatchObject({ bolsaId: BOLSA_ID });
+  });
+
+  it('sin bolsa → 409 bolsa_inexistente y no se sella nada (ya no se autocrea)', async () => {
+    escenarioCierre(MES_PASADO);
+    kdb.when.select('flito_bolsas_unicas', []);
+
+    await expect(cerrarPeriodo(COMPANIA, MES_PASADO, null, CTX))
+      .rejects.toMatchObject({ estado: 409, codigo: 'bolsa_inexistente' });
+    expect(insertsEn('flito_bolsas_unicas_cierres')).toHaveLength(0);
+    expect(insertsEn('flito_bolsas_unicas')).toHaveLength(0);
   });
 });

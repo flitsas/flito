@@ -100,6 +100,7 @@ import {
   auditLogs,
   clients,
   flitoCompradores,
+  flitoProveedores,
   flitoProveedoresSoat,
   flitoSoat,
   flitoSoatIncompletas,
@@ -1218,12 +1219,14 @@ export async function resolverDestinoCanalCliente(
   tx: Tx, companiaId: number,
 ): Promise<DestinoCanalCliente> {
   const [fila] = await tx
-    .select({ proveedorId: flitoProveedoresSoat.id, activo: flitoProveedoresSoat.activo, deletedAt: flitoProveedoresSoat.deletedAt })
+    // HU #14354 (R21): `activo` sale del padre, unido por el mismo UUID; la baja del servicio, del perfil SOAT.
+    .select({ proveedorId: flitoProveedoresSoat.id, activo: flitoProveedores.activo, deletedAt: flitoProveedoresSoat.deletedAt })
     .from(clients)
     .leftJoin(
       flitoProveedoresSoat,
       eq(flitoProveedoresSoat.id, clients.flitoProveedorSoatSinTramiteId),
     )
+    .leftJoin(flitoProveedores, eq(flitoProveedores.id, clients.flitoProveedorSoatSinTramiteId))
     .where(eq(clients.id, companiaId))
     .limit(1);
 
@@ -1675,10 +1678,10 @@ export async function crearSolicitud(
  *
  * ── Qué pasa cuando el OCR no está ──────────────────────────────────────────────────────────────
  *
- * `extraerFacturaVenta` lanza `OcrNoDisponibleError(503)` y la ruta lo traduce: el formulario sigue a
- * mano (AC6). Con el fallback local (`OCR_LOCAL=1` y sin API key) no lanza y devuelve los CATORCE
- * campos en `null` con `confiable: false` —los nueve del comprador y los cinco documentales—, que es
- * exactamente el AC3 y tampoco impide seguir.
+ * Si Anthropic no responde (o no hay API key), `extraerFacturaVenta` cae al fallback local
+ * (Bug #14229, sin interruptor `OCR_LOCAL`) y devuelve los CATORCE campos en `null` con
+ * `confiable: false` —formulario a mano (AC6/AC3). Solo si el local también falla lanza
+ * `OcrNoDisponibleError(503)` y la ruta lo traduce.
  */
 export async function leerFacturaVenta(
   archivo: ArchivoSolicitud,

@@ -1,5 +1,5 @@
-// Bug #14414 — Lo que corre en CI (sin Postgres): las condiciones de `arrancarTramiteGuardado` y que
-// `crearEmpresaDesdeTramite` arranca dentro de su transacción. El SQL real se ejerce en
+// Bug #14414 — Lo que corre en CI (sin Postgres): las condiciones compartidas de `arrancarTramiteGuardado` y que
+// `crearEmpresaDesdeTramite` arranca dentro de su transacción. El SQL real y la migración 0291 se ejercen en
 // `db/flito-tramites.vincular-empresa-arranque.pg.test.ts`.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -33,7 +33,7 @@ function txCon(resultados: unknown[][]) {
 const COMPANIA = { id: 7, active: true } as never;
 const base = {
   id: 'tramite-1', idFlit: 'RAD-1', flitEstado: 'Asignado', organismoCodigo: '11001', vehiculoId: 3, soatId: null,
-  valorImpuestoLiquidado: '150000.00', fuente: 'flit2', flit2PiiEnmascarada: false,
+  valorImpuestoLiquidado: '150000.00', fuente: 'flit2', flit2PiiEnmascarada: false, retenido: false,
 };
 const contadores = () => ({ soatCreados: 0, soatBloqueadosPorVin: 0, impuestosCreados: 0, impuestosBloqueadosPorVehiculo: 0 });
 
@@ -61,6 +61,7 @@ describe('Bug #14414 — condiciones de arrancarTramiteGuardado', () => {
   });
 
   it.each<[string, Partial<typeof base> | Record<string, unknown>, unknown[][]]>([
+    ['retenido', { retenido: true }, []],
     ['no Asignado', { flitEstado: 'Aprobado' }, []],
     ['sin estado FLIT', { flitEstado: null }, []],
     ['sin organismo emparejado', { organismoCodigo: null }, []],
@@ -69,6 +70,11 @@ describe('Bug #14414 — condiciones de arrancarTramiteGuardado', () => {
     ['vehículo sin VIN', {}, [[{ id: 'comprador' }], [{ vin: null }]]],
   ])('%s → no arranca', async (_n, cambio, cola) => {
     await arrancarTramiteGuardado(txCon(cola) as never, { ...base, ...cambio } as never, COMPANIA, contadores());
+    expect(arrancarMock).not.toHaveBeenCalled();
+  });
+
+  it('compañía inactiva → no arranca', async () => {
+    await arrancarTramiteGuardado(txCon([]) as never, base, { id: 7, active: false } as never, contadores());
     expect(arrancarMock).not.toHaveBeenCalled();
   });
 });

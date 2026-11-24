@@ -62,9 +62,10 @@ function espiarLecturas(): void {
   });
 }
 
-const MOVIMIENTOS = 'flito_bolsa_transito_movimientos';
-const BOLSAS = 'flito_bolsas_transito';
-const COBERTURA = 'flito_bolsa_transito_cobertura';
+// HU #13906: desde la 0257 el libro de tránsito ES el libro único (alcance 'transito').
+const MOVIMIENTOS = 'flito_bolsas_unicas_movimientos';
+const BOLSAS = 'flito_bolsas_unicas';
+const COBERTURA = 'flito_bolsas_unicas_cobertura';
 
 const BOLSA_ID = '99999999-9999-9999-9999-999999999999';
 const SOAT_ID = '50a70000-0000-4000-8000-00000000000a';
@@ -119,8 +120,8 @@ beforeEach(() => {
   lecturas = [];
   espiarLecturas();
   kdb.when
-    .select(COBERTURA, [{ id: BOLSA_ID, nombre: 'Bolsa de prueba' }])
-    .select(BOLSAS, [{ id: BOLSA_ID, saldo: '10000000' }])
+    .select(COBERTURA, [{ bolsaId: BOLSA_ID, nombre: 'Bolsa de prueba' }])
+    .select(BOLSAS, [{ id: BOLSA_ID, saldo: '10000000', companiaId: null, activa: true }])
     .insert(MOVIMIENTOS, [{ ...movimientoPrevio, id: 'nuevo', llaveIdempotencia: LLAVE }]);
 });
 
@@ -140,7 +141,8 @@ describe('asiento de tránsito — la relectura de la llave dentro del lock', ()
     expect(espia.insertsEn(MOVIMIENTOS)).toHaveLength(0);
     expect(espia.updatesEn(BOLSAS)).toHaveLength(0);
     // Y la bolsa SÍ se bloqueó, así que el `null` es la defensa y no un «aquí no hay bolsa».
-    expect(lecturas).toEqual([COBERTURA, MOVIMIENTOS, BOLSAS, MOVIMIENTOS]);
+    // HU #13906: el pre-chequeo de la llave va antes de resolver la cobertura (que ya bloquea la bolsa).
+    expect(lecturas).toEqual([MOVIMIENTOS, COBERTURA, BOLSAS, MOVIMIENTOS]);
   });
 
   it('la segunda lectura va DESPUÉS del FOR UPDATE, no antes', async () => {
