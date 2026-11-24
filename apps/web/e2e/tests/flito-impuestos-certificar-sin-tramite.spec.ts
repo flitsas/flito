@@ -84,10 +84,13 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     modo = 'ok';
     await page.getByRole('button', { name: 'Reintentar' }).click();
 
-    for (const col of ['Placa', 'VIN', 'Propietario', 'Estado']) {
-      await expect(page.getByRole('columnheader', { name: col })).toBeVisible();
+    // HU #14665: orden canónico del patrón unificado; Placa y VIN se funden en «Vehículo».
+    for (const col of ['Vehículo', 'Estado', 'Propietario', 'Registrado']) {
+      await expect(page.getByRole('columnheader', { name: col, exact: true })).toBeVisible();
     }
-    await expect(page.getByRole('columnheader', { name: 'Compañía' })).toHaveCount(0);
+    for (const col of ['Placa', 'VIN', 'Compañía']) {
+      await expect(page.getByRole('columnheader', { name: col, exact: true })).toHaveCount(0);
+    }
     await expect(page.getByRole('row').filter({ hasText: 'ABC123' })).toContainText('Guardado');
   });
 
@@ -524,7 +527,7 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
 
   // --- HU #14665: placa opcional, prellenado del propietario, eliminar y descarga masiva ---
 
-  test('23 · guardar sin placa: se guarda, la lista muestra «—» y se puede consultar', async ({ page }) => {
+  test('23 · guardar sin placa: se guarda, la lista muestra «Sin placa» y se puede consultar', async ({ page }) => {
     await irACertificar(page);
     await page.route(/\/certificacion-directa\/extraer$/, (r) => r.fulfill(json(LECTURA)));
     let guardada: ReturnType<typeof fila> | null = null;
@@ -554,8 +557,8 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
 
     await page.getByRole('button', { name: 'Volver al listado' }).click();
     const filaLista = page.getByRole('row').filter({ hasText: LECTURA.vin });
-    // Índice 1: la casilla de selección ocupa la columna 0, la Placa la 1.
-    await expect(filaLista.getByRole('cell').nth(1)).toHaveText('—');
+    // Índice 1: la casilla de selección ocupa la columna 0, el Vehículo la 1 (HU #14665).
+    await expect(filaLista.getByRole('cell').nth(1)).toContainText('Sin placa');
   });
 
   test('24 · la extracción prellena tipo de documento, documento y nombre del propietario', async ({ page }) => {
@@ -702,5 +705,139 @@ test.describe('FLITO — Impuestos · Certificar sin trámite', () => {
     // `[data-tono]` y no el texto a secas: el mismo aviso existe también en una región sr-only (role="status").
     const tarjeta = page.locator('[data-tono]').filter({ hasText: 'ZIP descargado' });
     await expect(tarjeta).toContainText('certificados-runt_20991231-2359.zip');
+  });
+  // ── HU #14665: patrón unificado de colas (embudo, búsqueda, vacío por filtro, selección, cabecera) ──
+  const CINCO = () => [
+    fila({ id: 'c1', placa: 'ZZA101', vin: '9ZZDEMO0000000101', nombrePropietario: 'Ana Ejemplo Ruiz', estado: 'radicado' }),
+    fila({
+      id: 'c2', placa: 'ZZB202', vin: '9ZZDEMO0000000202', nombrePropietario: 'Carlos Demo Pardo', estado: 'sin_coincidencia',
+      comparacion: [
+        { campo: 'marca', valorFactura: 'A', valorRunt: 'B', resultado: 'difiere' },
+        { campo: 'linea', valorFactura: 'A', valorRunt: 'B', resultado: 'difiere' },
+        { campo: 'anio', valorFactura: '2026', valorRunt: '2026', resultado: 'coincide' },
+      ],
+    }),
+    fila({ id: 'c3', placa: 'ZZC303', vin: '9ZZDEMO0000000303', nombrePropietario: 'Beatriz Núñez', estado: 'certificado', certificadoEn: '2026-10-02T12:00:00Z' }),
+    fila({ id: 'c4', placa: null, vin: '9ZZDEMO0000000404', nombrePropietario: null, estado: 'sin_respuesta' }),
+  ];
+  async function conLista(page: Page, filas: unknown[]) {
+    await page.route(API, (r) => (r.request().method() === 'GET' && /certificacion-directa$/.test(r.request().url())
+      ? r.fulfill(json(filas)) : r.fallback()));
+    await page.goto('/flito/impuestos/certificar');
+  }
+  const filaCon = (page: Page, t: string) => page.getByRole('row').filter({ hasText: t });
+  const buscar = (page: Page) => page.getByRole('searchbox', { name: 'Buscar placa, VIN o propietario' });
+  const embudo = (page: Page) => page.getByRole('group', { name: 'Estados de la certificación' });
+
+  test('30 · «Nueva certificación» va en la cabecera del módulo; en el detalle, «Volver al listado»', async ({ page }) => {
+    await irACertificar(page);
+    await conLista(page, CINCO());
+    const cabecera = page.locator('.page-header');
+    await expect(cabecera.getByText('Certifica ante el RUNT los vehículos que no tienen trámite en FLITO.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Nueva certificación' })).toHaveCount(1);
+    await expect(cabecera.getByRole('button', { name: 'Nueva certificación' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Certificar sin trámite' })).toBeAttached();
+    await expect(page.getByText('Quien tiene el permiso ve los registros')).toHaveCount(0);
+    // Sin panel propio: no hay botón «Filtros» que abriría un panel vacío.
+    await expect(page.getByRole('button', { name: 'Filtros', exact: true })).toHaveCount(0);
+
+    await filaCon(page, 'ZZA101').getByRole('button', { name: 'Abrir' }).click();
+    await expect(cabecera.getByRole('button', { name: 'Volver al listado' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Nueva certificación' })).toHaveCount(0);
+
+    // La cola de Impuestos conserva su propio subtítulo.
+    await page.getByRole('tab', { name: 'Impuestos', exact: true }).click();
+    await expect(cabecera.getByText('Cola de pago del impuesto vehicular: de Pendiente a Pagado.')).toBeVisible();
+  });
+
+  test('31 · celdas: Vehículo con placa/VIN/marca, «n datos no coinciden» y fecha de certificado', async ({ page }) => {
+    await irACertificar(page);
+    await conLista(page, CINCO());
+    await expect(filaCon(page, 'ZZA101')).toContainText('Chevrolet Onix · 2026');
+    await expect(filaCon(page, 'ZZB202')).toContainText('2 datos no coinciden');
+    await expect(filaCon(page, 'ZZC303')).toContainText('Certificado 02/10/2026');
+    await expect(filaCon(page, '9ZZDEMO0000000404')).toContainText('Sin placa');
+    await expect(filaCon(page, 'ZZA101')).toContainText('01/10/2026');
+  });
+
+  test('32 · el embudo filtra por estado y la búsqueda por placa, VIN o propietario (sin tildes), sin tocar la URL', async ({ page }) => {
+    await irACertificar(page);
+    let pedidas = 0;
+    await page.route(API, (r) => {
+      if (r.request().method() === 'GET' && /certificacion-directa$/.test(r.request().url())) { pedidas += 1; return r.fulfill(json(CINCO())); }
+      return r.fallback();
+    });
+    await page.goto('/flito/impuestos/certificar');
+    await expect(filaCon(page, 'ZZA101')).toBeVisible();
+    const antes = pedidas;
+
+    await embudo(page).getByRole('button', { name: 'No coincide' }).click();
+    await expect(filaCon(page, 'ZZB202')).toBeVisible();
+    await expect(filaCon(page, 'ZZA101')).toHaveCount(0);
+    await embudo(page).getByRole('button', { name: 'Todos' }).click();
+    await expect(filaCon(page, 'ZZA101')).toBeVisible();
+
+    await buscar(page).fill('zza-1');
+    await expect(filaCon(page, 'ZZA101')).toBeVisible();
+    await expect(filaCon(page, 'ZZB202')).toHaveCount(0);
+
+    await buscar(page).fill('0000000303');
+    await expect(filaCon(page, 'ZZC303')).toBeVisible();
+    await expect(filaCon(page, 'ZZA101')).toHaveCount(0);
+
+    await buscar(page).fill('nunez');
+    await expect(filaCon(page, 'Beatriz Núñez')).toBeVisible();
+    await expect(filaCon(page, 'ZZB202')).toHaveCount(0);
+
+    // Y lógico: propietario de un «Certificado» + embudo en «Guardado» → nada.
+    await embudo(page).getByRole('button', { name: 'Guardado' }).click();
+    await expect(filaCon(page, 'ZZC303')).toHaveCount(0);
+
+    expect(pedidas).toBe(antes); // filtra en el navegador: ninguna petición nueva
+    expect(page.url()).not.toMatch(/nunez|zza|0000000303/i); // Ley 1581: nada buscado en la URL
+  });
+
+  test('33 · vacío por filtro con «Limpiar filtros»; con 100 filas, la nota del tope', async ({ page }) => {
+    await irACertificar(page);
+    const cien = Array.from({ length: 100 }, (_, i) => fila({ id: `x${i}`, placa: `ZZX${String(i).padStart(3, '0')}`, vin: `9ZZDEMO${String(i).padStart(10, '0')}` }));
+    await conLista(page, cien);
+    await expect(page.getByText('Se muestran las 100 certificaciones más recientes.')).toBeVisible();
+
+    await buscar(page).fill('NOEXISTE');
+    await expect(page.getByText('Ninguna certificación coincide con los filtros.', { exact: false })).toBeVisible();
+    await expect(page.getByText('La búsqueda solo cubre las 100 certificaciones más recientes.')).toBeVisible();
+    await expect(page.getByText('Todavía no hay certificaciones.', { exact: false })).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Limpiar filtros' }).click();
+    await expect(buscar(page)).toHaveValue('');
+    await expect(filaCon(page, 'ZZX000')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Limpiar filtros' })).toHaveCount(0);
+  });
+
+  test('34 · con menos de 100 filas no hay nota del tope', async ({ page }) => {
+    await irACertificar(page);
+    await conLista(page, CINCO());
+    await expect(filaCon(page, 'ZZA101')).toBeVisible();
+    await expect(page.getByText('Se muestran las 100 certificaciones más recientes.')).toHaveCount(0);
+  });
+
+  test('35 · al filtrar, la selección se recorta a las filas visibles', async ({ page }) => {
+    await irACertificar(page);
+    await conLista(page, CINCO());
+    await page.getByLabel('Seleccionar certificación ZZA101').check();
+    await page.getByLabel('Seleccionar certificación ZZB202').check();
+    await expect(page.getByRole('button', { name: 'Eliminar seleccionados (2)' })).toBeVisible();
+
+    await buscar(page).fill('ZZB');
+    await expect(page.getByRole('button', { name: 'Eliminar seleccionados (1)' })).toBeVisible();
+    // Quitar el filtro no devuelve la marca oculta: se recortó.
+    await page.getByRole('button', { name: 'Limpiar filtros' }).click();
+    await expect(page.getByRole('button', { name: 'Eliminar seleccionados (1)' })).toBeVisible();
+    await expect(page.getByLabel('Seleccionar certificación ZZA101')).not.toBeChecked();
+
+    // La casilla del encabezado marca solo lo visible.
+    await embudo(page).getByRole('button', { name: 'Sin respuesta' }).click();
+    await page.getByLabel('Seleccionar las filas de esta página').check();
+    await expect(page.getByText('1 seleccionado(s)')).toBeVisible();
   });
 });
