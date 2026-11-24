@@ -23,7 +23,8 @@
 //
 // Exit 1 si falta un veredicto o viene en estado no verde.
 
-const TITLE_WORK_ITEM = /^(HU|BUG|FEATURE) \d{1,7}: /;
+// EPICA cuenta como producto: exige los mismos veredictos pre-PR que un Feature.
+const TITLE_WORK_ITEM = /^(HU|BUG|FEATURE|EPICA) \d{1,7}: /;
 
 // Cada gate: etiqueta para mensajes, regex de la línea, valores verdes y
 // sufijo de observaciones que NO cuenta como verde sin waiver.
@@ -76,7 +77,7 @@ if (!title) {
 }
 
 if (!TITLE_WORK_ITEM.test(title)) {
-  console.log(`[pr-gates] N/A — «${title}» no es un PR de producto (HU/BUG/FEATURE); CHORE/DOCS/RELEASE no declaran veredictos.`);
+  console.log(`[pr-gates] N/A — «${title}» no es un PR de producto (HU/BUG/FEATURE/EPICA); CHORE/DOCS/RELEASE no declaran veredictos.`);
   process.exit(0);
 }
 

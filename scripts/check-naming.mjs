@@ -21,9 +21,10 @@ const DESC_MIN = 15; // caracteres de descripción en el título: obliga a decir
 // Ramas de ambiente: son origen de PRs de promoción (flit-release), no de desarrollo.
 const ENV_BRANCHES = new Set(['develop', 'staging', 'release', 'main']);
 
-const BRANCH_WORK_ITEM = /^(HU|BUG|FEATURE)\/(\d{1,7})-[a-z0-9]+(?:-[A-Za-z0-9]+)+$/;
+// EPICA: PR de una Épica completa (sin Features ni HUs). Mismo ciclo de ramas que FEATURE.
+const BRANCH_WORK_ITEM = /^(HU|BUG|FEATURE|EPICA)\/(\d{1,7})-[a-z0-9]+(?:-[A-Za-z0-9]+)+$/;
 const BRANCH_SIN_WI = /^(CHORE|DOCS)\/[a-z0-9]+(?:-[A-Za-z0-9]+)+$/;
-const TITLE_WORK_ITEM = /^(HU|BUG|FEATURE) (\d{1,7}): (\S.*)$/;
+const TITLE_WORK_ITEM = /^(HU|BUG|FEATURE|EPICA) (\d{1,7}): (\S.*)$/;
 const TITLE_SIN_WI = /^(CHORE|DOCS): (\S.*)$/;
 const TITLE_PROMOCION = /^RELEASE: (\S.*)$/;
 
@@ -74,10 +75,12 @@ const EJEMPLOS = `
   Rama    HU/11678-davidchica-ajustes-flito
           BUG/11654-davidchica-correccion-dashboard
           FEATURE/12605-davidchica-ocr-comprobantes   (Modo Feature: un PR con todas las HUs del Feature)
+          EPICA/14678-davidchica-menu-por-areas       (PR de una Épica: sin Features ni HUs sueltas)
           CHORE/davidchica-actualizar-eslint      (sin work item: no toca apps/ ni packages/)
   Título  HU 11678: Ajustes al visor de comparendos para filtrar por municipio
           BUG 11654: Corrección del dashboard que no refrescaba tras cambiar de sede
           FEATURE 12605: OCR de comprobantes con revisión y fallback local para el equipo contable
+          EPICA 14678: Menú de FLITO agrupado en ocho áreas de la empresa, con permisos por área
           CHORE: Actualización de la configuración de ESLint`;
 
 function validarRama(branch, errores) {
@@ -94,7 +97,7 @@ function validarRama(branch, errores) {
 
   errores.push(
     `Nombre de rama inválido: «${branch}».\n` +
-      `  Formato exigido: HU/<ID>-<desarrollador>-<descripcion-breve> (o BUG/…; FEATURE/<ID Feature>-… para el PR de un Feature completo).\n` +
+      `  Formato exigido: HU/<ID>-<desarrollador>-<descripcion-breve> (o BUG/…; FEATURE/<ID Feature>-… para el PR de un Feature completo; EPICA/<ID Épica>-… para un PR de Épica).\n` +
       `  Sin work item, solo para lo que no es producto: CHORE/<desarrollador>-<desc> o DOCS/<…>.\n` +
       `  Prefijo en MAYÚSCULAS, ID de Azure DevOps sin «#», descripción en kebab-case sin acentos.`,
   );
@@ -115,7 +118,7 @@ function validarTitulo(title, rama, errores) {
   if (!conWorkItem && !sinWorkItem && !promocion) {
     errores.push(
       `Título de PR inválido: «${title}».\n` +
-        `  Formato exigido: «HU <ID>: <descripción>» o «BUG <ID>: <descripción>».\n` +
+        `  Formato exigido: «HU <ID>: <descripción>», «BUG <ID>: <descripción>», «FEATURE <ID>: …» o «EPICA <ID>: …».\n` +
         `  Sin work item: «CHORE: <descripción>» / «DOCS: <descripción>». Promoción: «RELEASE: <descripción>».`,
     );
     return;

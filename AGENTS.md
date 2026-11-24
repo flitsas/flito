@@ -80,6 +80,7 @@ Las reglas de negocio documentadas viven en comentarios de cabecera de los módu
   | `HU/<ID>-<desarrollador>-<descripcion-breve>` | `HU <ID>: <descripción>` |
   | `BUG/<ID>-<desarrollador>-<descripcion-breve>` | `BUG <ID>: <descripción>` |
   | `FEATURE/<ID del Feature>-<desarrollador>-<descripcion-breve>` | `FEATURE <ID>: <descripción>` — **Modo Feature**, un PR con todas las HUs del Feature (ver abajo) |
+  | `EPICA/<ID de la Épica>-<desarrollador>-<descripcion-breve>` | `EPICA <ID>: <descripción>` — **PR de una Épica** (sin Features ni HUs sueltas; trabajo sobre la Épica, en bloques de PR en serie) |
 | `CHORE/` · `DOCS/<desarrollador>-<descripcion-breve>` | `CHORE:` · `DOCS: <descripción>` |
   | Promoción (`develop`→`staging`→`release`) | `RELEASE: <descripción>` |
 
