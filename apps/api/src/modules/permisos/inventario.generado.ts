@@ -89,6 +89,10 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.certificacion-directa.routes.ts", metodo: "POST", ruta: "/certificacion-directa/:id/consultar", roles: ["admin"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.certificacion-directa.routes.ts", metodo: "GET", ruta: "/certificacion-directa/:id", roles: ["admin"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.certificacion-directa.routes.ts", metodo: "PATCH", ruta: "/certificacion-directa/:id", roles: ["admin"], heredada: false },
+  // HU #14665: eliminar, eliminar en lote y el ZIP de certificados; reutilizan `impuestos.certificacion_directa.gestionar`.
+  { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.certificacion-directa.routes.ts", metodo: "DELETE", ruta: "/certificacion-directa/:id", roles: ["admin"], heredada: false },
+  { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.certificacion-directa.routes.ts", metodo: "POST", ruta: "/certificacion-directa/eliminar-lote", roles: ["admin"], heredada: false },
+  { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.certificacion-directa.routes.ts", metodo: "POST", ruta: "/certificacion-directa/certificados/zip", roles: ["admin"], heredada: false },
   // HU #12083: las dos rutas del `for` con template literal que el lector de la #12081 no vio.
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/:id/asumir-operaciones", roles: ["admin"], heredada: false },
   { modulo: "impuestos", fichero: "flito-impuestos/flito-impuestos.routes.ts", metodo: "POST", ruta: "/:id/devolver-gestor", roles: ["admin"], heredada: false },
@@ -107,6 +111,9 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "revisiones", fichero: "flito-revisiones/flito-revisiones.routes.ts", metodo: "GET", ruta: "/soporte/:soporteId/archivo", roles: ["admin","auditor"], heredada: false },
   { modulo: "revisiones", fichero: "flito-revisiones/flito-revisiones.routes.ts", metodo: "POST", ruta: "/:id/resolver", roles: ["admin"], heredada: false },
   { modulo: "revisiones", fichero: "flito-revisiones/flito-revisiones.routes.ts", metodo: "POST", ruta: "/:id/descartar", roles: ["admin"], heredada: false },
+  // Bug #14569: buscador de trámite y reintento OCR; reutilizan `revisiones.revision.resolver`.
+  { modulo: "revisiones", fichero: "flito-revisiones/flito-revisiones.routes.ts", metodo: "POST", ruta: "/:id/candidatos/buscar", roles: ["admin"], heredada: false },
+  { modulo: "revisiones", fichero: "flito-revisiones/flito-revisiones.routes.ts", metodo: "POST", ruta: "/:id/reintentar-lectura", roles: ["admin"], heredada: false },
   { modulo: "compuerta", fichero: "flito-compuerta/flito-compuerta.routes.ts", metodo: "GET", ruta: "/", roles: ["admin","auditor"], heredada: false },
   { modulo: "compuerta", fichero: "flito-compuerta/flito-compuerta.routes.ts", metodo: "GET", ruta: "/:tramiteId", roles: ["admin","auditor"], heredada: false },
   { modulo: "compuerta", fichero: "flito-compuerta/flito-compuerta.routes.ts", metodo: "POST", ruta: "/:tramiteId/entregar", roles: ["admin"], heredada: false },
@@ -413,10 +420,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   { modulo: "comprobantes", fichero: "flito-comprobantes/flito-comprobantes.routes.ts", metodo: "POST", ruta: "/:id/descartar", roles: ["admin","financiera"], heredada: false },
   // HU #12654: aceptar la diferencia de un comprobante (F3 #12607), sembrada por la 0202 a admin + financiera.
   { modulo: "comprobantes", fichero: "flito-comprobantes/flito-comprobantes.routes.ts", metodo: "POST", ruta: "/:id/diferencia/aceptar", roles: ["admin","financiera"], heredada: false },
-  // HU #13903: desaplicar y reemplazar. Sin `requireRole` histórico: llevan el reparto de su par `aplicar`
   // (PARTIDA_DE_OPERACION_NUEVA); nacen absorbidas por «Asociar» y no se siembran (sin migración).
-  { modulo: "comprobantes", fichero: "flito-comprobantes/flito-comprobantes.routes.ts", metodo: "POST", ruta: "/:id/desaplicar", roles: ["admin","financiera"], heredada: false },
-  { modulo: "comprobantes", fichero: "flito-comprobantes/flito-comprobantes.routes.ts", metodo: "POST", ruta: "/:id/reemplazar", roles: ["admin","financiera"], heredada: false },
   // HU #12619: viajes adicionales de logística por trámite (+3), sembradas por la 0199 SOLO a admin
   // (el administrador reparte a los demás roles desde el panel).
   { modulo: "logistica", fichero: "flito-logistica/flito-logistica-viajes.routes.ts", metodo: "GET", ruta: "/tramites/:tramiteId/viajes", roles: ["admin"], heredada: false },

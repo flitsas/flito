@@ -163,6 +163,10 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${IMP_CERT} POST /certificacion-directa/:id/consultar`, 'impuestos.certificacion_directa.gestionar', 'Certificar un impuesto sin trámite', 'Cargar la factura de venta, consultar el RUNT por VIN y descargar el certificado.'),
   op(`${IMP_CERT} GET /certificacion-directa/:id`, 'impuestos.certificacion_directa.gestionar', 'Certificar un impuesto sin trámite', 'Cargar la factura de venta, consultar el RUNT por VIN y descargar el certificado.'),
   op(`${IMP_CERT} PATCH /certificacion-directa/:id`, 'impuestos.certificacion_directa.gestionar', 'Certificar un impuesto sin trámite', 'Cargar la factura de venta, consultar el RUNT por VIN y descargar el certificado.'),
+  // HU #14665: eliminar, eliminar en lote y ZIP; reutilizan la misma función.
+  op(`${IMP_CERT} DELETE /certificacion-directa/:id`, 'impuestos.certificacion_directa.gestionar', 'Certificar un impuesto sin trámite', 'Cargar la factura de venta, consultar el RUNT por VIN y descargar el certificado.'),
+  op(`${IMP_CERT} POST /certificacion-directa/eliminar-lote`, 'impuestos.certificacion_directa.gestionar', 'Certificar un impuesto sin trámite', 'Cargar la factura de venta, consultar el RUNT por VIN y descargar el certificado.'),
+  op(`${IMP_CERT} POST /certificacion-directa/certificados/zip`, 'impuestos.certificacion_directa.gestionar', 'Certificar un impuesto sin trámite', 'Cargar la factura de venta, consultar el RUNT por VIN y descargar el certificado.'),
 
   // ── Derechos de tránsito ──────────────────────────────────────────────────────────────────────
   op(`${DER} GET /`, 'derechos.cola.ver', 'Ver los derechos de tránsito', 'Abrir el listado de recibos de derechos cobrados por el organismo.'),
@@ -182,6 +186,9 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${REV} GET /soporte/:soporteId/archivo`, 'revisiones.soporte.descargar', 'Abrir el documento en revisión', 'Ver el archivo original del que salió el dato dudoso.'),
   op(`${REV} POST /:id/resolver`, 'revisiones.revision.resolver', 'Resolver una revisión OCR', 'Confirmar o corregir el valor leído y darlo por bueno.'),
   op(`${REV} POST /:id/descartar`, 'revisiones.revision.descartar', 'Descartar una revisión OCR', 'Cerrar la revisión sin cambiar el dato.'),
+  // Bug #14569: buscador de trámite y reintento OCR; reutilizan `revisiones.revision.resolver`.
+  op(`${REV} POST /:id/candidatos/buscar`, 'revisiones.revision.resolver', 'Resolver una revisión OCR', 'Confirmar o corregir el valor leído y darlo por bueno.'),
+  op(`${REV} POST /:id/reintentar-lectura`, 'revisiones.revision.resolver', 'Resolver una revisión OCR', 'Confirmar o corregir el valor leído y darlo por bueno.'),
 
   // ── Compuerta de entrega ──────────────────────────────────────────────────────────────────────
   op(`${COMP} GET /`, 'compuerta.cola.ver', 'Ver la compuerta de entrega', 'Abrir el listado de trámites listos para entregar.'),
@@ -529,8 +536,6 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${CPR} POST /:id/aplicar`, 'comprobantes.comprobante.aplicar', 'Aplicar o adjuntar un comprobante', 'Asociar un comprobante a un trámite y concepto: como pago o como documentación.'),
   op(`${CPR} POST /:id/descartar`, 'comprobantes.comprobante.descartar', 'Descartar un comprobante', 'Sacar de la cola un comprobante que no corresponde, dejando el motivo.'),
   // HU #13903: dos operaciones nuevas con la partida de `aplicar` (arbol/acciones-finanzas.ts), dentro de «Asociar».
-  op(`${CPR} POST /:id/desaplicar`, 'comprobantes.comprobante.desaplicar', 'Desaplicar un comprobante', 'Deshacer la aplicación de un comprobante (y el pago que registró) devolviéndolo a la cola o descartándolo, con motivo.'),
-  op(`${CPR} POST /:id/reemplazar`, 'comprobantes.comprobante.reemplazar', 'Reemplazar un comprobante aplicado', 'Descartar un comprobante aplicado y aplicar otro pendiente al mismo trámite y concepto, con motivo.'),
   op(`${CPR} POST /:id/diferencia/aceptar`, 'comprobantes.diferencia.aceptar', 'Aceptar la diferencia de un comprobante', 'Aceptar con motivo la diferencia entre el valor del comprobante y la tarifa de referencia.'),
   // HU #13941: las funciones de Dr. Flit, en línea en su fichero de guardas. Nacen en el árbol (General · Dr. Flit,
   // `arbol/acciones-dr-flit.ts`); `drflit.manuales.ver` no tiene guarda (es sonda del servicio de la IA).

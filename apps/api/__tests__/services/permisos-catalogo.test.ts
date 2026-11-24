@@ -218,7 +218,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       ['bolsas.movimientos.ver', 2], ['bolsas.recarga.registrar', 2],
       ['bolsas.transito.inactivar', 2],
       ['derechos.cola.ver', 2],
-      ['impuestos.certificacion_directa.gestionar', 9], ['impuestos.cola.ver', 2],
+      ['impuestos.certificacion_directa.gestionar', 12], ['impuestos.cola.ver', 2],
       ['logistica.actas.despachar', 2], ['logistica.actas.devolver', 2], ['logistica.actas.entregar', 2],
       ['logistica.consola.ver', 2],
       ['logistica.documento.escanear', 2], ['logistica.documento.resolver_tramite', 3],
@@ -229,7 +229,9 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       ['parametrizacion.proveedores.crear', 2], ['parametrizacion.proveedores.editar', 2],
       ['parametrizacion.proveedores.eliminar', 2],
       ['parametrizacion.proveedores.estado', 4], ['parametrizacion.proveedores.listar', 3],
-      ['permisos.catalogo.ver', 2], ['permisos.cuadro.ver', 2], ['soat.cola.ver', 2], ['soat.solicitud.crear', 8], // + 3 de la carga masiva (HU #14131)
+      ['permisos.catalogo.ver', 2], ['permisos.cuadro.ver', 2],
+      ['revisiones.revision.resolver', 3], // Bug #14569: candidatos/buscar + reintentar-lectura
+      ['soat.cola.ver', 2], ['soat.solicitud.crear', 8], // + 3 de la carga masiva (HU #14131)
       ['tramites.cola.ver', 3], ['tramites.sincronizacion.configurar', 2], ['usuarios.usuario.listar', 2],
     ]);
     // HU #13427: las de HOY (con las operaciones nuevas que parten una guarda vieja), no las del mundo plano.

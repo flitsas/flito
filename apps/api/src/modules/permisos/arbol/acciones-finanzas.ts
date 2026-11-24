@@ -89,12 +89,7 @@ export const ACCIONES_FINANZAS: Readonly<Record<string, AccionArbol>> = {
   'accion.servicios_adicionales.dar_de_baja': { operaciones: ['parametrizacion.servicios_adicionales.dar_de_baja'] },
   // ── Comprobantes ──
   'accion.comprobantes.cargar': { operaciones: ['comprobantes.lote.cargar'] },
-  // HU #13903: + desaplicar y reemplazar (nacidas en el árbol, absorbidas: no se siembran). Las recibe quien
-  // tiene «Asociar», o sea quien aplica. `predecesores` fija el grupo de la siembra 0234/0235 (no cambia).
-  'accion.comprobantes.asociar': {
-    operaciones: ['comprobantes.tramites.buscar', 'comprobantes.comprobante.aplicar', 'comprobantes.comprobante.desaplicar', 'comprobantes.comprobante.reemplazar'],
-    predecesores: ['comprobantes.tramites.buscar', 'comprobantes.comprobante.aplicar'],
-  },
+  'accion.comprobantes.asociar': { operaciones: ['comprobantes.tramites.buscar', 'comprobantes.comprobante.aplicar'] },
   'accion.comprobantes.ver_cola': { lectura: true, operaciones: ['comprobantes.cola.ver', 'comprobantes.comprobante.ver'], opcionales: ['comprobantes.archivo.descargar'] },
   // `releer` es OCR con coste: va en una acción que modifica (regla «todos»).
   'accion.comprobantes.resolver': { operaciones: ['comprobantes.comprobante.descartar', 'comprobantes.comprobante.releer', 'comprobantes.diferencia.aceptar'] },
@@ -163,9 +158,6 @@ export const PARTIDA_DE_OPERACION_NUEVA: Readonly<Record<string, string>> = {
   'bolsas.transito.inactivar': 'bolsas.transito.editar',
   'bolsas.transito.cierres.ver': 'bolsas.cierres.ver',
   'bolsas.transito.cierre.crear': 'bolsas.cierre.crear',
-  // HU #13903: desaplicar y reemplazar con el reparto de `aplicar` (las concede «Asociar», ya sembrada): sin migración.
-  'comprobantes.comprobante.desaplicar': 'comprobantes.comprobante.aplicar',
-  'comprobantes.comprobante.reemplazar': 'comprobantes.comprobante.aplicar',
 };
 
 /**
@@ -178,10 +170,13 @@ export const PARTIDA_DE_OPERACION_NUEVA: Readonly<Record<string, string>> = {
 // HU #13941: las de General · Dr. Flit nacen igual (la 0254 siembra su ítem y sus acciones).
 export const OPERACIONES_NACIDAS_EN_EL_ARBOL: ReadonlySet<string> = new Set([
   'bolsas.documentos.cargar', 'bolsas.documentos.ver', ...OPERACIONES_NACIDAS_EN_EL_ARBOL_ADMINISTRACION, ...OPERACIONES_DR_FLIT,
+  // Certificación de impuesto sin trámite: la absorbe `accion.impuestos.certificar_sin_tramite` (0274); no se siembra.
+  'impuestos.certificacion_directa.gestionar',
 ]);
 export const ACCIONES_NACIDAS_TRAS_LA_SIEMBRA: ReadonlySet<string> = new Set([
   'accion.bolsas.cargar_documentos', 'accion.bolsas.ver_documentos', ...ACCIONES_NACIDAS_TRAS_LA_SIEMBRA_ADMINISTRACION,
   ...Object.keys(ACCIONES_DR_FLIT),
+  'accion.impuestos.certificar_sin_tramite',
 ]);
 
 /** El área de esta HU sobre `OPERACIONES_DECLARADAS` (AC6 de cobertura), por prefijo del código. */
