@@ -128,6 +128,11 @@ export const FICHEROS_EN_ALCANCE: FicheroEnAlcance[] = [
   // HU #13941: las funciones de Dr. Flit, en línea (`tieneFuncion`) en su fichero de guardas; las usan
   // `dr-flit.routes.ts`, `dr-flit-chat.routes.ts` y los POST /buscar de trámites, SOAT, impuestos y derechos.
   { modulo: 'drflit', fichero: 'flito-dr-flit/dr-flit.funciones.ts' },
+  // Épica #14590: la Torre de Control (`exigirFuncion` por ruta).
+  { modulo: 'torre', fichero: 'flito-torre/flito-torre.routes.ts' },
+  { modulo: 'torre', fichero: 'flito-torre/flito-torre.tableros.routes.ts' },
+  // ADR-0047 (B1): el detalle universal; en línea, el dinero y las funciones de origen de cada cifra.
+  { modulo: 'torre', fichero: 'flito-torre/flito-torre.detalle.routes.ts' },
   // Épica #14560 (ADR-0045): vistas de columnas; solo su función de administración es literal (la de acceso a la
   // tabla la resuelve `guardaTabla` desde el catálogo de tablas).
   { modulo: 'tramites', fichero: 'flito-vistas-columnas/flito-vistas-columnas.routes.ts' },

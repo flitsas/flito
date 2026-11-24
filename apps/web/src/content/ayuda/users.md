@@ -13,8 +13,8 @@ consultas:
   - cómo desactivo o doy de baja a un usuario
   - quién le cambió el rol a un usuario
   - por qué no puedo darle a un usuario la función de eliminar clientes
-version: 1.7
-fecha: 2026-11-12
+version: 1.8
+fecha: 2026-11-17
 ---
 ## Qué es
 

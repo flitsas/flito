@@ -33,6 +33,7 @@ import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js
 import type { SoatCtx } from '../flito-soat/flito-soat.service.js';
 import type { ImpuestoCtx } from '../flito-impuestos/flito-factura-venta.service.js';
 import { condicionAlcanceTramites } from './flito-tramites.alcance.js';
+import { BORRADOR_ABANDONADO, diasBorradorAbandonado } from './flito-tramites.borrador.js';
 import { arrancarTramiteGuardado, COLUMNAS_TRAMITE_GUARDADO } from '../flito-sync/arrancar-tramite-guardado.js';
 
 export interface TramitesCtx { userId: number; username: string; role: string; alcance: AlcanceResuelto }
@@ -522,7 +523,8 @@ const ESTADOS_ESPERANDO_APROBACION = ['entregado', 'rechazado'] as const;
 const sqlEstadosEsperandoAprobacion = () =>
   sql.join(ESTADOS_ESPERANDO_APROBACION.map((e) => sql`${e}`), sql`, `);
 
-export function condicionAlerta(alerta: AlertaOperativa): SQL {
+/** `diasBorrador` = el umbral `dias_borrador_abandonado` vigente (`diasBorradorAbandonado()`, RN-TRA-B2). */
+export function condicionAlerta(alerta: AlertaOperativa, diasBorrador: number = ANS_OPERATIVO.BORRADOR_DIAS): SQL {
   // Antigüedad del trámite: la fecha de FLIT, con la de ingesta como respaldo.
   const nacimiento = sql`COALESCE(${flitoTramites.fechaCreacionFlit}, ${flitoTramites.createdAt})`;
   // make_interval en vez de concatenar texto: `$1 || ' days'` deja el tipo del parámetro ambiguo.
@@ -530,19 +532,9 @@ export function condicionAlerta(alerta: AlertaOperativa): SQL {
   const horasSinGestion = ANS_OPERATIVO.SIN_GESTION_HORAS;
 
   switch (alerta) {
-    case 'borrador_5d': {
-      // Cuándo entró a Borrador, según el historial. Un trámite que NACIÓ en Borrador y nunca
-      // cambió no tiene fila de historial (solo se registra en UPDATE), de ahí el COALESCE.
-      const entroABorrador = sql`COALESCE((
-        SELECT MAX(${flitoTramiteHistorial.createdAt})
-          FROM ${flitoTramiteHistorial}
-         WHERE ${flitoTramiteHistorial.tramiteId} = ${flitoTramites.id}
-           AND ${flitoTramiteHistorial.campo} = 'flit_estado'
-           AND LOWER(TRIM(COALESCE(${flitoTramiteHistorial.valorNuevo}, ''))) = 'borrador'
-      ), ${nacimiento})`;
-      return sql`LOWER(TRIM(COALESCE(${flitoTramites.flitEstado}, ''))) = 'borrador'
-        AND ${entroABorrador} < NOW() - make_interval(days => ${ANS_OPERATIVO.BORRADOR_DIAS})`;
-    }
+    case 'borrador_5d':
+      // RN-TRA-B1/B2: la regla única de borrador abandonado, la misma de la Torre (`flito-tramites.borrador.ts`).
+      return BORRADOR_ABANDONADO(diasBorrador);
     case 'sin_aprobar_ans':
       // Solo lo que está en manos del organismo: Entregado (esperando revisión) y Rechazado
       // (devuelto y aún sin subsanar).
@@ -570,7 +562,11 @@ export function condicionAlerta(alerta: AlertaOperativa): SQL {
 // en silencio los que no tienen equivalente en el enum interno: `estado` es nullable y
 // `NULL NOT IN (...)` evalúa a NULL, no a true, así que Borrador y Enviado a OT desaparecían del
 // listado, del contador y de las facetas sin que nada lo delatara.
-export function construirCondiciones(f: FiltrosListado): SQL[] {
+/** Solo la alerta de borrador lee el umbral: el resto de listados no paga la consulta. */
+export const umbralBorradorDe = async (alerta?: AlertaOperativa | null): Promise<number | undefined> =>
+  (alerta === 'borrador_5d' ? diasBorradorAbandonado() : undefined);
+
+export function construirCondiciones(f: FiltrosListado, diasBorrador?: number): SQL[] {
   // HU #13946 (AC2): un trámite retenido (cliente inactivo) no sale en la bandeja, ni en su conteo ni en novedades.
   const conds: SQL[] = [sql`NOT ${flitoTramites.retenido}`];
 
@@ -618,7 +614,7 @@ export function construirCondiciones(f: FiltrosListado): SQL[] {
   // Los valores llegan como texto libre del cliente; se castean al enum de la columna (drizzle es estricto).
   if (f.soat?.length) conds.push(inArray(flitoSoat.estado, f.soat as Array<(typeof flitoSoat.estado.enumValues)[number]>));
   if (f.impuesto?.length) conds.push(inArray(flitoImpuestos.estado, f.impuesto as Array<(typeof flitoImpuestos.estado.enumValues)[number]>));
-  if (f.alerta) conds.push(condicionAlerta(f.alerta));
+  if (f.alerta) conds.push(condicionAlerta(f.alerta, diasBorrador));
   // Inclusivos por día: `<= hasta::date + 1 day` en vez de `<= hasta`, que dejaría fuera todo lo
   // ocurrido ese mismo día después de medianoche.
   const nacimiento = sql`COALESCE(${flitoTramites.fechaCreacionFlit}, ${flitoTramites.createdAt})`;
@@ -652,7 +648,7 @@ export function conteoBase() {
 export async function listar(filtros: FiltrosListado = {}, alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<ListadoTramites> {
   const page = Math.max(1, Math.floor(filtros.page ?? 1));
   const pageSize = Math.min(200, Math.max(1, Math.floor(filtros.pageSize ?? 50)));
-  const conds = construirCondiciones(filtros);
+  const conds = construirCondiciones(filtros, await umbralBorradorDe(filtros.alerta));
   // HU #13426 (AC2): la condición de alcance va en las condiciones COMPARTIDAS por página y COUNT.
   const porAlcance = condicionAlcanceTramites(alcance);
   if (porAlcance) conds.push(porAlcance);

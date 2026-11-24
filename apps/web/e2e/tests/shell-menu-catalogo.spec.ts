@@ -48,16 +48,21 @@ async function opcionesDeUsuario(page: Page) {
 }
 
 test.describe('HU #13431 — menú con los nombres del catálogo', () => {
-  // 1920 px: caben todas las secciones con nombre; a 1440 las últimas pasan al «Más» (shell-menu-responsive).
+  // 1920 px: con la Torre (Épica #14590, decisión humana) son 12 secciones y las del final pasan al «Más».
   test.use({ viewport: { width: 1920, height: 900 } });
 
   test('AC4 — las secciones y los ítems se rotulan con el catálogo (LAFT, no «Cumplimiento»)', async ({ page }) => {
     await loginAs(page, ADMIN_USER);
     await page.goto('/');
     await listo(page);
-    for (const clave of ['gestion', 'transito', 'laft', 'finanzas', 'administracion']) {
+    for (const clave of ['gestion', 'transito', 'laft', 'finanzas']) {
       await expect(nav(page).getByRole('button', { name: nombreElemento(clave), exact: true })).toBeVisible();
     }
+    // Épica #14590: la Torre de Control es una sección propia por decisión humana; con 12 secciones las del final
+    // (Administración incluida) pasan al «Más» a 1920 px.
+    await nav(page).getByRole('button', { name: 'Más', exact: true }).click();
+    await expect(page.locator('#flit-navbar-panel-mas').getByText(nombreElemento('administracion'), { exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
     await expect(nav(page).getByRole('button', { name: 'Cumplimiento', exact: true })).toHaveCount(0);
     // «General» con solo Tablero se pinta como enlace directo con el nombre del ítem.
     await expect(nav(page).getByRole('link', { name: nombreItem('dashboard'), exact: true })).toHaveAttribute('href', '/');

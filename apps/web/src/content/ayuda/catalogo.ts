@@ -19,7 +19,7 @@ import type { PageSlug } from '../../lib/permissions';
 // Prohibido aliasarla a `siigo_parametrizacion`: Financiera tiene parametrización y no debe ver el
 // capítulo de credenciales.
 
-export type AyudaGrupo = 'general' | 'gestion' | 'transito' | 'finanzas' | 'administracion';
+export type AyudaGrupo = 'general' | 'torre' | 'gestion' | 'transito' | 'finanzas' | 'administracion';
 
 export type ClaveAyuda =
   | 'flito_tramites'
@@ -49,6 +49,7 @@ export type ClaveAyuda =
   | 'privacy_log_pii'
   | 'drive'
   | 'dashboard'
+  | 'torre_explorador'
   | 'transito_organismos';
 
 export interface EntradaAyuda {
@@ -74,10 +75,11 @@ export interface EntradaAyuda {
  * Orden de los grupos en el índice, igual al del menú (HU #13431). Lo comparten el índice y
  * Anterior/Siguiente de la ficha (Feature #13691 · HU #13705, diseño slim §7).
  */
-export const GRUPOS_ORDEN: readonly AyudaGrupo[] = ['general', 'gestion', 'transito', 'finanzas', 'administracion'];
+export const GRUPOS_ORDEN: readonly AyudaGrupo[] = ['general', 'torre', 'gestion', 'transito', 'finanzas', 'administracion'];
 
 export const GRUPO_AYUDA_LABEL: Record<AyudaGrupo, string> = {
   general: 'General',
+  torre: 'Torre de Control',
   gestion: 'Gestión',
   transito: 'Tránsito',
   finanzas: 'Finanzas',
@@ -89,6 +91,10 @@ export const CATALOGO_AYUDA: readonly EntradaAyuda[] = [
   // HU #13775 — el Panel operativo de `/` (permiso `dashboard`). Etiqueta «Tablero de control»: es el
   // nombre de `PAGES.dashboard` en el menú. Va después de «Tablero» (`flito_tablero` conserva su sitio).
   { clave: 'dashboard', grupo: 'general', etiqueta: 'Tablero de control', to: '/', permiso: 'dashboard' },
+  // Épica #14590 — UNA ficha para toda la Torre de Control (sus 5 páginas, la lista de registros de una cifra y
+  // Umbrales). El catálogo da visibilidad por un solo PageSlug: cuelga de `torre_explorador`, la página de la Torre que
+  // tienen todos los roles con alguna (gerencia general, comercial, financiera, admin y auditor). Decisión del humano.
+  { clave: 'torre_explorador', grupo: 'torre', etiqueta: 'Torre de Control', to: '/flito/torre/explorador', permiso: 'torre_explorador' },
   { clave: 'clients', grupo: 'gestion', etiqueta: 'Clientes y proveedores', to: '/clients', permiso: 'clients' },
   { clave: 'flito_tramites', grupo: 'gestion', etiqueta: 'Gestión Trámites', to: '/flito/tramites', permiso: 'flito_tramites' },
   { clave: 'flito_derechos', grupo: 'gestion', etiqueta: 'Derechos', to: '/flito/derechos', permiso: 'flito_derechos' },

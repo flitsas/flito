@@ -42,6 +42,9 @@ import flitoDrFlitRoutes from './modules/flito-dr-flit/dr-flit.routes.js';
 import flitoBitacoraRoutes from './modules/flito-bitacora/flito-bitacora.routes.js';
 import flitoProveedoresRoutes from './modules/flito-parametrizacion/flito-proveedores.routes.js';
 import flitoTarifasProveedorRoutes from './modules/flito-parametrizacion/flito-tarifas-proveedor.routes.js';
+import flitoTorreRoutes from './modules/flito-torre/flito-torre.routes.js';
+import flitoTorreTablerosRoutes from './modules/flito-torre/flito-torre.tableros.routes.js';
+import flitoTorreDetalleRoutes from './modules/flito-torre/flito-torre.detalle.routes.js';
 import flitoLogisticaRoutes from './modules/flito-logistica/flito-logistica.routes.js';
 import flitoLogisticaViajesRoutes from './modules/flito-logistica/flito-logistica-viajes.routes.js';
 import flitoLogisticaMotivosRoutes from './modules/flito-logistica/flito-logistica-motivos.routes.js';
@@ -300,6 +303,11 @@ export function createApp() {
   // enlace; cada ruta exige su función de Dr. Flit (`dr-flit.funciones.ts`).
   app.use('/api/flito/dr-flit', flitoDrFlitRoutes);
   app.use('/api/flito/bitacora', flitoBitacoraRoutes);
+  // Épica #14590 — Torre de Control. SIN `conAlcance`: cerrada a todo enlace (`guardiaFrontera`); cada ruta exige
+  // su función `torre.*`. Los tableros antes que el router general.
+  app.use('/api/flito/torre/tableros', flitoTorreTablerosRoutes);
+  app.use('/api/flito/torre/detalle', flitoTorreDetalleRoutes);
+  app.use('/api/flito/torre', flitoTorreRoutes);
   // HU #14119: catálogo de motivos de llegada a FLIT. ANTES del router con `GET /:id`.
   app.use('/api/flito/logistica/motivos-llegada', conAlcance('logistica', flitoLogisticaMotivosRoutes));
   app.use('/api/flito/logistica', conAlcance('logistica', flitoLogisticaRoutes));

@@ -18,7 +18,7 @@ import { db } from '../../db/client.js';
 import { flitoTramites } from '../../db/schema.js';
 import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js';
 import { condicionAlcanceTramites } from './flito-tramites.alcance.js';
-import { construirCondiciones, conteoBase, type FiltrosListado } from './flito-tramites.service.js';
+import { construirCondiciones, conteoBase, umbralBorradorDe, type FiltrosListado } from './flito-tramites.service.js';
 
 export interface NovedadesTramites { nuevos: number; actualizados: number }
 
@@ -31,7 +31,7 @@ export async function novedades(
   const desde = sql`${marca}::timestamptz`;
   const porAlcance = condicionAlcanceTramites(alcance);
 
-  const conds = construirCondiciones(filtros);
+  const conds = construirCondiciones(filtros, await umbralBorradorDe(filtros.alerta));
   if (porAlcance) conds.push(porAlcance);
   conds.push(sql`${flitoTramites.createdAt} > ${desde}`);
   const [n] = await conteoBase().where(and(...conds));

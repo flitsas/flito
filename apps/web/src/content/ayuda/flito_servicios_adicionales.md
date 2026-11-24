@@ -7,7 +7,7 @@ palabras_clave:
 consultas:
   - cómo creo un servicio adicional
   - cuánto vale un servicio adicional
-version: 1.4
+version: 1.5
 fecha: 2026-11-17
 ---
 ## Qué es

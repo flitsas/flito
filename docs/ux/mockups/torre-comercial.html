@@ -1,0 +1,225 @@
+<!doctype html>
+<!--
+  Maqueta DESCARTABLE — Torre de Control › Comercial (Épica #14590). Es el MOLDE de los 4 tableros
+  (Operativa y Financiera cambian solo los bloques; ver wireframes en la spec).
+  Spec: docs/ux/flito-torre-control.md. No se importa a apps/web.
+  Método: HTML estático con las clases reales del kit + CSS real de apps/web/src/styles + torre-maqueta.css.
+  Vistas: ?vista=lleno | vacio | error | cargando   ·   Tema: &tema=oscuro
+  Datos 100 % ficticios.
+-->
+<html lang="es" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FLITO · Torre de Control · Comercial (maqueta)</title>
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-variables.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/tokens.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-propuesta.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-ui.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-react.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-responsive.css">
+  <link rel="stylesheet" href="torre-maqueta.css">
+</head>
+<body class="kit-cuerpo">
+<main class="kit-main pila">
+
+  <nav class="maqueta-nav" aria-label="Vistas de la maqueta">Maqueta ·
+    <a href="?vista=lleno">lleno</a> · <a href="?vista=vacio">vacío</a> · <a href="?vista=error">error</a> ·
+    <a href="?vista=cargando">cargando</a> · <a href="?vista=lleno&amp;tema=oscuro">oscuro</a>
+  </nav>
+
+  <div class="page-header kit-header--sin-ilus" data-kit="cabecera">
+    <div class="page-header__texto">
+      <nav class="miga" aria-label="Ruta"><a href="#">Inicio</a> <span aria-hidden="true">›</span> <a href="#">Torre de Control</a> <span aria-hidden="true">›</span> <span aria-current="page">Comercial</span></nav>
+      <h1>Comercial</h1>
+      <p>Qué clientes crecen, cuáles se están yendo y dónde hay venta por hacer.</p>
+    </div>
+    <div class="page-header__acciones">
+      <button class="btn" type="button" data-variante="primario">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/></svg>
+        Exportar a Excel
+      </button>
+    </div>
+  </div>
+
+  <nav class="kit-pestanas" aria-label="Páginas de la Torre de Control" data-kit="pestanas">
+    <a class="kit-pestana" href="torre-360.html">Resumen 360°</a>
+    <a class="kit-pestana" href="#" aria-current="page">Comercial</a>
+    <a class="kit-pestana" href="#">Operativa</a>
+    <a class="kit-pestana" href="#">Financiera</a>
+    <a class="kit-pestana" href="torre-explorador.html">Explorador</a>
+  </nav>
+
+  <section class="pila" aria-label="Filtros de la Torre de Control">
+    <div class="fila">
+      <div class="campo"><label for="f-compania">Compañía</label>
+        <select id="f-compania" class="control"><option>Todas las compañías</option><option>Compañía Demo A</option><option>Compañía Demo B</option></select></div>
+      <div class="campo"><label for="f-periodo">Periodo</label>
+        <select id="f-periodo" class="control"><option>Hoy</option><option>Este mes</option><option>Mes anterior</option><option selected>Octubre 2026</option><option>Rango personalizado…</option></select></div>
+    </div>
+    <div class="filtros" data-kit="filtros">
+      <div class="filtros__barra">
+        <div class="control-icono filtros__buscar">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input class="control" type="search" placeholder="Buscar placa" aria-label="Buscar placa: escriba la placa y pulse Enter para ver su ficha">
+        </div>
+        <button class="btn secondary filtros__boton" type="button" aria-expanded="false">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16l-6 7.5V19l-4 1.5v-8z"/></svg>
+          <span class="filtros__texto">Más filtros</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== LLENO ===================== -->
+  <div data-vista="lleno" class="pila">
+    <div class="rejilla-kpi">
+      <a href="#caidas" class="metrica metrica--pendiente" data-kit="metrica">
+        <span class="metrica__etiqueta">Clientes con caída de volumen <span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto" aria-hidden="true"></span>atención</span></span>
+        <span class="metrica__cifra tabular">3</span>
+        <span class="metrica__pie">Ver cuáles</span>
+      </a>
+      <div class="metrica" data-kit="metrica" style="cursor:default">
+        <span class="metrica__etiqueta">Concentración en el Top 3</span>
+        <span class="metrica__cifra tabular">61 %</span>
+        <span class="metrica__pie" style="text-decoration:none;color:var(--color-text-tertiary)">Top 5: 74 % del volumen</span>
+      </div>
+      <div class="metrica" data-kit="metrica" style="cursor:default">
+        <span class="metrica__etiqueta">Conversión a facturado</span>
+        <span class="metrica__cifra tabular">75 %</span>
+        <span class="metrica__pie" style="text-decoration:none;color:var(--color-text-tertiary)">De lo creado en el periodo</span>
+      </div>
+      <div class="metrica" data-kit="metrica" style="cursor:default">
+        <span class="metrica__etiqueta">Trámites del periodo</span>
+        <span class="metrica__cifra tabular">1.170</span>
+        <span class="metrica__pie" style="text-decoration:none;color:var(--color-text-tertiary)">4 % más que septiembre</span>
+        <div style="grid-column: 1 / -1"><svg viewBox="0 0 120 36" preserveAspectRatio="none" aria-hidden="true" style="width:100%;height:36px"><path d="M0,34 L24,27.3 L48,17.2 L72,22.2 L96,8.7 L120,2 L120,36 L0,36 Z" fill="var(--kit-azul)" fill-opacity="0.1"/><path d="M0,34 L24,27.3 L48,17.2 L72,22.2 L96,8.7 L120,2" fill="none" stroke="var(--kit-azul)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      </div>
+    </div>
+
+    <div class="rejilla-2">
+      <section class="card" id="caidas" aria-labelledby="t-caidas">
+        <div class="card__cabeza"><div><h2 id="t-caidas">Clientes con caída de volumen</h2><p>Últimos 30 días frente a su promedio de los 90 anteriores.</p></div></div>
+        <ul class="lista-fila" data-kit="lista-fila">
+          <li><span class="lista-fila__texto"><strong>Compañía Demo B</strong><small>41 trámites; su promedio es 66</small></span>
+            <span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto" aria-hidden="true"></span>−38 %</span>
+            <a class="btn ghost sm" href="torre-explorador.html">Explorar</a></li>
+          <li><span class="lista-fila__texto"><strong>Compañía Demo D</strong><small>29 trámites; su promedio es 38</small></span>
+            <span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto" aria-hidden="true"></span>−24 %</span>
+            <a class="btn ghost sm" href="torre-explorador.html">Explorar</a></li>
+          <li><span class="lista-fila__texto"><strong>Compañía Demo E</strong><small>15 trámites; su promedio es 19</small></span>
+            <span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto" aria-hidden="true"></span>−21 %</span>
+            <a class="btn ghost sm" href="torre-explorador.html">Explorar</a></li>
+        </ul>
+        <p class="nota" style="margin-top:var(--space-12)">Se marca cuando la caída pasa del 20 %. El umbral se cambia en Administración › Umbrales y alertas.</p>
+      </section>
+
+      <section class="card" aria-labelledby="t-conc">
+        <div class="card__cabeza"><div><h2 id="t-conc">Concentración de clientes</h2><p>Qué parte del total aportan los clientes más grandes.</p></div>
+          <div class="segmentado" role="radiogroup" aria-label="Medir la concentración por">
+            <label><input class="sr-only" type="radio" name="conc" checked>Volumen</label>
+            <label><input class="sr-only" type="radio" name="conc">Ingreso</label>
+          </div>
+        </div>
+        <div class="dona" data-kit="dona">
+          <svg viewBox="0 0 120 120" role="img" aria-label="Volumen por cliente: Compañía Demo A 363, Compañía Demo B 211, Compañía Demo C 140, resto 456">
+            <circle cx="60" cy="60" r="42" fill="none" stroke="var(--kit-azul)" stroke-width="18" stroke-dasharray="81.87 182.02" stroke-dashoffset="0" transform="rotate(-90 60 60)"/>
+            <circle cx="60" cy="60" r="42" fill="none" stroke="var(--kit-turquesa)" stroke-width="18" stroke-dasharray="47.59 216.30" stroke-dashoffset="-81.87" transform="rotate(-90 60 60)"/>
+            <circle cx="60" cy="60" r="42" fill="none" stroke="var(--kit-amarillo)" stroke-width="18" stroke-dasharray="31.58 232.31" stroke-dashoffset="-129.46" transform="rotate(-90 60 60)"/>
+            <circle cx="60" cy="60" r="42" fill="none" stroke="var(--kit-gris)" stroke-width="18" stroke-dasharray="102.85 161.04" stroke-dashoffset="-161.04" transform="rotate(-90 60 60)"/>
+            <text x="60" y="59" text-anchor="middle" class="dona__total">1.170</text>
+            <text x="60" y="73" text-anchor="middle" class="dona__pie">trámites</text>
+          </svg>
+          <ul class="leyenda leyenda--lista">
+            <li><i style="background:var(--kit-azul)"></i>Compañía Demo A<strong>31 %</strong></li>
+            <li><i style="background:var(--kit-turquesa)"></i>Compañía Demo B<strong>18 %</strong></li>
+            <li><i style="background:var(--kit-amarillo)"></i>Compañía Demo C<strong>12 %</strong></li>
+            <li><i style="background:var(--kit-gris)"></i>Los demás (14)<strong>39 %</strong></li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="t-conv">
+        <div class="card__cabeza"><div><h2 id="t-conv">Conversión</h2><p>De lo creado en el periodo, cuánto llegó a cada paso.</p></div></div>
+        <ol class="ranking" aria-label="Conversión por paso">
+          <li><span>Creados</span><div class="avance" role="progressbar" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100" aria-label="Creados"><span class="avance__barra"><span style="width:100%"></span></span><small>100 %</small></div><strong>1.240</strong></li>
+          <li><span>Radicados</span><div class="avance" role="progressbar" aria-valuenow="94" aria-valuemin="0" aria-valuemax="100" aria-label="Radicados"><span class="avance__barra"><span style="width:94%"></span></span><small>94 %</small></div><strong>1.170</strong></li>
+          <li><span>Aprobados</span><div class="avance" role="progressbar" aria-valuenow="88" aria-valuemin="0" aria-valuemax="100" aria-label="Aprobados"><span class="avance__barra"><span style="width:88%"></span></span><small>88 %</small></div><strong>1.090</strong></li>
+          <li><span>Facturados</span><div class="avance" role="progressbar" aria-valuenow="75" aria-valuemin="0" aria-valuemax="100" aria-label="Facturados"><span class="avance__barra"><span style="width:75%"></span></span><small>75 %</small></div><strong>930</strong></li>
+        </ol>
+      </section>
+
+      <section class="card" aria-labelledby="t-tend">
+        <div class="card__cabeza"><div><h2 id="t-tend">Tendencia</h2><p>Trámites por mes. No depende del periodo elegido.</p></div>
+          <div class="segmentado" role="radiogroup" aria-label="Agrupar la tendencia por">
+            <label><input class="sr-only" type="radio" name="tend" checked>Mensual</label>
+            <label><input class="sr-only" type="radio" name="tend">Trimestral</label>
+          </div>
+        </div>
+        <div class="grafico" data-kit="linea">
+          <svg viewBox="0 0 560 250" role="img" aria-label="Trámites por mes, de mayo a octubre: 980, 1.020, 1.080, 1.050, 1.130 y 1.170">
+            <g><line x1="34" x2="560" y1="214" y2="214" class="grafico__guia"/><text x="26" y="218" text-anchor="end" class="grafico__eje">0</text></g>
+            <g><line x1="34" x2="560" y1="166.5" y2="166.5" class="grafico__guia"/><text x="26" y="170.5" text-anchor="end" class="grafico__eje">300</text></g>
+            <g><line x1="34" x2="560" y1="119" y2="119" class="grafico__guia"/><text x="26" y="123" text-anchor="end" class="grafico__eje">600</text></g>
+            <g><line x1="34" x2="560" y1="71.5" y2="71.5" class="grafico__guia"/><text x="26" y="75.5" text-anchor="end" class="grafico__eje">900</text></g>
+            <g><line x1="34" x2="560" y1="24" y2="24" class="grafico__guia"/><text x="26" y="28" text-anchor="end" class="grafico__eje">1.200</text></g>
+            <polyline fill="none" stroke="var(--kit-azul)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" points="77.2,58.8 163.5,52.5 249.8,43 336.2,47.8 422.5,35.1 508.8,28.8"/>
+            <g fill="var(--kit-azul)"><circle cx="77.2" cy="58.8" r="4"><title>may: 980</title></circle><circle cx="163.5" cy="52.5" r="4"><title>jun: 1.020</title></circle><circle cx="249.8" cy="43" r="4"><title>jul: 1.080</title></circle><circle cx="336.2" cy="47.8" r="4"><title>ago: 1.050</title></circle><circle cx="422.5" cy="35.1" r="4"><title>sep: 1.130</title></circle><circle cx="508.8" cy="28.8" r="4"><title>oct: 1.170</title></circle></g>
+            <g><text x="77.2" y="232" text-anchor="middle" class="grafico__eje">may</text><text x="163.5" y="232" text-anchor="middle" class="grafico__eje">jun</text><text x="249.8" y="232" text-anchor="middle" class="grafico__eje">jul</text><text x="336.2" y="232" text-anchor="middle" class="grafico__eje">ago</text><text x="422.5" y="232" text-anchor="middle" class="grafico__eje">sep</text><text x="508.8" y="232" text-anchor="middle" class="grafico__eje">oct</text></g>
+          </svg>
+          <ul class="leyenda"><li><i style="background:var(--kit-azul)"></i>Trámites</li></ul>
+        </div>
+      </section>
+    </div>
+
+    <section class="card" aria-labelledby="t-cruzada">
+      <div class="card__cabeza"><div><h2 id="t-cruzada">Venta cruzada</h2><p>Qué líneas usa cada cliente. «No usa» es una oportunidad.</p></div></div>
+      <div class="tabla-wrap kit-matriz" data-kit="tabla" data-modo="matriz">
+        <table class="matriz" aria-label="Uso de líneas por cliente">
+          <thead><tr><th scope="col">Cliente</th><th scope="col">Trámites</th><th scope="col">SOAT</th><th scope="col">Impuestos</th><th scope="col">Derechos</th><th scope="col">Logística</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Compañía Demo A</th><td><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto"></span>Usa</span></td><td><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto"></span>Usa</span></td><td><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto"></span>Usa</span></td><td><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto"></span>Usa</span></td><td><span class="kit-etiqueta" data-tono="neutro"><span class="kit-etiqueta__punto"></span>No usa</span></td></tr>
+            <tr><th scope="row">Compañía Demo B</th><td><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto"></span>Usa</span></td><td><span class="kit-etiqueta" data-tono="info"><span class="kit-etiqueta__punto"></span>Autogestiona</span></td><td><span class="kit-etiqueta" data-tono="neutro"><span class="kit-etiqueta__punto"></span>No usa</span></td><td><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto"></span>Usa</span></td><td><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto"></span>Usa</span></td></tr>
+            <tr><th scope="row">Compañía Demo C</th><td><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto"></span>Usa</span></td><td><span class="kit-etiqueta" data-tono="neutro"><span class="kit-etiqueta__punto"></span>No usa</span></td><td><span class="kit-etiqueta" data-tono="neutro"><span class="kit-etiqueta__punto"></span>No usa</span></td><td><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto"></span>Usa</span></td><td><span class="kit-etiqueta" data-tono="neutro"><span class="kit-etiqueta__punto"></span>No usa</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="nota" style="margin-top:var(--space-12)">Los 10 clientes con más trámites del periodo. El resto, en el Excel.</p>
+    </section>
+  </div>
+
+  <!-- ===================== VACÍO ===================== -->
+  <section data-vista="vacio" class="card">
+    <div class="kit-vacio" data-kit="vacio" data-testid="ui-empty">
+      <span class="kit-disco disco-72"><svg class="svg-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h7l2 2h9v10H3z"/></svg></span>
+      <p>No hay trámites en este periodo con los filtros puestos.</p>
+      <small>Amplíe el periodo o quite filtros para ver el tablero.</small>
+      <button class="btn secondary sm" type="button">Limpiar filtros</button>
+    </div>
+  </section>
+
+  <!-- ===================== ERROR ===================== -->
+  <section data-vista="error" class="card">
+    <div class="kit-vacio" role="alert" data-kit="error" data-testid="ui-error">
+      <span class="kit-disco disco-72" style="color:var(--kit-naranja)"><svg class="svg-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 9.5 4.3 4.3 0 0 0 7 18z"/><path d="M12 10v3.5M12 16v.01"/></svg></span>
+      <p style="color:var(--color-text-primary)">No pudimos cargar el tablero Comercial. Intente de nuevo.</p>
+      <button class="btn secondary sm" type="button">Reintentar</button>
+    </div>
+  </section>
+
+  <!-- ===================== CARGANDO ===================== -->
+  <div data-vista="cargando" class="pila" role="status" aria-busy="true" aria-label="Cargando el tablero">
+    <div class="rejilla-kpi"><div class="kit-esqueleto esq-kpi"></div><div class="kit-esqueleto esq-kpi"></div><div class="kit-esqueleto esq-kpi"></div><div class="kit-esqueleto esq-kpi"></div></div>
+    <div class="rejilla-2"><div class="kit-esqueleto esq-graf"></div><div class="kit-esqueleto esq-graf"></div><div class="kit-esqueleto esq-graf"></div><div class="kit-esqueleto esq-graf"></div></div>
+    <div class="kit-esqueleto esq-graf"></div>
+  </div>
+
+</main>
+<script>
+  const q = new URLSearchParams(location.search);
+  document.documentElement.dataset.theme = q.get('tema') === 'oscuro' ? 'dark' : 'light';
+  const v = q.get('vista') || 'lleno';
+  document.querySelectorAll('[data-vista]').forEach((s) => s.classList.toggle('activa', s.dataset.vista.split(' ').includes(v)));
+</script>
+</body>
+</html>

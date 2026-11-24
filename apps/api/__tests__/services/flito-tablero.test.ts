@@ -18,6 +18,13 @@ vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: 
 const listarCompuertaMock = vi.fn().mockResolvedValue([{}, {}]); // 2 habilitados, sin tocar BD
 vi.mock('../../src/modules/flito-compuerta/flito-compuerta.service.js', () => ({ listar: listarCompuertaMock }));
 
+// RN-TRA-B2: el umbral de borrador sale de `flito_torre_umbrales`; aquí se fija para no alterar el orden de los select.
+const diasBorradorMock = vi.fn().mockResolvedValue(9);
+vi.mock('../../src/modules/flito-tramites/flito-tramites.borrador.js', async (orig) => ({
+  ...(await orig<typeof import('../../src/modules/flito-tramites/flito-tramites.borrador.js')>()),
+  diasBorradorAbandonado: diasBorradorMock,
+}));
+
 const { resumen } = await import('../../src/modules/flito-tablero/flito-tablero.service.js');
 const { default: tableroRoutes } = await import('../../src/modules/flito-tablero/flito-tablero.routes.js');
 
@@ -52,6 +59,8 @@ describe('resumen — agrega los indicadores de Operaciones', () => {
     expect(r.alertas).toEqual({
       borrador_5d: 5, sin_aprobar_ans: 7, soat_sin_gestion: 2, impuesto_sin_gestion: 1,
     });
+    // B2-AC2: la tarjeta de borrador cuenta con el umbral configurable, no con el ANS fijo.
+    expect(diasBorradorMock).toHaveBeenCalled();
   });
 });
 

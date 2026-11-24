@@ -18,7 +18,7 @@ consultas:
   - dónde está un documento enviado
   - qué significa el estado en flit
   - cómo veo el recorrido de una licencia
-version: 3.3
+version: 3.4
 fecha: 2026-11-17
 ---
 ## Qué es

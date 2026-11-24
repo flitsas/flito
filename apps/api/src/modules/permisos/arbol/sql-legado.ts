@@ -15,6 +15,7 @@ import { ACCIONES_POR_AREA, PADRE, paginaDeAccion } from './expansion.js';
 import { ITEMS_LEGADO_OPS } from './acciones-legado.js';
 import { ACCIONES_NACIDAS_TRAS_LA_SIEMBRA } from './acciones-finanzas.js';
 import { ITEM_DR_FLIT } from './acciones-dr-flit.js';
+import { ITEMS_TORRE_ARBOL } from './acciones-torre.js';
 import { lit, sqlRepartoArbol } from './sql-arbol.js';
 
 export const TMP_LEGADO = 'tmp_legado_13429';
@@ -31,6 +32,8 @@ export const NACIDOS_DESPUES_DE_0239: ReadonlySet<string> = new Set([
   // #13941 las de Dr. Flit, que siembra la 0254 junto con su ítem.
   ...ACCIONES_NACIDAS_TRAS_LA_SIEMBRA,
   ITEM_DR_FLIT,
+  // Épica #14590: los ítems de la Torre de Control, sembrados por la 0303.
+  ...ITEMS_TORRE_ARBOL,
   // HU #14110: opcional de `accion.logistica.ver_actas`; su `padre_codigo` lo siembra la 0281 (la 0238 ya está aplicada).
   'logistica.actas.ver_documento_firmante',
   // HU #14110: opcional de `accion.mi_ruta.escanear`; su `padre_codigo` lo siembra también la 0281.

@@ -181,16 +181,16 @@ describe('AC4 — cada categoría cuenta su evento, en día colombiano', () => {
     expect(conJoins(abrir({ id: flitoTramites.id }, flitoTramites)).toSQL().sql).toContain('flito_liquidaciones');
   });
 
-  it('el rango de los timestamptz es inclusivo por día colombiano: >= desde::date en Bogotá y < (hasta + 1 día) en Bogotá', () => {
+  it('el rango de los timestamptz es inclusivo por día colombiano: >= desde::date::timestamp en Bogotá y < (hasta + 1 día) en Bogotá', () => {
     const { soat, impuesto, servicios, logistica } = LAS_CINCO();
     const rango = (col: string) =>
-      `${col} >= ($1::date AT TIME ZONE $2) and ${col} < (($3::date + interval '1 day') AT TIME ZONE $4)`;
+      `${col} >= ($1::date::timestamp AT TIME ZONE $2) and ${col} < (($3::date + interval '1 day') AT TIME ZONE $4)`;
     expect(soat.sql).toContain(rango('"flito_soat"."pagado_en"'));
     expect(impuesto.sql).toContain(rango('"flito_impuestos"."pagado_en"'));
     expect(servicios.sql).toContain(rango('"flito_tramite_servicios_adicionales"."asignado_en"'));
     // La logística lleva `$1` en el join de la excepción: sus marcadores van corridos en uno.
     expect(logistica.sql).toContain(
-      `"flito_tramites"."fecha_aprobacion" >= ($2::date AT TIME ZONE $3) and "flito_tramites"."fecha_aprobacion" < (($4::date + interval '1 day') AT TIME ZONE $5)`,
+      `"flito_tramites"."fecha_aprobacion" >= ($2::date::timestamp AT TIME ZONE $3) and "flito_tramites"."fecha_aprobacion" < (($4::date + interval '1 day') AT TIME ZONE $5)`,
     );
     expect(logistica.params).toEqual(['logistica', '2026-09-01', 'America/Bogota', '2026-09-16', 'America/Bogota']);
   });

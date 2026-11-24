@@ -18,6 +18,12 @@ vi.mock('../../src/db/client.js', async () => {
 });
 vi.mock('../../src/shared/redis.js', () => ({ getRedis: () => null, closeRedis: vi.fn(), redisHealthy: vi.fn().mockResolvedValue(false) }));
 vi.mock('../../src/modules/flito-compuerta/flito-compuerta.service.js', () => ({ listar: h.compuerta, decidir: vi.fn(), entregar: vi.fn() }));
+// RN-TRA-B2: el umbral de borrador sale de `flito_torre_umbrales`; sin mock, el SELECT del umbral
+// aparece como un where extra y rompe el conteo 2 + ALERTAS_OPERATIVAS (Épica #14590).
+vi.mock('../../src/modules/flito-tramites/flito-tramites.borrador.js', async (orig) => ({
+  ...(await orig<typeof import('../../src/modules/flito-tramites/flito-tramites.borrador.js')>()),
+  diasBorradorAbandonado: vi.fn().mockResolvedValue(5),
+}));
 await import('../../src/db/client.js');
 
 const C = 42;

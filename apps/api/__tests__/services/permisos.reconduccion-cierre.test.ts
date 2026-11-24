@@ -44,6 +44,8 @@ export const DIRECTORIOS_RECONDUCIDOS = [
   'laft', 'privacy', 'firma', 'drive', 'soat', 'siigo', 'runt', 'integraciones',
   // HU #13889 (ADR-0028): expediente documental de la compañía, nace reconducido.
   'flito-bolsas-documentos',
+  // Épica #14590: la Torre de Control, nace reconducida (`exigirFuncion` por ruta).
+  'flito-torre',
   // Épica #14560 (ADR-0045): vistas de columnas. Su función de administración es literal; el acceso a la tabla lo
   // resuelve `guardaTabla` desde el catálogo de tablas (lista blanca).
   'flito-vistas-columnas',
@@ -132,8 +134,8 @@ describe('AC1/AC2 — en los 21 directorios ya no decide ningún requireRole', (
   }
 
   it('los directorios son 42 (19 del enunciado + permisos + finanzas-servicios-adicionales + flito-comprobantes + pesv, drivers, jornadas y rum de la HU #13421 + los ocho de operación de la HU #13422 + los ocho de la HU #13423) y los 32 ficheros de rutas del alcance viven en ellos (flito-logistica aporta dos: el legado y el de viajes, HU #12619; flito-impuestos otros cinco: el de la cola, el de la dirección, HU #12833, el del reemplazo del comprobante, HU #13269, el de certificar sin trámite, épica #14163, y el de corregir/reintentar documento de factura, HU #14664; flito-soat cuatro: módulo, canal Cliente, incompletas, HU #12997, y documentos adicionales, HU #13362; flito-sync tres: el de sync, el del acceso a FLIT 2, HU #13061, y el del interruptor por fuente, HU #13237)', () => {
-    expect(DIRECTORIOS_RECONDUCIDOS).toHaveLength(44); // + flito-bolsas-documentos (HU #13889); + flito-vistas-columnas (Épica #14560)
-    expect(FICHEROS_DE_RUTAS).toHaveLength(43); // − flito-proveedores-logistica.routes.ts (HU #14354, F5); + flito-vistas-columnas.routes.ts (Épica #14560); + flito-tarifas-proveedor.routes.ts (Épica #13763); + flito-proveedores.routes.ts (HU #14332); + flito-impuestos.certificacion-directa.routes.ts (épica #14163); + flito-logistica-motivos.routes.ts (HU #14119); + flito-soat-incompletas-completar.routes.ts (HU #14136); + flito-soat-masivo.routes.ts (HU #14131), mismo directorio que el canal Cliente; + flito-bolsas.catalogo.routes.ts (HU #13900) y su rama tránsito (HU #13907), mismo directorio; + flito-proveedores-logistica.routes.ts (HU #14103); + flito-impuestos.documento-factura.routes.ts (HU #14664)
+    expect(DIRECTORIOS_RECONDUCIDOS).toHaveLength(45); // + flito-bolsas-documentos (HU #13889); + flito-torre (Épica #14590); + flito-vistas-columnas (Épica #14560)
+    expect(FICHEROS_DE_RUTAS).toHaveLength(46); // − flito-proveedores-logistica.routes.ts (HU #14354, F5); + flito-vistas-columnas.routes.ts (Épica #14560); + flito-torre.detalle.routes.ts (ADR-0047); + flito-torre.routes.ts y flito-torre.tableros.routes.ts (Épica #14590); + flito-tarifas-proveedor.routes.ts (Épica #13763); + flito-proveedores.routes.ts (HU #14332); // + flito-impuestos.certificacion-directa.routes.ts (épica #14163); + flito-logistica-motivos.routes.ts (HU #14119); + flito-soat-incompletas-completar.routes.ts (HU #14136); + flito-soat-masivo.routes.ts (HU #14131), mismo directorio que el canal Cliente; + flito-bolsas.catalogo.routes.ts (HU #13900) y su rama tránsito (HU #13907), mismo directorio; + flito-proveedores-logistica.routes.ts (HU #14103); + flito-impuestos.documento-factura.routes.ts (HU #14664)
     for (const f of FICHEROS_DE_RUTAS) {
       expect((DIRECTORIOS_RECONDUCIDOS as readonly string[]).includes(f.split('/')[0]!), f).toBe(true);
     }
@@ -206,24 +208,24 @@ describe('el lector de montajes cubre la foto entera', () => {
     // +1 por la HU #13628 (`PUT /flit1/parametros-lectura`, reutiliza `tramites.sincronizacion.configurar`).
     // −1 por la HU #13631 (se retira `POST /sincronizar` y su función `sync.sync.lanzar`).
     // +1 por la HU #13684 (`POST /novedades/buscar` de flito-tramites, reutiliza `tramites.cola.ver`).
+    // +1 por la HU #13836 (`POST /buscar` de flito-tramites para Dr. Flit, reutiliza `tramites.cola.ver`).
+    // +1 por la HU #13837 (`POST /buscar` de flito-soat para Dr. Flit, reutiliza `soat.cola.ver`).
+    // +2 por la HU #13838 (`POST /buscar` de flito-impuestos y de flito-derechos para Dr. Flit).
     // +4 por la HU #13889 (expediente documental de la compañía: expediente, historial, carga y descarga).
     // +1 por la HU #13890 (`PUT /documentos/:documentoId/fecha-expedicion`, reutiliza `bolsas.documentos.cargar`).
     // +11 por la HU #13900 (catálogo de bolsa: buscar, crear, estado, detalle, editar, inactivar, reactivar y las
     // cuatro rutas por bolsa que reutilizan los códigos del canal Cliente: movimientos, recargas, cierres ×2).
     // +1 por la HU #13893 (`POST /estado-lote` del expediente, reutiliza `bolsas.documentos.ver`).
     // +2 por la HU #13903 (comprobantes: desaplicar y reemplazar).
+    // + 3 en línea de la HU #13941 (funciones de Dr. Flit).
     // +10 por la HU #13907 (rama tránsito del catálogo: buscar, crear, detalle, editar, inactivar, reactivar, movimientos,
     // recargas y cierres ×2).
-    // +1 por la HU #13836 (`POST /buscar` de flito-tramites para Dr. Flit, reutiliza `tramites.cola.ver`).
-    // +1 por la HU #13837 (`POST /buscar` de flito-soat para Dr. Flit, reutiliza `soat.cola.ver`).
-    // +2 por la HU #13838 (`POST /buscar` de flito-impuestos y de flito-derechos para Dr. Flit).
-    // + 3 en línea de la HU #13941 (funciones de Dr. Flit).
-    // +1 por la HU #13964 (`POST /documentos/:documentoId/retirar`, reutiliza `bolsas.documentos.cargar`).
     // +2 por la HU #13945 (clientes: `GET /:id/impacto` y `PATCH /:id/estado`, ambas con `clients.clientes.estado`,
     // la operación absorbida por la acción exclusiva del Administrador `accion.clientes.activar_desactivar`).
     // +1 por la HU #13954 (clientes: `DELETE /:id` con `clients.clientes.eliminar`, absorbida por `accion.clientes.eliminar`).
     // +2 por la HU #13958 (proveedores SOAT: `GET /:id/impacto` y `PATCH /:id/estado` con `parametrizacion.proveedores.estado`).
     // +1 por la HU #13960 (proveedores SOAT: `DELETE /:id` con `parametrizacion.proveedores.eliminar`).
+    // +1 por la HU #13964 (`POST /documentos/:documentoId/retirar`, reutiliza `bolsas.documentos.cargar`).
     // −6 por la HU #13911 (retiro de las rutas antiguas `/transito…` de bolsas: listar, crear, ver, editar,
     // movimientos y cargas; sus códigos siguen montados en la rama tránsito del catálogo).
     // +9 por la épica #14163 (certificar sin trámite: catálogo, extraer, listar, crear, factura, certificado, consultar, detalle y editar; todas con `impuestos.certificacion_directa.gestionar`).
@@ -231,10 +233,10 @@ describe('el lector de montajes cubre la foto entera', () => {
     // +1 por la HU #14127 (logística: `POST /viajes/masivo`, reutiliza `logistica.viajes.registrar`).
     // +10 de la cadena logística C: +1 de la HU #14114 (POST /traslados); +1 de la HU #14147 (recogidas/pendientes-firma); +3 de la HU #14143 (pendientes-tramite, candidatos-tramite y resolver-tramite); +4 de la HU #14110 (recogidas/confirmar, mias, :firmanteId y revelar el documento del firmante); +1 de la HU #14142 (consultar-vehiculo, `logistica.documento.escanear`).
     // +4 de la HU #14115 (despachar/entregar/devolucion/anular el viaje).
-    // +3 HU #14665 (certificar sin trámite: eliminar, eliminar en lote y el ZIP de certificados); +2 HU #14664 (corregir/reintentar número, fecha y avalúo de la factura; reutilizan `impuestos.tramite.certificar`).
-    expect(GUARDAS_MEDIDAS).toHaveLength(690); // −4 HU #14354 (F5: GET /proveedores-soat, su impacto y las dos lecturas de proveedores-logistica); +4 Épica #14560 (GET /:id/detalle de trámites, GET /reporte-costos/totales, la predeterminada general de vistas y las compartidas en línea); +3 HU #14351/#14353 (POST /buscar, GET /actas/:id/mensajeros, facetas en línea [registraTraslados]); +1 HU #14348 (POST /escanear [dejarPendiente], en línea); +2 por el Bug #14569 (Revisiones OCR: POST /:id/candidatos/buscar y POST /:id/reintentar-lectura, reutilizan `revisiones.revision.resolver`); +5 Épica #13763 (costos de proveedor, códigos de las tarifas); +11 HU #14332–#14335 (gestión unificada de proveedores), −9 de las rutas viejas de proveedores retiradas; +9 épica #14163 (certificar sin trámite, `impuestos.certificacion_directa.gestionar`); +2 HU #14124 (las dos lecturas de línea de tiempo, logistica.documento.ver). +1 HU #14125 (POST /traslados/buscar, logistica.consola.ver).
-    // +4 de la HU #14103 (proveedores de logística), +3 de la HU #14148 (impacto, baja y listado unificado)
-    expect(montajes).toHaveLength(690); // −4 HU #14354 (F5); +4 Épica #14560; +3 HU #14665; +2 HU #14664 (PATCH .../documento-factura y POST .../documento-factura/reintentar); +3 HU #14351/#14353; +1 HU #14348; +2 por el Bug #14569 (POST /:id/candidatos/buscar y POST /:id/reintentar-lectura); +5 Épica #13763; +11 −9 HU #14332–#14335; +9 épica #14163 (certificar sin trámite, `impuestos.certificacion_directa.gestionar`); +2 HU #14124 (GET documentos/:id/linea-tiempo y GET tramites/:tramiteId/linea-tiempo). +1 HU #14125 (POST /traslados/buscar).
+    // +2 por la HU #14664 (corregir/reintentar número, fecha y avalúo de la factura; reutilizan `impuestos.tramite.certificar`).
+    expect(GUARDAS_MEDIDAS).toHaveLength(731); // −4 HU #14354 (F5: GET /proveedores-soat, su impacto y las dos lecturas de proveedores-logistica); +4 Épica #14560 (GET /:id/detalle de trámites, GET /reporte-costos/totales, la predeterminada general de vistas y las compartidas en línea); +14 Épica #14590 B2–B5 (Torre: 11 de ruta —/operativa/inventario, /operativa/soportes, /productos(+/exportar), /logistica(+/exportar), /financiera/facturacion(+/exportar), /financiera/bolsas(+/exportar), /operativa/equipo— + 3 en línea: origen_productos, origen_logistica, origen_equipo); +8 ADR-0047 (detalle universal: 2 de ruta + 6 en línea, dinero y funciones de origen); +1 ADR-0044 (POST /placa/sugerencias, reutiliza `torre.placa.buscar`); +18 Épica #14590 (Torre de Control, nacen en el árbol: 14 de ruta + 4 en línea del dinero); +2 por el Bug #14569 (Revisiones OCR: POST /:id/candidatos/buscar y POST /:id/reintentar-lectura, reutilizan `revisiones.revision.resolver`); +5 Épica #13763 (costos de proveedor, códigos de las tarifas); +3 HU #14351/#14353 (POST /buscar, GET /actas/:id/mensajeros, facetas en línea [registraTraslados]); +11 HU #14332–#14335 (gestión unificada de proveedores), −9 de las rutas viejas de proveedores retiradas; // +12 épica #14163 (certificar sin trámite, `impuestos.certificacion_directa.gestionar`); +2 HU #14124 (las dos lecturas de línea de tiempo, logistica.documento.ver). +1 HU #14125 (POST /traslados/buscar, logistica.consola.ver).
+    // +4 de la HU #14103 (proveedores de logística), +3 de la HU #14148 (impacto, baja y listado unificado); +2 por la HU #14664 (PATCH .../documento-factura y POST .../documento-factura/reintentar).
+    expect(montajes).toHaveLength(731); // −4 HU #14354 (F5); +4 Épica #14560; +14 Épica #14590 B2–B5 (Torre: 11 de ruta + 3 en línea: origen_productos, origen_logistica, origen_equipo); +8 ADR-0047 (detalle universal: 2 de ruta + 6 en línea); +1 ADR-0044 (POST /placa/sugerencias); +18 Épica #14590 (Torre de Control, nacen en el árbol: 14 de ruta + 4 en línea del dinero); +2 por el Bug #14569 (POST /:id/candidatos/buscar y POST /:id/reintentar-lectura); +5 Épica #13763; +3 HU #14351/#14353; +11 −9 HU #14332–#14335; // +12 épica #14163 (certificar sin trámite, `impuestos.certificacion_directa.gestionar`); +2 HU #14124 (GET documentos/:id/linea-tiempo y GET tramites/:tramiteId/linea-tiempo). +1 HU #14125 (POST /traslados/buscar); +2 HU #14664.
     const codigoDeLlave = new Map(OPERACIONES_DECLARADAS.map((o) => [o.llave, o.codigo]));
     expect(montajes.map((m) => m.codigo).sort()).toEqual(GUARDAS_MEDIDAS.map((g) => codigoDeLlave.get(llaveDe(g))!).sort());
     // En línea: 2 del Bug #12642 + forzar_continuar + contraseña ajena + operar actas ajenas (HU #13425)
@@ -244,7 +246,7 @@ describe('el lector de montajes cubre la foto entera', () => {
     // + registrar credenciales de Siigo de pruebas y de producción (HU #13427)
     // + compañía por grupo (general, autogestión, sin trámite), clientes editar y fiscal, contraseña propia (HU #13428).
     // + las tres funciones de Dr. Flit, en línea en `dr-flit.funciones.ts` (HU #13941).
-    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(34); // +1 Épica #14560: vistas compartidas [compartidas]. +1 HU #14351: facetas [registraTraslados]. +1 HU #14348: dejar pendiente al escanear. +2 HU #14122: entregar y firmar_flit, en línea; +1 HU #14123: GET motivos [listar]
+    expect(montajes.filter((m) => m.metodo === null)).toHaveLength(47); // +1 Épica #14560: vistas compartidas [compartidas]. +3 Épica #14590 B3–B5: funciones de origen del detalle en línea (origen_productos, origen_logistica, origen_equipo). +6 ADR-0047: el detalle, en línea (dinero y 5 funciones de origen). +4 Épica #14590: `torre.metricas.dinero` en línea (explorador ×2, tableros ×2). +1 HU #14351: facetas [registraTraslados]. +1 HU #14348: dejar pendiente al escanear. +2 HU #14122: entregar y firmar_flit, en línea; +1 HU #14123: GET motivos [listar]
   });
 
   it('un exigirFuncion sin literal hace que el lector LANCE en vez de adivinar', () => {

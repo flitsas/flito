@@ -147,7 +147,10 @@ describe('0178 — el archivo dice lo mismo que schema.ts (análisis estático)'
   it('el backfill son los doce de USER_ROLES con su ROLE_LABELS y sin `operaciones` (AC3)', () => {
     const filas = backfillDelArchivo(SQL_0178);
     expect(filas).toHaveLength(12);
-    expect(filas.map((f) => f.codigo).sort()).toEqual([...USER_ROLES].sort());
+    // La 0178 congeló los doce roles de entonces; los que llegaron después (Épica #14590: las dos
+    // gerencias, sembradas por la 0303) no están en su backfill y no se edita una migración aplicada.
+    const POSTERIORES_A_0178 = ['gerencia_comercial', 'gerencia_general'];
+    expect(filas.map((f) => f.codigo).sort()).toEqual(USER_ROLES.filter((r) => !POSTERIORES_A_0178.includes(r)).sort());
     expect(filas.map((f) => f.codigo)).not.toContain('operaciones');
     for (const f of filas) {
       // Si el nombre diverge de ROLE_LABELS, la pantalla muestra dos etiquetas para el mismo rol

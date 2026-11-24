@@ -54,9 +54,13 @@ const dockLocator = (page: import('@playwright/test').Page) =>
 const seccion = (clave: string) => ELEMENTOS_PERMISOS.find((n) => n.codigo === `menu.${clave}`)!.nombre;
 const item = (slug: string) => ARBOL_PERMISOS.find((n) => n.tipo === 'item' && n.slug === slug)!.nombre;
 
-/** Lo que el admin ve en el dock, en orden: SECTION_ORDER; General, Flota y Ayuda tienen un solo ítem (enlace). */
+/**
+ * Lo que el admin ve en el dock, en orden: SECTION_ORDER; General, Flota y Ayuda tienen un solo ítem (enlace).
+ * Épica #14590: «Torre de Control» es una sección propia por decisión humana (sin elemento en el catálogo: su rótulo
+ * es fijo); con ella el admin tiene 12 y a 1920 px las del final pasan al «Más».
+ */
 const DOCK_ADMIN = () => [
-  item('dashboard'), seccion('gestion'), seccion('transito'), item('fleet'), seccion('mantenimiento'),
+  item('dashboard'), 'Torre de Control', seccion('gestion'), seccion('transito'), item('fleet'), seccion('mantenimiento'),
   seccion('pesv'), seccion('rndc'), seccion('laft'), seccion('finanzas'), seccion('administracion'), seccion('ayuda'),
 ];
 
@@ -65,24 +69,37 @@ const nombresDelDock = (page: import('@playwright/test').Page) => page.evaluate(
   Array.from(document.querySelector('[data-vt="floating-nav"]')!.children)
     .map((k) => (k.querySelector('.dock__nombre')?.textContent ?? '').trim()));
 
-// A 1920 px caben las 11 secciones del admin con nombre (sin «Más»); el «Más» se prueba aparte.
+/** Épica #14590: nombres de la fila (sin «Más») seguidos de los del panel del «Más», en orden. Deja el panel cerrado. */
+async function nombresFilaYMas(page: import('@playwright/test').Page) {
+  const fila = (await nombresDelDock(page)).filter((n) => n !== 'Más');
+  const mas = dockLocator(page).getByRole('button', { name: 'Más', exact: true });
+  await mas.click();
+  const enMas = await page.locator('#flit-navbar-panel-mas .dock__seccion').evaluateAll((els) =>
+    els.map((e) => (e.firstElementChild?.textContent ?? '').trim()));
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#flit-navbar-panel-mas')).toHaveCount(0);
+  return [...fila, ...enMas];
+}
+
+// A 1920 px: 12 secciones del admin (Épica #14590 añadió la Torre por decisión humana); las del final pasan al «Más».
 test.describe('Shell · FlitNavBar (dock de escritorio)', () => {
   test.use({ viewport: { width: 1920, height: 900 } });
 
-  test('admin ve las 11 secciones del menú original en su orden, sin isotipo; PESV abre, navega y cierra', async ({ page }) => {
+  test('admin ve las 12 secciones del menú en su orden (fila + «Más»), sin isotipo; PESV abre, navega y cierra', async ({ page }) => {
     await loginAs(page, ADMIN_USER);
     await mockApi(page);
     await page.goto('/');
 
     const nav = dockLocator(page);
     await expect(nav).toBeVisible();
-    // La CUENTA además de los nombres: perder o sumar una sección no puede dejar esto en verde.
-    await expect(nav.getByRole('button')).toHaveCount(8);
-    await expect(nav.getByRole('link')).toHaveCount(3);
-    expect(await nombresDelDock(page)).toEqual(DOCK_ADMIN());
-    await expect(nav.getByRole('link').last()).toHaveAccessibleName('Ayuda');
+    // La CUENTA además de los nombres: perder o sumar una sección no puede dejar esto en verde. Épica #14590 (decisión
+    // humana): 12 con la Torre; a 1920 px las del final van al «Más», así que la cuenta es fila + panel.
+    const nombres = await nombresFilaYMas(page);
+    expect(nombres).toHaveLength(12);
+    expect(nombres).toEqual(DOCK_ADMIN());
+    expect(nombres.at(-1)).toBe('Ayuda');
     // Sin los grupos propios del kit ni el isotipo «Inicio».
-    for (const grupo of ['Trámites', 'Impuestos y SOAT', 'Logística', 'Cumplimiento', 'Más']) {
+    for (const grupo of ['Trámites', 'Impuestos y SOAT', 'Logística', 'Cumplimiento']) {
       await expect(nav.getByRole('button', { name: grupo, exact: true })).toHaveCount(0);
     }
     await expect(nav.getByRole('link', { name: 'Inicio', exact: true })).toHaveCount(0);
@@ -112,10 +129,11 @@ test.describe('Shell · FlitNavBar (dock de escritorio)', () => {
     await expect(pesvTrigger).toHaveAttribute('aria-expanded', 'false');
     await expect(pesvTrigger).toHaveAttribute('aria-current', 'page');
 
-    // Administración abre con sus ítems del catálogo.
-    await nav.getByRole('button', { name: seccion('administracion'), exact: true }).click();
+    // Administración muestra sus ítems del catálogo. Épica #14590 (decisión humana: Torre como sección propia): con
+    // 12 secciones Administración cae en el «Más» a 1920 px, así que sus ítems se buscan en ese panel.
+    await nav.getByRole('button', { name: 'Más', exact: true }).click();
     for (const slug of ['users', 'roles_permisos']) {
-      await expect(page.locator('#flit-navbar-panel-admin').getByRole('link', { name: new RegExp(`^${item(slug)}`) })).toBeVisible();
+      await expect(page.locator('#flit-navbar-panel-mas').getByRole('link', { name: new RegExp(`^${item(slug)}`) })).toBeVisible();
     }
   });
 
@@ -345,15 +363,19 @@ test('1920 px · el dock del admin es UNA fila y con los nombres a la vista (AC1
   await alargarPagina(page);
 
   const m = await medirDock(page);
-  expect(m.pildoras).toBe(11);
+  // Épica #14590 (decisión humana): 12 secciones con la Torre; a 1920 px la fila trae las que caben + «Más».
+  expect(m.conMas).toBe(true);
   expect(m.centrosDistintos).toBe(1);
   expect(m.alto).toBeLessThanOrEqual(m.altoDeUnaFila);
   expect(m.dentro).toBe(true);
-  expect(m.nombresVisibles).toBe(11);
+  expect(m.nombresVisibles).toBe(m.pildoras);
+  await dockLocator(page).getByRole('button', { name: 'Más', exact: true }).click();
+  const enMas = await page.locator('#flit-navbar-panel-mas .dock__seccion').count();
+  expect(m.pildoras - 1 + enMas).toBe(12);
 });
 
-// Con 11 secciones la fila del admin con nombres no cabe a 1440/1280/1024 px: las que caben van CON nombre y el
-// resto pasa al «Más» (nunca solo íconos). Fila + «Más» = las 11, sin perder ni repetir ninguna.
+// Con 12 secciones (Épica #14590 añadió la Torre por decisión humana) la fila del admin con nombres no cabe a
+// 1440/1280/1024 px: las que caben van CON nombre y el resto pasa al «Más» (nunca solo íconos). Fila + «Más» = las 12.
 for (const width of [1440, 1280, 1024] as const) {
   test(`${width} px · una fila, todas con nombre y el resto en «Más» (AC2, AC2b)`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
@@ -374,7 +396,8 @@ for (const width of [1440, 1280, 1024] as const) {
     const mas = dockLocator(page).getByRole('button', { name: 'Más', exact: true });
     await mas.click();
     const enMas = await page.locator('#flit-navbar-panel-mas .dock__seccion').count();
-    expect(m.pildoras - 1 + enMas).toBe(11);
+    // Épica #14590 (decisión humana): 12 secciones con la Torre de Control.
+    expect(m.pildoras - 1 + enMas).toBe(12);
   });
 }
 
@@ -397,11 +420,12 @@ test('1280 px · abrir un panel no cambia cuántas secciones caben', async ({ pa
   expect(conPanel.pildoras, 'no entra ni sale ninguna sección del «Más»').toBe(antes.pildoras);
   expect(conPanel.nombresVisibles).toBe(conPanel.pildoras);
 
-  // Con sitio de sobra, todas vuelven a la fila y el «Más» desaparece.
+  // Con más sitio entran más secciones en la fila. Épica #14590 (decisión humana: Torre como sección propia): con 12,
+  // a 1920 px el «Más» sigue con las del final.
   await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 1920, height: 900 });
-  await expect.poll(async () => (await medirDock(page)).nombresVisibles).toBe(11);
-  await expect(dockLocator(page).getByRole('button', { name: 'Más', exact: true })).toHaveCount(0);
+  await expect.poll(async () => (await medirDock(page)).pildoras).toBeGreaterThan(antes.pildoras);
+  await expect(dockLocator(page).getByRole('button', { name: 'Más', exact: true })).toBeVisible();
 });
 
 test('1920 px con scroll abajo · el dock sigue en una fila y con nombres', async ({ page }) => {

@@ -14,6 +14,7 @@ export type IconoNav = NombreIcono | `@${string}`;
 /** Glifo de cada sección del dock (inyectivo en el dock). */
 export const ICONO_SECCION: Record<NavItem['section'], NombreIcono> = {
   general: 'rejilla',
+  torre: 'reportes',
   gestion: 'tramites',
   transito: 'radicacion',
   flota: 'carro',
@@ -110,6 +111,13 @@ const META_RUTA: Record<string, MetaRuta> = {
   '/privacy': { icono: 'candado' },
   '/siigo/credenciales': { icono: 'candado-abierto' },
   '/admin/rendimiento': { icono: 'medidor', descripcion: 'Velocidad de la plataforma' },
+  '/flito/torre/umbrales': { icono: 'alerta', descripcion: 'Límites de las alertas de la Torre' },
+  // Torre de Control (Épica #14590)
+  '/flito/torre/resumen': { icono: 'medidor', descripcion: 'Comercial, operación y finanzas en una vista' },
+  '/flito/torre/comercial': { icono: 'empresas' },
+  '/flito/torre/operativa': { icono: 'tramites' },
+  '/flito/torre/financiera': { icono: 'pesos' },
+  '/flito/torre/explorador': { icono: 'consulta', descripcion: 'Preguntas sobre trámites, tiempos y costos' },
   // Ayuda
   '/flito/ayuda': { icono: 'ayuda' },
 };

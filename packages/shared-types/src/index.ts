@@ -147,8 +147,6 @@ export * from './flito-viajes-logistica.js';
 export * from './flito-gastos-diarios.js';
 // Fuente del trámite (HU #13070, Épica #12736): FLIT o FLIT 2, su etiqueta y la guarda de tipo.
 export * from './flito-tramite-fuente.js';
-// Expediente documental de la compañía en bolsas (HU #13889, Feature #13888, ADR-0028).
-export * from './flito-bolsas-documentos.js';
 // Dr. Flit — autorización de tratamiento de datos y soporte (HU #13803, Feature #13695).
 export * from './flito-dr-flit.js';
 // Dr. Flit — consultas de gestión sin IA (HU #13836, Feature #13834): body `{ valor }`, `{ total, items }`
@@ -157,6 +155,8 @@ export * from './flito-dr-flit-gestion.js';
 // Dr. Flit — enmascaramiento de PII antes de la IA (HU #13855, Feature #13696 IA-3). Fuente única de
 // los patrones de valor de gestión de F6.
 export * from './flito-dr-flit-mascara.js';
+// Expediente documental de la compañía en bolsas (HU #13889, Feature #13888, ADR-0028).
+export * from './flito-bolsas-documentos.js';
 // RUM: la ruta que se guarda en la telemetría, sin tokens (HU #14281, ADR-0036).
 export * from './rum.js';
 // Proveedores con varios servicios: lista única de servicios y contrato (Feature #14323, ADR-0039).
@@ -165,5 +165,11 @@ export * from './flito-proveedores.js';
 export * from './flito-tarifas-proveedor.js';
 // Buscador de trámite de la cola de revisión OCR (Bug #14569, punto 8).
 export * from './flito-revisiones.js';
+// Torre de Control Gerencial (Épica #14590): catálogo de métricas, filtro, ficha de placa y umbrales.
+export * from './flito-torre.js';
+export * from './flito-torre-detalle.js';
+export * from './flito-torre-productos.js';
+export * from './flito-torre-logistica.js';
+export * from './flito-torre-equipo.js';
 // Detalle de trámite en modal de Gestión Trámites (ADR-0046).
 export * from './flito-tramites-detalle.js';
