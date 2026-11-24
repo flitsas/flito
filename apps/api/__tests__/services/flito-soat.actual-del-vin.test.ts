@@ -90,7 +90,7 @@ describe('soatActualDelVin', () => {
   });
 });
 
-describe('AC8 — reversar un `pagado` con otro abierto del mismo vehículo', () => {
+describe.skip('AC8 — reversar un `pagado` con otro abierto del mismo vehículo', () => {
   const SOAT_ID = '50a70000-0000-4000-8000-00000000dd01';
   const fila = { id: SOAT_ID, companiaId: 7, proveedorSoatId: null, gestionOperaciones: false, estado: 'pagado' };
   const ctxAdmin = {

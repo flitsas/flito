@@ -15,12 +15,12 @@
 import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import {
   EstadoImpuesto, EstadoTramiteFlito, ESTADOS_TRAMITE_FLITO_TERMINADOS,
-  ANS_OPERATIVO, CampoDocumentoFacturaImpuesto, type AlertaOperativa,
+  ANS_OPERATIVO, type AlertaOperativa,
 } from '@operaciones/shared-types';
 import type { FuenteTramite } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import {
-  clients, flitoCompradores, flitoExcepcionesAutogestion, flitoImpuestos, flitoLogisticaDocumentos, flitoProveedores, flitoProveedoresSoat, flitoSoat,
+  clients, flitoCompradores, flitoExcepcionesAutogestion, flitoImpuestos, flitoLogisticaDocumentos, flitoProveedoresSoat, flitoSoat,
   flitoTramiteHistorial, flitoTramites, organismosTransitoConfig, users, vehicles,
 } from '../../db/schema.js';
 import { flitoDerechosTramite } from '../../db/schema.js';
@@ -33,8 +33,6 @@ import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js
 import type { SoatCtx } from '../flito-soat/flito-soat.service.js';
 import type { ImpuestoCtx } from '../flito-impuestos/flito-factura-venta.service.js';
 import { condicionAlcanceTramites } from './flito-tramites.alcance.js';
-import { BORRADOR_ABANDONADO, diasBorradorAbandonado } from './flito-tramites.borrador.js';
-import { arrancarTramiteGuardado, COLUMNAS_TRAMITE_GUARDADO } from '../flito-sync/arrancar-tramite-guardado.js';
 
 export interface TramitesCtx { userId: number; username: string; role: string; alcance: AlcanceResuelto }
 
@@ -209,11 +207,9 @@ export interface ResultadoCrearEmpresa { companiaId: number; yaExistia: boolean;
 
 /**
  * Crea la empresa (cliente) de un trámite cuya compañía FLIT no existía aún y la re-vincula: fija
- * `companiaId` en todos los trámites de ese NIT que estaban sin compañía, deja el cambio en el historial
- * con origen 'usuario' y les arranca SOAT e impuesto con las mismas reglas que al activar una compañía
- * (`arrancarTramiteGuardado`), porque FLIT no vuelve a enviarlos y nada más los arrancaría (Bug #14414).
- * Todo va en UNA transacción: si un arranque falla, no queda ni la empresa ni la vinculación.
- * Idempotente: si ya existe un cliente con ese NIT, lo reutiliza (yaExistia) y solo re-vincula los pendientes.
+ * `companiaId` en todos los trámites de ese NIT que estaban sin compañía, dejándolos accionables sin
+ * esperar a un nuevo sync. El cambio queda en el historial con origen 'usuario'. Idempotente: si ya
+ * existe un cliente con ese NIT, lo reutiliza (yaExistia) y solo re-vincula los pendientes.
  */
 export async function crearEmpresaDesdeTramite(
   nombre: string, nit: string, autogestion: { soat: boolean; impuestos: boolean; logistica: boolean }, ctx: TramitesCtx,
@@ -225,42 +221,32 @@ export async function crearEmpresaDesdeTramite(
   // tercero y el segundo pisaría al primero; aquí, además, el duplicado nace sin la marca de
   // conflicto que sí puso la migración 0132 a los preexistentes, así que parece limpio.
   const docCliente = doc.toUpperCase();
-  return db.transaction(async (tx) => {
-    const [existente] = await tx.select({ id: clients.id }).from(clients)
-      .where(sql`trim(upper(${clients.document})) = ${docCliente}`).limit(1);
-    let companiaId: number;
-    let yaExistia = false;
-    if (existente) { companiaId = existente.id; yaExistia = true; }
-    else {
-      const [creada] = await tx.insert(clients)
-        .values({
-          name: nombre.trim(), document: docCliente, documentType: 'NIT',
-          soatAutogestionable: autogestion.soat, impuestosAutogestionable: autogestion.impuestos,
-          logisticaAutogestionable: autogestion.logistica,
-        })
-        .returning({ id: clients.id });
-      companiaId = creada.id;
-    }
-    // `for update`: dos vinculaciones simultáneas del mismo NIT no arrancan dos veces el mismo trámite;
-    // la segunda espera y, al ver `companiaId` ya puesto, lo descarta.
-    const pendientes = await tx.select(COLUMNAS_TRAMITE_GUARDADO).from(flitoTramites)
-      .where(and(eq(flitoTramites.companiaNit, doc), sql`${flitoTramites.companiaId} is null`))
-      .orderBy(asc(flitoTramites.createdAt), asc(flitoTramites.id))
-      .for('update');
-    if (pendientes.length > 0) {
-      const ids = pendientes.map((t) => t.id);
-      await tx.update(flitoTramites).set({ companiaId }).where(inArray(flitoTramites.id, ids));
-      await tx.insert(flitoTramiteHistorial).values(ids.map((tid) => ({
-        tramiteId: tid, campo: 'compania_id', valorAnterior: null, valorNuevo: String(companiaId),
-        origen: 'usuario', usuarioId: ctx.userId,
-      })));
-      // `for share`: choca con el `UPDATE … active` de `cambiarEstadoCliente` (mismo criterio que `cliente-operable.ts`).
-      const [compania] = await tx.select().from(clients).where(eq(clients.id, companiaId)).limit(1).for('share');
-      const contadores = { soatCreados: 0, soatBloqueadosPorVin: 0, impuestosCreados: 0, impuestosBloqueadosPorVehiculo: 0 };
-      for (const t of pendientes) await arrancarTramiteGuardado(tx, t, compania, contadores);
-    }
-    return { companiaId, yaExistia, revinculados: pendientes.length };
-  });
+  const [existente] = await db.select({ id: clients.id }).from(clients)
+    .where(sql`trim(upper(${clients.document})) = ${docCliente}`).limit(1);
+  let companiaId: number;
+  let yaExistia = false;
+  if (existente) { companiaId = existente.id; yaExistia = true; }
+  else {
+    const [creada] = await db.insert(clients)
+      .values({
+        name: nombre.trim(), document: docCliente, documentType: 'NIT',
+        soatAutogestionable: autogestion.soat, impuestosAutogestionable: autogestion.impuestos,
+        logisticaAutogestionable: autogestion.logistica,
+      })
+      .returning({ id: clients.id });
+    companiaId = creada.id;
+  }
+  const pendientes = await db.select({ id: flitoTramites.id }).from(flitoTramites)
+    .where(and(eq(flitoTramites.companiaNit, doc), sql`${flitoTramites.companiaId} is null`));
+  if (pendientes.length > 0) {
+    const ids = pendientes.map((t) => t.id);
+    await db.update(flitoTramites).set({ companiaId }).where(inArray(flitoTramites.id, ids));
+    await db.insert(flitoTramiteHistorial).values(ids.map((tid) => ({
+      tramiteId: tid, campo: 'compania_id', valorAnterior: null, valorNuevo: String(companiaId),
+      origen: 'usuario', usuarioId: ctx.userId,
+    })));
+  }
+  return { companiaId, yaExistia, revinculados: pendientes.length };
 }
 
 export interface TramiteReferencia { tramiteId: string; idFlit: string; placa: string | null }
@@ -302,7 +288,7 @@ export const esOrdenListado = (v: unknown): v is OrdenListado =>
 export interface ListadoTramites { items: TramiteFila[]; total: number; page: number; pageSize: number; marca: string }
 export interface FacetasTramites { estados: string[]; tramites: string[]; ciudades: string[]; transitos: string[] }
 
-export function proyeccion() {
+function proyeccion() {
   return db.select({
     // Campos que consume decidir() (compuerta) — mismos nombres que FilaCompuerta.
     tramiteId: flitoTramites.id,
@@ -354,8 +340,7 @@ export function proyeccion() {
     tipoVehiculo: vehicles.tipoVehiculo,
     soatId: flitoSoat.id,
     soatProveedorId: flitoSoat.proveedorSoatId,
-    // HU #14354 (R21): el nombre sale del padre; el SLA, del perfil SOAT.
-    soatProveedorNombre: flitoProveedores.nombre,
+    soatProveedorNombre: flitoProveedoresSoat.nombre,
     soatSlaHoras: flitoProveedoresSoat.slaHoras,
     soatEnviadoEn: flitoSoat.enviadoEn,
     soatPagadoEn: flitoSoat.pagadoEn,
@@ -377,14 +362,13 @@ export function proyeccion() {
     .leftJoin(organismosTransitoConfig, eq(flitoTramites.organismoCodigo, organismosTransitoConfig.codigo))
     .leftJoin(flitoSoat, eq(flitoTramites.soatId, flitoSoat.id))
     .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
-    .leftJoin(flitoProveedores, eq(flitoSoat.proveedorSoatId, flitoProveedores.id))
     .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
     .leftJoin(flitoDerechosTramite, eq(flitoDerechosTramite.tramiteId, flitoTramites.id))
     // Estado logístico de la LT (tracking): a lo sumo una por trámite (unique tramite+tipo).
     .leftJoin(flitoLogisticaDocumentos, and(eq(flitoLogisticaDocumentos.tramiteId, flitoTramites.id), eq(flitoLogisticaDocumentos.tipo, 'licencia_transito')));
 }
 
-export type FilaCruda = Awaited<ReturnType<ReturnType<typeof proyeccion>['where']>>[number];
+type FilaCruda = Awaited<ReturnType<ReturnType<typeof proyeccion>['where']>>[number];
 
 /**
  * Solicitado hace más de lo que aguanta el SLA. Sirve igual a SOAT (SLA del proveedor) y a impuestos
@@ -396,14 +380,9 @@ function estancadoPorAns(estado: string | null, enviadoEn: Date | null): boolean
   return (Date.now() - enviadoEn.getTime()) / 3_600_000 > ANS_OPERATIVO.SIN_GESTION_HORAS;
 }
 
-/** HU #14293: número, fecha y avalúo se muestran en el Excel y no deciden: no entran en la coincidencia. */
-const CLAVES_DOCUMENTO_FACTURA: ReadonlySet<string> = new Set(Object.values(CampoDocumentoFacturaImpuesto));
-
-export function coincidenciaDe(extraccion: unknown): number | null {
+function coincidenciaDe(extraccion: unknown): number | null {
   if (!extraccion || typeof extraccion !== 'object') return null;
-  const confianzas = Object.entries(extraccion as Record<string, { confianza?: number } | undefined>)
-    .filter(([clave]) => !CLAVES_DOCUMENTO_FACTURA.has(clave))
-    .map(([, c]) => c)
+  const confianzas = Object.values(extraccion as Record<string, { confianza?: number } | undefined>)
     .filter((c): c is { confianza: number } => Boolean(c) && typeof c!.confianza === 'number')
     .map((c) => c.confianza);
   return confianzas.length ? Math.min(...confianzas) : null;
@@ -411,7 +390,7 @@ export function coincidenciaDe(extraccion: unknown): number | null {
 
 const num = (v: string | null): number | null => (v === null ? null : Number(v));
 
-export function aFila(f: FilaCruda, compradores: Omit<Comprador, 'tipoDocumento'>[]): TramiteFila {
+function aFila(f: FilaCruda, compradores: Omit<Comprador, 'tipoDocumento'>[]): TramiteFila {
   // decidir() (compuerta) exige autogestión booleana; sin compañía emparejada, se asume false.
   const veredicto = decidir({ ...f, soatAutogestionable: f.soatAutogestionable ?? false, impuestosAutogestionable: f.impuestosAutogestionable ?? false, companiaNombre: f.companiaNombre ?? '' });
   // HU #11947. El tipo lo afirma el TRÁMITE (`flit_raw->>'tipo'`) y se cuelga de cada uno de sus
@@ -523,8 +502,7 @@ const ESTADOS_ESPERANDO_APROBACION = ['entregado', 'rechazado'] as const;
 const sqlEstadosEsperandoAprobacion = () =>
   sql.join(ESTADOS_ESPERANDO_APROBACION.map((e) => sql`${e}`), sql`, `);
 
-/** `diasBorrador` = el umbral `dias_borrador_abandonado` vigente (`diasBorradorAbandonado()`, RN-TRA-B2). */
-export function condicionAlerta(alerta: AlertaOperativa, diasBorrador: number = ANS_OPERATIVO.BORRADOR_DIAS): SQL {
+export function condicionAlerta(alerta: AlertaOperativa): SQL {
   // Antigüedad del trámite: la fecha de FLIT, con la de ingesta como respaldo.
   const nacimiento = sql`COALESCE(${flitoTramites.fechaCreacionFlit}, ${flitoTramites.createdAt})`;
   // make_interval en vez de concatenar texto: `$1 || ' days'` deja el tipo del parámetro ambiguo.
@@ -532,9 +510,19 @@ export function condicionAlerta(alerta: AlertaOperativa, diasBorrador: number = 
   const horasSinGestion = ANS_OPERATIVO.SIN_GESTION_HORAS;
 
   switch (alerta) {
-    case 'borrador_5d':
-      // RN-TRA-B1/B2: la regla única de borrador abandonado, la misma de la Torre (`flito-tramites.borrador.ts`).
-      return BORRADOR_ABANDONADO(diasBorrador);
+    case 'borrador_5d': {
+      // Cuándo entró a Borrador, según el historial. Un trámite que NACIÓ en Borrador y nunca
+      // cambió no tiene fila de historial (solo se registra en UPDATE), de ahí el COALESCE.
+      const entroABorrador = sql`COALESCE((
+        SELECT MAX(${flitoTramiteHistorial.createdAt})
+          FROM ${flitoTramiteHistorial}
+         WHERE ${flitoTramiteHistorial.tramiteId} = ${flitoTramites.id}
+           AND ${flitoTramiteHistorial.campo} = 'flit_estado'
+           AND LOWER(TRIM(COALESCE(${flitoTramiteHistorial.valorNuevo}, ''))) = 'borrador'
+      ), ${nacimiento})`;
+      return sql`LOWER(TRIM(COALESCE(${flitoTramites.flitEstado}, ''))) = 'borrador'
+        AND ${entroABorrador} < NOW() - make_interval(days => ${ANS_OPERATIVO.BORRADOR_DIAS})`;
+    }
     case 'sin_aprobar_ans':
       // Solo lo que está en manos del organismo: Entregado (esperando revisión) y Rechazado
       // (devuelto y aún sin subsanar).
@@ -562,11 +550,7 @@ export function condicionAlerta(alerta: AlertaOperativa, diasBorrador: number = 
 // en silencio los que no tienen equivalente en el enum interno: `estado` es nullable y
 // `NULL NOT IN (...)` evalúa a NULL, no a true, así que Borrador y Enviado a OT desaparecían del
 // listado, del contador y de las facetas sin que nada lo delatara.
-/** Solo la alerta de borrador lee el umbral: el resto de listados no paga la consulta. */
-export const umbralBorradorDe = async (alerta?: AlertaOperativa | null): Promise<number | undefined> =>
-  (alerta === 'borrador_5d' ? diasBorradorAbandonado() : undefined);
-
-export function construirCondiciones(f: FiltrosListado, diasBorrador?: number): SQL[] {
+export function construirCondiciones(f: FiltrosListado): SQL[] {
   // HU #13946 (AC2): un trámite retenido (cliente inactivo) no sale en la bandeja, ni en su conteo ni en novedades.
   const conds: SQL[] = [sql`NOT ${flitoTramites.retenido}`];
 
@@ -614,7 +598,7 @@ export function construirCondiciones(f: FiltrosListado, diasBorrador?: number): 
   // Los valores llegan como texto libre del cliente; se castean al enum de la columna (drizzle es estricto).
   if (f.soat?.length) conds.push(inArray(flitoSoat.estado, f.soat as Array<(typeof flitoSoat.estado.enumValues)[number]>));
   if (f.impuesto?.length) conds.push(inArray(flitoImpuestos.estado, f.impuesto as Array<(typeof flitoImpuestos.estado.enumValues)[number]>));
-  if (f.alerta) conds.push(condicionAlerta(f.alerta, diasBorrador));
+  if (f.alerta) conds.push(condicionAlerta(f.alerta));
   // Inclusivos por día: `<= hasta::date + 1 day` en vez de `<= hasta`, que dejaría fuera todo lo
   // ocurrido ese mismo día después de medianoche.
   const nacimiento = sql`COALESCE(${flitoTramites.fechaCreacionFlit}, ${flitoTramites.createdAt})`;
@@ -648,7 +632,7 @@ export function conteoBase() {
 export async function listar(filtros: FiltrosListado = {}, alcance: AlcanceResuelto = { enlace: 'ninguno' }): Promise<ListadoTramites> {
   const page = Math.max(1, Math.floor(filtros.page ?? 1));
   const pageSize = Math.min(200, Math.max(1, Math.floor(filtros.pageSize ?? 50)));
-  const conds = construirCondiciones(filtros, await umbralBorradorDe(filtros.alerta));
+  const conds = construirCondiciones(filtros);
   // HU #13426 (AC2): la condición de alcance va en las condiciones COMPARTIDAS por página y COUNT.
   const porAlcance = condicionAlcanceTramites(alcance);
   if (porAlcance) conds.push(porAlcance);

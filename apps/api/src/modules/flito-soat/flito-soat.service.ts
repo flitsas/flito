@@ -15,7 +15,7 @@ import {
   auditLogs,
   clients,
   flitoCompradores,
-  flitoProveedores, flitoProveedoresSoat,
+  flitoProveedoresSoat,
   flitoRevisiones,
   flitoSoat,
   flitoSoatSolicitud,
@@ -39,7 +39,6 @@ import { ANS_OPERATIVO,
   MotivoRevision,
   polizaParaColumna,
   TipoPropiedad,
-  TipoSoat,
   type ExtraccionSoat,
   type FiltroVigenciaCola,
   type VigenciaSoatVista,
@@ -47,11 +46,9 @@ import { ANS_OPERATIVO,
 import { clasificacionDeTipoFlit, expresionesFlitRaw } from '../../shared/export/cola-flito-derivados.js';
 import { extraerFacturaSoat, placaDesdeNombre, type DocumentoAAnalizar } from '../flito-ocr/flito-ocr.service.js';
 import { carpetaDe, umbralPara } from '../flito-parametrizacion/flito-parametrizacion.service.js';
-import { exigirProveedorSoatUsable } from '../flito-parametrizacion/flito-proveedores-estado.service.js';
 import { uploadEntityDocument } from '../../services/storage.js';
 import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import { EXISTS_COMPROBANTE_SOAT, TIPO_FACTURA_SOAT } from './flito-soat-censo.js';
-import { hayOtroAbiertoAlReabrir } from './flito-soat-actual.js';
 import { abrirEnLote, abrirFacturaCifrada, expandir } from './flito-soat-factura-cifrada.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
 import { resolverPermisos, type PermisosResueltos } from '../../shared/permisos-efectivos.js';
@@ -245,8 +242,6 @@ export interface SoatColaItem {
    * de nombre con `numero_poliza`, que es otro número (el que el OCR sacó de la factura de FLITO).
    */
   vigencia: { estado: VigenciaSoatVista; verificadaEn: string | null; venceEl: string | null } | null;
-  /** Inicial/Renovación de la solicitud del canal (HU #14017); `null` = fila de trámite, sin solicitud. */
-  tipoSoat: TipoSoat | null;
 }
 
 /**
@@ -606,12 +601,8 @@ export function conJoinsCola<Q extends PgSelect>(q: Q) {
     .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
     .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
     .leftJoin(organismosTransitoConfig, eq(flitoSoat.organismoCodigo, organismosTransitoConfig.codigo))
-    // HU #14354 (R21): el nombre sale del padre; SLA y umbral de OCR siguen en el perfil SOAT.
-    .leftJoin(flitoProveedores, eq(flitoSoat.proveedorSoatId, flitoProveedores.id))
     .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
-    .leftJoin(users, eq(flitoSoat.enviadoPorId, users.id))
-    // HU #14017: `flito_soat_solicitud` es 1:1 por PK (`soat_id`), así que no multiplica filas.
-    .leftJoin(flitoSoatSolicitud, eq(flitoSoatSolicitud.soatId, flitoSoat.id));
+    .leftJoin(users, eq(flitoSoat.enviadoPorId, users.id));
 }
 
 /**
@@ -704,9 +695,9 @@ export async function cola(ctx: SoatCtx, f: FiltrosCola = {}): Promise<ColaSoatP
       tipoServicio: vehicles.tipoServicio,
       companiaNombre: clients.name,
       organismoNombre: organismosTransitoConfig.alias,
-      proveedorSoatNombre: flitoProveedores.nombre, proveedorSlaHoras: flitoProveedoresSoat.slaHoras,
+      proveedorSoatNombre: flitoProveedoresSoat.nombre,
+      proveedorSlaHoras: flitoProveedoresSoat.slaHoras,
       enviadoPorNombre: users.name,
-      tipoSoat: flitoSoatSolicitud.tipoSoat,
       ...PROYECCION_VIGENCIA,
     }).from(flitoSoat).$dynamic()).where(where)
       // Lo más RECIENTE arriba (HU #11963). La cola abre por lo que acaba de entrar para que una
@@ -763,7 +754,7 @@ export async function facetasCola(ctx: SoatCtx): Promise<FacetasCola> {
     // entero por la puerta de al lado, y encima ordenado. No se lee lo que no se va a devolver.
     esExterno(ctx)
       ? Promise.resolve([] as { id: string | null; nombre: string | null }[])
-      : conJoinsCola(db.selectDistinct({ id: flitoProveedores.id, nombre: flitoProveedores.nombre }).from(flitoSoat).$dynamic()).where(where),
+      : conJoinsCola(db.selectDistinct({ id: flitoProveedoresSoat.id, nombre: flitoProveedoresSoat.nombre }).from(flitoSoat).$dynamic()).where(where),
   ]);
 
   return {
@@ -823,8 +814,6 @@ type ColaRow = {
   companiaNombre: string;
   organismoNombre: string | null; proveedorSoatNombre: string | null; proveedorSlaHoras: number | null;
   enviadoPorNombre: string | null;
-  /** `null` en filas de trámite (sin solicitud del canal). */
-  tipoSoat: string | null;
   /** Los tres persistidos (Feature #12075). `venceEl` es `date`, o sea `yyyy-mm-dd` en texto. */
   estadoVigencia: string; verificadaEn: Date | null; venceEl: string | null;
   /** ¿Esta fila entra en la verificación diaria? Es el `EXISTS` del censo, no un `estado = pagado`. */
@@ -1040,7 +1029,6 @@ async function ensamblarCola(rows: ColaRow[], ctx: SoatCtx): Promise<SoatColaIte
       estancado: estaEstancado(r.estado, r.enviadoEn),
       motivoRechazo: r.motivoRechazo,
       creadoEn: r.createdAt.toISOString(),
-      tipoSoat: r.tipoSoat === null ? null : r.tipoSoat === 'renovacion' ? TipoSoat.RENOVACION : TipoSoat.INICIAL,
       // El bloque entero es `null` cuando la fila no entra en la verificación diaria. Y NO se emite
       // «vacío con nulls dentro»: la pantalla distingue una fila muda de una con pastilla, y un
       // objeto presente con todo a null la obligaría a inventarse un cuarto caso.
@@ -1420,18 +1408,16 @@ export async function detalle(id: string, ctx: SoatCtx): Promise<(SoatColaItemSa
       // cuya fila en la cola sí muestra el dato.
       cilindraje: vehicles.cilindraje, carroceria: vehicles.carroceria, tipoServicio: vehicles.tipoServicio,
       companiaNombre: clients.name, organismoNombre: organismosTransitoConfig.alias,
-      proveedorSoatNombre: flitoProveedores.nombre, proveedorSlaHoras: flitoProveedoresSoat.slaHoras,
-      enviadoPorNombre: users.name, tipoSoat: flitoSoatSolicitud.tipoSoat,
+      proveedorSoatNombre: flitoProveedoresSoat.nombre, proveedorSlaHoras: flitoProveedoresSoat.slaHoras,
+      enviadoPorNombre: users.name,
       ...PROYECCION_VIGENCIA,
     })
     .from(flitoSoat)
     .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
     .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
     .leftJoin(organismosTransitoConfig, eq(flitoSoat.organismoCodigo, organismosTransitoConfig.codigo))
-    .leftJoin(flitoProveedores, eq(flitoSoat.proveedorSoatId, flitoProveedores.id))
     .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
     .leftJoin(users, eq(flitoSoat.enviadoPorId, users.id))
-    .leftJoin(flitoSoatSolicitud, eq(flitoSoatSolicitud.soatId, flitoSoat.id))
     .where(eq(flitoSoat.id, id))
     .limit(1);
 
@@ -1533,8 +1519,6 @@ export async function enviarAlGestor(
   if (alcance === null) return { enviados: [], yaEnviados: [...ids] };
 
   const enviados = await db.transaction(async (tx) => {
-    // RN-PROV-5 (HU #13959): inactivo o eliminado → 409, con FOR SHARE en ESTA tx (AC6).
-    if (destino.proveedorSoatId) await exigirProveedorSoatUsable(tx, destino.proveedorSoatId);
     // FOR UPDATE OF flito_soat SKIP LOCKED: el segundo usuario que envíe el mismo registro no
     // ve la fila que el primero bloqueó (CA-04). Solo bloquea flito_soat (no clients).
     const locked = await tx
@@ -1661,33 +1645,22 @@ export async function reversar(id: string, estadoDestino: EstadoSoat, motivo: st
   // Dejar las dos guardas sería pedirle a `ESTADOS_SOAT_CANAL_CLIENTE` que siguiera existiendo solo
   // para defenderse de valores inalcanzables.
 
-  return db.transaction(async (tx) => reversarEnTx(tx, soat, estadoDestino, motivo, ctx));
-}
-
-/**
- * La escritura de la reversa (RN-06) dentro de una tx ajena: la usan `reversar` y la desaplicación de un
- * comprobante (HU #13903), que necesita deshacer el pago en la MISMA tx que cambia el comprobante. Las
- * guardas (alcance, motivo ≥5, mismo estado) son de quien llama; aquí solo se reescribe y se deja rastro.
- */
-export async function reversarEnTx(
-  tx: Tx, soat: Pick<typeof flitoSoat.$inferSelect, 'id' | 'estado'>,
-  estadoDestino: EstadoSoat, motivo: string, ctx: Pick<SoatCtx, 'userId' | 'username'>,
-): Promise<typeof flitoSoat.$inferSelect> {
-  if (await hayOtroAbiertoAlReabrir(tx, soat.id, estadoDestino)) throw new SoatError(409, 'El vehículo ya tiene otro SOAT abierto');
   const limpiar = estadoDestino === EstadoSoat.PENDIENTE
     ? { enviadoPorId: null, enviadoEn: null, pagadoEn: null, valorPagado: null, motivoRechazo: null }
     : {};
-  const [updated] = await tx.update(flitoSoat)
-    .set({ estado: estadoDestino, ...limpiar, updatedAt: new Date() })
-    .where(eq(flitoSoat.id, soat.id)).returning();
-  // La reversa es la operación que más falta hace explicar después: es la única que saca a un VIN
-  // de `pagado`, así que el motivo va literal al historial.
-  await registrarCambio(tx, {
-    concepto: 'soat', registroId: soat.id,
-    estadoAnterior: soat.estado, estadoNuevo: estadoDestino,
-    motivo: `Reversa: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
+  return db.transaction(async (tx) => {
+    const [updated] = await tx.update(flitoSoat)
+      .set({ estado: estadoDestino, ...limpiar, updatedAt: new Date() })
+      .where(eq(flitoSoat.id, id)).returning();
+    // La reversa es la operación que más falta hace explicar después: es la única que saca a un VIN
+    // de `pagado`, así que el motivo va literal al historial.
+    await registrarCambio(tx, {
+      concepto: 'soat', registroId: id,
+      estadoAnterior: soat.estado, estadoNuevo: estadoDestino,
+      motivo: `Reversa: ${motivo.trim()}`, usuarioId: ctx.userId, usuarioEmail: ctx.username,
+    });
+    return updated;
   });
-  return updated!;
 }
 
 /**
@@ -1702,16 +1675,14 @@ export async function cambiarProveedor(id: string, proveedorSoatId: string, moti
     throw new SoatError(400, 'RN-05: para cambiar el proveedor de un SOAT en adquisición, primero hay que reversarlo a Pendiente con justificación.');
   }
   if (!motivo?.trim()) throw new SoatError(400, 'El motivo del cambio de proveedor es obligatorio');
+  const [prov] = await db.select({ id: flitoProveedoresSoat.id }).from(flitoProveedoresSoat).where(eq(flitoProveedoresSoat.id, proveedorSoatId)).limit(1);
+  if (!prov) throw new SoatError(404, 'El proveedor no existe');
 
   const anterior = soat.proveedorSoatId;
-  return db.transaction(async (tx) => {
-    // RN-PROV-5: inactivo, eliminado o sin servicio SOAT → 409. El FOR SHARE va antes de tocar `flito_soat` (ADR-0039).
-    await exigirProveedorSoatUsable(tx, proveedorSoatId);
-    const [updated] = await tx.update(flitoSoat)
-      .set({ proveedorSoatId, proveedorSobrescrito: true, updatedAt: new Date() })
-      .where(eq(flitoSoat.id, id)).returning();
-    return { soat: updated, anterior };
-  });
+  const [updated] = await db.update(flitoSoat)
+    .set({ proveedorSoatId, proveedorSobrescrito: true, updatedAt: new Date() })
+    .where(eq(flitoSoat.id, id)).returning();
+  return { soat: updated, anterior };
 }
 
 // ─────────────────── Traspaso de gestión: Operaciones ↔ proveedor (HU #11153) ─
@@ -1797,10 +1768,12 @@ export async function devolverAlGestor(id: string, proveedorSoatId: string, moti
   if (!soat.gestionOperaciones) throw new SoatError(400, 'Este SOAT no lo gestiona Operaciones: no hay nada que devolver');
   if (!ESTADOS_TRASPASO_GESTION.includes(soat.estado as EstadoSoat)) throw noAdmiteTraspaso(soat.estado as EstadoSoat);
 
+  const [prov] = await db.select({ id: flitoProveedoresSoat.id }).from(flitoProveedoresSoat)
+    .where(eq(flitoProveedoresSoat.id, proveedorSoatId)).limit(1);
+  if (!prov) throw new SoatError(404, 'El proveedor no existe');
+
   const ahora = new Date();
   return db.transaction(async (tx) => {
-    // RN-PROV-5: inactivo, eliminado o sin servicio SOAT → 409. El FOR SHARE va antes de tocar `flito_soat` (ADR-0039).
-    await exigirProveedorSoatUsable(tx, proveedorSoatId);
     const [updated] = await tx.update(flitoSoat).set({
       gestionOperaciones: false,
       gestionOperacionesMotivo: null,
