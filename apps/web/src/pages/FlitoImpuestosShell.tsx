@@ -6,7 +6,8 @@
 // rediseño solo cambia la piel, no el patrón de teclado ni los aria.
 // Épica #14560 (ronda 2): la cabecera es la MISMA que la del SOAT —miga del grupo del dock y las
 // acciones de la cola dentro, a la derecha—. Las acciones las pinta la cola en el hueco que deja
-// aquí (`AccionesCabecera`), porque dependen de su estado.
+// aquí (`AccionesCabecera`), porque dependen de su estado. Desde la HU #14665 «Certificar sin trámite»
+// usa el mismo hueco y la cabecera cambia el subtítulo con la pestaña.
 import { lazy, Suspense, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PageContentSkeleton from '../components/flit/PageContentSkeleton';
@@ -21,6 +22,11 @@ type Vista = 'cola' | 'certificar';
 /** Misma miga que la cola SOAT: el grupo del dock. */
 const MIGA_IMPUESTOS = [{ etiqueta: 'Impuestos y SOAT' }];
 export const FUNCION_CERTIFICAR = 'impuestos.certificacion_directa.gestionar';
+/** El subtítulo de la cabecera cambia con la pestaña (HU #14665). */
+const SUBTITULO: Record<Vista, string> = {
+  cola: 'Cola de pago del impuesto vehicular: de Pendiente a Pagado.',
+  certificar: 'Certifica ante el RUNT los vehículos que no tienen trámite en FLITO.',
+};
 
 export default function FlitoImpuestosShell({ vista }: { vista: Vista }) {
   const { hasFuncion } = useAuth();
@@ -49,11 +55,11 @@ export default function FlitoImpuestosShell({ vista }: { vista: Vista }) {
     <div className="space-y-4">
       <PageHeaderCard
         title="Impuestos"
-        subtitle="Cola de pago del impuesto vehicular: de Pendiente a Pagado."
+        subtitle={SUBTITULO[vista]}
         icono="flito-impuestos"
         miga={MIGA_IMPUESTOS}
-        // Solo la cola tiene acciones de cabecera; «Certificar sin trámite» no deja hueco vacío.
-        actions={vista === 'cola' ? <div ref={setHueco} className="contents" data-hueco="acciones-cabecera" /> : undefined}
+        // Las dos pestañas pintan sus acciones aquí (HU #14665: «Nueva certificación» / «Volver al listado»).
+        actions={<div ref={setHueco} className="contents" data-hueco="acciones-cabecera" />}
       />
       {tabs.length > 1 && (
         <div role="tablist" aria-label="Secciones de Impuestos" className="kit-pestanas" data-kit="pestanas">
@@ -80,7 +86,7 @@ export default function FlitoImpuestosShell({ vista }: { vista: Vista }) {
         </div>
       )}
       <div role="tabpanel" id="imp-panel" aria-labelledby={`imp-tab-${vista}`}>
-        <ProveedorHuecoCabecera value={vista === 'cola' ? hueco : null}>
+        <ProveedorHuecoCabecera value={hueco}>
           <Suspense fallback={<PageContentSkeleton />}>
             {vista === 'certificar' ? <FlitoImpuestosCertificar /> : <FlitoImpuestos />}
           </Suspense>

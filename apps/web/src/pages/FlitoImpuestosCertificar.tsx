@@ -1,26 +1,37 @@
 // Certificar un impuesto ante el RUNT sin trámite. La factura se carga aquí.
 // El certificado se genera al descargar y no se archiva.
-import { useCallback, useEffect, useState } from 'react';
+// HU #14665: patrón unificado de colas (Épica #14560) — la acción va al hueco de la cabecera del shell,
+// embudo de estado + búsqueda filtran EN EL NAVEGADOR sobre las ≤100 filas que trae la lista (sin
+// cambio de API), y la selección se recorta a lo visible. El texto buscado vive solo en el estado de
+// React, nunca en la URL (Ley 1581).
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CAMPO_COMPARACION_FACTURA_RUNT_LABEL, type ComparacionCampoFacturaRunt } from '@operaciones/shared-types';
 import CertificarEditor, { type Borrador, type CampoLeido } from './FlitoImpuestosCertificarEditor';
 import DataTable, { type ColumnaTabla } from '../components/flit/DataTable';
 import { BarraAccion } from '../components/flit/Bloques';
 import GradientButton from '../components/flit/GradientButton';
 import InlineAlert from '../components/flit/InlineAlert';
-import StatusChip, { type ChipTone } from '../components/flit/StatusChip';
 import { FlitCard } from '../components/flit/flitPageKit';
+import BarraFiltrosCola from '../components/flito/BarraFiltrosCola';
+import EmbudoEstadoCola, { type OpcionEmbudo } from '../components/flito/EmbudoEstadoCola';
+import { AccionesCabecera } from '../components/flito/impuestos/AccionesCabecera';
+import ChipEstadoCertificacion, {
+  ESTADO_CERTIFICACION, ESTADOS_CERTIFICACION, type EstadoCertificacion,
+} from '../components/flito/impuestos/ChipEstadoCertificacion';
+import { columnasCertificar } from '../components/flito/impuestos/CertificarColumnas';
 import { AvisoCertificadosZip, DescargarCertificadosZip } from '../components/flito/DescargarCertificadosZip';
 import { useDescargaCertificadosDirecta } from '../components/flito/DescargarCertificadosCertificacionDirecta';
 import { api, errorMessage } from '../lib/api';
 
 const BASE = '/flito/impuestos/certificacion-directa';
 
-type Estado = 'radicado' | 'sin_respuesta' | 'sin_vehiculo' | 'sin_coincidencia' | 'certificado';
+type Estado = EstadoCertificacion;
+/** Tope de filas que devuelve la lista (`TOPE_LISTA` del backend): con él, la nota del §4 de la spec. */
+const TOPE_LISTA = 100;
+const ERROR_LISTA = 'No se pudieron cargar las certificaciones. Revisa tu conexión e intenta de nuevo.';
 
 interface Fila {
   id: string;
-  organismoCodigo: string;
-  organismoNombre: string;
   /** Opcional desde la HU #14665: la consulta RUNT ya no depende de la placa, solo del VIN. */
   placa: string | null;
   tipoDocumentoPropietario: string | null;
@@ -43,13 +54,24 @@ const VACIO: Borrador = {
   vin: '', marca: '', linea: '', anio: '', color: '', cilindrada: '',
 };
 
-const ESTADO: Record<Estado, { texto: string; tono: ChipTone; aviso: string }> = {
-  radicado: { texto: 'Guardado', tono: 'draft', aviso: 'El registro quedó guardado. Consulta el RUNT cuando quieras.' },
-  sin_respuesta: { texto: 'Sin respuesta', tono: 'warning', aviso: 'El RUNT no respondió. El registro quedó guardado. Puedes consultar de nuevo.' },
-  sin_vehiculo: { texto: 'Sin vehículo', tono: 'warning', aviso: 'El RUNT no tiene registro de este VIN.' },
-  sin_coincidencia: { texto: 'No coincide', tono: 'danger', aviso: 'Los datos no coinciden con el RUNT. Corrige y vuelve a consultar.' },
-  certificado: { texto: 'Certificado', tono: 'success', aviso: 'Los datos coincidieron. Puedes descargar el certificado.' },
+// Texto y tono del chip viven en `ChipEstadoCertificacion`; aquí, el aviso de cada resultado.
+const ESTADO: Record<Estado, { aviso: string }> = {
+  radicado: { aviso: 'El registro quedó guardado. Consulta el RUNT cuando quieras.' },
+  sin_respuesta: { aviso: 'El RUNT no respondió. El registro quedó guardado. Puedes consultar de nuevo.' },
+  sin_vehiculo: { aviso: 'El RUNT no tiene registro de este VIN.' },
+  sin_coincidencia: { aviso: 'Los datos no coinciden con el RUNT. Corrige y vuelve a consultar.' },
+  certificado: { aviso: 'Los datos coincidieron. Puedes descargar el certificado.' },
 };
+
+const OPCIONES_EMBUDO: OpcionEmbudo<Estado | ''>[] = [
+  { valor: '', etiqueta: 'Todos' },
+  ...ESTADOS_CERTIFICACION.map((e) => ({ valor: e, etiqueta: ESTADO_CERTIFICACION[e].texto })),
+];
+
+/** Sin mayúsculas, tildes, espacios ni guiones: «ZZA-101» encuentra «zza101» y «Pérez» a «perez». */
+function normalizar(t: string): string {
+  return t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[\s-]+/g, '');
+}
 
 // Resultados de consulta que dejan algo por hacer: su aviso reaparece al reabrir el registro.
 const CON_AVISO_AL_ABRIR = new Set<Estado>(['sin_respuesta', 'sin_vehiculo', 'sin_coincidencia']);
@@ -118,13 +140,36 @@ export default function FlitoImpuestosCertificar() {
     setFilas(null);
     try {
       setFilas(await api.get<Fila[]>(BASE));
-    } catch (e) {
+    } catch {
+      // Nunca el error crudo del API: el copy fijo del patrón y el reintento de la tabla.
       setFilas([]);
-      setErrorLista(avisoDe(e));
+      setErrorLista(ERROR_LISTA);
     }
   }, []);
 
   useEffect(() => { void cargarLista(); }, [cargarLista]);
+
+  // Embudo y búsqueda (HU #14665, P-1): en el navegador, sobre las filas ya cargadas.
+  const [estadoFiltro, setEstadoFiltro] = useState<Estado | ''>('');
+  const [texto, setTexto] = useState('');
+  const hayFiltros = estadoFiltro !== '' || texto.trim() !== '';
+  const visibles = useMemo(() => {
+    const q = normalizar(texto);
+    return (filas ?? []).filter((f) => (estadoFiltro === '' || f.estado === estadoFiltro)
+      && (!q || [f.placa ?? '', f.vin, f.nombrePropietario ?? ''].some((v) => normalizar(v).includes(q))));
+  }, [filas, estadoFiltro, texto]);
+  const topeAlcanzado = (filas?.length ?? 0) >= TOPE_LISTA;
+  function limpiarFiltros() { setEstadoFiltro(''); setTexto(''); }
+
+  // P-2: la selección se recorta a las filas visibles; ninguna acción en lote toca lo que no se ve.
+  useEffect(() => {
+    if (filas === null) return;
+    const ids = new Set(visibles.map((f) => f.id));
+    setSeleccion((s) => {
+      if ([...s].every((id) => ids.has(id))) return s;
+      return new Set([...s].filter((id) => ids.has(id)));
+    });
+  }, [visibles, filas]);
 
   /** La placa de una fila seleccionada, o su VIN si no tiene (muchos registros aquí no tienen placa). */
   const placaDe = useCallback((id: string): string | null => {
@@ -295,37 +340,38 @@ export default function FlitoImpuestosCertificar() {
 
   const certificado = fila?.estado === 'certificado';
 
-  const columnasLista: ColumnaTabla<Fila>[] = [
-    { key: 'placa', header: 'Placa', render: (f) => f.placa || '—' },
-    { key: 'vin', header: 'VIN', render: (f) => <span className="break-all">{f.vin}</span> },
-    { key: 'propietario', header: 'Propietario', render: (f) => f.nombrePropietario || '—' },
-    { key: 'estado', header: 'Estado', render: (f) => <StatusChip tone={ESTADO[f.estado].tono}>{ESTADO[f.estado].texto}</StatusChip> },
-    {
-      key: 'acciones', header: 'Acciones', acciones: true,
-      render: (f) => (
-        <div className="flex items-center justify-end gap-2 whitespace-nowrap">
-          {/* AC6: lo certificado no se puede eliminar, así que la acción ni se ofrece. */}
-          {f.estado !== 'certificado' && (
-            <GradientButton variant="alerta" size="sm" disabled={eliminandoId === f.id} onClick={() => void eliminar(f)}>
-              {eliminandoId === f.id ? 'Eliminando…' : 'Eliminar'}
-            </GradientButton>
-          )}
-          <GradientButton variant="secondary" size="sm" onClick={() => abrirDetalle(f)}>Abrir</GradientButton>
-        </div>
-      ),
+  const todasVisibles = visibles.length > 0 && visibles.every((f) => seleccion.has(f.id));
+  const columnasLista = columnasCertificar<Fila>({
+    seleccion: {
+      todas: todasVisibles,
+      onTodas: (marcar) => setSeleccion(marcar ? new Set(visibles.map((f) => f.id)) : new Set()),
+      marcada: (f) => seleccion.has(f.id),
+      onFila: (f) => setSeleccion((s) => {
+        const n = new Set(s);
+        if (n.has(f.id)) n.delete(f.id); else n.add(f.id);
+        return n;
+      }),
     },
-  ];
+    acciones: (f) => (
+      <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+        {/* AC6: lo certificado no se puede eliminar, así que la acción ni se ofrece. */}
+        {f.estado !== 'certificado' && (
+          <GradientButton variant="alerta" size="sm" disabled={eliminandoId === f.id} onClick={() => void eliminar(f)}>
+            {eliminandoId === f.id ? 'Eliminando…' : 'Eliminar'}
+          </GradientButton>
+        )}
+        <GradientButton variant="secondary" size="sm" onClick={() => abrirDetalle(f)}>Abrir</GradientButton>
+      </div>
+    ),
+  });
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Sección dentro del shell de Impuestos: la h1 es la cabecera del módulo; aquí va una h2. */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1 basis-72">
-          <h2 className="m-0 text-xl font-bold text-[color:var(--color-text-primary)]">Certificar sin trámite</h2>
-          <p className="mt-1 text-sm text-[color:var(--color-text-secondary)]">
-            Carga la factura de venta, completa los datos y consulta el RUNT. Quien tiene el permiso ve los registros de esta pantalla.
-          </p>
-        </div>
+      {/* Sección dentro del shell de Impuestos: la h1 es la cabecera del módulo; la h2 sostiene la
+          jerarquía para el lector de pantalla. El subtítulo lo pone la cabecera según la pestaña. */}
+      <h2 className="sr-only">Certificar sin trámite</h2>
+      {/* La acción va al hueco de la cabecera del módulo, como la carga masiva de la cola. */}
+      <AccionesCabecera>
         {vista === 'lista' ? (
           <GradientButton onClick={() => void abrirAlta()}>
             Nueva certificación
@@ -335,7 +381,7 @@ export default function FlitoImpuestosCertificar() {
             Volver al listado
           </GradientButton>
         )}
-      </div>
+      </AccionesCabecera>
 
       {aviso && (
         <InlineAlert tono={INFORMATIVO.has(aviso) ? 'info' : 'danger'}>{aviso}</InlineAlert>
@@ -343,6 +389,30 @@ export default function FlitoImpuestosCertificar() {
 
       {vista === 'lista' && (
         <>
+          {/* Avisos persistentes juntos, arriba de los filtros (spec §5.4). */}
+          <AvisoCertificadosZip
+            ocupado={descargaCert.ocupado}
+            marcadas={descargaCert.marcadas}
+            aviso={descargaCert.aviso}
+            onReintentar={descargaCert.reintentar}
+            onDescartar={descargaCert.descartar}
+          />
+          {avisoLote && <InlineAlert tono={avisoLote.tono}>{avisoLote.texto}</InlineAlert>}
+          <BarraFiltrosCola
+            embudo={(
+              <EmbudoEstadoCola modulo="certificacion" ariaLabel="Estados de la certificación"
+                opciones={OPCIONES_EMBUDO} valor={estadoFiltro} onCambio={setEstadoFiltro} />
+            )}
+            texto={texto} setTexto={setTexto}
+            placeholder="Buscar placa, VIN o propietario"
+            vistas={[]} vista={null} onVista={() => undefined}
+            hayFiltros={hayFiltros} limpiarFiltros={limpiarFiltros}
+            pie={topeAlcanzado ? (
+              <p role="status" className="mt-3 mb-0 text-xs text-[color:var(--color-text-tertiary)]">
+                Se muestran las {TOPE_LISTA} certificaciones más recientes.
+              </p>
+            ) : undefined}
+          />
           {/* HU #14665 (AC7/AC8): barra de selección, igual patrón que la cola de Impuestos. */}
           {seleccion.size > 0 && (
             <BarraAccion accion={(
@@ -364,28 +434,21 @@ export default function FlitoImpuestosCertificar() {
               <strong>{seleccion.size} seleccionado(s)</strong>
             </BarraAccion>
           )}
-          {avisoLote && <InlineAlert tono={avisoLote.tono}>{avisoLote.texto}</InlineAlert>}
-          <AvisoCertificadosZip
-            ocupado={descargaCert.ocupado}
-            marcadas={descargaCert.marcadas}
-            aviso={descargaCert.aviso}
-            onReintentar={descargaCert.reintentar}
-            onDescartar={descargaCert.descartar}
-          />
           <DataTable
             ariaLabel="Certificaciones sin trámite"
             columnas={columnasLista}
-            filas={filas ?? []}
+            filas={visibles}
             getKey={(f) => f.id}
             status={errorLista ? 'error' : filas === null ? 'loading' : 'ready'}
             errorMessage={errorLista ?? undefined}
             onRetry={() => void cargarLista()}
-            emptyMessage="Todavía no hay certificaciones. Carga una factura de venta para empezar."
-            seleccion={{
-              seleccionados: seleccion,
-              onCambio: setSeleccion,
-              etiquetaFila: (id) => `Seleccionar certificación ${placaDe(id) ?? ''}`.trim(),
-            }}
+            emptyMessage={hayFiltros && (filas?.length ?? 0) > 0
+              ? 'Ninguna certificación coincide con los filtros. Quita algún filtro o usa «Limpiar filtros».'
+              : 'Todavía no hay certificaciones. Carga una factura de venta para empezar.'}
+            emptyDetalle={hayFiltros && topeAlcanzado
+              ? `La búsqueda solo cubre las ${TOPE_LISTA} certificaciones más recientes.`
+              : undefined}
+            filaMarcada={(f) => seleccion.has(f.id)}
           />
         </>
       )}
@@ -412,7 +475,7 @@ export default function FlitoImpuestosCertificar() {
           debajo={vista === 'detalle' && fila ? (
             <FlitCard>
               <div className="flex flex-col gap-3">
-                <div><StatusChip tone={ESTADO[fila.estado].tono}>{ESTADO[fila.estado].texto}</StatusChip></div>
+                <div><ChipEstadoCertificacion estado={fila.estado} /></div>
                 {certificado && (
                   <div>
                     <GradientButton onClick={() => void bajar('certificado')}>
