@@ -26,6 +26,11 @@ service-account*.json
 test-results/
 playwright-report/
 
+# Capturas, snapshots y consola del Playwright MCP (sesiones de pruebas y de flit-evidencias-dev):
+# llevan datos de pantalla de DEV —nombres de propietarios, placas, cédulas de prueba— y no son
+# fixtures. Quedaban como archivos sin seguimiento en la raíz, a un `git add .` de la historia.
+.playwright-mcp/
+
 # Muestras reales que se usan para probar el OCR y los flujos de SOAT a mano: reportes con nombre
 # de titular y PDFs nombrados por placa. Son datos personales de verdad (Ley 1581), no fixtures.
 # Sin esta regla dependían de que nadie escribiera `git add -A` en todo el repo — y meterlos en la
