@@ -21,7 +21,7 @@ Financiera (consulta el mapeo; sincroniza terceros). Administrador (edita el map
 
 ## Cómo se entra
 
-En la barra de navegación al pie de la pantalla, pulse **Finanzas** y, en el panel que se abre, el ítem **Facturación electrónica · Parametrización**. Las pestañas **Mapeo de conceptos** y **Terceros** son secciones de la misma pantalla. Si la sección no cabe en la barra, está en **Más**, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «parametrización».
+En la barra de navegación al pie de la pantalla, pulse **Financiera** y, en el panel que se abre, el ítem **Facturación electrónica · Parametrización**. Las pestañas **Mapeo de conceptos** y **Terceros** son secciones de la misma pantalla. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y abra la opción en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «parametrización».
 
 ## Pasos
 

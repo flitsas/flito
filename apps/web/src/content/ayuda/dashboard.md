@@ -25,7 +25,7 @@ Quien tenga el ítem **Tablero de control** en **Roles y permisos**. De partida 
 
 ## Cómo se entra
 
-Es lo primero que ve al iniciar sesión. Para volver a él, abra el menú **General** y pulse **Tablero de control**.
+Es lo primero que ve al iniciar sesión. Para volver a él, abra la opción **Gerencial** del menú y pulse **Tablero**, el primer ítem.
 
 > [!NOTA]
 > Si su usuario también tiene el Tablero FLITO, al entrar a FLITO verá ese tablero en lugar del Panel operativo. Para saber cómo se usa, consulte la ficha [Tablero](/flito/ayuda/flito_tablero).

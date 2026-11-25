@@ -20,7 +20,7 @@ Administrador y Financiera. Auditor, Proveedor, Gestor de Impuestos, Mensajero y
 
 ## Cómo se entra
 
-En la barra de navegación al pie de la pantalla, pulse **Finanzas** y, en el panel que se abre, el ítem **Servicios adicionales**. Está junto a **Tarifas**. Si la sección no cabe en la barra, está en **Más**, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «servicios adicionales».
+En la barra de navegación al pie de la pantalla, pulse **Financiera** y, en el panel que se abre, el ítem **Servicios adicionales**. Está junto a **Tarifas**. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y abra la opción en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «servicios adicionales».
 
 ## Pasos
 

@@ -23,7 +23,7 @@ Administrador (opera, configura la lectura y despacha). Auditor (solo lectura). 
 
 ## Cómo se entra
 
-En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el grupo **Trámites** del panel que se abre, el ítem **Gestión Trámites**. Si la sección no cabe en la barra, está en **Más**, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «trámites». También se entra desde el **Tablero**, al pulsar una alerta operativa (el listado llega con el filtro ya aplicado).
+En la barra de navegación al pie de la pantalla, pulse **Operaciones** y, en el panel que se abre, el ítem **Gestión Trámites**. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y abra la opción en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «trámites». También se entra desde el **Tablero**, al pulsar una alerta operativa (el listado llega con el filtro ya aplicado).
 
 ## Pasos
 

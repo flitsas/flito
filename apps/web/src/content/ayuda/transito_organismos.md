@@ -25,7 +25,7 @@ Quien tenga el ítem **Organismos de tránsito**. De partida, el Administrador. 
 
 ## Cómo se entra
 
-Menú **Tránsito**, ítem **Organismos de tránsito**.
+Menú **Administración**, ítem **Organismos STT**, el último de la opción.
 
 ## Pasos
 

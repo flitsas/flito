@@ -33,7 +33,7 @@ Logística muestra la operación de su empresa desde que empezó a operar en FLI
 
 ## Cómo se entra
 
-En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el panel que se abre, en el grupo **Logística**, el ítem **Logística**. Un usuario con rol **Proveedor** lo tiene de partida si su proveedor presta Logística. Si la sección no cabe en la barra, está en **Más**, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «logística».
+En la barra de navegación al pie de la pantalla, pulse **Operaciones** y, en el panel que se abre, el ítem **Logística**. Un usuario con rol **Proveedor** lo tiene de partida si su proveedor presta Logística. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y abra la opción en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «logística».
 
 ## Pasos
 
