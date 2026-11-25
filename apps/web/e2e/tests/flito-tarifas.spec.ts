@@ -124,7 +124,7 @@ async function irAlMes(page: Page, anio: number, mes: number): Promise<void> {
 test.describe('FLITO — Tarifas · acceso (AC12)', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('financiera entra, la lista pide clientes y abiertas, y el menú ofrece Tarifas en Finanzas', async ({ page }) => {
+  test('financiera entra, la lista pide clientes y abiertas, y el menú ofrece Tarifas en Financiera', async ({ page }) => {
     await loginAs(page, FINANCIERA_USER);
     const vistas = espiar(page);
     await mockBase(page);
@@ -138,7 +138,7 @@ test.describe('FLITO — Tarifas · acceso (AC12)', () => {
     expect(vistas).toContain('GET /api/flito/parametrizacion/tarifas');
 
     const nav = page.getByRole('navigation', { name: 'Navegación principal' });
-    await nav.getByRole('button', { name: 'Finanzas', exact: true }).click();
+    await nav.getByRole('button', { name: 'Financiera', exact: true }).click();
     const enlace = page.getByRole('link', { name: 'Tarifas', exact: true });
     await expect(enlace).toBeVisible();
     await expect(enlace).toHaveAttribute('href', '/flito/tarifas');

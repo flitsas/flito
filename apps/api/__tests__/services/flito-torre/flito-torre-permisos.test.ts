@@ -183,7 +183,8 @@ describe('reparto de la Torre (plegadas las migraciones)', () => {
   it('las gerencias no reciben nada fuera de la Torre salvo lo universal de todo rol nuevo (Perfil, manuales de Dr. Flit)', () => {
     for (const rol of ['gerencia_comercial', 'gerencia_general']) {
       const fuera = de(rol).filter((f) => !f.includes('torre')).sort();
-      expect(fuera.filter((f) => !['menu.general', 'menu.administracion', 'menu.perfil'].includes(f))).toEqual([
+      // Épica #14678: la 0315 les da `menu.gerencial` (la Torre cuelga ahora de Gerencial).
+      expect(fuera.filter((f) => !['menu.general', 'menu.gerencial', 'menu.administracion', 'menu.perfil'].includes(f))).toEqual([
         'accion.dr_flit.ver_manuales', 'accion.perfil.cambiar_contrasena', 'accion.perfil.ver_datos', 'pagina.flito_dr_flit', 'pagina.perfil',
       ]);
     }

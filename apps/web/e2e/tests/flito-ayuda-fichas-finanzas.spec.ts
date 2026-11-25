@@ -80,7 +80,8 @@ test.describe('FLITO — Ayuda · fichas de finanzas (HU #11895)', () => {
   test('TC-11895-03 AC1 — Credenciales publicada; Ir a la pantalla real; no aliasa a Parametrización (HU #12872)', async ({ page }) => {
     const md = leerFicha(FICHA_CREDENCIALES.clave);
     const entra = seccion(md, 'Cómo se entra');
-    expect(entra).toMatch(/Administración/);
+    // Épica #14678: Integración con Siigo pasó de Administración a la opción Financiera.
+    expect(entra).toMatch(/pulse \*\*Financiera\*\*/);
     expect(entra).toMatch(/Integración con Siigo/);
     expect(entra).not.toMatch(/NAV_ITEMS/);
     expect(entra).toMatch(/Credenciales RNDC/);

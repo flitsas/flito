@@ -12,6 +12,8 @@
 //     permisos_roles` de la 0227 corregida, que en un ambiente sin el rol también da 0 filas.
 //   · Solo literales del código (códigos, nombres): comilla doblada, nada de entrada externa (regla 3).
 import { catalogoCompleto, type FuncionCatalogo } from '../catalogo.js';
+// Épica #14678: migraciones ya aplicadas — se regeneran con el árbol de antes de la 0315 (menú por áreas).
+import { catalogoAntesDeAreas } from './menu-por-areas.js';
 import {
   ACCIONES_ARBOL, ACCIONES_POR_ALGUNA, ACCIONES_POR_AREA, ACCIONES_UNIVERSALES, CONJUNCIONES_ARBOL, paginaDeAccion, predecesoresDe,
   predecesorNoAbsorbido, ROL_CON_TODAS_LAS_ACCIONES, type AreaArbol,
@@ -49,7 +51,8 @@ export const TMP_LECTURA = 'tmp_lectura_12873';
 export const TMP_UMBRAL = 'tmp_umbral_12873';
 
 /** Siembra de un área: sus acciones (padres antes que hijas) y el `nivel`/`orden` de sus páginas que son ítem. */
-export function sqlSiembraArbol(area: AreaArbol = 'gestion', catalogo: FuncionCatalogo[] = catalogoCompleto()): string {
+export function sqlSiembraArbol(area: AreaArbol = 'gestion', catalogoDeHoy: FuncionCatalogo[] = catalogoCompleto()): string {
+  const catalogo = catalogoAntesDeAreas(catalogoDeHoy);
   const delArea = new Set(accionesSembradasDe(area));
   const acciones = catalogo.filter((f) => f.tipo === 'accion' && delArea.has(f.codigo));
   const paginasDelArea = new Set(acciones.map((f) => itemDe(f, catalogo)));

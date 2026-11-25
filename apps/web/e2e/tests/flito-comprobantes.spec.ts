@@ -113,7 +113,7 @@ test.describe('HU #12612 · AC1 — página, menú y ayuda', () => {
     await mockCola(page, LISTA_VACIA);
     await page.goto('/');
     const nav = page.getByRole('navigation', { name: 'Navegación principal' });
-    await nav.getByRole('button', { name: 'Finanzas', exact: true }).click();
+    await nav.getByRole('button', { name: 'Financiera', exact: true }).click();
     const enlace = nav.getByRole('link', { name: 'Comprobantes', exact: true });
     await expect(enlace).toHaveAttribute('href', RUTA);
     await enlace.click();
@@ -140,7 +140,7 @@ test.describe('HU #12612 · AC1 — página, menú y ayuda', () => {
     await page.goto('/');
     const nav = page.getByRole('navigation', { name: 'Navegación principal' });
     await expect(nav).toBeVisible();
-    const finanzas = nav.getByRole('button', { name: 'Finanzas', exact: true });
+    const finanzas = nav.getByRole('button', { name: 'Financiera', exact: true });
     if (await finanzas.count()) await finanzas.click();
     await expect(nav.getByRole('link', { name: 'Comprobantes', exact: true })).toHaveCount(0);
     await page.goto(RUTA);

@@ -10,6 +10,7 @@ import type { FilaRolEnSeco, FilaUsuarioEnSeco, UsuarioEnSeco } from '../reparto
 import { expandir, expandirComoEn13429, SUELTAS_INCORPORADAS_13588 } from './expansion.js';
 import type { FilasReparto } from './reparto-arbol.js';
 import { OPERACIONES_INCORPORADAS_13588 } from './acciones-legado.js';
+import { PADRE_ANTES_DE_AREAS } from './menu-por-areas.js';
 
 /** El ítem nuevo de Administración (`pagina.admin_rendimiento`) y su elemento. */
 export const ITEM_RENDIMIENTO = 'pagina.admin_rendimiento';
@@ -83,7 +84,8 @@ function efectivoDe(rolCodigos: Iterable<string>, propias: FilaUsuarioEnSeco[], 
   const revocados = propias.filter((f) => f.efecto === 'revocar').map((f) => f.codigo);
   for (const r of revocados) m.delete(r);
   // «Hoy» = el resolutor de la #13429: la transversal marcada valía sola; ningún ítem la daba.
-  return acceso(antes ? expandirComoEn13429(m, revocados) : expandir(m, revocados));
+  // Épica #14678: los dos lados con el árbol de la 0240 (antes de la 0315, menú por áreas).
+  return acceso(antes ? expandirComoEn13429(m, revocados, PADRE_ANTES_DE_AREAS) : expandir(m, revocados, PADRE_ANTES_DE_AREAS));
 }
 
 export interface CambioSueltos { pierde: string[]; gana: string[] }

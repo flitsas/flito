@@ -11,12 +11,12 @@ consultas:
   - cómo cargo la factura del SOAT
   - qué hago si el comprobante del SOAT tiene contraseña
   - el nombre del archivo es la contraseña del PDF
-version: 1.20
-fecha: 2026-11-23
+version: 1.21
+fecha: 2026-11-25
 ---
 ## Qué es
 
-Cola FLITO de adquisición del SOAT. El SOAT se ancla al VIN y solo pasa a **Pagado** cuando usted carga una factura validada. Esta es la cola con rótulo **SOAT** en Gestión. No es el módulo legado de pólizas.
+Cola FLITO de adquisición del SOAT. El SOAT se ancla al VIN y solo pasa a **Pagado** cuando usted carga una factura validada. Esta es la cola con rótulo **SOAT** en Operaciones. No es el módulo legado de pólizas.
 
 ## Para quién
 
@@ -24,7 +24,7 @@ Proveedor (ve **Solicitado** y **Pagado** de su cartera; nunca los **Pendiente**
 
 ## Cómo se entra
 
-En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el grupo **SOAT e Impuestos** del panel que se abre, el ítem **SOAT**. Si la sección no cabe en la barra, está en **Más**, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «SOAT».
+En la barra de navegación al pie de la pantalla, pulse **Operaciones** y, en el panel que se abre, el ítem **SOAT**. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y abra la opción en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «SOAT».
 
 ## Pasos
 

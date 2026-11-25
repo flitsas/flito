@@ -33,6 +33,7 @@ import { ITEMS_LEGADO_OPS } from './arbol/acciones-legado.js';
 import { ACCIONES_NACIDAS_TRAS_LA_SIEMBRA, OPERACIONES_NACIDAS_EN_EL_ARBOL } from './arbol/acciones-finanzas.js';
 import { ITEMS_ADMINISTRACION_OPS } from './arbol/acciones-administracion.js';
 import { REPARTO_TORRE } from './arbol/acciones-torre.js';
+import { ELEMENTO_ANTERIOR } from './arbol/menu-por-areas.js';
 import { NOMBRES_LEGADO } from './catalogo-operaciones.legado.js';
 
 export interface FuncionCatalogo {
@@ -412,7 +413,10 @@ export function catalogoCompleto(guardas?: GuardaLeida[]): FuncionCatalogo[] {
   }
   for (const e of ELEMENTOS_PERMISOS.filter((x) => !x.derivado)) {
     const roles = new Set<string>();
-    for (const [pagina, rs] of rolesPorCodigo) if (PADRE.get(pagina) === e.codigo) for (const r of rs) roles.add(r);
+    // Épica #14678 (ADR-0048, expand): también los roles de las páginas que la 0315 le quitó — no pierde marcas.
+    for (const [pagina, rs] of rolesPorCodigo) {
+      if (PADRE.get(pagina) === e.codigo || ELEMENTO_ANTERIOR.get(pagina) === e.codigo) for (const r of rs) roles.add(r);
+    }
     salida.push({
       codigo: e.codigo, modulo: e.codigo.slice(PREFIJO_ELEMENTO.length), nombreNegocio: e.nombre,
       descripcion: `Ver la sección «${e.nombre}» del menú.`, tipo: 'elemento', roles: [...roles].sort(), nivel: 1, orden: e.orden,

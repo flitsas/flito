@@ -9,12 +9,12 @@ consultas:
   - qué puede hacer cada rol
   - cómo doy acceso a una pantalla
   - por qué no puedo marcar una función en un rol
-version: 1.4
-fecha: 2026-11-17
+version: 1.5
+fecha: 2026-11-25
 ---
 ## Qué es
 
-La pantalla donde se decide **qué puede ver y hacer cada rol** dentro de FLITO. Muestra la lista de roles con cuántos permisos tiene cada uno y, al lado, los **Permisos del rol** seleccionado, ordenados igual que el menú: cada **elemento del menú** (Gestión, Finanzas, Administración…) contiene sus **ítems** (las pantallas), y cada ítem sus **acciones** (ver, crear, exportar…). Todo lo que se reparte está dentro del menú: no hay permisos sueltos aparte. Desde aquí también se crean, editan y borran roles.
+La pantalla donde se decide **qué puede ver y hacer cada rol** dentro de FLITO. Muestra la lista de roles con cuántos permisos tiene cada uno y, al lado, los **Permisos del rol** seleccionado, ordenados igual que el menú: cada **elemento del menú** (Operaciones, Financiera, Administración…) contiene sus **ítems** (las pantallas), y cada ítem sus **acciones** (ver, crear, exportar…). Todo lo que se reparte está dentro del menú: no hay permisos sueltos aparte. Desde aquí también se crean, editan y borran roles.
 
 ## Para quién
 
@@ -52,6 +52,7 @@ Algunos casos del árbol llevan su propia nota:
 - Las operaciones **Opcional** (por ejemplo, ver el documento del propietario sin enmascarar) no vienen con su ítem: se marcan aparte.
 - Un ítem marcado sin ninguna acción avisa «Marcado sin ninguna acción: …»; marque al menos una o desmarque el ítem.
 - **Ayuda** no se marca: cada usuario la ve sola, con los capítulos de lo que puede usar.
+- **Comercial**, **Diseño**, **Tecnología**, **Infraestructura** y **Producto** aún no tienen pantallas: no se despliegan y en lugar de «k de n» dicen «Sin pantallas aún». Al marcar una, el área aparece en el menú de quien tenga el rol con el aviso «Próximamente», sin dar acceso a ninguna pantalla. Ningún rol las trae marcadas; **Marcar todo** sí las marca.
 - Algunas funciones son **exclusivas del Administrador** (por ejemplo, **Eliminar clientes**): solo el rol Administrador las tiene. En cualquier otro rol salen desmarcadas y bloqueadas con la nota «Exclusiva del Administrador: no se puede dar a otro rol.», y no cuentan en el «k de n» del ítem. En el rol Administrador salen marcadas y bloqueadas con la nota «Exclusiva del Administrador: este rol siempre la tiene.». Si un rol las traía marcadas de antes, salen desmarcadas y el siguiente guardado las quita.
 - En un rol con enlace, los ítems de las pantallas que ese enlace cierra salen deshabilitados con la nota «Cerrado por el enlace «Compañía»: este rol no lo verá aunque lo marque». Tampoco aparecen en el menú de quien tenga el rol, y **Marcar todo** no los marca.
 - Algunas operaciones se usan desde varias pantallas y **vienen con el módulo donde se usan**, sin casilla propia: consultar vehículos viene con **Vehículos**, **SOAT antiguo**, **Flota** y **Trámite Digital**; consultar una persona en el RUNT, leer la cédula y buscar en Fasecolda vienen con **Trámite Digital**, que incluye Traspaso. Basta con marcar el ítem.

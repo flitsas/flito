@@ -180,27 +180,31 @@ test.describe('FLITO — Ayuda · índice', () => {
     await expect(page.getByRole('link', { name: 'Ir a la pantalla Tablero' })).toHaveAttribute('href', '/');
   });
   test('HU #13431 — cada grupo del índice sigue el orden del menú (NAV_ENTRADAS)', async ({ page }) => {
-    // Fuente: el orden de `page:` en navEntradas.ts por sección, y el de `permiso:` en el catálogo.
+    // Fuente: el orden de `page:` en navEntradas.ts, y el de `permiso:` en el catálogo.
+    // Épica #14678: el menú pasó a opciones por área y Ayuda CONSERVA sus grupos (GRUPOS_ORDEN, decisión del
+    // humano), así que ya no hay correspondencia grupo de Ayuda ↔ opción del menú. Lo que se protege sigue: cada
+    // ficha es un ítem del menú y, dentro de cada grupo de Ayuda, las fichas van en el orden de NAV_ENTRADAS
+    // (se compara por `page`/`to`, no por `section`).
     const nav = readFileSync(resolve(raiz, 'apps/web/src/components/shell/navEntradas.ts'), 'utf8');
     // HU #13774: `privacy` es el PageSlug de dos ítems del menú (Log accesos PII y Privacidad y datos); se
     // distinguen por su `to`, que el catálogo copia del menú.
     const ordenMenu = [...nav.matchAll(/\{ page: '(\w+)',(?:\s+to: '([^']+)',)?[^}]*section: '(\w+)'/g)]
-      .map((m) => ({ page: m[1], to: m[2], section: m[3] }));
+      .map((m) => ({ page: m[1], to: m[2] }));
     const cat = readFileSync(resolve(raiz, 'apps/web/src/content/ayuda/catalogo.ts'), 'utf8');
     const capitulos = [...cat.matchAll(/clave: '(\w+)', grupo: '(\w+)', etiqueta: '([^']+)'(?:, to: '([^']*)')?[^}]*permiso: '(\w+)'/g)]
       .map((m) => ({ clave: m[1], grupo: m[2], etiqueta: m[3], to: m[4], permiso: m[5] }));
     expect(capitulos.length).toBeGreaterThan(15);
-    const SECCION: Record<string, string> = { general: 'general', torre: 'torre', gestion: 'gestion', transito: 'transito', finanzas: 'finanzas', administracion: 'admin' };
+    const GRUPOS = ['general', 'torre', 'gestion', 'transito', 'finanzas', 'administracion'];
+    expect(new Set(capitulos.map((c) => c.grupo)), 'ningún grupo de Ayuda fuera de la lista').toEqual(new Set(GRUPOS));
     // El Tablero de General es el ítem `dashboard` del menú (P-11): su ficha cuelga de `flito_tablero`.
     const itemDelMenu = (permiso: string) => (permiso === 'flito_tablero' ? 'dashboard' : permiso);
     const esperado: Record<string, string[]> = {};
-    for (const grupo of Object.keys(SECCION)) {
+    for (const grupo of GRUPOS) {
       const delGrupo = capitulos.filter((c) => c.grupo === grupo);
       const posiciones = delGrupo.map((c) => {
         const exacto = ordenMenu.findIndex((e) => e.page === itemDelMenu(c.permiso) && e.to === c.to);
         const i = exacto >= 0 ? exacto : ordenMenu.findIndex((e) => e.page === itemDelMenu(c.permiso));
         expect(i, `${c.clave} es un ítem del menú`).toBeGreaterThanOrEqual(0);
-        expect(ordenMenu[i].section, `${c.clave} va en la sección de su grupo`).toBe(SECCION[grupo]);
         return i;
       });
       expect(posiciones, `orden de ${grupo}`).toEqual([...posiciones].sort((a, b) => a - b));
@@ -209,7 +213,7 @@ test.describe('FLITO — Ayuda · índice', () => {
 
     // Y lo que se pinta respeta ese orden (admin ve todas las fichas).
     await abrirAyuda(page, OPERACIONES_USER);
-    for (const grupo of Object.keys(SECCION)) {
+    for (const grupo of GRUPOS) {
       const enlaces = page.locator(`section[aria-labelledby="ayuda-grupo-${grupo}"] a`);
       await expect(enlaces).toHaveCount(esperado[grupo].length);
       const nombres = await enlaces.evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')));

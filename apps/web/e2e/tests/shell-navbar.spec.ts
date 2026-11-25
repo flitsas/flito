@@ -1,21 +1,24 @@
 // Shell sin sidebar — FlitNavBar, dock flotante al pie (HU #11143), revestido con el UI Kit 2026 (Épica #14560).
-// Cubre: dónde vive el dock, apertura de secciones hacia arriba y dentro del viewport, subgrupos de las secciones
-// grandes, una sola fila y nombres por ancho, contrato de teclado (disclosure APG + Escape que devuelve el foco)
-// y filtrado por permisos.
+// Cubre: dónde vive el dock, apertura de las opciones hacia arriba y dentro del viewport, rejilla y riel de
+// subgrupos, una sola fila con nombres por ancho, contrato de teclado (disclosure APG + Escape que devuelve el foco,
+// tablist del riel) y filtrado por permisos.
 //
-// Estructura = la del menú original; piel = la del kit 2026 (docs/ux/rediseno-2026):
-//   · un botón por sección del catálogo de permisos, en SECTION_ORDER y con sus nombres (General, Gestión,
-//     Tránsito, Flota, Mantenimiento, PESV, RNDC, LAFT, Finanzas, Administración, Ayuda); una sección de una sola
-//     página es enlace directo con el nombre del ítem (General → Tablero). Sin isotipo central ni reagrupado;
-//   · «Más» medido (desde 1024 px): las secciones que caben van con nombre; las que no, en el panel del «Más», en el
-//     mismo orden. Ya no hay modo solo-íconos;
+// Épica #14678 (menú por áreas, spec docs/ux/epica-14678-menu-por-areas.md):
+//   · un botón por opción del menú, en SECTION_ORDER y con sus nombres: Operaciones, Financiera, Gerencial, Kyverum,
+//     Administración y Ayuda (las áreas sin entradas no se pintan); una opción con una sola entrada es enlace directo
+//     con el nombre de la entrada. Sin isotipo central;
+//   · paneles sin scroll: rejilla de 3 columnas; Gerencial con el subencabezado «Torre de Control»; Kyverum (más de 24
+//     entradas) con riel vertical de siete subgrupos;
+//   · las seis opciones del admin caben en una fila desde 1024 px (sin «Más»);
 //   · la barra superior no tiene Notificaciones ni la rejilla de Productos;
 //   · <1024 px no hay dock: ☰ en el topbar + menú lateral (lo cubre shell-menu-responsive.spec.ts).
 import { test, expect } from '../helpers/fixtures';
 import { ARBOL_PERMISOS, ELEMENTOS_PERMISOS } from '@operaciones/shared-types';
+import { LoginPage } from '../pages/LoginPage';
 import {
-  loginAs, ADMIN_USER, PROVEEDOR_USER, OPERACIONES_USER, GESTOR_IMPUESTOS_USER, CONDUCTOR_USER,
+  loginAs, sobreDeMe, sobreDeMios, ADMIN_USER, PROVEEDOR_USER, OPERACIONES_USER, GESTOR_IMPUESTOS_USER, CONDUCTOR_USER, MENSAJERO_USER,
 } from '../helpers/auth';
+import { COPY_MENU_ERROR, COPY_MENU_VACIO } from '../../src/components/shell/useEstadoMenu';
 
 // El home (/) renderiza <FlitoTablero>, que consume /flito/tablero como OBJETO (no lista).
 // Sin este shape el dashboard antes reventaba y dejaba el shell en blanco.
@@ -54,50 +57,44 @@ const dockLocator = (page: import('@playwright/test').Page) =>
 const seccion = (clave: string) => ELEMENTOS_PERMISOS.find((n) => n.codigo === `menu.${clave}`)!.nombre;
 const item = (slug: string) => ARBOL_PERMISOS.find((n) => n.tipo === 'item' && n.slug === slug)!.nombre;
 
-/**
- * Lo que el admin ve en el dock, en orden: SECTION_ORDER; General, Flota y Ayuda tienen un solo ítem (enlace).
- * Épica #14590: «Torre de Control» es una sección propia por decisión humana (sin elemento en el catálogo: su rótulo
- * es fijo); con ella el admin tiene 12 y a 1920 px las del final pasan al «Más».
- */
+/** Lo que el admin ve en el dock, en orden (Épica #14678): SECTION_ORDER; Ayuda tiene una sola entrada (enlace). */
 const DOCK_ADMIN = () => [
-  item('dashboard'), 'Torre de Control', seccion('gestion'), seccion('transito'), item('fleet'), seccion('mantenimiento'),
-  seccion('pesv'), seccion('rndc'), seccion('laft'), seccion('finanzas'), seccion('administracion'), seccion('ayuda'),
+  seccion('operaciones'), seccion('financiera'), seccion('gerencial'), seccion('kyverum'), seccion('administracion'), seccion('ayuda'),
 ];
 
+/** Píldoras del dock en el orden del DOM (sin el indicador deslizante, que es decoración). */
+const PILDORAS = ':scope > .dock__grupo, :scope > a.dock__item';
+
 /** Nombres de las píldoras del dock en el orden del DOM (el rótulo sigue en el DOM aunque se condense). */
-const nombresDelDock = (page: import('@playwright/test').Page) => page.evaluate(() =>
-  Array.from(document.querySelector('[data-vt="floating-nav"]')!.children)
-    .map((k) => (k.querySelector('.dock__nombre')?.textContent ?? '').trim()));
+const nombresDelDock = (page: import('@playwright/test').Page) => page.evaluate((sel) =>
+  Array.from(document.querySelector('[data-vt="floating-nav"]')!.querySelectorAll(sel))
+    .map((k) => (k.querySelector('.dock__nombre')?.textContent ?? '').trim()), PILDORAS);
 
-/** Épica #14590: nombres de la fila (sin «Más») seguidos de los del panel del «Más», en orden. Deja el panel cerrado. */
-async function nombresFilaYMas(page: import('@playwright/test').Page) {
-  const fila = (await nombresDelDock(page)).filter((n) => n !== 'Más');
-  const mas = dockLocator(page).getByRole('button', { name: 'Más', exact: true });
-  await mas.click();
-  const enMas = await page.locator('#flit-navbar-panel-mas .dock__seccion').evaluateAll((els) =>
-    els.map((e) => (e.firstElementChild?.textContent ?? '').trim()));
-  await page.keyboard.press('Escape');
-  await expect(page.locator('#flit-navbar-panel-mas')).toHaveCount(0);
-  return [...fila, ...enMas];
-}
+/** El panel abierto no tiene scroll propio: todo cabe a la vista (spec UX §2). */
+const sinScroll = (panel: import('@playwright/test').Locator) =>
+  panel.evaluate((el) => Array.from(el.querySelectorAll('*')).concat(el)
+    .filter((n) => n.scrollHeight > n.clientHeight + 1 && ['auto', 'scroll'].includes(getComputedStyle(n).overflowY)).length);
 
-// A 1920 px: 12 secciones del admin (Épica #14590 añadió la Torre por decisión humana); las del final pasan al «Más».
 test.describe('Shell · FlitNavBar (dock de escritorio)', () => {
   test.use({ viewport: { width: 1920, height: 900 } });
 
-  test('admin ve las 12 secciones del menú en su orden (fila + «Más»), sin isotipo; PESV abre, navega y cierra', async ({ page }) => {
+  test('admin ve las 6 opciones del menú en su orden, sin «Más» ni isotipo; Kyverum abre, navega y cierra', async ({ page }) => {
     await loginAs(page, ADMIN_USER);
     await mockApi(page);
     await page.goto('/');
 
     const nav = dockLocator(page);
     await expect(nav).toBeVisible();
-    // La CUENTA además de los nombres: perder o sumar una sección no puede dejar esto en verde. Épica #14590 (decisión
-    // humana): 12 con la Torre; a 1920 px las del final van al «Más», así que la cuenta es fila + panel.
-    const nombres = await nombresFilaYMas(page);
-    expect(nombres).toHaveLength(12);
+    // La CUENTA además de los nombres: perder o sumar una opción no puede dejar esto en verde.
+    const nombres = await nombresDelDock(page);
+    expect(nombres).toHaveLength(6);
     expect(nombres).toEqual(DOCK_ADMIN());
     expect(nombres.at(-1)).toBe('Ayuda');
+    await expect(nav.getByRole('button', { name: 'Más', exact: true })).toHaveCount(0);
+    // Ninguna de las secciones viejas por dominio queda como botón.
+    for (const vieja of ['General', 'Gestión', 'Tránsito', 'Flota', 'Mantenimiento', 'PESV', 'RNDC', 'LAFT', 'Finanzas', 'Torre de Control']) {
+      await expect(nav.getByRole('button', { name: vieja, exact: true })).toHaveCount(0);
+    }
     // Sin los grupos propios del kit ni el isotipo «Inicio».
     for (const grupo of ['Trámites', 'Impuestos y SOAT', 'Logística', 'Cumplimiento']) {
       await expect(nav.getByRole('button', { name: grupo, exact: true })).toHaveCount(0);
@@ -112,29 +109,42 @@ test.describe('Shell · FlitNavBar (dock de escritorio)', () => {
     await page.getByRole('button', { name: /^Menú de usuario/ }).click();
     await expect(menuUsuario).toHaveCount(0);
 
-    const pesvTrigger = nav.getByRole('button', { name: 'PESV', exact: true });
-    await pesvTrigger.click();
-    await expect(pesvTrigger).toHaveAttribute('aria-expanded', 'true');
+    const kyverum = nav.getByRole('button', { name: 'Kyverum', exact: true });
+    await kyverum.click();
+    await expect(kyverum).toHaveAttribute('aria-expanded', 'true');
+    await page.getByRole('tab', { name: 'PESV', exact: true }).click();
     await expect(page.getByRole('link', { name: 'Alcoholimetría' })).toBeVisible();
 
     // Esc cierra y devuelve el foco al trigger.
     await page.keyboard.press('Escape');
-    await expect(pesvTrigger).toHaveAttribute('aria-expanded', 'false');
-    await expect(pesvTrigger).toBeFocused();
+    await expect(kyverum).toHaveAttribute('aria-expanded', 'false');
+    await expect(kyverum).toBeFocused();
 
-    // Navegar desde el panel lo cierra y marca la sección activa.
-    await pesvTrigger.click();
+    // Navegar desde el panel lo cierra y marca la opción activa; al reabrir, el riel arranca en PESV.
+    await kyverum.click();
+    await page.getByRole('tab', { name: 'PESV', exact: true }).click();
     await page.getByRole('link', { name: 'Conductores', exact: true }).click();
     await expect(page).toHaveURL(/\/pesv\/conductores/);
-    await expect(pesvTrigger).toHaveAttribute('aria-expanded', 'false');
-    await expect(pesvTrigger).toHaveAttribute('aria-current', 'page');
+    await expect(kyverum).toHaveAttribute('aria-expanded', 'false');
+    await expect(kyverum).toHaveAttribute('aria-current', 'page');
+    await kyverum.click();
+    await expect(page.getByRole('tab', { name: 'PESV', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('link', { name: 'Conductores', exact: true })).toHaveAttribute('aria-current', 'page');
+    // `/pesv` es prefijo de `/pesv/conductores`: su entrada («PESV · Inicio») NO se marca (`finExacto`), y en el
+    // panel hay una sola entrada actual.
+    const panelKyverum = page.locator('#flit-navbar-panel-kyverum');
+    await expect(panelKyverum.locator('a[href="/pesv"]')).toBeVisible();
+    await expect(panelKyverum.locator('a[href="/pesv"]')).not.toHaveAttribute('aria-current', /.*/);
+    await expect(panelKyverum.locator('a[aria-current="page"]')).toHaveCount(1);
+    await page.keyboard.press('Escape');
 
-    // Administración muestra sus ítems del catálogo. Épica #14590 (decisión humana: Torre como sección propia): con
-    // 12 secciones Administración cae en el «Más» a 1920 px, así que sus ítems se buscan en ese panel.
-    await nav.getByRole('button', { name: 'Más', exact: true }).click();
+    // Administración muestra sus ítems del catálogo, con Organismos STT al final.
+    await nav.getByRole('button', { name: seccion('administracion'), exact: true }).click();
+    const admin = page.locator('#flit-navbar-panel-administracion');
     for (const slug of ['users', 'roles_permisos']) {
-      await expect(page.locator('#flit-navbar-panel-mas').getByRole('link', { name: new RegExp(`^${item(slug)}`) })).toBeVisible();
+      await expect(admin.getByRole('link', { name: new RegExp(`^${item(slug)}`) })).toBeVisible();
     }
+    await expect(admin.getByRole('link').last()).toHaveAttribute('href', '/transito/organismos');
   });
 
   test('la barra superior: marca, buscador, tema y usuario; sin Notificaciones ni Productos de FLIT', async ({ page }) => {
@@ -161,9 +171,11 @@ test.describe('Shell · FlitNavBar (dock de escritorio)', () => {
       .filter((el) => !document.getElementById(el.getAttribute('aria-controls')!))
       .map((el) => el.getAttribute('aria-controls')));
     expect(await colgantes()).toEqual([]);
-    const trigger = dockLocator(page).getByRole('button', { name: 'Mantenimiento', exact: true });
+    const trigger = dockLocator(page).getByRole('button', { name: 'Kyverum', exact: true });
     await trigger.click();
-    await expect(trigger).toHaveAttribute('aria-controls', 'flit-navbar-panel-mantenimiento');
+    await expect(trigger).toHaveAttribute('aria-controls', 'flit-navbar-panel-kyverum');
+    // El riel: cada pestaña apunta a su tabpanel, que existe aunque esté oculto.
+    await expect(page.getByRole('tab')).toHaveCount(7);
     expect(await colgantes()).toEqual([]);
   });
 
@@ -208,25 +220,61 @@ test.describe('Shell · FlitNavBar (dock de escritorio)', () => {
     });
   }
 
-  test('las secciones grandes se abren repartidas en subgrupos', async ({ page }) => {
+  test('paneles sin scroll: rejilla plana, Gerencial con «Torre de Control» y Kyverum con su riel (teclado APG)', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 768 });
     await loginAs(page, ADMIN_USER);
     await mockApi(page);
     await page.goto('/');
-
-    // Se busca el <p> del título y no el texto a secas: hay subgrupos que se llaman igual que un ítem (Logística).
-    const titulo = (panel: string, grupo: string) =>
-      page.locator(`#${panel} p`).filter({ hasText: new RegExp(`^${grupo}$`) });
-
     const nav = dockLocator(page);
-    await nav.getByRole('button', { name: 'PESV', exact: true }).click();
-    for (const grupo of ['Dirección', 'Operación', 'Personas', 'Cumplimiento']) {
-      await expect(titulo('flit-navbar-panel-pesv', grupo)).toBeVisible();
-    }
 
-    await nav.getByRole('button', { name: 'Gestión', exact: true }).click();
-    for (const grupo of ['Trámites', 'Logística', 'Maestros', 'SOAT e Impuestos', 'Comparendos', 'Auditoría']) {
-      await expect(titulo('flit-navbar-panel-gestion', grupo)).toBeVisible();
-    }
+    // Operaciones: rejilla plana de 3 columnas, sin subencabezados, sin scroll.
+    await nav.getByRole('button', { name: 'Operaciones', exact: true }).click();
+    const ops = page.locator('#flit-navbar-panel-operaciones');
+    // Sus entradas (las que el admin del fixture ve: «Mi ruta» pide además su función), sin subencabezados.
+    expect(await ops.getByRole('link').count()).toBeGreaterThanOrEqual(10);
+    await expect(ops.locator('.rejilla-sub')).toHaveCount(0);
+    expect(await ops.locator('ul.rejilla-entradas').first().evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(3);
+    expect(await sinScroll(ops)).toBe(0);
+
+    // Gerencial: Tablero primero, sin subencabezado; luego «Torre de Control» con las ocho de la Torre.
+    await nav.getByRole('button', { name: 'Gerencial', exact: true }).click();
+    const ger = page.locator('#flit-navbar-panel-gerencial');
+    await expect(ger.getByRole('link').first()).toHaveAttribute('href', '/');
+    await expect(ger.locator('.rejilla-sub')).toHaveText(['Torre de Control']);
+    await expect(ger.locator('.rejilla-sub + ul').getByRole('link')).toHaveCount(8);
+    expect(await sinScroll(ger)).toBe(0);
+
+    // Kyverum: riel vertical de siete subgrupos; sin página activa arranca en Tránsito.
+    await nav.getByRole('button', { name: 'Kyverum', exact: true }).click();
+    const kyv = page.locator('#flit-navbar-panel-kyverum');
+    const riel = kyv.getByRole('tablist', { name: 'Subgrupos de Kyverum' });
+    await expect(riel).toHaveAttribute('aria-orientation', 'vertical');
+    const tabs = riel.getByRole('tab');
+    expect(await tabs.locator('.riel__nombre').allTextContents()).toEqual(['Tránsito', 'Flota', 'Mantenimiento', 'PESV', 'RNDC', 'LAFT', 'Trámites']);
+    await expect(tabs.first()).toHaveAttribute('aria-selected', 'true');
+    await expect(tabs.first()).toHaveAttribute('tabindex', '0');
+    await expect(tabs.nth(1)).toHaveAttribute('tabindex', '-1');
+    await expect(kyv.getByRole('tabpanel')).toHaveAccessibleName('Tránsito');
+
+    // ↓ cambia con selección automática; Fin va al último; Inicio al primero; ↑ desde el primero va al último.
+    await tabs.first().focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(tabs.nth(1)).toBeFocused();
+    await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.press('End');
+    await expect(tabs.last()).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.press('Home');
+    await expect(tabs.first()).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.press('ArrowUp');
+    await expect(tabs.last()).toBeFocused();
+
+    // PESV, el subgrupo mayor (25), cabe sin scroll.
+    await riel.getByRole('tab', { name: 'PESV', exact: true }).click();
+    await expect(kyv.getByRole('tabpanel').getByRole('link')).toHaveCount(25);
+    await page.waitForTimeout(400);
+    expect(await sinScroll(kyv)).toBe(0);
+    const caja = (await kyv.boundingBox())!;
+    expect(caja.y).toBeGreaterThanOrEqual(0);
   });
 
   test('proveedor solo ve lo suyo (SOAT) — role-gating', async ({ page }) => {
@@ -235,7 +283,7 @@ test.describe('Shell · FlitNavBar (dock de escritorio)', () => {
     await page.goto('/vehicles');
 
     const nav = dockLocator(page);
-    // Su Gestión tiene una sola página: la sección se pinta como enlace directo con el nombre del ítem.
+    // Su Operaciones tiene una sola página: la opción se pinta como enlace directo con el nombre del ítem.
     await expect(nav.getByRole('link', { name: 'SOAT', exact: true })).toBeVisible();
     await expect(nav.getByRole('button')).toHaveCount(0);
     // Sin permiso de `/`, sin Tablero (HU #13452: el menú no ofrece lo que el guard cierra).
@@ -244,10 +292,108 @@ test.describe('Shell · FlitNavBar (dock de escritorio)', () => {
   });
 });
 
+// Épica #14678 (spec UX §4): error y vacío van DENTRO de la cápsula del dock, sin toast ni caja propia.
+test.describe('Shell · estados del dock', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test('error: sin permisos efectivos, «No se pudo cargar el menú.» con «Reintentar»; al reintentar aparece el menú', async ({ page }) => {
+    let falla = true;
+    await loginAs(page, ADMIN_USER, { funciones: null });
+    await page.route(/\/api\/permisos\/mios$/, (route) => (falla
+      ? route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"x"}' })
+      : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(sobreDeMios(ADMIN_USER)) })));
+    await mockApi(page);
+    await page.goto('/');
+
+    const nav = dockLocator(page);
+    await expect(nav.getByRole('alert')).toHaveText(COPY_MENU_ERROR);
+    await expect(nav.getByRole('button', { name: 'Operaciones', exact: true })).toHaveCount(0);
+    await expect(page.locator('.toast, [data-toast]')).toHaveCount(0);
+    falla = false;
+    await nav.getByRole('button', { name: 'Reintentar', exact: true }).click();
+    await expect(nav.getByRole('button', { name: 'Operaciones', exact: true })).toBeVisible();
+    await expect(nav.getByRole('alert')).toHaveCount(0);
+  });
+
+  test('cargando: mientras no llegan los permisos (tras el login), tres pastillas en la barra y ninguna opción', async ({ page }) => {
+    // Tras el formulario, `/login` redirige al shell en cuanto hay usuario; `/permisos/mios` aún vuela.
+    await mockApi(page);
+    const me = sobreDeMe(ADMIN_USER);
+    await page.route('**/api/auth/login', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ token: 'fake.jwt.e2e', user: me }) }));
+    await page.route('**/api/auth/me', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(me) }));
+    let soltar: () => void = () => undefined;
+    const retenido = new Promise<void>((resolve) => { soltar = resolve; });
+    await page.route(/\/api\/permisos\/mios$/, async (route) => {
+      await retenido;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(sobreDeMios(ADMIN_USER)) });
+    });
+
+    const login = new LoginPage(page);
+    await login.goto();
+    await login.login('admin', 'clave-e2e');
+
+    const nav = dockLocator(page);
+    const esqueleto = nav.getByRole('status', { name: 'Cargando menú' });
+    await expect(esqueleto).toBeVisible();
+    await expect(esqueleto).toHaveAttribute('aria-busy', 'true');
+    await expect(esqueleto).toHaveAttribute('data-kit', 'esqueleto');
+    await expect(esqueleto.locator('.dock-esqueleto__pastilla')).toHaveCount(3);
+    await expect(nav.getByRole('button')).toHaveCount(0);
+    await expect(nav.getByRole('link')).toHaveCount(0);
+
+    soltar();
+    await expect(nav.getByRole('button', { name: 'Operaciones', exact: true })).toBeVisible();
+    await expect(nav.getByRole('status', { name: 'Cargando menú' })).toHaveCount(0);
+  });
+
+  test('vacío: sin ninguna opción, el aviso con el siguiente paso dentro de la barra', async ({ page }) => {
+    await loginAs(page, { ...MENSAJERO_USER, role: 'e2e_sin_modulos', allowedPages: [] }, { funciones: [] });
+    await mockApi(page);
+    await page.goto('/');
+    const nav = dockLocator(page);
+    await expect(nav.getByRole('status')).toHaveText(COPY_MENU_VACIO);
+    await expect(nav.getByRole('button')).toHaveCount(0);
+  });
+});
+
+// Spec UX §8: con `prefers-reduced-motion` nada se anima; el panel aparece al instante.
+test('reduced-motion · el dock, el panel, sus entradas y el indicador no se animan', async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await loginAs(page, ADMIN_USER);
+  await mockApi(page);
+  await page.goto('/');
+  const nav = dockLocator(page);
+  await nav.getByRole('button', { name: 'Operaciones', exact: true }).click();
+  const panel = page.locator('#flit-navbar-panel-operaciones');
+  await expect(panel).toBeVisible();
+  const movimiento = await page.evaluate(() => {
+    const leer = (sel: string) => {
+      const el = document.querySelector(sel);
+      if (!el) return null;
+      const cs = getComputedStyle(el);
+      return { animacion: cs.animationName, transicion: cs.transitionDuration.split(',').every((d) => parseFloat(d) === 0) };
+    };
+    return {
+      dock: leer('[data-vt="floating-nav"]'),
+      panel: leer('#flit-navbar-panel-operaciones'),
+      entrada: leer('#flit-navbar-panel-operaciones .rejilla-entradas > li'),
+      indicador: leer('.dock__indicador'),
+    };
+  });
+  expect(movimiento.dock).toEqual({ animacion: 'none', transicion: true });
+  expect(movimiento.panel).toEqual({ animacion: 'none', transicion: true });
+  expect(movimiento.entrada).toEqual({ animacion: 'none', transicion: true });
+  expect(movimiento.indicador).toEqual({ animacion: 'none', transicion: true });
+  // Al instante: opacidad plena en cuanto existe.
+  expect(await panel.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+});
+
 // El dock no ocupa sitio bajo el topbar: los offsets sticky de las páginas internas suman --flit-navbar-height
 // al alto del topbar, así que el token tiene que valer cero. Y desde el pie, el panel solo puede abrir hacia
-// arriba — 1024 px es el ancho donde el dock va más justo, PESV con sus cuatro subgrupos es el panel que destapa
-// los desbordes, y Administración (penúltima) el panel estrecho más pegado al borde derecho.
+// arriba — 1024 px es el ancho donde el dock va más justo, Kyverum (con su riel) el panel más alto y Administración
+// (penúltima) el panel más pegado al borde derecho.
 for (const width of [1024, 1440]) {
   test(`${width}px · el dock vive al pie, no reserva alto arriba y abre hacia arriba`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
@@ -265,15 +411,14 @@ for (const width of [1024, 1440]) {
     const dock = (await nav.boundingBox())!;
     expect(dock.y).toBeGreaterThan(900 / 2);
 
-    // Gestión (siempre en la fila, el panel más ancho) y el «Más» (el último, pegado al borde derecho). Qué
-    // secciones quedan en el «Más» depende del ancho: lo mide el dock, el test no lo fija.
-    const mas = nav.getByRole('button', { name: 'Más', exact: true });
-    const paneles: Array<[import('@playwright/test').Locator, string]> = [[nav.getByRole('button', { name: 'Gestión', exact: true }), 'gestion']];
-    if (await mas.count()) paneles.push([mas, 'mas']);
+    // La primera, la más alta (Kyverum, con PESV elegido) y la penúltima (la más pegada al borde derecho).
+    const paneles: Array<[import('@playwright/test').Locator, string]> = ['operaciones', 'kyverum', 'administracion']
+      .map((id) => [nav.getByRole('button', { name: seccion(id), exact: true }), id]);
     for (const [trigger, id] of paneles) {
       await trigger.click();
+      if (id === 'kyverum') await page.getByRole('tab', { name: 'PESV', exact: true }).click();
       // Se espera a que acabe la animación de entrada: falsearía el rect.
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(400);
       const panel = (await page.locator(`#flit-navbar-panel-${id}`).boundingBox())!;
       expect(panel.y + panel.height).toBeLessThanOrEqual(dock.y + 1);
       expect(panel.y).toBeGreaterThanOrEqual(0);
@@ -327,7 +472,8 @@ async function medirDock(page: import('@playwright/test').Page) {
   return page.evaluate(() => {
     const nav = document.querySelector('[data-vt="floating-nav"]') as HTMLElement;
     const cs = getComputedStyle(nav);
-    const pildoras = Array.from(nav.children).map((k) => (
+    // Sin el indicador deslizante (decoración `aria-hidden`): solo las píldoras.
+    const pildoras = Array.from(nav.querySelectorAll(':scope > .dock__grupo, :scope > a.dock__item')).map((k) => (
       (k.tagName === 'A' ? k : k.querySelector('button, a')) as HTMLElement
     ));
     const conRotulo = pildoras;
@@ -363,21 +509,18 @@ test('1920 px · el dock del admin es UNA fila y con los nombres a la vista (AC1
   await alargarPagina(page);
 
   const m = await medirDock(page);
-  // Épica #14590 (decisión humana): 12 secciones con la Torre; a 1920 px la fila trae las que caben + «Más».
-  expect(m.conMas).toBe(true);
+  // Épica #14678: las seis opciones del admin caben en la fila, sin «Más».
+  expect(m.conMas).toBe(false);
+  expect(m.pildoras).toBe(6);
   expect(m.centrosDistintos).toBe(1);
   expect(m.alto).toBeLessThanOrEqual(m.altoDeUnaFila);
   expect(m.dentro).toBe(true);
   expect(m.nombresVisibles).toBe(m.pildoras);
-  await dockLocator(page).getByRole('button', { name: 'Más', exact: true }).click();
-  const enMas = await page.locator('#flit-navbar-panel-mas .dock__seccion').count();
-  expect(m.pildoras - 1 + enMas).toBe(12);
 });
 
-// Con 12 secciones (Épica #14590 añadió la Torre por decisión humana) la fila del admin con nombres no cabe a
-// 1440/1280/1024 px: las que caben van CON nombre y el resto pasa al «Más» (nunca solo íconos). Fila + «Más» = las 12.
+// Épica #14678 (spec UX §1 y §7): con las seis opciones la fila del admin cabe con nombres a 1440/1280/1024 px.
 for (const width of [1440, 1280, 1024] as const) {
-  test(`${width} px · una fila, todas con nombre y el resto en «Más» (AC2, AC2b)`, async ({ page }) => {
+  test(`${width} px · una fila con las seis opciones, todas con nombre y sin «Más» (AC2, AC2b)`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await loginAs(page, ADMIN_USER);
     await mockApi(page);
@@ -390,18 +533,14 @@ for (const width of [1440, 1280, 1024] as const) {
     expect(m.alto).toBeLessThanOrEqual(m.altoDeUnaFila);
     // Sin desbordar la pantalla: un `nowrap` roto pasaría las dos de arriba y moriría aquí.
     expect(m.dentro).toBe(true);
-    // Toda píldora de la fila enseña su nombre, «Más» incluido.
+    // Toda píldora de la fila enseña su nombre.
     expect(m.nombresVisibles).toBe(m.pildoras);
-    expect(m.conMas).toBe(true);
-    const mas = dockLocator(page).getByRole('button', { name: 'Más', exact: true });
-    await mas.click();
-    const enMas = await page.locator('#flit-navbar-panel-mas .dock__seccion').count();
-    // Épica #14590 (decisión humana): 12 secciones con la Torre de Control.
-    expect(m.pildoras - 1 + enMas).toBe(12);
+    expect(m.conMas).toBe(false);
+    expect(m.pildoras).toBe(6);
   });
 }
 
-test('1280 px · abrir un panel no cambia cuántas secciones caben', async ({ page }) => {
+test('1280 px · abrir un panel no cambia cuántas opciones caben', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await loginAs(page, ADMIN_USER);
   await mockApi(page);
@@ -409,7 +548,7 @@ test('1280 px · abrir un panel no cambia cuántas secciones caben', async ({ pa
   await dockLocator(page).waitFor();
 
   const antes = await medirDock(page);
-  const trigger = dockLocator(page).getByRole('button', { name: 'Gestión', exact: true });
+  const trigger = dockLocator(page).getByRole('button', { name: 'Operaciones', exact: true });
   await trigger.click();
   await expect(trigger).toHaveAttribute('aria-expanded', 'true');
   await page.waitForTimeout(400);
@@ -417,15 +556,9 @@ test('1280 px · abrir un panel no cambia cuántas secciones caben', async ({ pa
   const conPanel = await medirDock(page);
   expect(conPanel.centrosDistintos, 'el dock sigue en UNA fila con el panel abierto').toBe(1);
   expect(conPanel.alto, 'el dock no crece al abrir el panel').toBe(antes.alto);
-  expect(conPanel.pildoras, 'no entra ni sale ninguna sección del «Más»').toBe(antes.pildoras);
+  expect(conPanel.pildoras, 'no entra ni sale ninguna opción').toBe(antes.pildoras);
   expect(conPanel.nombresVisibles).toBe(conPanel.pildoras);
-
-  // Con más sitio entran más secciones en la fila. Épica #14590 (decisión humana: Torre como sección propia): con 12,
-  // a 1920 px el «Más» sigue con las del final.
-  await page.keyboard.press('Escape');
-  await page.setViewportSize({ width: 1920, height: 900 });
-  await expect.poll(async () => (await medirDock(page)).pildoras).toBeGreaterThan(antes.pildoras);
-  await expect(dockLocator(page).getByRole('button', { name: 'Más', exact: true })).toBeVisible();
+  expect(conPanel.conMas).toBe(false);
 });
 
 test('1920 px con scroll abajo · el dock sigue en una fila y con nombres', async ({ page }) => {
@@ -436,11 +569,11 @@ test('1920 px con scroll abajo · el dock sigue en una fila y con nombres', asyn
   await dockLocator(page).waitFor();
   await alargarPagina(page);
 
-  expect((await medirDock(page)).nombresVisibles).toBe(11);
+  expect((await medirDock(page)).nombresVisibles).toBe(6);
   await page.mouse.wheel(0, 600);
   await page.waitForTimeout(400);
   const m = await medirDock(page);
-  expect(m.nombresVisibles).toBe(11);
+  expect(m.nombresVisibles).toBe(6);
   expect(m.centrosDistintos).toBe(1);
   expect(m.alto).toBeLessThanOrEqual(m.altoDeUnaFila);
 });
@@ -453,7 +586,7 @@ test('1280 px · un rol con pocos módulos: una fila, con su nombre y centrado',
   await dockLocator(page).waitFor();
 
   const m = await medirDock(page);
-  expect(m.pildoras).toBeLessThan(11);
+  expect(m.pildoras).toBeLessThan(6);
   expect(m.nombresVisibles).toBe(m.pildoras);
   expect(m.centrosDistintos).toBe(1);
   const caja = (await dockLocator(page).boundingBox())!;
@@ -511,36 +644,35 @@ for (const width of [360, 390]) test(`mobile ${width} px: sin dock; el ☰ cabe 
   expect(caja.x + caja.width).toBeLessThanOrEqual(width);
   await boton.click();
   const menu = page.getByRole('dialog', { name: 'Menú de navegación' });
-  await menu.getByRole('button', { name: 'Gestión', exact: true }).click();
-  await expect(menu.locator('#flit-menu-lateral-gestion')).toBeVisible();
+  await menu.getByRole('button', { name: 'Operaciones', exact: true }).click();
+  await expect(menu.locator('#flit-menu-lateral-operaciones')).toBeVisible();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HU #11151 — SOAT e Impuestos dejan de ser exclusivos de su gestor: Operaciones entra por
 // contingencia (Feature #11150). Lo que faltaba era la ENTRADA DE MENÚ, así que los tests miran la
-// puerta —menú y buscador— y no el contenido de la cola. Viven en Gestión, subgrupo «SOAT e Impuestos».
-const PANEL_GESTION = '#flit-navbar-panel-gestion';
+// puerta —menú y buscador— y no el contenido de la cola. Épica #14678: viven en Operaciones (rejilla plana).
+const PANEL_OPERACIONES = '#flit-navbar-panel-operaciones';
 const buscadorTopbar = (page: import('@playwright/test').Page) =>
   page.getByRole('button', { name: /^Buscar o ir a sección/ });
 
 test.describe('Shell · SOAT e Impuestos abiertos a Operaciones (HU #11151)', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('Operaciones los ve en Gestión, sin el sufijo del gestor y bajo el subgrupo renombrado', async ({ page }) => {
+  test('Operaciones los ve en la opción Operaciones, sin el sufijo del gestor', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     await mockApi(page);
     await page.goto('/');
 
-    await dockLocator(page).getByRole('button', { name: 'Gestión', exact: true }).click();
+    await dockLocator(page).getByRole('button', { name: 'Operaciones', exact: true }).click();
 
     // `exact` es justo lo que comprueba el AC5: con «SOAT (gestor)» esto no pasaría.
     await expect(page.getByRole('link', { name: 'SOAT', exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Impuestos', exact: true })).toBeVisible();
 
-    // El subgrupo nombra su contenido, no a quien lo atiende.
-    await expect(page.locator(`${PANEL_GESTION} p`).filter({ hasText: /^SOAT e Impuestos$/ })).toBeVisible();
-    await expect(page.locator(PANEL_GESTION)).not.toContainText('Colas de gestor');
-    await expect(page.locator(PANEL_GESTION)).not.toContainText('(gestor)');
+    // Nada nombra a quien lo atiende.
+    await expect(page.locator(PANEL_OPERACIONES)).not.toContainText('Colas de gestor');
+    await expect(page.locator(PANEL_OPERACIONES)).not.toContainText('(gestor)');
   });
 
   for (const { label, url } of [
@@ -552,7 +684,7 @@ test.describe('Shell · SOAT e Impuestos abiertos a Operaciones (HU #11151)', ()
       await mockApi(page);
       await page.goto('/');
 
-      await dockLocator(page).getByRole('button', { name: 'Gestión', exact: true }).click();
+      await dockLocator(page).getByRole('button', { name: 'Operaciones', exact: true }).click();
       await page.getByRole('link', { name: label, exact: true }).click();
 
       await expect(page).toHaveURL(url);
@@ -588,11 +720,11 @@ test.describe('Shell · SOAT e Impuestos abiertos a Operaciones (HU #11151)', ()
     await mockApi(page);
     await page.goto('/vehicles');
 
-    // Su Gestión tiene un solo ítem: enlace directo, sin panel.
+    // Su Operaciones tiene un solo ítem: enlace directo, sin panel.
     const nav = dockLocator(page);
     await expect(nav.getByRole('link', { name: 'SOAT', exact: true })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Impuestos', exact: true })).toHaveCount(0);
-    await expect(nav.getByRole('button', { name: 'Gestión', exact: true })).toHaveCount(0);
+    await expect(nav.getByRole('button', { name: 'Operaciones', exact: true })).toHaveCount(0);
   });
 
   test('el gestor de impuestos ve Impuestos y no SOAT', async ({ page }) => {
@@ -600,10 +732,10 @@ test.describe('Shell · SOAT e Impuestos abiertos a Operaciones (HU #11151)', ()
     await mockApi(page);
     await page.goto('/flito/impuestos');
 
-    // Sus permisos dejan Gestión con un solo ítem, y una sección de un ítem el dock la pinta como
-    // enlace directo en vez de panel desplegable: aquí no hay botón «Gestión» que abrir.
+    // Sus permisos dejan Operaciones con un solo ítem, y una opción de un ítem el dock la pinta como
+    // enlace directo en vez de panel desplegable: aquí no hay botón «Operaciones» que abrir.
     const nav = dockLocator(page);
-    await expect(nav.getByRole('button', { name: 'Gestión', exact: true })).toHaveCount(0);
+    await expect(nav.getByRole('button', { name: 'Operaciones', exact: true })).toHaveCount(0);
     await expect(nav.getByRole('link', { name: 'Impuestos', exact: true })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'SOAT', exact: true })).toHaveCount(0);
   });

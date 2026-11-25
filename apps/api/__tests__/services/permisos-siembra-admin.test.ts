@@ -40,6 +40,16 @@ const EXCLUIDAS_DE_ADMIN: readonly string[] = ['soat.factura.leer', 'soat.runt.p
  */
 const ACCION_QUE_LAS_AGRUPA = 'accion.soat.solicitar_sin_tramite';
 
+/**
+ * Épica #14678 PR 4 (decisión de David, 2026-11-25; enmienda 1 de ADR-0048, desviación de ADR-0022): las cinco áreas
+ * sin pantallas que siembra la 0316 NO se le marcan a nadie, `admin` incluido. Lista literal a propósito: la excepción
+ * no puede crecer en silencio, y el `it` de abajo comprueba que es exactamente lo que la regla dejaría fuera.
+ */
+const SIN_ADMIN_POR_DECISION_14678: readonly string[] = [
+  'menu.comercial', 'menu.diseno', 'menu.tecnologia', 'menu.infraestructura', 'menu.producto',
+];
+const MIGRACION_0316 = '0316_flito_menu_areas_proximamente.sql';
+
 const DIR = fileURLToPath(new URL('../../src/db/migrations/', import.meta.url));
 const PRIMERA_VIGILADA = 226;
 
@@ -150,14 +160,30 @@ describe('HU #13424 AC2 — toda siembra desde la 0226 marca a `admin`', () => {
   // después del reparto por la regla «todos»): para `accion.*` vale la marca en cualquier migración vigilada.
   const marcadaEnAlguna = (c: string) => vigiladas.some((a) => marcaAAdmin(a.sql, c));
 
-  it('ninguna migración ≥ 0226 siembra un permiso sin marcárselo a `admin` (en el mismo archivo; las acciones del árbol, en el de su reparto)', () => {
-    // HU #13429: los elementos `menu.*` (0238) no llevan literal de rol: la 0239 se los da a quien tiene un ítem
-    // debajo (paso C2), y `admin` los tiene todos en el pliegue.
+  // HU #13429: los elementos `menu.*` (0238) no llevan literal de rol: la 0239 se los da a quien tiene un ítem
+  // debajo (paso C2), y `admin` los tiene todos en el pliegue.
+  const huecosSinExcepcion = () => {
     const adminPlegado = leerRepartoSembrado().get('admin')!;
-    const huecos = vigiladas.flatMap((a) => sinMarcarAAdmin(a.sql)
+    return vigiladas.flatMap((a) => sinMarcarAAdmin(a.sql)
       .filter((c) => !(c.startsWith('accion.') && marcadaEnAlguna(c)) && !(c.startsWith('menu.') && adminPlegado.has(c)))
       .map((c) => `${a.nombre}: ${c}`));
-    expect(huecos).toEqual([]);
+  };
+
+  it('ninguna migración ≥ 0226 siembra un permiso sin marcárselo a `admin` (en el mismo archivo; las acciones del árbol, en el de su reparto)', () => {
+    const excepcion = new Set(SIN_ADMIN_POR_DECISION_14678.map((c) => `${MIGRACION_0316}: ${c}`));
+    expect(huecosSinExcepcion().filter((h) => !excepcion.has(h))).toEqual([]);
+  });
+
+  it('Épica #14678 PR 4: la excepción sin `admin` es EXACTAMENTE las cinco áreas vacías, elementos, y solo la 0316 las siembra', () => {
+    // Sin la excepción, los huecos son exactamente esos cinco de la 0316 (ni uno más, ni uno de otra migración).
+    expect(huecosSinExcepcion().sort()).toEqual(SIN_ADMIN_POR_DECISION_14678.map((c) => `${MIGRACION_0316}: ${c}`).sort());
+    const cat = new Map(catalogoCompleto().map((f) => [f.codigo, f]));
+    for (const c of SIN_ADMIN_POR_DECISION_14678) {
+      expect(cat.get(c)?.tipo, c).toBe('elemento');
+      expect(cat.get(c)?.roles, c).toEqual([]);
+      expect(archivos.filter((a) => codigosSembrados(a.sql).includes(c)).map((a) => a.nombre), c).toEqual([MIGRACION_0316]);
+    }
+    expect(SIN_ADMIN_POR_DECISION_14678).toHaveLength(5);
   });
 
   it('HU #12873 AC8: plegadas todas las migraciones, `admin` tiene TODAS las acciones, también «Solicitar SOAT sin trámite»', () => {
