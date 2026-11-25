@@ -27,8 +27,8 @@ consultas:
   - cómo creo una bolsa de tránsito
   - cómo cierro el mes de una bolsa de tránsito
   - por qué no puedo reactivar una bolsa de tránsito
-version: 1.12
-fecha: 2026-11-17
+version: 1.13
+fecha: 2026-11-25
 ---
 ## Qué es
 

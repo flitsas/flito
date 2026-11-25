@@ -11,8 +11,8 @@ consultas:
   - qué entregas tengo asignadas
   - cómo marco una recogida como hecha
   - qué significa el aviso en flit en una recogida
-version: 2.8
-fecha: 2026-11-17
+version: 2.9
+fecha: 2026-11-25
 ---
 ## Qué es
 

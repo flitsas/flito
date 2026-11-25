@@ -7,8 +7,8 @@ palabras_clave:
 consultas:
   - cómo configuro las credenciales de Siigo
   - por qué falla la conexión con Siigo
-version: 1.5
-fecha: 2026-11-17
+version: 1.6
+fecha: 2026-11-25
 ---
 ## Qué es
 

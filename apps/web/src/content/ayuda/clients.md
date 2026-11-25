@@ -35,8 +35,8 @@ consultas:
   - por qué no puedo eliminar un proveedor
   - por qué dice que ya existe un proveedor con ese nombre o ese NIT
   - qué hago si otro usuario cambió el proveedor mientras yo editaba
-version: 3.6
-fecha: 2026-11-17
+version: 3.7
+fecha: 2026-11-25
 ---
 ## Qué es
 

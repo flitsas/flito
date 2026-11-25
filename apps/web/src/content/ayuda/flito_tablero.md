@@ -9,8 +9,8 @@ consultas:
   - qué muestra el tablero
   - dónde veo los trámites retenidos
   - por qué un trámite está estancado
-version: 1.6
-fecha: 2026-11-17
+version: 1.7
+fecha: 2026-11-25
 ---
 ## Qué es
 

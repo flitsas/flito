@@ -42,6 +42,12 @@ const OPCIONES = ['operaciones', 'financiera', 'gerencial', 'kyverum', 'administ
 
 // Los roles `e2e_*` no tienen páginas por defecto (`sobreDeMe` une las del rol): solo ven lo de `allowedPages`.
 
+/**
+ * Toasts de `react-hot-toast` (montado en App.tsx): cada aviso es `role="status"` dentro del contenedor
+ * `[data-rht-toaster]`. Se acota al toaster para no confundirlo con los `role="status"` de la página.
+ */
+const toasts = (page: Page) => page.locator('[data-rht-toaster]').getByRole('status');
+
 async function listo(page: Page) {
   await expect(page.getByRole('button', { name: /^Buscar o ir a sección/ })).toBeVisible();
 }
@@ -173,6 +179,27 @@ test.describe('Épica #14678 · paleta con el menú en error (spec §4)', () => 
       ? route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"x"}' })
       : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(sobreDeMios(ADMIN_USER)) })));
     await mockApi(page);
+    // Un toast de duración por defecto se va en segundos: un aserto puntual llegaría tarde. El observador cuenta
+    // cada aviso que `react-hot-toast` monte en su contenedor durante toda la vida del documento.
+    await page.addInitScript(() => {
+      const w = window as unknown as { __toastsVistos: number };
+      w.__toastsVistos = 0;
+      const vistos = new WeakSet<Element>();
+      const contar = (el: Element) => {
+        const candidatos = [el, ...Array.from(el.querySelectorAll('[role="status"]'))];
+        for (const c of candidatos) {
+          if (c.matches('[role="status"]') && c.closest('[data-rht-toaster]') && !vistos.has(c)) {
+            vistos.add(c);
+            w.__toastsVistos += 1;
+          }
+        }
+      };
+      new MutationObserver((cambios) => {
+        for (const cambio of cambios) {
+          cambio.addedNodes.forEach((n) => { if (n instanceof Element) contar(n); });
+        }
+      }).observe(document, { childList: true, subtree: true });
+    });
     await page.goto('/');
     await listo(page);
 
@@ -184,7 +211,9 @@ test.describe('Épica #14678 · paleta con el menú en error (spec §4)', () => 
     // Enter no navega a ninguna entrada.
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(/\/$/);
-    await expect(page.locator('.toast, [data-toast]')).toHaveCount(0);
+    await expect(toasts(page)).toHaveCount(0);
+    // Ningún toast en todo el tramo en error, ni siquiera uno que ya se haya ido.
+    expect(await page.evaluate(() => (window as unknown as { __toastsVistos?: number }).__toastsVistos ?? 0)).toBe(0);
 
     falla = false;
     await paleta.getByRole('button', { name: 'Reintentar', exact: true }).click();

@@ -10,8 +10,8 @@ consultas:
   - cómo despacho un trámite
   - dónde entrego los trámites
   - por qué no veo un trámite
-version: 1.9
-fecha: 2026-11-18
+version: 1.10
+fecha: 2026-11-25
 ---
 ## Qué es
 

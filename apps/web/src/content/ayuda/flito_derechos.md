@@ -8,8 +8,8 @@ palabras_clave:
 consultas:
   - cuánto cobra el organismo por radicar
   - cómo registro el pago de derechos
-version: 1.5
-fecha: 2026-11-17
+version: 1.6
+fecha: 2026-11-25
 ---
 ## Qué es
 

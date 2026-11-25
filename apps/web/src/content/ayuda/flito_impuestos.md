@@ -17,8 +17,8 @@ consultas:
   - cómo elimino una certificación sin trámite
   - cómo corrijo el número, la fecha o el avalúo de la factura
   - cómo reintento la lectura del número, la fecha o el avalúo de la factura
-version: 1.18
-fecha: 2026-11-23
+version: 1.19
+fecha: 2026-11-25
 ---
 ## Qué es
 

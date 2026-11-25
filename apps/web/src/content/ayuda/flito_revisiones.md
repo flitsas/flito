@@ -10,8 +10,8 @@ consultas:
   - por qué un documento quedó en revisión
   - cómo busco el trámite de un documento en revisión
   - cómo vuelvo a leer un documento en revisión
-version: 1.7
-fecha: 2026-11-17
+version: 1.8
+fecha: 2026-11-25
 ---
 ## Qué es
 

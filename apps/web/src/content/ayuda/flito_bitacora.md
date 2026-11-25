@@ -8,8 +8,8 @@ palabras_clave:
 consultas:
   - dónde veo el historial de un trámite
   - quién cambió el estado de un trámite
-version: 1.6
-fecha: 2026-11-17
+version: 1.7
+fecha: 2026-11-25
 ---
 ## Qué es
 

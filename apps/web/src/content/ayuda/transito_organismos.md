@@ -12,8 +12,8 @@ consultas:
   - cómo subo el logo de una secretaría
   - qué documentos pide un organismo de tránsito
   - qué organismos gestiona FLITO
-version: 1.1
-fecha: 2026-11-17
+version: 1.2
+fecha: 2026-11-25
 ---
 ## Qué es
 

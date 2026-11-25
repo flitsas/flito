@@ -46,8 +46,8 @@ consultas:
   - cómo está repartido el trabajo del equipo
   - qué tengo que atender hoy
   - qué cambió frente al periodo anterior
-version: 1.5
-fecha: 2026-11-19
+version: 1.6
+fecha: 2026-11-25
 ---
 ## Qué es
 

@@ -12,8 +12,8 @@ consultas:
   - cómo cambio la tarifa de un cliente
   - cuánto nos cobra un proveedor
   - cómo fijo lo que cobra un proveedor de SOAT o de logística
-version: 2.4
-fecha: 2026-11-17
+version: 2.5
+fecha: 2026-11-25
 ---
 ## Qué es
 

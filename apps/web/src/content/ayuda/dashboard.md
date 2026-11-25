@@ -12,8 +12,8 @@ consultas:
   - qué veo al iniciar sesión
   - por qué mi inicio no muestra indicadores
   - dónde veo los documentos por vencer
-version: 1.2
-fecha: 2026-11-17
+version: 1.3
+fecha: 2026-11-25
 ---
 ## Qué es
 
