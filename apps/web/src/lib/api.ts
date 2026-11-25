@@ -410,6 +410,12 @@ export const api = {
   postConTimeout: <T>(path: string, body: unknown, timeoutMs: number, extraHeaders?: Record<string, string>) =>
     request<T>('POST', path, body, extraHeaders, undefined, timeoutMs),
   patch: <T>(path: string, body?: unknown, extraHeaders?: Record<string, string>) => request<T>('PATCH', path, body, extraHeaders),
+  patchForm: <T>(path: string, fields: Record<string, string>, file?: File | null, fieldName = 'file') => {
+    const form = new FormData();
+    if (file) form.append(fieldName, file);
+    for (const [k, v] of Object.entries(fields)) form.append(k, v);
+    return request<T>('PATCH', path, form);
+  },
   put: <T>(path: string, body?: unknown, extraHeaders?: Record<string, string>) => request<T>('PUT', path, body, extraHeaders),
   delete: <T>(path: string, extraHeaders?: Record<string, string>) => request<T>('DELETE', path, undefined, extraHeaders),
   upload: <T>(path: string, file: File, fieldName = 'file', fields?: Record<string, string>) => {

@@ -6,6 +6,13 @@
 /* FLIT tokens — scoped a .flit-auth (login). No afecta el tema Aura global. */
 @import './styles/flit-tokens.css';
 
+/* UI Kit 2026 — Certificar sin trámite (#14163). */
+@import './styles/kit/kit-variables.css';
+@import './styles/kit/kit-propuesta.css' layer(components);
+@import './styles/kit/kit-ui.css' layer(components);
+@import './styles/kit/kit-react.css' layer(components);
+@import './styles/kit/kit-responsive.css' layer(components);
+
 /* Inter Variable — AUTO-HOSPEDADO (FIONA PR1). Antes venía por `@import` a
    rsms.me, encadenando CSS→CSS→woff2 a un origen tercero y bloqueando el primer
    paint. Self-host = mismo origen, sin RTT extra, descubrible temprano

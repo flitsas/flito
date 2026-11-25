@@ -34,6 +34,7 @@ const FlitoRevisiones = lazy(() => import('./pages/FlitoRevisiones'));
 const FlitoSoat = lazy(() => import('./pages/FlitoSoat'));
 const FlitoSoatSolicitud = lazy(() => import('./pages/FlitoSoatSolicitud'));
 const FlitoImpuestos = lazy(() => import('./pages/FlitoImpuestos'));
+const FlitoImpuestosCertificar = lazy(() => import('./pages/FlitoImpuestosCertificar'));
 const FlitoComprobantes = lazy(() => import('./pages/FlitoComprobantes'));
 const FlitoDerechos = lazy(() => import('./pages/FlitoDerechos'));
 const Users = lazy(() => import('./pages/Users'));
@@ -256,6 +257,7 @@ function AppRoutes() {
             justo lo que el AC5 pide separar. */}
         <Route path="/flito/soat/solicitud" element={<ProtectedRoute page="flito_soat"><Lazy><FlitoSoatSolicitud /></Lazy></ProtectedRoute>} />
         <Route path="/flito/impuestos" element={<ProtectedRoute page="flito_impuestos"><Lazy><FlitoImpuestos /></Lazy></ProtectedRoute>} />
+        <Route path="/flito/impuestos/certificar" element={<ProtectedRoute page="flito_impuestos"><FuncionGate funcion="impuestos.certificacion_directa.gestionar" page="flito_impuestos"><Lazy><FlitoImpuestosCertificar /></Lazy></FuncionGate></ProtectedRoute>} />
         <Route path="/flito/comprobantes" element={<ProtectedRoute page="flito_comprobantes"><Lazy><FlitoComprobantes /></Lazy></ProtectedRoute>} />
         <Route path="/flito/derechos" element={<ProtectedRoute page="flito_derechos"><Lazy><FlitoDerechos /></Lazy></ProtectedRoute>} />
         <Route path="/flito/revisiones" element={<ProtectedRoute page="flito_revisiones"><Lazy><FlitoRevisiones /></Lazy></ProtectedRoute>} />

@@ -5,6 +5,7 @@
 // nunca los Pendiente; Auditoría es solo lectura.
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import {
   ESTADO_IMPUESTO_LABEL, ESTADOS_IMPUESTO_CERTIFICABLES, EstadoImpuesto, ResultadoCertificacion,
@@ -369,6 +370,11 @@ export default function FlitoImpuestos() {
         subtitle="Gestión del impuesto vehicular por organismo. La factura de venta es precondición del envío; el pago deriva del recibo validado."
         actions={(
           <>
+            {hasFuncion('impuestos.certificacion_directa.gestionar') && (
+              <Link to="/flito/impuestos/certificar" className={flitBtnSecondary} style={flitBtnSecondaryStyle}>
+                Certificar sin trámite
+              </Link>
+            )}
             {(esOperaciones || esGestor) && (
               <button className={flitBtnPrimary} style={flitBtnPrimaryStyle} onClick={() => setCargaRecibos(true)}>
                 Cargar recibos (masivo)
