@@ -97,3 +97,18 @@ Ubicación de la agrupación:
 
 - Los cinco puntos anteriores cerrados con salida real pegada en el PR.
 - Contract (retirar los `menu.*` deprecados) fuera de esta Épica, con su propio ADR si se decide.
+
+## Enmienda 1 — PR 4: áreas vacías con «Próximamente» (2026-11-25, Propuesto)
+
+Pedido de David (humano de la sesión), sin reabrir el resto del ADR. Detalle en `docs/arquitectura/epica-14678-menu-por-areas.md` §«PR 4».
+
+- **Modifica la decisión 2 y «áreas vacías ocultas».**
+  - La migración 0316 siembra `menu.comercial`, `menu.diseno`, `menu.tecnologia`, `menu.infraestructura` y `menu.producto`: elementos de nivel 1 **sin hijos**.
+  - Un área sin entradas sigue oculta, **salvo** que el usuario tenga su elemento efectivo. En ese caso se pinta en el dock y en el menú lateral, y al abrirla dice «Próximamente».
+  - No da ninguna pantalla.
+  - La paleta no la lista.
+- **Excepción a ADR-0022 y a la decisión 9 (declarada, una a una).** Los cinco se siembran sin marca para ningún rol, `admin` incluido. `permisos-siembra-admin.test.ts` la lleva como lista literal cerrada (solo la 0316). La regla sigue vigente para toda otra siembra.
+- **Orden.** Gerencial pasa de 3 a 8 y Kyverum de 4 a 9, para que el orden del catálogo siga siendo `SECTION_ORDER`.
+- **Sin cambio de contrato.** `/permisos/mios` trae los códigos en `funciones` como cualquier elemento efectivo.
+- Rollback: `docs/arquitectura/epica-14678-0316-rollback.sql`, antes que el de la 0315.
+
