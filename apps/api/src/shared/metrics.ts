@@ -69,7 +69,7 @@ export const tramDocGenTotal = new Counter({
 export const tramAnthropicRequestTotal = new Counter({
   name: 'tram_anthropic_request_total',
   help: 'Llamadas a Anthropic en trámites (OCR/biométrico) por operación y resultado.',
-  labelNames: ['op', 'result'] as const,  // op: ocr|biometric · result: success|error|timeout|no_key
+  labelNames: ['op', 'result'] as const,  // op: ocr|biometric|checklist|captcha|chat|salud · result: success|error|timeout|no_key
   registers: [registry],
 });
 
@@ -115,5 +115,20 @@ export const rateLimitBloqueadoTotal = new Counter({
   name: 'rate_limit_bloqueado_total',
   help: 'Peticiones rechazadas con 429 por un limitador, por limitador.',
   labelNames: ['limitador'] as const,
+  registers: [registry],
+});
+
+// Contrato `ia-consumo` v1 (ADR-0047): escritor del registro de consumo de IA (cola en memoria + lotes).
+export const iaConsumoDescartadosTotal = new Counter({
+  name: 'ia_consumo_descartados_total',
+  help: 'Registros de consumo de IA descartados (cola llena o lote fallido contra la BD), por motivo.',
+  labelNames: ['motivo'] as const, // cola_llena | bd
+  registers: [registry],
+});
+
+export const iaConsumoFlushTotal = new Counter({
+  name: 'ia_consumo_flush_total',
+  help: 'Lotes del registro de consumo de IA escritos en la BD, por resultado.',
+  labelNames: ['resultado'] as const, // ok | error
   registers: [registry],
 });

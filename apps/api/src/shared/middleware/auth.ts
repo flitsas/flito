@@ -7,6 +7,7 @@ import { db } from '../../db/client.js';
 import { users } from '../../db/schema.js';
 import { loggerFor } from '../logger.js';
 import { guardiaFrontera } from './frontera-enlace.js';
+import { ejecutarConUsuarioIa } from '../ia-consumo/contexto.js';
 import type { RoleCode, UserRole } from '@operaciones/shared-types';
 
 const log = loggerFor('auth');
@@ -204,7 +205,10 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     // Un rol con enlace solo pasa si el MONTAJE declaró un módulo (`conAlcance`) abierto a su enlace,
     // así que un router NUEVO nace CERRADO para él. El resolutor no rechaza: el `catch` de abajo
     // sigue siendo solo el del token.
-    await guardiaFrontera(req, res, next);
+    //
+    // Contrato `ia-consumo` v1 (ADR-0047): el resto de la petición corre en el ámbito de IA con este usuario
+    // y su organismo (`transitoCodigo` = tenant), para que cada llamada a la IA lo registre.
+    await ejecutarConUsuarioIa(req, () => guardiaFrontera(req, res, next));
   } catch {
     res.status(401).json({ error: 'Token inválido o expirado' });
   }

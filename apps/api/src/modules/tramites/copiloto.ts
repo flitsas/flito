@@ -8,12 +8,16 @@
 import { z } from 'zod';
 import type { ChecklistResultado } from '@operaciones/shared-types';
 import { anthropicMessages } from './anthropic.js';
+import { env } from '../../config/env.js';
+import { conContextoIa } from '../../shared/ia-consumo/contexto.js';
+import { procesoIa } from '../../shared/ia-consumo/catalogo.js';
 import { loggerFor } from '../../shared/logger.js';
 
 const log = loggerFor('tramite.copiloto');
 
 export const DISCLAIMER = 'Revisión humana obligatoria. No constituye asesoría legal.';
-const MODEL = 'claude-haiku-4-5-20251001';
+// Modelo configurable (B6, contrato ia-consumo v1): mismo valor por defecto que antes (`claude-haiku-4-5-20251001`).
+const modelo = () => env.ANTHROPIC_MODEL_HAIKU;
 const MAX_SUGERENCIAS = 6;
 
 export interface Sugerencia { itemId: string; mensaje: string; confianza: number }
@@ -71,15 +75,18 @@ function stripFences(s: string): string {
  * Los itemIds inexistentes o ya satisfechos se descartan (anti-alucinación) y el
  * disclaimer se fuerza a la constante (no se confía en la salida del modelo).
  */
-export async function sugerirChecklist(checklist: ChecklistResultado): Promise<CopilotoResult> {
+export async function sugerirChecklist(checklist: ChecklistResultado, tramiteId?: number): Promise<CopilotoResult> {
   const payload = {
-    model: MODEL,
+    model: modelo(),
     max_tokens: 800,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: buildUserPrompt(checklist) }],
   };
 
-  const ai = await anthropicMessages(payload, 'checklist');
+  const ai = await conContextoIa(
+    { ...procesoIa('copiloto_checklist'), promptCodigo: 'copiloto_checklist', entidadTipo: tramiteId ? 'tramite' : null, entidadId: tramiteId ?? null },
+    () => anthropicMessages(payload, 'checklist'),
+  );
   if (!ai.ok) return { ok: false, status: ai.status, message: ai.message };
 
   const raw = stripFences(extractText(ai.data));

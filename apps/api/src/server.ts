@@ -49,6 +49,7 @@ import {
 } from './modules/flito-soat/flito-soat-borrados-pendientes.cron.js';
 import { verificarCatalogoAlArrancar } from './modules/permisos/permisos.service.js';
 import { closeRedis } from './shared/redis.js';
+import { cerrarConsumoIa, vaciarConsumoIa } from './shared/ia-consumo/escritor.js';
 import { loggerFor } from './shared/logger.js';
 
 const log = loggerFor('server');
@@ -160,6 +161,8 @@ function shutdown(signal: string) {
   shuttingDown = true;
   log.info({ signal, graceMs: GRACE_MS }, 'shutdown signal recibido');
 
+  // Contrato ia-consumo v1: el registro de consumo de IA se vacía ya y otra vez al cerrar HTTP (tope 3 s).
+  void vaciarConsumoIa();
   stopReconciler();
   stopPurger();
   stopReviewCron();
@@ -210,6 +213,7 @@ function shutdown(signal: string) {
       process.exit(1);
     }
     log.info('HTTP cerrado');
+    await cerrarConsumoIa();
     try { await closeRedis(); } catch (e) { log.warn({ err: (e as Error).message }, 'redis close error'); }
     log.info('saliendo');
     process.exit(0);
