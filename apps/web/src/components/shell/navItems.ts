@@ -1,5 +1,5 @@
 import { ARBOL_PERMISOS, ELEMENTOS_PERMISOS } from '@operaciones/shared-types';
-import { NAV_ENTRADAS, SECTION_ORDER, type NavItem } from './navEntradas';
+import { NAV_ENTRADAS, SECTION_ORDER, type AreaMenu, type NavItem } from './navEntradas';
 
 export { SECTION_ORDER, activeSectionForPath, navItemPermitido, type NavItem, type AreaMenu } from './navEntradas';
 
@@ -15,13 +15,14 @@ export { SECTION_ORDER, activeSectionForPath, navItemPermitido, type NavItem, ty
 // elemento (también cabe así en la fila del dock del admin a 1440 px, HU #11900).
 
 /**
- * Elemento del catálogo (nivel 1) de cada opción del menú (Épica #14678, ADR-0048). Las áreas de la empresa
- * que aún no tienen elemento (Comercial, Diseño, Tecnología, Infraestructura, Producto) no tienen entradas, así
- * que no se pintan; su rótulo vive en `ROTULO_SIN_ELEMENTO` para el día que las tengan. «Ayuda» es derivado.
+ * Elemento del catálogo (nivel 1) de cada opción del menú (Épica #14678, ADR-0048). Cubre las 11 áreas: las cinco
+ * sin pantallas (Comercial, Diseño, Tecnología, Infraestructura, Producto) tienen elemento desde el PR 4 para que un
+ * rol pueda activarlas y el menú pinte su aviso «Próximamente». «Ayuda» es derivado.
  */
-const ELEMENTO_DE_SECCION: Partial<Record<NavItem['section'], string>> = {
-  operaciones: 'menu.operaciones', financiera: 'menu.financiera', gerencial: 'menu.gerencial',
-  kyverum: 'menu.kyverum', administracion: 'menu.administracion', ayuda: 'menu.ayuda',
+export const ELEMENTO_DE_SECCION: Record<AreaMenu, string> = {
+  operaciones: 'menu.operaciones', financiera: 'menu.financiera', comercial: 'menu.comercial', diseno: 'menu.diseno',
+  tecnologia: 'menu.tecnologia', infraestructura: 'menu.infraestructura', producto: 'menu.producto',
+  gerencial: 'menu.gerencial', kyverum: 'menu.kyverum', administracion: 'menu.administracion', ayuda: 'menu.ayuda',
 };
 
 const NOMBRE_ELEMENTO = new Map(ELEMENTOS_PERMISOS.map((n) => [n.codigo, n.nombre]));
@@ -29,15 +30,17 @@ const NOMBRE_ITEM = new Map(
   ARBOL_PERMISOS.filter((n) => n.tipo === 'item' && n.slug).map((n) => [n.slug as string, n.nombre]),
 );
 
-/** Áreas de la empresa sin elemento propio en el catálogo todavía (ocultas mientras no tengan entradas). */
-const ROTULO_SIN_ELEMENTO: Partial<Record<NavItem['section'], string>> = {
-  comercial: 'Comercial', diseno: 'Diseño', tecnologia: 'Tecnología', infraestructura: 'Infraestructura', producto: 'Producto',
-};
-
-function rotuloDeSeccion(s: NavItem['section']): string {
-  const elemento = ELEMENTO_DE_SECCION[s];
-  return (elemento ? NOMBRE_ELEMENTO.get(elemento) : undefined) ?? ROTULO_SIN_ELEMENTO[s] ?? elemento ?? s;
+function rotuloDeSeccion(s: AreaMenu): string {
+  return NOMBRE_ELEMENTO.get(ELEMENTO_DE_SECCION[s]) ?? s;
 }
+
+/**
+ * Áreas sin ninguna entrada en el catálogo (PR 4). DERIVADO a propósito: el día que un área reciba su primera entrada
+ * deja de ser «Próximamente» sola y vuelve a la regla de siempre (visible solo si el usuario ve alguna entrada).
+ */
+export const AREAS_SIN_ENTRADAS: ReadonlySet<AreaMenu> = new Set(
+  SECTION_ORDER.filter((s) => s !== 'ayuda' && !NAV_ENTRADAS.some((e) => e.section === s)),
+);
 
 /** Rótulo de cada opción = nombre de su elemento en el catálogo (HU #13431, AC4). */
 export const SECTION_LABEL = Object.fromEntries(

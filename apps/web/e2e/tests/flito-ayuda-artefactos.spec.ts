@@ -477,7 +477,7 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   const ADMIN_13774: Record<string, { version: string; fecha?: string; capturas: string[]; diagrama: string | null }> = {
     privacy_log_pii: { version: '1.2', fecha: '2026-11-17', diagrama: null, capturas: ['01-resumen.png', '02-filtros.png'] },
     users: { version: '1.8', fecha: '2026-11-17', diagrama: 'ciclo-usuario.svg', capturas: ['01-usuarios.png', '02-nuevo-usuario.png', '03-historial.png'] },
-    roles_permisos: { version: '1.4', fecha: '2026-11-17', diagrama: 'reparto-de-permisos.svg', capturas: [
+    roles_permisos: { version: '1.5', fecha: '2026-11-25', diagrama: 'reparto-de-permisos.svg', capturas: [
       '01-roles.png', '02-arbol.png', '03-sin-guardar.png', '04-nuevo-rol.png'] },
     drive: { version: '1.2', fecha: '2026-11-17', diagrama: 'procesar-cuentas.svg', capturas: ['01-carpeta-raiz.png', '02-carpeta.png', '03-resultado.png'] },
     privacy: { version: '1.2', fecha: '2026-11-17', diagrama: 'derecho-al-olvido.svg', capturas: ['01-documento.png', '02-registros-afectados.png'] },

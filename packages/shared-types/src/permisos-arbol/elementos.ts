@@ -16,12 +16,19 @@ const elemento = (clave: string, nombre: string, orden: number, marca?: Marca): 
 // Épica #14678 (ADR-0048): las opciones del menú por áreas van primero, en el orden del menú (Operaciones,
 // Financiera, Gerencial, Kyverum, Administración, Ayuda). `menu.administracion` se REUTILIZA (no se depreca).
 // General (Dr. Flit), Ayuda y Perfil quedan fuera de las áreas. Los ocho deprecados conservan código, nombre y orden;
-// por eso las opciones nuevas van en 1-4: ordenar por `orden` da el orden del menú sin empatar con los de antes.
+// por eso las opciones nuevas van en 1-9: ordenar por `orden` da el orden del menú sin empatar con los de antes.
 export const ELEMENTOS_PERMISOS: readonly NodoArbolDef[] = [
   elemento('operaciones', 'Operaciones', 1),
   elemento('financiera', 'Financiera', 2),
-  elemento('gerencial', 'Gerencial', 3),
-  elemento('kyverum', 'Kyverum', 4),
+  // PR 4 (decisión de David, 2026-11-25): las cinco áreas sin pantallas existen como elemento para activarlas por
+  // rol; con el elemento marcado el menú pinta el área con «Próximamente». Ningún rol las recibe al sembrarlas.
+  elemento('comercial', 'Comercial', 3),
+  elemento('diseno', 'Diseño', 4),
+  elemento('tecnologia', 'Tecnología', 5),
+  elemento('infraestructura', 'Infraestructura', 6),
+  elemento('producto', 'Producto', 7),
+  elemento('gerencial', 'Gerencial', 8),
+  elemento('kyverum', 'Kyverum', 9),
   elemento('general', 'General', 10),
   elemento('gestion', 'Gestión', 20, 'deprecado'),
   elemento('transito', 'Tránsito', 30, 'deprecado'),

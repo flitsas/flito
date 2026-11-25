@@ -1,8 +1,8 @@
 # UX — Menú de FLITO por áreas de la empresa (Épica #14678)
 
 - **Modo:** full (navegación transversal: cambia el agrupamiento de todo el shell).
-- **Estado:** **APROBADO por el humano el 24-nov** («Está perfecto»). Incorpora la revisión de Andrés (PO) y el movimiento. Pendientes: dos puntos abiertos sin respuesta de Andrés (§Pendiente).
-- **Maqueta de referencia:** `docs/ux/mockups/epica-14678-menu-por-areas.html` (interactiva; no se importa en `apps/web`).
+- **Estado:** **APROBADO por el humano el 24-nov** («Está perfecto»). Incorpora la revisión de Andrés (PO) y el movimiento. Pendientes: dos puntos abiertos sin respuesta de Andrés (§Pendiente). **PR 4 (25-nov, slim):** áreas sin pantallas con aviso «Próximamente», ver §PR 4 al final; pendiente del «ok» humano a su maqueta.
+- **Maqueta de referencia:** `docs/ux/mockups/epica-14678-menu-por-areas.html` (interactiva; no se importa en `apps/web`). PR 4: `docs/ux/mockups/epica-14678-areas-proximamente.html`.
 - **Capturas:** `docs/ux/mockups/epica-14678-menu-por-areas-*.png` (lista en §Maqueta).
 - **Trazabilidad:** la Épica #14678 no tiene Features ni HUs. Este documento no abre rama ni PR. Ver `docs/arquitectura/epica-14678-menu-por-areas.md` §10.
 - **Contexto (no reescrito):** `docs/arquitectura/epica-14678-menu-por-areas.md`, `docs/adr/ADR-0048-navegacion-por-areas.md` (Propuesto), `docs/ux/_principios-flito.md`, `docs/ux/shell-tema-y-responsive.md`, `docs/ux/rediseno-2026/README.md`.
@@ -16,7 +16,7 @@
 
 **Qué es y qué no es el dock:**
 
-- Son **8 áreas de la empresa** de la Épica. Cinco de ellas (Comercial, Diseño, Tecnología, Infraestructura, Producto) están **ocultas** hasta que tengan entradas.
+- Son **8 áreas de la empresa** de la Épica. Cinco de ellas (Comercial, Diseño, Tecnología, Infraestructura, Producto) están **ocultas** hasta que tengan entradas. *(PR 4: o hasta que un rol las active en «Roles y permisos»; entonces aparecen con el aviso «Próximamente».)*
 - **Kyverum** y **Administración** **no son áreas de la empresa**. Son **opciones del menú pedidas por el PO**, además de las ocho áreas. Kyverum agrupa los módulos legacy; Administración agrupa la configuración.
 
 | Público | Qué ve | Listón |
@@ -39,7 +39,7 @@
 |---|---|---|
 | **Siempre visible** | Las opciones con entradas, en el orden fijo; Ayuda al final; la opción de la página actual resaltada | Barra inferior (escritorio) o ☰ (móvil) |
 | **Un clic** | Las entradas de cada opción, con sus subgrupos si los tiene | Panel hacia arriba / drawer |
-| **No está** | Áreas sin entradas (Comercial, Diseño, Tecnología, Infraestructura, Producto); nombres internos de permiso (`menu.*`, `pagina.*`); los 12 grupos viejos como botones; iconos nuevos; contadores en la barra; buscador dentro del panel (la paleta ya busca) | — |
+| **No está** | Áreas sin entradas (Comercial, Diseño, Tecnología, Infraestructura, Producto) que el rol no tiene activadas (PR 4); nombres internos de permiso (`menu.*`, `pagina.*`); los 12 grupos viejos como botones; iconos nuevos; contadores en la barra; buscador dentro del panel (la paleta ya busca) | — |
 
 **Una acción primaria:** el menú no tiene CTA. La única acción con peso es la entrada que el usuario elige.
 
@@ -74,7 +74,7 @@ flowchart TD
 
 ## Mapa final del dock
 
-Orden fijo del dock: **Operaciones · Financiera · Gerencial · Kyverum · Administración · Ayuda**. Las áreas ocultas (Comercial, Diseño, Tecnología, Infraestructura, Producto) ocupan su lugar del orden de áreas, entre Financiera y Gerencial, cuando tengan entradas.
+Orden fijo del dock: **Operaciones · Financiera · Gerencial · Kyverum · Administración · Ayuda**. Las áreas ocultas (Comercial, Diseño, Tecnología, Infraestructura, Producto) ocupan su lugar del orden de áreas, entre Financiera y Gerencial, cuando tengan entradas (o, desde PR 4, cuando un rol las active).
 
 | Opción | Entradas | Contenido | Presentación |
 |---|---|---|---|
@@ -274,7 +274,7 @@ Las palabras clave (`keywords`) no cambian.
 **Reglas:**
 
 - Una opción **aparece** si el usuario tiene al menos una entrada visible (permiso de página, y `funcion` cuando la entrada la pide, como hoy). Kyverum y Administración siguen la misma regla.
-- Una opción **desaparece** si no tiene ninguna. Nunca se muestra deshabilitada ni con candado.
+- Una opción **desaparece** si no tiene ninguna. Nunca se muestra deshabilitada ni con candado. *(Excepción de PR 4: un área sin ninguna entrada en el catálogo aparece si el rol tiene su elemento activado, con el panel «Próximamente».)*
 - **Opción con una sola entrada visible → enlace directo con el nombre de la entrada**, como hoy con «General → Tablero». El nombre de la opción no aparece (captura `una-entrada-claro`).
 - Opción con dos o más entradas → botón con el nombre de la opción y panel.
 - Ayuda sigue su regla propia (`puedeVerAyudaFlito`), sin cambio.
@@ -443,7 +443,7 @@ Las palabras clave (`keywords`) no cambian.
 | **Icono nuevo por opción** | Descartado | Se reutilizan glifos existentes (§Mapa final) |
 | **Contadores en la barra** | Descartado | Adorno. Las cantidades van en subgrupos del riel y del drawer |
 | **Apertura de paneles al pasar el puntero** | Descartado | Paneles que aparecen solos; accesibilidad |
-| **Áreas vacías visibles** | Descartado | Se ocultan (pedido) |
+| **Áreas vacías visibles** | Superado por PR 4 (antes: descartado, se ocultan) | Pedido de David (25-nov): visibles solo si un rol las activa, con el aviso «Próximamente» (§PR 4) |
 | **Ayuda in-app (`GRUPOS_ORDEN`)** | No se decide aquí | Taxonomía independiente del menú. Riesgo R9 de la arquitectura. Va a PR3 |
 | **Dr. Flit** | Fuera de la matriz | No es entrada de `NAV_ENTRADAS` |
 | **Copy del backend «Administración › Integración con Siigo»** | Se anota, no se cambia | Los `siigo.*.service.ts` citan esa ruta. Integración con Siigo está en Financiera. Ajustar en PR2 o en su ticket |
@@ -536,3 +536,201 @@ HANDOFF
 9. Deep links: ejemplos nuevos, como `/pesv/conductores` (resalta Kyverum) y `/transito/organismos` (resalta Administración).
 10. Lista de capturas actualizada a los 20 PNG reales.
 11. Se registra la excepción de la escala 1,06 frente al oficio, por aprobación explícita del humano.
+
+---
+
+## PR 4 — Áreas sin pantallas (Próximamente)
+
+- **Modo:** slim (extiende el dock, el drawer y el árbol de «Roles y permisos» ya especificados; no hay ruta ni `PageSlug` nuevos).
+- **Pedido (David, 25-nov, literal):** «Debes colocarlas, porque aunque tienes razón en que por ahora ninguno de esos elementos tiene items, es importante que estén listos para cuando empiecen a llegar elementos. Te propongo esto, que los pongas en permisos y si se activan que aparezcan en el menú, pero al abrirlos aparezca un aviso de próximamente, o algo así.»
+- **Decisión ya tomada:** al crearlas, las cinco áreas **no se activan para ningún rol**. Solo aparecen en el menú de un rol cuando alguien las marca en el panel de roles.
+- **Maqueta:** `docs/ux/mockups/epica-14678-areas-proximamente.html` (hermana de la aprobada, mismo CSS del kit). Pendiente del «ok» humano.
+- **Público:** operadores internos que abren el menú (tono impersonal, compatible con el usted de Ayuda) y quien administra roles en «Roles y permisos» (calca el tono impersonal del árbol: «Ayuda no se marca: …»).
+
+### Superficie tocada
+
+| Superficie | Componente | Qué cambia |
+|---|---|---|
+| Dock (≥ 1024 px) | `FlitNavBar.tsx` | Un área activada sin entradas muestra su botón y abre el panel «Próximamente» |
+| Drawer (< 1024 px) | `FlitSidebar.tsx` | La misma área va en el acordeón, con el mismo aviso dentro |
+| Panel de roles | `ArbolPermisos.tsx` / `NodoArbol.tsx` | El elemento de un área sin pantallas lleva «Sin pantallas aún» y una línea que explica qué hace marcarlo |
+| Paleta | `CommandPalette.tsx` | **Sin cambio**: el área vacía no aparece |
+| Estilos | `kit-react.css`, bloque «Menú por áreas» | Dos reglas nuevas de texto (`.dock-proximamente`, `.menu-lateral__proximamente`); ningún token, color ni ícono nuevo |
+
+### Regla de visibilidad (lo único que cambia de §6)
+
+«Área sin pantallas» significa **sin ninguna entrada en el catálogo** (`NAV_ENTRADAS` no tiene ninguna entrada de esa sección). No significa «el usuario no ve ninguna»: ese caso sigue la regla de siempre.
+
+| Caso | Qué ve el usuario |
+|---|---|
+| Área sin pantallas **y** su elemento activado para el usuario | Aparece en su lugar del orden; abre el panel «Próximamente» |
+| Área sin pantallas **y** su elemento no activado | No aparece (como hoy) |
+| Área que ya tiene pantallas (cuando lleguen) | Regla §6 de siempre: aparece si ve al menos una entrada y desaparece si no ve ninguna. El aviso deja de existir solo, sin otro cambio de diseño |
+
+- **Orden:** el de §Mapa, entre Financiera y Gerencial: Operaciones · Financiera · **Comercial · Diseño · Tecnología · Infraestructura · Producto** · Gerencial · Kyverum · Administración · Ayuda.
+- **Glifo:** el que cada área ya tiene en `ICONO_SECCION` (`documento`, el mismo para las cinco). Sin iconos nuevos.
+- **Nunca activa:** el área no tiene páginas, así que nunca queda resaltada y ningún deep link la abre.
+- **Códigos de permiso:** se proponen `menu.comercial`, `menu.diseno`, `menu.tecnologia`, `menu.infraestructura` y `menu.producto`, en la línea de `menu.kyverum`. Los confirma el backend/arquitectura; el diseño no depende del nombre.
+
+### Delta de claridad (qué se ve / qué se calla)
+
+| Nivel | Qué |
+|---|---|
+| **Siempre visible** | El botón del área activada, idéntico a los demás: glifo, nombre y flecha |
+| **Un clic** | El panel con la cabecera del área («Comercial · Próximamente») y dos líneas que dicen que aún no hay módulos y que aparecerán ahí |
+| **No está** | Etiqueta, contador, atenuado o candado en el botón de la barra (la barra no lleva contadores, §12); fechas o promesas de plazo; botón, enlace a Ayuda o «Pedir acceso» en el panel (no hay nada que pedir: el usuario ya tiene el área); el área en la paleta |
+
+**Densidad:**
+
+- **Por defecto no cambia.** Ningún rol tiene las áreas al crearlas.
+- **Con un área activada, cabe** (estimación sin medir). Son siete botones: unos 1 040 px a 1366 y unos 925 px a 1024.
+- **Con dos o más áreas activadas, empeora.** Estimación: dos áreas ya no caben a 1024; las cinco (11 botones, unos 1 590 px) no caben ni a 1366. La vista `todas` de la maqueta existe para medirlo. **Pregunta abierta al PO** (§Pregunta abierta).
+
+**Primaria:** ninguna. El panel es informativo, y el menú sigue sin CTA.
+
+### 1. Dock — panel «Próximamente»
+
+```
+                 ┌─ panel #flit-navbar-panel-comercial · 320 px (ancho base del kit) ─┐
+                 │ ┌─ dock__cabeza (relleno azul del kit) ──────────────────────────┐ │
+                 │ │ [documento]  Comercial                                         │ │
+                 │ │              Próximamente                                      │ │
+                 │ └────────────────────────────────────────────────────────────────┘ │
+                 │   Esta área aún no tiene módulos.                     (600, primario)│
+                 │   Aparecerán aquí cuando estén disponibles.        (caption, secundario)│
+                 └────────────────────────────────────────────────────────────────────┘
+ [ Operaciones ]  [ Financiera ]  [ Comercial ▴ ]  [ Gerencial ]  [ Kyverum ]  [ Administración ]  [ Ayuda ]
+```
+
+- **Cabecera:** el `dock__cabeza` de siempre: glifo del área, `<strong>` con el nombre y `<small>` con **«Próximamente»**, en el lugar del contador «N módulos».
+- **Cuerpo:** dos líneas de texto. La primera en `--color-text-primary`, peso 600. La segunda en `--color-text-secondary`, tamaño `--text-caption`. No lleva ícono de aviso, porque el glifo del área ya está en la cabecera y un segundo ícono sería adorno. Tampoco lleva botón ni enlace.
+- **Ancho:** el base del kit (`.dock__menu`, 320 px), **sin** `dock__menu--ancho` ni `dock__menu--area`. No ocupa el ancho de un área llena (880 px). El alto lo mide el hilo en la maqueta (estimación: unos 140 px).
+- **Posición:** se centra sobre su botón y se corrige con `--dock-desp`, como los demás paneles.
+- **Movimiento:** el de §8, sin nada nuevo. Abre con `flit-panel-up`, cierra con `panel-salir` y el indicador se desliza al botón. No hay entradas escalonadas porque no hay entradas. Con `prefers-reduced-motion`, aparece al instante.
+- **Comportamiento:** el de §8. Clic abre y cierra, un solo panel abierto a la vez, Esc cierra y devuelve el foco al botón, clic fuera cierra. No se abre al pasar el puntero.
+
+**Copy exacto:**
+
+| Lugar | Texto |
+|---|---|
+| Botón de la barra | El nombre del área: «Comercial», «Diseño», «Tecnología», «Infraestructura», «Producto» |
+| `<small>` de la cabecera (donde va «N módulos») | **Próximamente** |
+| Cuerpo, línea 1 | **Esta área aún no tiene módulos.** |
+| Cuerpo, línea 2 | **Aparecerán aquí cuando estén disponibles.** |
+
+El copy no lleva fecha ni plazo. Usa «módulos», la palabra del contador del dock y del estado vacío («Sin módulos asignados»). No tutea ni trata de usted: es impersonal, así que vale en todo el shell.
+
+### 2. Drawer móvil (< 1024 px)
+
+```
+│ [ ▸ Financiera · 10 ]                                   aria-expanded=false         │
+│ [ ▾ Comercial ]                                         aria-expanded=true          │
+│        Esta área aún no tiene módulos.                                              │
+│        Aparecerán aquí cuando estén disponibles.                                    │
+│ [ ▸ Gerencial · 9 ]                                     aria-expanded=false         │
+```
+
+- **Fila:** `menu-lateral__fila` igual a las demás (glifo, nombre, flecha), **sin cantidad**. No lleva «0» ni etiqueta, igual que el botón del dock no la lleva.
+- **Al abrirla:** las mismas dos líneas del dock, con las mismas clases de texto, alineadas con el nombre de la fila (`.menu-lateral__proximamente`, sangría de 4 + 36 px + `--space-10`). Sin enlaces dentro.
+- **Cerrada por defecto:** nunca es la opción de la página actual. Puede quedar abierta a la vez que otras, como todo el acordeón.
+- A 360–390 px el texto envuelve en dos o tres líneas, sin desborde horizontal.
+
+### 3. Panel «Roles y permisos»
+
+```
+│ ▸ [■] Financiera                                                   10 de 10 │
+│    [□] Comercial                                           Sin pantallas aún │
+│         Al marcarla, el área aparece en el menú con el aviso «Próximamente».  │
+│         No da acceso a ninguna pantalla.                                     │
+│    [■] Diseño                                              Sin pantallas aún │
+│         Al marcarla, el área aparece en el menú con el aviso «Próximamente».  │
+│         No da acceso a ninguna pantalla.                                     │
+│    … Tecnología · Infraestructura · Producto (igual)                         │
+│ ▸ [■] Gerencial                                                       9 de 9 │
+│ ─ FUERA DE ÁREAS ─────────────────────────────────────────────────────────── │
+```
+
+- **Lugar:** dentro del grupo de áreas de `gruposDelPanel`, en el orden del dock (entre Financiera y Gerencial). Nunca bajo «Fuera de áreas».
+- **Fila:** la de un elemento sin hijos: sin chevron (`Hueco`) y con una casilla de dos estados (marcada o desmarcada; nunca parcial). Se puede marcar y desmarcar como cualquier elemento. No se deshabilita ni lleva candado.
+- **Etiqueta: «Sin pantallas aún»** en el hueco donde va «k de n» (`text-xs`, `--color-text-secondary`), como texto plano y no como `StatusChip`. Lleva «Sin pantallas aún» y no «Próximamente» porque quien administra necesita el hecho («no hay pantallas»). La promesa al usuario va citada en la línea de abajo, que enlaza las dos palabras.
+- **Línea de explicación** (`ml-8 text-sm`, `--color-text-secondary`), siempre visible, marcada o no: **«Al marcarla, el área aparece en el menú con el aviso «Próximamente». No da acceso a ninguna pantalla.»**
+- **Panel del usuario (excepciones, HU #13970):** la misma fila. La etiqueta de origen va delante, como hoy: «No lo trae · Sin pantallas aún», «Del rol · Sin pantallas aún» o «Añadido · Sin pantallas aún».
+- **Condición para el implementador:** la etiqueta y la línea salen de «elemento del grupo de áreas **sin ítems**». No vale cualquier elemento sin hijos: los de «Fuera de áreas» (General, Perfil…) no la llevan. Cuando el área reciba su primer ítem, la etiqueta y la línea desaparecen solas y vuelve «k de n».
+- **Notificación:** guardar el rol usa el toast que ya existe, sin cambio de copy. Marcar no notifica nada.
+
+### 4. Paleta de comandos
+
+**Confirmado: el área vacía no aparece.** No tiene grupo, ni fila, ni «Próximamente». La paleta se arma con entradas, y el área no tiene ninguna. Si alguien busca «comercial», solo sale la entrada de Torre («Comercial», con el subtítulo «Gerencial · Torre de Control»). El copy de búsqueda vacía no cambia.
+
+### Estados (4) + copy
+
+| Estado | Dock | Drawer | Panel de roles |
+|---|---|---|---|
+| **Cargando** | No cambia (tres pastillas) | No cambia | No cambia |
+| **Error + reintento** | No cambia: «No se pudo cargar el menú.» + «Reintentar». Las áreas tampoco aparecen (falla cerrado) | No cambia | No cambia |
+| **Vacío** | No cambia: «Sin módulos asignados. Pedir acceso al administrador de FLITO.» | No cambia | — |
+| **Lleno** | Opciones con entradas + áreas activadas sin pantallas, en su orden; estas abren «Próximamente» | Ídem, en el acordeón | Filas de las cinco áreas con «Sin pantallas aún» |
+
+- **El «Próximamente» no es un quinto estado.** Es el contenido fijo del panel de un área sin entradas, dentro de «lleno».
+- **Caso límite, decidido:** un rol que solo tiene activada un área vacía, con o sin Ayuda. El área cuenta como opción visible, así que el dock muestra Comercial (y Ayuda) y no el aviso «Sin módulos asignados». La página de inicio sigue siendo la de acceso denegado, sin cambio. Es una configuración rara, y mostrar dos mensajes a la vez sería peor.
+
+### Responsive + feedback del delta
+
+- **< 1024 px:** sin dock. El área va en el acordeón del drawer, con el aviso dentro (§2). A 375 px el texto envuelve.
+- **1024–1279 px:** el panel de 320 px cabe sobre cualquier botón, con `--dock-desp`. El riesgo de ancho es de la barra, no del panel (§Pregunta abierta).
+- **Panel de roles a < 640 px:** la etiqueta «Sin pantallas aún» baja bajo el nombre (`pl-8`, `flex-wrap` que ya existe). La línea de explicación envuelve.
+- **Hover y foco:**
+  - Botón del área en la barra: los de `dock__item` (`--kit-hover`, anillo de 2 px `--color-action`).
+  - Fila del drawer: los de `menu-lateral__fila`.
+  - Casilla del árbol: el hover de la etiqueta (`--kit-hover`) y el foco del kit.
+  - El panel y su texto no son interactivos, así que no llevan hover. No queda ningún control plano.
+- **Notificación:** ninguna en el menú. El aviso es persistente y vive en el panel, no en un toast. En roles, el toast de guardar de siempre.
+
+### Accesibilidad del delta
+
+- **Botón del área:** `aria-expanded` y `aria-controls`, como los demás. Además lleva `aria-describedby` apuntando al cuerpo del panel (`flit-navbar-proximamente-<área>`). El panel no tiene nada enfocable, así que el foco se queda en el botón. Sin esa descripción, un lector de pantalla diría «expandido» y nada más. La referencia funciona aunque el panel esté `hidden`.
+- **Fila del drawer:** el mismo `aria-describedby` hacia su aviso.
+- **Sin `role="status"` ni `role="alert"`:** el texto no aparece solo, aparece porque el usuario abrió el panel.
+- **Casilla del árbol:** `aria-describedby` en el orden de la ficha. La descripción («Al marcarla…») ocupa la ranura de `desc` y «Sin pantallas aún» la de `cuenta`.
+- **Contraste:** pares que ya están en §10. Texto primario y secundario sobre superficie elevada en los dos temas, y el `<small>` de la cabecera igual que «N módulos». Ningún color nuevo.
+
+### Permiso/slug
+
+- No hay `PageSlug` ni ruta nueva. Las áreas no tienen páginas.
+- Cinco **elementos** nuevos en el árbol de permisos (códigos propuestos arriba), que no vienen activados para ningún rol (decisión tomada).
+- Quien los activa es quien entra a «Roles y permisos» (Administración), con el permiso que esa página ya pide. No cambia quién la ve.
+
+### Pregunta abierta (al PO, no se da por buena)
+
+**Ancho del dock con varias áreas activadas.** Con una área activada el dock cabe. Con dos, la estimación dice que ya no cabe a 1024 px. Con las cinco no cabe ni a 1366 px. La regla «Más» quedó sin decidir (§12). Opciones:
+
+- **(a) Aceptarlo por ahora.** Hoy nadie las tiene, y la regla de desborde se decide cuando un rol active la segunda área o lleguen pantallas. Es mi recomendación: no inventa un patrón para un caso que aún no existe.
+- **(b) Decidir ya la regla de desborde.** Sería una spec aparte, no este delta.
+
+Hay que medirlo con la vista `todas` antes de responder.
+
+### Notas para QA (≤ 10)
+
+1. Ningún rol tiene las áreas al crearlas: el dock del admin sigue con seis botones (`reposo-claro` sin cambio).
+2. Marcar Comercial en un rol: un usuario de ese rol ve «Comercial» entre Financiera y Gerencial. Al abrirlo ve la cabecera «Comercial · Próximamente» y las dos líneas exactas, en un panel de 320 px, no de 880.
+3. El panel no tiene nada enfocable. Esc lo cierra y el foco vuelve al botón. El lector de pantalla lee la descripción al enfocar el botón.
+4. Drawer a 375 px: Comercial sin cantidad. Al abrirla, el mismo aviso, sin desborde.
+5. Paleta: ni grupo ni fila de Comercial. «comercial» solo devuelve la entrada de Torre.
+6. Roles: las cinco filas entre Financiera y Gerencial, sin chevron, con «Sin pantallas aún» y la línea de explicación. Marcar y desmarcar funciona y guarda con el toast de siempre.
+7. Panel del usuario: «No lo trae · Sin pantallas aún» o «Del rol · Sin pantallas aún», según el origen.
+8. Elementos de «Fuera de áreas» sin hijos: no llevan la etiqueta.
+9. Error del menú: tampoco aparecen las áreas activadas (falla cerrado).
+10. Claro y oscuro en las tres vistas. Con `prefers-reduced-motion`, el panel aparece al instante.
+
+### Brief de mockup
+
+- **Archivo:** `docs/ux/mockups/epica-14678-areas-proximamente.html`. Carga el mismo CSS real del kit, en el mismo orden que la maqueta aprobada, más `torre-maqueta.css`. Las reglas nuevas van marcadas «NUEVO (PR 4)» en su `<style>`. No hay HEX nuevos: los únicos HEX son los de las máscaras del glifo Ayuda, copiados del sprite del kit.
+- **Vistas (`?vista=`):**
+  - `proximamente` (por defecto): dock con Comercial activada y su panel abierto. Capturar a 1366 × 768 en claro y en oscuro (`&tema=oscuro`).
+  - `todas`: dock con las cinco áreas activadas, cerrado. Capturar a 1366 × 768 y 1024 × 768 para medir el desborde.
+  - `drawer`: drawer con Comercial abierta. Capturar a 375 × 812 en claro (y en oscuro, si se quiere).
+  - `roles`: fragmento del árbol del rol ficticio «Analista comercial», con Diseño marcada como ejemplo. Capturar a 1366 × 768 y 375 × 812.
+- **Componentes:** `dock`, `dock__item`, `dock__menu` (base), `dock__cabeza`, `menu-lateral__fila`, `acordeon`, y la fila de `NodoArbol` traducida a tokens.
+- **Datos:** solo nombres de áreas y un rol ficticio, sin PII.
+- **Qué no muestra:** entradas dentro de los acordeones cerrados (no cambian), la paleta (no cambia) y los estados cargando, error y vacío (no cambian; ver la maqueta aprobada).
+- **Nombres de captura sugeridos:** `epica-14678-areas-proximamente-{dock-claro,dock-oscuro,todas-1366,todas-1024,drawer-375,roles-claro,roles-375}.png`.

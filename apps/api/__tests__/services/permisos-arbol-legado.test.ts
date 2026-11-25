@@ -18,7 +18,7 @@ import {
 import { SUELTAS_INCORPORADAS_13588 } from '../../src/modules/permisos/arbol/expansion.js';
 import { NOMBRES_LEGADO } from '../../src/modules/permisos/catalogo-operaciones.legado.js';
 import { MIGRACIONES_CON_REPARTO, leerRepartoSembrado } from '../helpers/permisos-seed-sql.js';
-import { ELEMENTOS_NUEVOS_14678, PADRE_ANTES_DE_AREAS } from '../../src/modules/permisos/arbol/menu-por-areas.js';
+import { ELEMENTOS_AREAS_VACIAS_14678, ELEMENTOS_NUEVOS_14678, PADRE_ANTES_DE_AREAS } from '../../src/modules/permisos/arbol/menu-por-areas.js';
 
 const PESV_CON_ADMINISTRAR = ITEMS_LEGADO.filter((i) => i.acciones.length > 0);
 
@@ -173,8 +173,10 @@ describe('AC3 / TC-08 y TC-25 — paridad con el gating: nadie pierde; solo se g
   it('el rol que tenía todo tiene todo: admin, con todos los elementos y todas las acciones «Administrar»', () => {
     const admin = DESPUES.get('admin')!;
     for (const i of PESV_CON_ADMINISTRAR) expect(admin.has(`accion.${i.slug}.administrar`), i.slug).toBe(true);
-    // Los cuatro de la 0315 (Épica #14678) aún no existían en la 0239.
-    for (const e of catalogoCompleto().filter((f) => f.tipo === 'elemento' && !ELEMENTOS_NUEVOS_14678.includes(f.codigo))) expect(admin.has(e.codigo), e.codigo).toBe(true);
+    // Los cuatro de la 0315 y las cinco áreas vacías de la 0316 (Épica #14678) aún no existían en la 0239; las cinco,
+    // además, no se le marcan a `admin` (decisión de David del 2026-11-25).
+    const posteriores = [...ELEMENTOS_NUEVOS_14678, ...ELEMENTOS_AREAS_VACIAS_14678];
+    for (const e of catalogoCompleto().filter((f) => f.tipo === 'elemento' && !posteriores.includes(f.codigo))) expect(admin.has(e.codigo), e.codigo).toBe(true);
   });
 });
 

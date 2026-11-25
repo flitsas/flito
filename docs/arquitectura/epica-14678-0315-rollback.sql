@@ -4,6 +4,7 @@
 -- decide revertir la imagen de la API a una sin la 0315 (Épica #14678, ADR-0048), y con el «sí» humano.
 --
 -- Cuándo y en qué orden (verificado en código):
+--   0. Si la 0316 (áreas vacías, PR 4) está aplicada, correr ANTES docs/arquitectura/epica-14678-0316-rollback.sql.
 --   1. ANTES de revertir la imagen. Si la 0315 sigue en el ledger sin su archivo en disco (huérfana), el initContainer
 --      `db-apply` de la imagen anterior HOY registra `[drift] huerfana` y continúa (`DRIFT_ABORTA=false` en
 --      `apps/api/src/scripts/db-apply.ts`, ADR-0035 §A); abortará con EXIT_DERIVA cuando el PR 2 de ADR-0035 retire esa

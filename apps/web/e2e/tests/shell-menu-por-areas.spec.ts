@@ -10,13 +10,19 @@
 //   · paleta: grupos por opción en SECTION_ORDER y Ayuda al final; subtítulo = subgrupo sin consulta y
 //     «Opción · subgrupo» (o solo la opción) con consulta;
 //   · paleta con `/permisos/mios` caído: «No se pudo cargar el menú.» con «Reintentar», sin entradas ni toast.
+// PR 4 (arquitectura §4.9, AC5-AC8; spec UX «Áreas sin pantallas (Próximamente)»):
+//   · un área sin entradas con su `menu.*` en `funciones` sale en el dock y el drawer con el aviso, sin enlaces;
+//     sin el elemento no sale, y un área CON entradas sin páginas del usuario sigue oculta aunque tenga su elemento;
+//   · la paleta no lista áreas vacías;
+//   · cerrar un panel del dock no lo vuelve a montar (un solo montaje, sin parpadeo); con reduced-motion, al instante.
 //
 //   cd apps/web && QA_AXE_CDN=1 npx playwright test e2e/tests/shell-menu-por-areas.spec.ts --reporter=line
 import type { Page } from '@playwright/test';
 import { ELEMENTOS_PERMISOS } from '@operaciones/shared-types';
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, sobreDeMios, ADMIN_USER, FINANCIERA_USER, MENSAJERO_USER } from '../helpers/auth';
+import { loginAs, sobreDeMios, funcionesDe, ADMIN_USER, FINANCIERA_USER, MENSAJERO_USER } from '../helpers/auth';
 import { COPY_MENU_ERROR } from '../../src/components/shell/useEstadoMenu';
+import { COPY_PROXIMAMENTE, COPY_PROXIMAMENTE_TEXTO, COPY_PROXIMAMENTE_TITULO } from '../../src/components/shell/sectionMeta';
 
 /** El home (/) pinta <FlitoTablero>, que consume /flito/tablero como OBJETO (no lista). */
 const TABLERO_VACIO = {
@@ -220,5 +226,194 @@ test.describe('Épica #14678 · paleta con el menú en error (spec §4)', () => 
     await expect(paleta.getByRole('alert')).toHaveCount(0);
     await expect(paleta.getByRole('group', { name: opcion('operaciones') })).toBeVisible();
     await expect(nav(page).getByRole('alert')).toHaveCount(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PR 4 — áreas sin pantallas (Próximamente) y cierre del panel sin parpadeo.
+
+const ADMIN_CON_COMERCIAL = { funciones: [...funcionesDe(ADMIN_USER), 'menu.comercial'] };
+const SOLO_FINANCIERA = { ...FINANCIERA_USER, role: 'e2e_solo_financiera', allowedPages: ['flito_bolsas', 'flito_tarifas', 'flito_comprobantes'] };
+const DESCRIPCION_PROXIMAMENTE = `${COPY_PROXIMAMENTE_TITULO} ${COPY_PROXIMAMENTE_TEXTO}`;
+
+/** Las opciones de la fila del dock, en el orden en que se pintan. */
+const ordenDelDock = (page: Page) => nav(page).locator(':scope > .dock__grupo, :scope > a.dock__item')
+  .evaluateAll((els) => els.map((e) => e.getAttribute('data-seccion')));
+
+test.describe('Épica #14678 PR 4 · área sin pantallas en el dock (AC5)', () => {
+  test('con menu.comercial: «Comercial» entre Financiera y Gerencial; el panel dice «Próximamente», sin enlaces', async ({ page }) => {
+    await loginAs(page, ADMIN_USER, ADMIN_CON_COMERCIAL);
+    await mockApi(page);
+    await page.goto('/');
+    await listo(page);
+
+    const orden = await ordenDelDock(page);
+    expect(orden.indexOf('comercial')).toBe(orden.indexOf('financiera') + 1);
+    expect(orden.indexOf('gerencial')).toBe(orden.indexOf('comercial') + 1);
+
+    const boton = nav(page).getByRole('button', { name: opcion('comercial'), exact: true });
+    // Cerrado, el lector de pantalla ya oye el aviso (texto `hidden` referenciado por aria-describedby).
+    await expect(boton).toHaveAccessibleDescription(DESCRIPCION_PROXIMAMENTE);
+    await boton.click();
+    await expect(boton).toHaveAttribute('aria-expanded', 'true');
+    const panel = page.locator('#flit-navbar-panel-comercial');
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('.dock__cabeza strong')).toHaveText(opcion('comercial'));
+    await expect(panel.locator('.dock__cabeza small')).toHaveText(COPY_PROXIMAMENTE);
+    await expect(panel.locator('.dock-proximamente__titulo')).toHaveText(COPY_PROXIMAMENTE_TITULO);
+    await expect(panel.locator('.dock-proximamente__texto')).toHaveText(COPY_PROXIMAMENTE_TEXTO);
+    await expect(panel.getByRole('link')).toHaveCount(0);
+    await expect(panel.getByRole('button')).toHaveCount(0);
+    // Abierto, la descripción es el cuerpo del panel.
+    await expect(boton).toHaveAccessibleDescription(DESCRIPCION_PROXIMAMENTE);
+    // Ancho base del kit (320 px), no el de un área llena (880 px).
+    expect((await panel.boundingBox())!.width).toBeLessThanOrEqual(330);
+
+    await page.keyboard.press('Escape');
+    await expect(boton).toHaveAttribute('aria-expanded', 'false');
+    await expect(boton).toBeFocused();
+  });
+
+  test('sin menu.comercial, «Comercial» no aparece', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockApi(page);
+    await page.goto('/');
+    await listo(page);
+    await expect(nav(page).getByRole('button', { name: opcion('gerencial'), exact: true })).toBeVisible();
+    await expect(nav(page).getByRole('button', { name: opcion('comercial'), exact: true })).toHaveCount(0);
+  });
+
+  test('un área CON entradas y sin páginas del usuario sigue oculta aunque tenga su elemento', async ({ page }) => {
+    await loginAs(page, SOLO_FINANCIERA, { funciones: ['menu.operaciones', 'menu.comercial'] });
+    await mockApi(page);
+    await page.goto('/flito/bolsas');
+    await listo(page);
+    await expect(nav(page).getByRole('button', { name: opcion('financiera'), exact: true })).toBeVisible();
+    await expect(nav(page).getByRole('button', { name: opcion('comercial'), exact: true })).toBeVisible();
+    await expect(nav(page).locator('[data-seccion="operaciones"]')).toHaveCount(0);
+  });
+});
+
+test.describe('Épica #14678 PR 4 · área sin pantallas en el drawer (AC6)', () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  test('375 px: «Comercial» sin cantidad; al desplegarla, el aviso sin enlaces', async ({ page }) => {
+    await loginAs(page, ADMIN_USER, ADMIN_CON_COMERCIAL);
+    await mockApi(page);
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Abrir menú de navegación' }).click();
+    const menu = page.getByRole('dialog', { name: 'Menú de navegación' });
+    const fila = menu.locator('li[data-seccion="comercial"]');
+    const boton = fila.getByRole('button', { name: opcion('comercial'), exact: true });
+    await expect(boton).toBeVisible();
+    await expect(fila.locator('.menu-lateral__cuenta')).toHaveCount(0);
+    await expect(boton).toHaveAttribute('aria-expanded', 'false');
+    await boton.click();
+    await expect(boton).toHaveAttribute('aria-expanded', 'true');
+    const aviso = fila.locator('.menu-lateral__proximamente');
+    await expect(aviso).toBeVisible();
+    await expect(aviso.locator('.dock-proximamente__titulo')).toHaveText(COPY_PROXIMAMENTE_TITULO);
+    await expect(aviso.locator('.dock-proximamente__texto')).toHaveText(COPY_PROXIMAMENTE_TEXTO);
+    await expect(fila.getByRole('link')).toHaveCount(0);
+    await expect(boton).toHaveAccessibleDescription(DESCRIPCION_PROXIMAMENTE);
+    // Sin desborde horizontal a 375 px.
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+  });
+});
+
+test.describe('Épica #14678 PR 4 · la paleta no lista áreas vacías (AC7)', () => {
+  test('con menu.comercial, la paleta no tiene grupo «Comercial»', async ({ page }) => {
+    await loginAs(page, ADMIN_USER, ADMIN_CON_COMERCIAL);
+    await mockApi(page);
+    await page.goto('/');
+    await listo(page);
+    const paleta = await abrirPaleta(page);
+    const grupos = await paleta.getByRole('group').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')));
+    expect(grupos).toEqual([...OPCIONES, 'ayuda'].map(opcion));
+    await expect(paleta.getByRole('group', { name: opcion('comercial') })).toHaveCount(0);
+  });
+});
+
+test.describe('Épica #14678 PR 4 · cierre del panel del dock sin parpadeo (AC8, arquitectura §4.7)', () => {
+  /**
+   * Cuenta cada vez que se MONTA un nodo `[data-grupo="financiera"]` durante la vida del documento. Con el
+   * `useEffect` de antes, cerrar desmontaba el panel un fotograma y lo volvía a montar como nodo nuevo: 2 montajes.
+   */
+  async function contarMontajes(page: Page) {
+    await page.addInitScript(() => {
+      const w = window as unknown as { __montajesPanel: number };
+      w.__montajesPanel = 0;
+      new MutationObserver((cambios) => {
+        for (const c of cambios) {
+          c.addedNodes.forEach((n) => {
+            if (!(n instanceof Element)) return;
+            if (n.matches('[data-grupo="financiera"]')) w.__montajesPanel += 1;
+            w.__montajesPanel += n.querySelectorAll('[data-grupo="financiera"]').length;
+          });
+        }
+      }).observe(document, { childList: true, subtree: true });
+    });
+  }
+  const montajes = (page: Page) => page.evaluate(() => (window as unknown as { __montajesPanel: number }).__montajesPanel);
+
+  test('al cerrar, el panel se funde y desaparece sin volver a montarse: un solo montaje', async ({ page }) => {
+    await contarMontajes(page);
+    await loginAs(page, ADMIN_USER);
+    await mockApi(page);
+    await page.goto('/');
+    await listo(page);
+    const boton = nav(page).getByRole('button', { name: opcion('financiera'), exact: true });
+    const panel = page.locator('[data-grupo="financiera"]');
+
+    await boton.click();
+    await expect(panel).toBeVisible();
+    expect(await montajes(page)).toBe(1);
+
+    await boton.click();
+    await expect(boton).toHaveAttribute('aria-expanded', 'false');
+    await expect(panel).toHaveCount(0);
+    expect(await montajes(page)).toBe(1);
+  });
+
+  test('al cerrar, el primer cambio del nodo vivo es su clase de salida, no su desmontaje', async ({ page }) => {
+    await loginAs(page, ADMIN_USER);
+    await mockApi(page);
+    await page.goto('/');
+    await listo(page);
+    const boton = nav(page).getByRole('button', { name: opcion('financiera'), exact: true });
+    await boton.click();
+    const panel = page.locator('[data-grupo="financiera"]');
+    await expect(panel).toBeVisible();
+    await panel.evaluate((el) => {
+      const w = window as unknown as { __primerCambio: string | null };
+      w.__primerCambio = null;
+      new MutationObserver((cambios) => {
+        for (const c of cambios) {
+          if (w.__primerCambio) return;
+          if (c.type === 'attributes' && c.target === el && el.classList.contains('dock__menu--saliendo')) w.__primerCambio = 'clase';
+          else if (c.type === 'childList' && Array.from(c.removedNodes).includes(el)) w.__primerCambio = 'desmontado';
+        }
+      }).observe(el.parentElement!, { childList: true, attributes: true, subtree: true, attributeFilter: ['class'] });
+    });
+    await boton.click();
+    await expect(panel).toHaveCount(0);
+    expect(await page.evaluate(() => (window as unknown as { __primerCambio: string | null }).__primerCambio)).toBe('clase');
+  });
+
+  test('con reduced-motion se oculta al instante, sin fundido', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await contarMontajes(page);
+    await loginAs(page, ADMIN_USER);
+    await mockApi(page);
+    await page.goto('/');
+    await listo(page);
+    const boton = nav(page).getByRole('button', { name: opcion('financiera'), exact: true });
+    const panel = page.locator('[data-grupo="financiera"]');
+    await boton.click();
+    await expect(panel).toBeVisible();
+    await boton.click();
+    // Sin espera: tras el clic el panel ya no está (ni con la clase de salida).
+    expect(await panel.count()).toBe(0);
+    expect(await montajes(page)).toBe(1);
   });
 });

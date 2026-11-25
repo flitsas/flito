@@ -2,7 +2,7 @@ import { useRef, useState, type ReactNode, type RefObject } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { SECTION_LABEL, type NavItem } from '../shell/navItems';
 import { useNavSections, type SectionGroup } from '../shell/useNavSections';
-import { finExacto, groupItems, groupOf } from '../shell/sectionMeta';
+import { COPY_PROXIMAMENTE_TEXTO, COPY_PROXIMAMENTE_TITULO, finExacto, groupItems, groupOf } from '../shell/sectionMeta';
 import { ICONO_SECCION, iconoDeRuta } from '../shell/iconosNav';
 import { COPY_MENU_ERROR, COPY_MENU_VACIO, useEstadoMenu, type EstadoDelMenu } from '../shell/useEstadoMenu';
 import { useEscape, useFocusTrap } from '../../lib/hooks';
@@ -144,7 +144,7 @@ function EstadoLateral({ menu, ayuda, onClose }: { menu: EstadoDelMenu; ayuda?: 
 function Opcion({ grupo, activa, abiertas, alternar, onClose }: {
   grupo: SectionGroup; activa: boolean; abiertas: ReadonlySet<string>; alternar: (clave: string) => void; onClose: () => void;
 }) {
-  const { section, items } = grupo;
+  const { section, items, proximamente } = grupo;
   const glifo = <span className="kico" aria-hidden="true"><IconoGlifo icono={ICONO_SECCION[section]} /></span>;
   if (items.length === 1) {
     const unico = items[0];
@@ -159,6 +159,25 @@ function Opcion({ grupo, activa, abiertas, alternar, onClose }: {
   const abierta = abiertas.has(section);
   const panelId = `${MENU_LATERAL_ID}-${section}`;
   const subgrupos = groupItems(section, items);
+  // Área sin pantallas activada (PR 4): mismo acordeón, sin cantidad, y dentro el aviso «Próximamente» sin enlaces.
+  if (proximamente) {
+    const idAviso = `${panelId}-proximamente`;
+    return (
+      <li data-seccion={section} data-proximamente="true">
+        <button type="button" className="menu-lateral__fila" id={`${panelId}-boton`} aria-expanded={abierta} aria-controls={panelId}
+          aria-describedby={idAviso} onClick={() => alternar(section)}>
+          {glifo}<span className="menu-lateral__nombre">{SECTION_LABEL[section]}</span>
+          <Icono nombre="abajo" className="menu-lateral__flecha" size={16} />
+        </button>
+        <Acordeon id={panelId} abierto={abierta}>
+          <div className="menu-lateral__proximamente" id={idAviso}>
+            <p className="dock-proximamente__titulo">{COPY_PROXIMAMENTE_TITULO}</p>
+            <p className="dock-proximamente__texto">{COPY_PROXIMAMENTE_TEXTO}</p>
+          </div>
+        </Acordeon>
+      </li>
+    );
+  }
   return (
     <li data-seccion={section}>
       <button type="button" className="menu-lateral__fila" id={`${panelId}-boton`} aria-expanded={abierta} aria-controls={panelId}

@@ -11,8 +11,8 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { flitBtnSecondarySm, flitBtnSecondaryStyle } from '../../components/flit/flitPageKit';
 import { Icono } from '../../components/flit/kit/Icono';
 import {
-  COPY_AYUDA_DERIVADA, ancestroDesmarcadoCercano, ancestroFaltante, avisoSinAcciones, codigosDesmarcarTodo,
-  codigosMarcarTodo, cuentaDe, descendientes, estadoDe, esHoja, explicacionDesmarcado, explicacionElementoAntiguo,
+  COPY_AYUDA_DERIVADA, COPY_EXPLICACION_SIN_PANTALLAS, COPY_SIN_PANTALLAS, ancestroDesmarcadoCercano, ancestroFaltante, avisoSinAcciones, codigosDesmarcarTodo,
+  codigosMarcarTodo, cuentaDe, descendientes, elementoSinPantallas, estadoDe, esHoja, explicacionDesmarcado, explicacionElementoAntiguo,
   explicacionItemAntiguo, fraseSinEfecto, inactivo, itemsSinAcciones, noOpcionales, notaExclusiva, opcionalesDe, origenDe,
   resumenExcepciones, rotuloOpcional, sinAcciones, sufijoSinAcciones, textoCuenta, textoExcepciones,
   type EstadoCasilla, type Nodo, type Origen,
@@ -136,8 +136,13 @@ export function FilaNodo({ nodo, padre, idRotulo }: { nodo: Nodo; padre?: Nodo; 
   const faltante = origen === 'anadido_sin_efecto' ? ancestroFaltante(nodo.codigo, marcados, indice) : null;
   const cercano = estaInactivo && !faltante ? ancestroDesmarcadoCercano(nodo.codigo, marcados, indice) : null;
 
+  // PR 4: área sin pantallas → «Sin pantallas aún» en la ranura de la cuenta y su explicación en la de la descripción.
+  const sinPantallas = elementoSinPantallas(nodo);
+  const descripcion = sinPantallas ? COPY_EXPLICACION_SIN_PANTALLAS : nodo.descripcion;
   let meta = '';
-  if (modo.tipo === 'rol') {
+  if (sinPantallas) {
+    meta = COPY_SIN_PANTALLAS;
+  } else if (modo.tipo === 'rol') {
     const cuenta = textoCuenta(cuentaDe(nodo, marcados, trato), hoja, !marcado);
     const sinAcc = esElemento ? sufijoSinAcciones(itemsSinAcciones(nodo, marcados)) : '';
     meta = [cuenta, sinAcc].filter(Boolean).join(' · ');
@@ -147,7 +152,7 @@ export function FilaNodo({ nodo, padre, idRotulo }: { nodo: Nodo; padre?: Nodo; 
   const mostrarOrigen = origen !== null && !(origen === 'no_lo_trae' && !esElemento);
 
   const describedBy = [
-    nodo.descripcion ? id('desc') : null,
+    descripcion ? id('desc') : null,
     exclusiva ? id('excl') : null,
     meta ? id('cuenta') : null,
     faltante ? id('sinefecto') : null,
@@ -197,7 +202,9 @@ export function FilaNodo({ nodo, padre, idRotulo }: { nodo: Nodo; padre?: Nodo; 
               </span>
             )}
           </div>
-          {nodo.descripcion && <p id={id('desc')} className="ml-8 text-sm" style={SECUNDARIO}>{nodo.descripcion}</p>}
+          {descripcion && (
+            <p id={id('desc')} className="ml-8 text-sm" style={SECUNDARIO} data-aviso={sinPantallas ? 'sin-pantallas' : undefined}>{descripcion}</p>
+          )}
           {exclusiva && trato && (
             <p id={id('excl')} className="ml-8 break-words text-sm" style={SECUNDARIO} data-aviso="exclusiva-admin">{notaExclusiva(trato, modo.tipo)}</p>
           )}
