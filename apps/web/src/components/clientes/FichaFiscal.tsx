@@ -13,7 +13,7 @@
 //   2. **Nada que Siigo tenga catalogado se escribe a mano** (AC4, AC6). Los identificadores y la
 //      ubicación salen de listas cerradas; lo único que se teclea es lo que de verdad es texto.
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import toast from 'react-hot-toast';
 import {
   PERSONA_TIPOS, PERSONA_TIPO_ETIQUETA, RESPONSABILIDADES_FISCALES,
@@ -28,6 +28,7 @@ import {
   flitInp, FlitField, flitBtnSecondary, flitBtnSecondaryStyle,
 } from '../flit/flitPageKit';
 import UbicacionFiscal from './UbicacionFiscal';
+import { ErrorNit, manejarErrorGuardarCliente } from './nitDuplicado';
 import type { DatosFiscalesCliente, VeredictoCliente } from './tipos';
 
 interface Props {
@@ -37,6 +38,13 @@ interface Props {
   onClose: () => void;
   /** Se llama tras guardar para que el listado refresque su señal de «no facturable». */
   onGuardado: () => void;
+  /** HU #14105: dentro de la pestaña «Datos fiscales» del modal del cliente (sin marco de modal propio). */
+  embebido?: boolean;
+}
+
+/** El marco de la ficha: modal propio, o el cuerpo a secas cuando va dentro de otro modal. */
+function Marco({ embebido, title, onClose, children }: { embebido?: boolean; title: string; onClose: () => void; children: React.ReactNode }) {
+  return embebido ? <div>{children}</div> : <FlitModal title={title} onClose={onClose}>{children}</FlitModal>;
 }
 
 type Formulario = {
@@ -96,7 +104,7 @@ function erroresDeFormato(f: Formulario): Record<string, string> {
   return e;
 }
 
-export default function FichaFiscal({ clienteId, clienteNombre, editable, onClose, onGuardado }: Props) {
+export default function FichaFiscal({ clienteId, clienteNombre, editable, onClose, onGuardado, embebido }: Props) {
   const [form, setForm] = useState<Formulario | null>(null);
   const [veredicto, setVeredicto] = useState<VeredictoCliente | null>(null);
   const [ciudadTexto, setCiudadTexto] = useState<string | null>(null);
@@ -104,6 +112,10 @@ export default function FichaFiscal({ clienteId, clienteNombre, editable, onClos
   const [guardando, setGuardando] = useState(false);
   /** Tipo de persona que se quiere aplicar, esperando confirmación (AC3). */
   const [cambioPendiente, setCambioPendiente] = useState<PersonaTipo | null>(null);
+  // HU #13955: 409 de NIT+sucursal → mensaje bajo «Identificación»; se limpia al tocar NIT o sucursal.
+  const [errorNit, setErrorNit] = useState<string | null>(null);
+  const refNit = useRef<HTMLInputElement>(null);
+  const idErrorNit = useId();
 
   const cargar = useCallback(async () => {
     setError(null);
@@ -152,13 +164,16 @@ export default function FichaFiscal({ clienteId, clienteNombre, editable, onClos
         phoneIndicative: form.phoneIndicative === '' ? null : form.phoneIndicative,
         phoneNumber: form.phoneNumber === '' ? null : form.phoneNumber,
       });
+      setErrorNit(null);
       toast.success('Datos fiscales guardados');
       // Se recarga en vez de cerrar: la señal de lo que falta tiene que actualizarse a la vista
       // (AC5), y así se ve qué queda pendiente sin volver a abrir la ficha.
       await cargar();
       onGuardado();
     } catch (e2) {
-      toast.error(errorMessage(e2));
+      const nit = manejarErrorGuardarCliente(e2);
+      setErrorNit(nit);
+      if (nit) refNit.current?.focus();
     } finally {
       setGuardando(false);
     }
@@ -167,7 +182,7 @@ export default function FichaFiscal({ clienteId, clienteNombre, editable, onClos
   const esPersona = form?.personType === 'Person';
 
   return (
-    <FlitModal title={`Datos fiscales · ${clienteNombre}`} onClose={onClose}>
+    <Marco embebido={embebido} title={`Datos fiscales · ${clienteNombre}`} onClose={onClose}>
       {error && (
         <div className="px-2 py-6 text-center">
           <p role="alert" className="text-sm" style={{ color: 'var(--flit-text-primary)' }}>
@@ -267,7 +282,7 @@ export default function FichaFiscal({ clienteId, clienteNombre, editable, onClos
                 value={form.branchOffice}
                 disabled={!editable}
                 aria-invalid={Boolean(errores.branchOffice)}
-                onChange={(e) => setForm({ ...form, branchOffice: e.target.value })}
+                onChange={(e) => { setErrorNit(null); setForm({ ...form, branchOffice: e.target.value }); }}
               />
               {errores.branchOffice && <ErrorCampo>{errores.branchOffice}</ErrorCampo>}
             </FlitField>
@@ -277,12 +292,16 @@ export default function FichaFiscal({ clienteId, clienteNombre, editable, onClos
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <FlitField label="Identificación">
               <input
+                ref={refNit}
                 aria-label="Identificación"
                 className={`${flitInp} md:col-span-2`}
                 value={form.document}
                 disabled={!editable}
-                onChange={(e) => setForm({ ...form, document: e.target.value })}
+                aria-invalid={errorNit ? true : undefined}
+                aria-describedby={errorNit ? idErrorNit : undefined}
+                onChange={(e) => { setErrorNit(null); setForm({ ...form, document: e.target.value }); }}
               />
+              {errorNit && <ErrorNit id={idErrorNit}>{errorNit}</ErrorNit>}
             </FlitField>
             <FlitField label="Dígito de verificación">
               <input
@@ -431,7 +450,7 @@ export default function FichaFiscal({ clienteId, clienteNombre, editable, onClos
           </div>
         </div>
       )}
-    </FlitModal>
+    </Marco>
   );
 }
 

@@ -155,7 +155,7 @@ function enContextoDocumento<T>(proceso: ProcesoIaFlito, doc: Pick<DocumentoAAna
 }
 
 /** Una pasada contra un modelo. Devuelve el mapa crudo campo→{valor,confianza} o null si no parseó. */
-async function pasada(
+export async function pasada(
   doc: DocumentoAAnalizar,
   modelo: string,
   prompt: string,

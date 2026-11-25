@@ -242,7 +242,7 @@ test.describe('HU #12997 · AC8 — los cuatro estados de las pastillas nuevas',
     await mockCola(page, { incompletas: [], descartadas: [] });
     await page.goto('/flito/soat');
     await pastilla(page, 'Por validar').click();
-    await expect(page.getByText('No hay solicitudes por validar. Cuando el RUNT no responde al pedir un SOAT, la solicitud queda aquí para volver a consultarla.')).toBeVisible();
+    await expect(page.getByText('No hay solicitudes por validar. Aquí quedan las que esperan al RUNT, la factura de venta o los datos del propietario.')).toBeVisible();
     await pastilla(page, 'Descartadas').click();
     await expect(page.getByText('No hay solicitudes descartadas. Aquí quedan, sin borrarse, las que el RUNT no dejó continuar.')).toBeVisible();
   });

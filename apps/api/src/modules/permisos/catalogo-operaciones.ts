@@ -36,6 +36,8 @@ const op = (llave: string, codigo: string, nombre: string, descripcion: string):
 
 const SOAT = 'flito-soat/flito-soat.routes.ts';
 const SOAT_CLI = 'flito-soat/flito-soat-cliente.routes.ts';
+const SOAT_MAS = 'flito-soat/flito-soat-masivo.routes.ts';
+const SOAT_COMP = 'flito-soat/flito-soat-incompletas-completar.routes.ts'; // HU #14136
 const SOAT_INC = 'flito-soat/flito-soat-incompletas.routes.ts';
 const SOAT_DOC = 'flito-soat/flito-soat-documentos.routes.ts';
 const IMP = 'flito-impuestos/flito-impuestos.routes.ts';
@@ -48,11 +50,15 @@ const TRA = 'flito-tramites/flito-tramites.routes.ts';
 const TAB = 'flito-tablero/flito-tablero.routes.ts';
 const BIT = 'flito-bitacora/flito-bitacora.routes.ts';
 const LOG = 'flito-logistica/flito-logistica.routes.ts';
+const LOGM = 'flito-logistica/flito-logistica-motivos.routes.ts'; // HU #14119
 const BOL = 'flito-bolsas/flito-bolsas.routes.ts';
+const BCAT = 'flito-bolsas/flito-bolsas.catalogo.routes.ts'; // HU #13900
+const BCTR = 'flito-bolsas/flito-bolsas.catalogo-transito.routes.ts'; // HU #13907
 const CON = 'flito-conciliacion/flito-conciliacion.routes.ts';
 const CMP = 'flito-comparendos/flito-comparendos.routes.ts';
 const LIQ = 'flito-liquidacion/flito-liquidacion.routes.ts';
 const PAR = 'flito-parametrizacion/flito-parametrizacion.routes.ts';
+const PLOG = 'flito-parametrizacion/flito-proveedores-logistica.routes.ts'; // HU #14103
 const SYN = 'flito-sync/flito-sync.routes.ts';
 const FL2 = 'flito-sync/flit2.routes.ts';
 const SYI = 'flito-sync/flito-sync-interruptores.routes.ts';
@@ -66,10 +72,14 @@ const PER = 'permisos/permisos.routes.ts';
 const FSA = 'finanzas-servicios-adicionales/finanzas-servicios-adicionales.routes.ts';
 const CPR = 'flito-comprobantes/flito-comprobantes.routes.ts';
 const LOGV = 'flito-logistica/flito-logistica-viajes.routes.ts';
+const BDOC = 'flito-bolsas-documentos/flito-bolsas-documentos.routes.ts'; // HU #13889 (ADR-0028)
+const DRF = 'flito-dr-flit/dr-flit.funciones.ts'; // HU #13941
 
 const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // ── SOAT (portal FLITO) ───────────────────────────────────────────────────────────────────────
   op(`${SOAT} GET /`, 'soat.cola.ver', 'Ver la cola de SOAT', 'Abrir la bandeja de solicitudes de SOAT y recorrer su listado.'),
+  // HU #13837: consulta de gestión de Dr. Flit (valor en el body); misma lectura que la cola.
+  op(`${SOAT} POST /buscar`, 'soat.cola.ver', 'Ver la cola de SOAT', 'Abrir la bandeja de solicitudes de SOAT y recorrer su listado.'),
   op(`${SOAT} GET /facetas`, 'soat.cola.filtrar', 'Filtrar la cola de SOAT', 'Leer los contadores y las facetas con las que se acota la bandeja.'),
   op(`${SOAT} POST /export`, 'soat.excel.exportar', 'Exportar la cola de SOAT a Excel', 'Descargar el listado filtrado como archivo de Excel.'),
   // Bug #12642: guarda EN LÍNEA dentro del mismo handler (`tieneFuncion` cuando el cuerpo trae
@@ -94,6 +104,13 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // función nueva ni migración). Mismo código ⇒ mismo nombre, descripción y reparto que `POST /cliente`
   // (`catalogoDeOperaciones` lo exige: «un código, un reparto»).
   op(`${SOAT_CLI} GET /cliente/companias`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
+  // HU #14131 (Feature #14013): la carga masiva reutiliza `soat.solicitud.crear` (sin función nueva ni migración de permisos).
+  op(`${SOAT_MAS} GET /cliente/masivo/plantilla`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
+  op(`${SOAT_MAS} POST /cliente/masivo`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
+  op(`${SOAT_MAS} GET /cliente/masivo/:loteId`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
+  op(`${SOAT_MAS} GET /cliente/masivo/:loteId/rechazadas`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
+  op(`${SOAT_COMP} POST /cliente/incompletas/:id/factura`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
+  op(`${SOAT_COMP} POST /cliente/incompletas/:id/confirmar`, 'soat.solicitud.crear', 'Radicar una solicitud de SOAT', 'Crear una solicitud de SOAT desde el canal del cliente.'),
   op(`${SOAT_CLI} POST /cliente/factura/lectura`, 'soat.factura.leer', 'Leer la factura de venta del vehículo', 'Extraer del PDF de la factura los datos del vehículo para prellenar la solicitud.'),
   // HU #12997 (Feature #12841, diseño §11.1): lectura de las solicitudes que esperan al RUNT. Códigos
   // propios —el catálogo es «una función por ruta»— sembrados por la 0211 a todo rol que ya tenga
@@ -109,6 +126,8 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
 
   // ── Impuestos ─────────────────────────────────────────────────────────────────────────────────
   op(`${IMP} GET /`, 'impuestos.cola.ver', 'Ver la cola de impuestos', 'Abrir la bandeja de trámites de impuesto vehicular.'),
+  // HU #13838: consulta de gestión de Dr. Flit (valor en el body); misma lectura que la cola.
+  op(`${IMP} POST /buscar`, 'impuestos.cola.ver', 'Ver la cola de impuestos', 'Abrir la bandeja de trámites de impuesto vehicular.'),
   op(`${IMP} GET /facetas`, 'impuestos.cola.filtrar', 'Filtrar la cola de impuestos', 'Leer los contadores y las facetas con las que se acota la bandeja.'),
   op(`${IMP} POST /export`, 'impuestos.excel.exportar', 'Exportar la cola de impuestos a Excel', 'Descargar el listado filtrado como archivo de Excel.'),
   // Bug #12642: guarda EN LÍNEA (`tieneFuncion` con `incluirPago: true`); textos byte a byte con la 0203.
@@ -134,8 +153,11 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // HU #13269: textos byte a byte con la 0220. Nace sin rol (AC7).
   op(`${IMP_REEMP} POST /:id/recibos/reemplazar-pago`, 'impuestos.recibos.reemplazar', 'Reemplazar el comprobante de pago de un impuesto', 'Sustituir el comprobante de pago ya cargado en un impuesto por otro corregido y, si el trámite viene de FLIT 2, reenviarlo allá.'),
 
+
   // ── Derechos de tránsito ──────────────────────────────────────────────────────────────────────
   op(`${DER} GET /`, 'derechos.cola.ver', 'Ver los derechos de tránsito', 'Abrir el listado de recibos de derechos cobrados por el organismo.'),
+  // HU #13838: consulta de gestión de Dr. Flit (valor en el body); misma lectura que el listado.
+  op(`${DER} POST /buscar`, 'derechos.cola.ver', 'Ver los derechos de tránsito', 'Abrir el listado de recibos de derechos cobrados por el organismo.'),
   op(`${DER} GET /facetas`, 'derechos.cola.filtrar', 'Filtrar los derechos de tránsito', 'Leer los contadores y las facetas del listado de derechos.'),
   op(`${DER} POST /cargar`, 'derechos.recibos.cargar', 'Cargar recibos de derechos de tránsito', 'Subir los archivos de recibos para que el sistema los lea y los cruce.'),
   op(`${DER} GET /drive/archivos`, 'derechos.drive.listar', 'Ver los archivos de derechos en Drive', 'Listar los recibos que esperan proceso en la carpeta de Drive.'),
@@ -149,11 +171,10 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${REV} GET /campos/:modulo`, 'revisiones.campos.ver', 'Ver los campos revisables de un módulo', 'Consultar qué campos entran a revisión en cada módulo.'),
   op(`${REV} GET /soporte/:soporteId/archivo`, 'revisiones.soporte.descargar', 'Abrir el documento en revisión', 'Ver el archivo original del que salió el dato dudoso.'),
   op(`${REV} POST /:id/resolver`, 'revisiones.revision.resolver', 'Resolver una revisión OCR', 'Confirmar o corregir el valor leído y darlo por bueno.'),
-  // Bug #14569 (punto 8): el buscador de trámite solo sirve a resolver → misma función, nombre y descripción byte a byte.
-  op(`${REV} POST /:id/candidatos/buscar`, 'revisiones.revision.resolver', 'Resolver una revisión OCR', 'Confirmar o corregir el valor leído y darlo por bueno.'),
-  // Bug #14569 (punto 9): reintentar la lectura OCR solo sirve a resolver → misma función, nombre y descripción byte a byte.
-  op(`${REV} POST /:id/reintentar-lectura`, 'revisiones.revision.resolver', 'Resolver una revisión OCR', 'Confirmar o corregir el valor leído y darlo por bueno.'),
   op(`${REV} POST /:id/descartar`, 'revisiones.revision.descartar', 'Descartar una revisión OCR', 'Cerrar la revisión sin cambiar el dato.'),
+  // Bug #14569: buscador de trámite y reintento OCR; reutilizan `revisiones.revision.resolver`.
+  op(`${REV} POST /:id/candidatos/buscar`, 'revisiones.revision.resolver', 'Resolver una revisión OCR', 'Confirmar o corregir el valor leído y darlo por bueno.'),
+  op(`${REV} POST /:id/reintentar-lectura`, 'revisiones.revision.resolver', 'Resolver una revisión OCR', 'Confirmar o corregir el valor leído y darlo por bueno.'),
 
   // ── Compuerta de entrega ──────────────────────────────────────────────────────────────────────
   op(`${COMP} GET /`, 'compuerta.cola.ver', 'Ver la compuerta de entrega', 'Abrir el listado de trámites listos para entregar.'),
@@ -172,6 +193,8 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${TRA} POST /solicitar-impuestos`, 'tramites.solicitud.pedir_impuestos', 'Solicitar impuestos para un vehículo', 'Radicar un trámite de impuesto vehicular desde Operaciones.'),
   op(`${TRA} POST /solicitar-ambos`, 'tramites.solicitud.pedir_ambos', 'Solicitar SOAT e impuestos a la vez', 'Radicar los dos trámites del vehículo en una sola operación.'),
   op(`${TRA} POST /novedades/buscar`, 'tramites.cola.ver', 'Ver la cola de trámites FLITO', 'Abrir la bandeja de trámites de SOAT e impuestos.'),
+  // HU #13836: consulta de gestión de Dr. Flit (valor en el body); misma lectura que el listado.
+  op(`${TRA} POST /buscar`, 'tramites.cola.ver', 'Ver la cola de trámites FLITO', 'Abrir la bandeja de trámites de SOAT e impuestos.'),
   op(`${TRA} POST /entregar`, 'tramites.tramite.entregar', 'Entregar trámites FLITO', 'Marcar como entregados los trámites seleccionados.'),
   op(`${TRA} POST /:id/desbloquear-autogestion`, 'tramites.autogestion.desbloquear', 'Desbloquear la autogestión del cliente', 'Permitir que el cliente vuelva a radicar por su cuenta.'),
   op(`${TRA} POST /:id/revocar-autogestion`, 'tramites.autogestion.revocar', 'Revocar la autogestión del cliente', 'Quitarle al cliente la posibilidad de radicar por su cuenta.'),
@@ -185,13 +208,37 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${LOG} GET /`, 'logistica.consola.ver', 'Ver la consola de logística', 'Abrir la trazabilidad de documentos en tránsito.'),
   op(`${LOG} GET /facetas`, 'logistica.consola.filtrar', 'Filtrar la consola de logística', 'Leer los contadores y las facetas de la consola.'),
   op(`${LOG} GET /:id`, 'logistica.documento.ver', 'Ver un documento en logística', 'Consultar el detalle y el recorrido de un documento.'),
+  // HU #14124: las dos lecturas de la línea de tiempo reutilizan la misma función (sin función nueva ni siembra).
+  op(`${LOG} GET /documentos/:id/linea-tiempo`, 'logistica.documento.ver', 'Ver un documento en logística', 'Consultar el detalle y el recorrido de un documento.'),
+  op(`${LOG} GET /tramites/:tramiteId/linea-tiempo`, 'logistica.documento.ver', 'Ver un documento en logística', 'Consultar el detalle y el recorrido de un documento.'),
   op(`${LOG} GET /mi-ruta`, 'logistica.ruta.ver', 'Ver mi ruta de mensajería', 'Consultar las recogidas y entregas asignadas al mensajero.'),
   op(`${LOG} GET /actas`, 'logistica.actas.listar', 'Ver las actas de logística', 'Listar las actas de despacho y entrega.'),
   op(`${LOG} GET /actas/:id`, 'logistica.actas.ver', 'Ver un acta de logística', 'Abrir el detalle de un acta y sus documentos.'),
   op(`${LOG} GET /actas/:id/pdf`, 'logistica.actas.descargar', 'Descargar el PDF de un acta', 'Bajar el acta firmada en formato PDF.'),
   op(`${LOG} POST /validar-lt`, 'logistica.lt.validar', 'Validar un número de guía', 'Comprobar que la guía de transporte existe y corresponde.'),
+  op(`${LOG} POST /consultar-vehiculo`, 'logistica.documento.escanear', 'Escanear un documento en campo', 'Registrar el paso de un documento leyendo su código de barras.'),
   op(`${LOG} POST /escanear`, 'logistica.documento.escanear', 'Escanear un documento en campo', 'Registrar el paso de un documento leyendo su código de barras.'),
+  // HU #14110 (ADR-0030 §17): función NUEVA para confirmar la recogida y consultar mis recogidas (ya no `escanear`).
+  op(`${LOG} POST /recogidas/confirmar`, 'logistica.recogida.confirmar', 'Confirmar la recogida con la firma del organismo', 'Registrar la firma del funcionario del organismo y generar un acta de organismo por compañía y consultar mis recogidas.'),
+  op(`${LOG} GET /recogidas/mias`, 'logistica.recogida.confirmar', 'Confirmar la recogida con la firma del organismo', 'Registrar la firma del funcionario del organismo y generar un acta de organismo por compañía y consultar mis recogidas.'),
+  op(`${LOG} GET /recogidas/pendientes-firma`, 'logistica.recogida.confirmar', 'Confirmar la recogida con la firma del organismo', 'Registrar la firma del funcionario del organismo y generar un acta de organismo por compañía y consultar mis recogidas.'),
+  op(`${LOG} GET /recogidas/:firmanteId`, 'logistica.recogida.confirmar', 'Confirmar la recogida con la firma del organismo', 'Registrar la firma del funcionario del organismo y generar un acta de organismo por compañía y consultar mis recogidas.'),
+  // HU #14110: función NUEVA (PII). Ver la cédula completa del funcionario que firmó la recogida del organismo.
+  // HU #14143 (ADR-0030 §17.3): función NUEVA para resolver el trámite de una LT pendiente.
+  op(`${LOG} GET /pendientes-tramite`, 'logistica.documento.resolver_tramite', 'Resolver el trámite de una LT pendiente', 'Elegir a qué trámite corresponde una LT escaneada sin trámite y consultar la bandeja de pendientes.'),
+  op(`${LOG} GET /documentos/:id/candidatos-tramite`, 'logistica.documento.resolver_tramite', 'Resolver el trámite de una LT pendiente', 'Elegir a qué trámite corresponde una LT escaneada sin trámite y consultar la bandeja de pendientes.'),
+  op(`${LOG} POST /documentos/:id/resolver-tramite`, 'logistica.documento.resolver_tramite', 'Resolver el trámite de una LT pendiente', 'Elegir a qué trámite corresponde una LT escaneada sin trámite y consultar la bandeja de pendientes.'),
+  op(`${LOG} POST /recogidas/:firmanteId/documento`, 'logistica.actas.ver_documento_firmante', 'Ver la cédula del firmante de un acta', 'Consultar la cédula completa del funcionario que firmó el acta de organismo, cada consulta queda registrada.'),
   op(`${LOG} POST /documentos/:id/novedad`, 'logistica.documento.reportar_novedad', 'Reportar una novedad de entrega', 'Dejar constancia de que la entrega no se pudo completar y por qué.'),
+  op(`${LOG} POST /traslados`, 'logistica.traslado.registrar', 'Registrar un viaje de logística', 'Registrar el viaje a cliente de las LT de una compañía, con el precio congelado.'),
+  // HU #14125: pestaña Entregas. Misma función que GET /; nombre y descripción byte a byte (sin función nueva ni siembra).
+  op(`${LOG} POST /traslados/buscar`, 'logistica.consola.ver', 'Ver la consola de logística', 'Abrir la trazabilidad de documentos en tránsito.'),
+  op(`${LOG} POST /traslados/:id/despachar`, 'logistica.actas.despachar', 'Despachar un acta', 'Poner en ruta el acta y sus documentos.'),
+  // HU #14122: la guarda es en línea según el destino del viaje. Cliente sigue en `entregar`; FLIT pide `firmar_flit`.
+  op(`${LOG} POST /traslados/:id/entregar [entregar]`, 'logistica.actas.entregar', 'Entregar un acta', 'Registrar la entrega del acta en destino.'),
+  op(`${LOG} POST /traslados/:id/entregar [firmarFlit]`, 'logistica.actas.firmar_flit', 'Firmar la llegada a FLIT', 'Registrar la firma de quien recibe el viaje en las instalaciones de FLIT. No lleva cédula: el nombre y el usuario salen de la sesión.'),
+  op(`${LOG} POST /traslados/:id/devolucion`, 'logistica.actas.devolver', 'Devolver un acta', 'Registrar que el acta vuelve sin haberse entregado.'),
+  op(`${LOG} POST /traslados/:id/anular`, 'logistica.traslado.anular', 'Anular un viaje de logística', 'Anular un viaje a cliente que aún no se ha despachado. El precio congelado se conserva.'),
   op(`${LOG} POST /cerrar-lote`, 'logistica.lote.cerrar', 'Cerrar un lote de logística', 'Dar por armado el lote de documentos que va a despacharse.'),
   op(`${LOG} POST /actas/:id/despachar`, 'logistica.actas.despachar', 'Despachar un acta', 'Poner en ruta el acta y sus documentos.'),
   op(`${LOG} POST /actas/:id/entregar`, 'logistica.actas.entregar', 'Entregar un acta', 'Registrar la entrega del acta en destino.'),
@@ -199,6 +246,11 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${LOG} POST /actas/:id/entregar [operarAjenas]`, 'logistica.actas.operar_ajenas', 'Operar actas asignadas a otro mensajero', 'Entregar, devolver y ver en la ruta las actas asignadas a otros usuarios, no solo las propias.'),
   op(`${LOG} POST /actas/:id/devolucion`, 'logistica.actas.devolver', 'Devolver un acta', 'Registrar que el acta vuelve sin haberse entregado.'),
   op(`${LOG} POST /documentos/:id/reversar`, 'logistica.documento.reversar', 'Reversar un paso de logística', 'Deshacer el último movimiento registrado sobre el documento.'),
+  // HU #14119: catálogo de motivos de llegada a FLIT (las 4 rutas, misma función).
+  op(`${LOGM} GET / [listar]`, 'logistica.motivos.gestionar', 'Gestionar motivos de llegada a FLIT', 'Crear, editar y activar o desactivar los motivos por los que un organismo llega a las instalaciones de FLIT. No se borra: el histórico conserva el motivo.'),
+  op(`${LOGM} POST /`, 'logistica.motivos.gestionar', 'Gestionar motivos de llegada a FLIT', 'Crear, editar y activar o desactivar los motivos por los que un organismo llega a las instalaciones de FLIT. No se borra: el histórico conserva el motivo.'),
+  op(`${LOGM} PATCH /:id`, 'logistica.motivos.gestionar', 'Gestionar motivos de llegada a FLIT', 'Crear, editar y activar o desactivar los motivos por los que un organismo llega a las instalaciones de FLIT. No se borra: el histórico conserva el motivo.'),
+  op(`${LOGM} PATCH /:id/estado`, 'logistica.motivos.gestionar', 'Gestionar motivos de llegada a FLIT', 'Crear, editar y activar o desactivar los motivos por los que un organismo llega a las instalaciones de FLIT. No se borra: el histórico conserva el motivo.'),
 
   // ── Bolsas prepago ────────────────────────────────────────────────────────────────────────────
   op(`${BOL} GET /consolidado`, 'bolsas.consolidado.ver', 'Ver el consolidado de bolsas', 'Consultar el saldo agregado de todas las bolsas prepago.'),
@@ -213,12 +265,42 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${BOL} POST /:companiaId/movimientos/:movimientoId/correccion`, 'bolsas.movimiento.corregir', 'Corregir un movimiento de bolsa', 'Rectificar un movimiento ya registrado dejando el rastro.'),
   op(`${BOL} GET /:companiaId/cierres`, 'bolsas.cierres.ver', 'Ver los cierres de una bolsa', 'Consultar los cortes de periodo ya cerrados.'),
   op(`${BOL} POST /:companiaId/cierres`, 'bolsas.cierre.crear', 'Cerrar un periodo de bolsa', 'Cuadrar y cerrar el periodo de la bolsa del cliente.'),
-  op(`${BOL} GET /transito`, 'bolsas.transito.listar', 'Ver las bolsas de organismos', 'Listar las bolsas de derechos abiertas ante los organismos de tránsito.'),
-  op(`${BOL} POST /transito`, 'bolsas.transito.crear', 'Crear una bolsa de organismo', 'Abrir una bolsa de derechos ante un organismo de tránsito.'),
-  op(`${BOL} GET /transito/:bolsaId`, 'bolsas.transito.ver', 'Ver una bolsa de organismo', 'Consultar el saldo y el detalle de una bolsa de derechos.'),
-  op(`${BOL} PATCH /transito/:bolsaId`, 'bolsas.transito.editar', 'Editar una bolsa de organismo', 'Cambiar los datos de la bolsa de derechos.'),
-  op(`${BOL} GET /transito/:bolsaId/movimientos`, 'bolsas.transito.ver_movimientos', 'Ver los movimientos de una bolsa de organismo', 'Recorrer las cargas y consumos de la bolsa de derechos.'),
-  op(`${BOL} POST /transito/:bolsaId/cargas`, 'bolsas.transito.cargar', 'Cargar saldo a una bolsa de organismo', 'Abonar dinero a la bolsa de derechos con su soporte.'),
+  // HU #13889 (ADR-0028) — expediente documental de la compañía. Las 4 guardas piden dos operaciones;
+  // las conceden `accion.bolsas.ver_documentos` / `accion.bolsas.cargar_documentos` (arbol/acciones-finanzas.ts).
+  op(`${BDOC} GET /companias/:companiaId`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'),
+  op(`${BDOC} GET /companias/:companiaId/tipos/:tipo/historial`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'),
+  op(`${BDOC} GET /documentos/:documentoId/archivo`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'),
+  op(`${BDOC} POST /companias/:companiaId/tipos/:tipo`, 'bolsas.documentos.cargar', 'Cargar documentos de la compañía', 'Subir o reemplazar los documentos de vinculación de la compañía.'),
+  op(`${BDOC} POST /estado-lote`, 'bolsas.documentos.ver', 'Ver los documentos de la compañía', 'Consultar el expediente documental de la compañía, su historial y descargar sus archivos.'), // HU #13893 (E6)
+  op(`${BDOC} PUT /documentos/:documentoId/fecha-expedicion`, 'bolsas.documentos.cargar', 'Cargar documentos de la compañía', 'Subir o reemplazar los documentos de vinculación de la compañía.'), // HU #13890 (E4)
+  op(`${BDOC} POST /documentos/:documentoId/retirar`, 'bolsas.documentos.cargar', 'Cargar documentos de la compañía', 'Subir o reemplazar los documentos de vinculación de la compañía.'), // HU #13964 (E7)
+  // HU #13900 (Feature #13886, ADR-0029) — catálogo del modelo único de bolsa. Cuatro operaciones nuevas con la
+  // partida de su par, dentro de acciones de bolsas ya repartidas (arbol/acciones-finanzas.ts);
+  // las rutas por bolsa (`/bolsa/:bolsaId/*`) reutilizan los códigos de sus pares del canal Cliente.
+  op(`${BCAT} POST /buscar`, 'bolsas.bolsa.listar', 'Listar las bolsas', 'Buscar las bolsas por alcance, estado, nombre o NIT.'),
+  op(`${BCAT} POST /`, 'bolsas.bolsa.crear', 'Crear la bolsa de una compañía', 'Abrir la bolsa prepago de un cliente con los conceptos que descuenta.'),
+  op(`${BCAT} GET /compania/:companiaId/estado`, 'bolsas.bolsa.ver', 'Ver la bolsa de una compañía', 'Consultar el saldo y el estado de la bolsa de un cliente.'),
+  op(`${BCAT} GET /bolsa/:bolsaId`, 'bolsas.bolsa.ver', 'Ver la bolsa de una compañía', 'Consultar el saldo y el estado de la bolsa de un cliente.'),
+  op(`${BCAT} PATCH /bolsa/:bolsaId`, 'bolsas.bolsa.editar', 'Editar la bolsa de una compañía', 'Cambiar los conceptos que descuenta la bolsa de un cliente.'),
+  op(`${BCAT} POST /bolsa/:bolsaId/inactivar`, 'bolsas.bolsa.inactivar', 'Inactivar o reactivar la bolsa de una compañía', 'Suspender la bolsa de un cliente con un motivo, o volver a activarla.'),
+  op(`${BCAT} POST /bolsa/:bolsaId/reactivar`, 'bolsas.bolsa.inactivar', 'Inactivar o reactivar la bolsa de una compañía', 'Suspender la bolsa de un cliente con un motivo, o volver a activarla.'),
+  op(`${BCAT} GET /bolsa/:bolsaId/movimientos`, 'bolsas.movimientos.ver', 'Ver los movimientos de una bolsa', 'Recorrer las entradas y salidas de dinero de la bolsa.'),
+  op(`${BCAT} POST /bolsa/:bolsaId/recargas`, 'bolsas.recarga.registrar', 'Registrar una recarga de bolsa', 'Abonar dinero a la bolsa del cliente con su soporte.'),
+  op(`${BCAT} GET /bolsa/:bolsaId/cierres`, 'bolsas.cierres.ver', 'Ver los cierres de una bolsa', 'Consultar los cortes de periodo ya cerrados.'),
+  op(`${BCAT} POST /bolsa/:bolsaId/cierres`, 'bolsas.cierre.crear', 'Cerrar un periodo de bolsa', 'Cuadrar y cerrar el periodo de la bolsa del cliente.'),
+  // HU #13907 (Feature #13887, ADR-0029, Q3) — rama tránsito del catálogo único. Tres operaciones nuevas con la
+  // partida de su par, dentro de acciones de bolsas ya repartidas (arbol/acciones-finanzas.ts); el resto reutiliza
+  // los códigos `bolsas.transito.*` de las rutas antiguas `/transito/*` (retiradas en la HU #13911: hoy solo las guardan estas).
+  op(`${BCTR} POST /buscar`, 'bolsas.transito.listar', 'Ver las bolsas de organismos', 'Listar las bolsas de derechos abiertas ante los organismos de tránsito.'),
+  op(`${BCTR} POST /`, 'bolsas.transito.crear', 'Crear una bolsa de organismo', 'Abrir una bolsa de derechos ante un organismo de tránsito.'),
+  op(`${BCTR} GET /bolsa/:bolsaId`, 'bolsas.transito.ver', 'Ver una bolsa de organismo', 'Consultar el saldo y el detalle de una bolsa de derechos.'),
+  op(`${BCTR} PATCH /bolsa/:bolsaId`, 'bolsas.transito.editar', 'Editar una bolsa de organismo', 'Cambiar los datos de la bolsa de derechos.'),
+  op(`${BCTR} POST /bolsa/:bolsaId/inactivar`, 'bolsas.transito.inactivar', 'Inactivar o reactivar una bolsa de tránsito', 'Suspender una bolsa de tránsito con un motivo, liberando su cobertura, o volver a activarla.'),
+  op(`${BCTR} POST /bolsa/:bolsaId/reactivar`, 'bolsas.transito.inactivar', 'Inactivar o reactivar una bolsa de tránsito', 'Suspender una bolsa de tránsito con un motivo, liberando su cobertura, o volver a activarla.'),
+  op(`${BCTR} GET /bolsa/:bolsaId/movimientos`, 'bolsas.transito.ver_movimientos', 'Ver los movimientos de una bolsa de organismo', 'Recorrer las cargas y consumos de la bolsa de derechos.'),
+  op(`${BCTR} POST /bolsa/:bolsaId/recargas`, 'bolsas.transito.cargar', 'Cargar saldo a una bolsa de organismo', 'Abonar dinero a la bolsa de derechos con su soporte.'),
+  op(`${BCTR} GET /bolsa/:bolsaId/cierres`, 'bolsas.transito.cierres.ver', 'Ver los cierres de una bolsa de tránsito', 'Consultar los cortes de periodo ya cerrados de una bolsa de tránsito.'),
+  op(`${BCTR} POST /bolsa/:bolsaId/cierres`, 'bolsas.transito.cierre.crear', 'Cerrar un periodo de una bolsa de tránsito', 'Cuadrar y cerrar el periodo de una bolsa de tránsito.'),
 
   // ── Conciliación de recaudo SOAT ──────────────────────────────────────────────────────────────
   op(`${CON} POST /boletas`, 'conciliacion.boleta.cargar', 'Cargar una boleta de recaudo', 'Subir el archivo del portal con lo recaudado en el periodo.'),
@@ -267,10 +349,23 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // HU #13428 (§5-ter.1 punto 2): el PATCH se parte por grupo de campos, en línea.
   op(`${PAR} PATCH /companias/:id [general]`, 'parametrizacion.companias.editar', 'Editar una compañía cliente', 'Cambiar la configuración comercial y operativa de la compañía.'),
   op(`${PAR} PATCH /companias/:id [autogestion]`, 'parametrizacion.companias.autogestion', 'Habilitar o revocar la autogestión de una compañía', 'Encender o apagar la autogestión de SOAT, impuestos y logística de la compañía.'),
-  op(`${PAR} PATCH /companias/:id [sinTramite]`, 'parametrizacion.companias.soat_sin_tramite', 'Configurar «SOAT sin trámite» de una compañía', 'Abrir o cerrar el canal «SOAT sin trámite» de la compañía y elegir su gestor por defecto.'),
+  op(`${PAR} PATCH /companias/:id [sinTramite]`, 'parametrizacion.companias.soat_sin_tramite', 'Elegir proveedor de SOAT sin trámite de una compañía', 'Elegir el proveedor al que van los SOAT sin trámite de la compañía (Sin proveedor cierra el canal).'),
   op(`${PAR} GET /proveedores-soat`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
   op(`${PAR} POST /proveedores-soat`, 'parametrizacion.proveedores.crear', 'Añadir un proveedor SOAT', 'Registrar un gestor SOAT nuevo.'),
   op(`${PAR} PATCH /proveedores-soat/:id`, 'parametrizacion.proveedores.editar', 'Editar un proveedor SOAT', 'Cambiar los datos o el estado de un gestor SOAT.'),
+  // HU #13958: nacen absorbidas por «Activar o desactivar proveedores» (exclusiva del Administrador, 0261).
+  op(`${PAR} GET /proveedores-soat/:id/impacto`, 'parametrizacion.proveedores.estado', 'Activar o desactivar proveedores', 'Ver el impacto de desactivar un proveedor SOAT y cambiar su estado (activo o inactivo).'),
+  op(`${PAR} PATCH /proveedores-soat/:id/estado`, 'parametrizacion.proveedores.estado', 'Activar o desactivar proveedores', 'Ver el impacto de desactivar un proveedor SOAT y cambiar su estado (activo o inactivo).'),
+  // HU #13960: nace absorbida por «Eliminar proveedores» (exclusiva del Administrador, 0263).
+  op(`${PAR} DELETE /proveedores-soat/:id`, 'parametrizacion.proveedores.eliminar', 'Eliminar proveedores', 'Eliminar (baja lógica) un proveedor SOAT inactivo, sin SOAT en curso ni compañías asignadas.'),
+  // HU #14103: proveedores de logística; reutilizan las funciones de proveedores SOAT (gestión de proveedores).
+  op(`${PLOG} GET /`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
+  op(`${PLOG} POST /`, 'parametrizacion.proveedores.crear', 'Añadir un proveedor SOAT', 'Registrar un gestor SOAT nuevo.'),
+  op(`${PLOG} PATCH /:id`, 'parametrizacion.proveedores.editar', 'Editar un proveedor SOAT', 'Cambiar los datos o el estado de un gestor SOAT.'),
+  op(`${PLOG} GET /:id/impacto`, 'parametrizacion.proveedores.estado', 'Activar o desactivar proveedores', 'Ver el impacto de desactivar un proveedor SOAT y cambiar su estado (activo o inactivo).'),
+  op(`${PLOG} DELETE /:id`, 'parametrizacion.proveedores.eliminar', 'Eliminar proveedores', 'Eliminar (baja lógica) un proveedor SOAT inactivo, sin SOAT en curso ni compañías asignadas.'),
+  op(`${PAR} GET /proveedores`, 'parametrizacion.proveedores.listar', 'Ver los proveedores SOAT', 'Consultar los gestores SOAT registrados.'),
+  op(`${PLOG} PATCH /:id/estado`, 'parametrizacion.proveedores.estado', 'Activar o desactivar proveedores', 'Ver el impacto de desactivar un proveedor SOAT y cambiar su estado (activo o inactivo).'),
   op(`${PAR} GET /organismos`, 'parametrizacion.organismos.listar', 'Ver los organismos de tránsito', 'Consultar los organismos y su parametrización FLITO.'),
   op(`${PAR} GET /organismos/:codigo/vigencias`, 'parametrizacion.organismos.ver_vigencias', 'Ver las vigencias de un organismo', 'Consultar los periodos de tarifas y modalidades del organismo.'),
   op(`${PAR} POST /organismos/:codigo/modalidad`, 'parametrizacion.organismos.fijar_modalidad', 'Fijar la modalidad de un organismo', 'Definir cómo se paga a ese organismo a partir de una fecha.'),
@@ -295,6 +390,7 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   // ── Logística — viajes adicionales por trámite (HU #12619; textos byte a byte con la 0199; solo admin) ──
   op(`${LOGV} GET /tramites/:tramiteId/viajes`, 'logistica.viajes.ver', 'Ver los viajes adicionales de un trámite', 'Consultar los viajes adicionales de logística de un trámite y su total.'),
   op(`${LOGV} POST /tramites/:tramiteId/viajes`, 'logistica.viajes.registrar', 'Registrar un viaje adicional en un trámite', 'Añadir a un trámite no liquidado un viaje adicional de logística, copiando la tarifa vigente o fijando el precio a mano.'),
+  op(`${LOGV} POST /viajes/masivo`, 'logistica.viajes.registrar', 'Registrar un viaje adicional en un trámite', 'Añadir a un trámite no liquidado un viaje adicional de logística, copiando la tarifa vigente o fijando el precio a mano.'), // mismo código y texto: el masivo comparte la función del individual (HU #14127)
   op(`${LOGV} DELETE /tramites/:tramiteId/viajes/:viajeId`, 'logistica.viajes.quitar', 'Quitar un viaje adicional de un trámite', 'Retirar de un trámite no liquidado un viaje adicional de logística registrado.'),
 
   // ── Sincronización FLITO ──────────────────────────────────────────────────────────────────────
@@ -425,7 +521,13 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${CPR} POST /tramites/buscar`, 'comprobantes.tramites.buscar', 'Buscar trámites para un comprobante', 'Buscar por ID FLIT, placa o VIN el trámite al que asociar un comprobante.'),
   op(`${CPR} POST /:id/aplicar`, 'comprobantes.comprobante.aplicar', 'Aplicar o adjuntar un comprobante', 'Asociar un comprobante a un trámite y concepto: como pago o como documentación.'),
   op(`${CPR} POST /:id/descartar`, 'comprobantes.comprobante.descartar', 'Descartar un comprobante', 'Sacar de la cola un comprobante que no corresponde, dejando el motivo.'),
+  // HU #13903: dos operaciones nuevas con la partida de `aplicar` (arbol/acciones-finanzas.ts), dentro de «Asociar».
   op(`${CPR} POST /:id/diferencia/aceptar`, 'comprobantes.diferencia.aceptar', 'Aceptar la diferencia de un comprobante', 'Aceptar con motivo la diferencia entre el valor del comprobante y la tarifa de referencia.'),
+  // HU #13941: las funciones de Dr. Flit, en línea en su fichero de guardas. Nacen en el árbol (General · Dr. Flit,
+  // `arbol/acciones-dr-flit.ts`); `drflit.manuales.ver` no tiene guarda (es sonda del servicio de la IA).
+  op(`${DRF} POST * [usar_ia]`, 'drflit.ia.usar', 'Usar la IA de Dr. Flit', 'Preguntarle a la IA de Dr. Flit y aceptar su autorización de tratamiento de datos.'),
+  op(`${DRF} POST * [radicar_soporte]`, 'drflit.soporte.radicar', 'Radicar casos de soporte en Dr. Flit', 'Enviar un caso a la mesa de soporte y aceptar su autorización de tratamiento de datos.'),
+  op(`${DRF} POST * [consultar_gestion]`, 'drflit.gestion.consultar', 'Consultar la gestión desde Dr. Flit', 'Buscar desde Dr. Flit trámites, SOAT, impuestos y derechos (con la cola de cada módulo).'),
 ];
 
 // HU #13421 (ADR-0023): los módulos legacy reconducidos se declaran aparte (regla de 800 líneas).
@@ -445,3 +547,25 @@ export const OPERACIONES_RETIRADAS_CANAL_CLIENTE = [
   'soat.causales.ver',
   'soat.solicitud.subsanar',
 ] as const;
+
+/**
+ * HU #13944 (Feature #13939) — Funciones EXCLUSIVAS del Administrador: solo el rol `admin` las tiene, nadie
+ * puede asignarlas a otro rol ni a un usuario (excepción `conceder`), ni quitárselas a `admin` (cuadro del rol o
+ * excepción `revocar`). Fuente de verdad = esta lista; `permisos_funciones.exclusiva_admin` (0253) es su copia,
+ * que `verificarCatalogoAlArrancar` compara al arrancar (patrón de `modulo`, HU #12716 AC7). Cada código tiene que
+ * existir en el catálogo con reparto de partida `['admin']` (`catalogoCompleto` lo valida).
+ *
+ * Vacía a propósito: esta HU entrega el MECANISMO. Las primeras exclusivas (estado y eliminación de clientes)
+ * nacen con sus rutas en las HUs #13945/#13954, junto con la migración que les pone `exclusiva_admin = true`.
+ */
+export const FUNCIONES_EXCLUSIVAS_ADMIN: readonly string[] = [
+  // HU #13945: «Activar o desactivar clientes». La marca va en la ACCIÓN del árbol (lo que se reparte y aparece en el
+  // cuadro); la operación `clients.clientes.estado` que exige la guarda nace absorbida por ella (no se siembra).
+  'accion.clientes.activar_desactivar',
+  // HU #13954: «Eliminar clientes» (baja lógica); la operación `clients.clientes.eliminar` nace absorbida (0258).
+  'accion.clientes.eliminar',
+  // HU #13958: «Activar o desactivar proveedores»; la operación `parametrizacion.proveedores.estado` nace absorbida (0261).
+  'accion.clientes.activar_desactivar_proveedores',
+  // HU #13960: «Eliminar proveedores» (baja lógica); la operación `parametrizacion.proveedores.eliminar` nace absorbida (0263).
+  'accion.clientes.eliminar_proveedores',
+];

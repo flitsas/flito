@@ -33,6 +33,7 @@ const ORIGEN: Record<OrigenMovimientoBolsa, { label: string; tono: ChipTone }> =
   // el reverso de la liquidación no lo devuelve. Este mismo mapa alimenta el filtro de origen y la
   // exportación, así que con esta entrada quedan los tres.
   conciliacion: { label: 'Conciliación', tono: 'active' },
+  comprobante: { label: 'Comprobante', tono: 'neutral' },
 };
 
 interface Filtros {

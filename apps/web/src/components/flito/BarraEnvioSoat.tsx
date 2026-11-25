@@ -14,6 +14,7 @@ import {
 import {
   DescargarSoportesZip, ZIP_SOAT, type EstadoDescargaZip,
 } from './DescargarSoportesZip';
+import { opcionesConEstado } from '../flit/opcionesConEstado';
 
 /** Lo único que la barra necesita saber de un proveedor de SOAT. */
 export interface ProveedorSoat { id: string; nombre: string; activo: boolean }
@@ -156,7 +157,16 @@ export default function BarraEnvioSoat({
                 <option value="">Elige destino…</option>
                 <option value={DESTINO_OPERACIONES}>Gestionado por Operaciones</option>
                 <optgroup label="Proveedores">
-                  {proveedores.filter((p) => p.activo).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                  {/* HU #13963: el inactivo se ve en gris con «Inactivo» —en el texto, no solo en el
+                      gris— y no se puede elegir; los eliminados el API ya no los devuelve. Valor
+                      actual `''` a propósito: aquí no hay un destino «ya asignado» que conservar, y
+                      pasar `destino` habilitaría al inactivo en cuanto quedara elegido. */}
+                  {opcionesConEstado(proveedores, '').map((o) => (
+                    <option key={o.valor} value={o.valor} disabled={o.deshabilitada || undefined}
+                      aria-disabled={o.deshabilitada ? true : undefined}>
+                      {o.nota ? `${o.etiqueta} (${o.nota})` : o.etiqueta}
+                    </option>
+                  ))}
                 </optgroup>
               </select>
             </label>

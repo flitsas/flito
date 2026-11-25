@@ -8,10 +8,14 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 import FlitSelect from '../../components/flit/FlitSelect';
+import { opcionesConEstado } from '../../components/flit/opcionesConEstado';
 import { formatErrors } from './UserFormShared';
 
-/** Lo que el selector necesita de `GET /flito/parametrizacion/companias`. Nada más. */
-interface Compania { id: number; nombre: string }
+/**
+ * Lo que el selector necesita de `GET /flito/parametrizacion/companias`. Nada más. `activo` (HU #13953)
+ * decide si la compañía se puede elegir (HU #13950); las eliminadas el API ya no las devuelve.
+ */
+interface Compania { id: number; nombre: string; activo?: boolean }
 
 // ── Copy del selector de compañía (docs/ux/identidad-rol-cliente-y-soat-sin-tramite.md §1.4) ──
 const COMPANIA_AYUDA = 'Define de qué compañía es este usuario: solo verá y solicitará el SOAT de esa compañía.';
@@ -40,7 +44,7 @@ export function useCompanias() {
     let vivo = true;
     setData(null); setError(null);
     api.get<Compania[]>('/flito/parametrizacion/companias')
-      .then((filas) => { if (vivo) setData(filas.map((c) => ({ id: c.id, nombre: c.nombre }))); })
+      .then((filas) => { if (vivo) setData(filas.map((c) => ({ id: c.id, nombre: c.nombre, activo: c.activo }))); })
       .catch((e) => { if (vivo) setError(formatErrors(e)); });
     return () => { vivo = false; };
   }, [recarga]);
@@ -79,10 +83,11 @@ export function CompaniaField({ companias, value, onChange, error, onInvalido }:
       label="Compañía"
       value={value}
       onChange={onChange}
-      opciones={[
-        { valor: '', etiqueta: 'Seleccione compañía…' },
-        ...(data ?? []).map((c) => ({ valor: String(c.id), etiqueta: c.nombre })),
-      ]}
+      // HU #13950: las inactivas se ven con «Inactivo» y no se eligen; la ya asignada se conserva (AC3).
+      opciones={opcionesConEstado(data ?? [], data ? value : '', {
+        placeholder: 'Seleccione compañía…',
+        etiquetaAusente: 'Compañía asignada',
+      })}
       ayuda={COMPANIA_AYUDA}
       mensaje={mensaje}
       fallo={!!errorCarga}

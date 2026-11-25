@@ -56,6 +56,7 @@ const enReporte = (expr: unknown): string =>
 const DOC_TD = renderizar(EXPR_DOC_TD).sql;
 const DOC_LG = renderizar(EXPR_DOC_LG).sql;
 const SUMA_VIAJES = 'COALESCE((SELECT SUM("flito_tramite_viajes_logistica"."valor") FROM "flito_tramite_viajes_logistica" WHERE "flito_tramite_viajes_logistica"."tramite_id" = "flito_tramites"."id"), 0)';
+const SUMA_TRASLADOS = '(SELECT SUM("flito_logistica_traslado_lts"."precio") FROM "flito_logistica_traslado_lts" INNER JOIN "flito_logistica_documentos" ON "flito_logistica_documentos"."id" = "flito_logistica_traslado_lts"."documento_id" INNER JOIN "flito_logistica_traslados" ON "flito_logistica_traslados"."id" = "flito_logistica_traslado_lts"."traslado_id" WHERE "flito_logistica_documentos"."tramite_id" = "flito_tramites"."id" AND "flito_logistica_traslado_lts"."estado" = \'entregado\' AND "flito_logistica_traslado_lts"."destino" IN (\'flit\', \'cliente\') AND "flito_logistica_traslado_lts"."concepto_precio" IN (\'logistica_cliente\', \'logistica_flit\') AND "flito_logistica_traslado_lts"."precio" IS NOT NULL AND "flito_logistica_traslados"."legado" = false)';
 const NO_GESTIONA = 'WHEN NOT (NOT COALESCE("clients"."logistica_autogestionable", false) OR ("flito_excepciones_autogestion"."id" IS NOT NULL)) THEN NULL';
 
 /** Un `sub` distinto por llamada en las exportaciones: el limitador de exportación es por usuario. */
@@ -184,7 +185,8 @@ describe('AC1 — trámite digital: el documental manda sobre la tarifa (mutante
 
 describe('AC2 — logística: COALESCE solo en el viaje 1, Σ viajes adicionales fuera', () => {
   const RAMA_ESTIMADA = `${NO_GESTIONA}
-  ELSE COALESCE(${DOC_LG}, "lg"."valor") + ${SUMA_VIAJES} END`;
+  ELSE CASE WHEN COALESCE(${DOC_LG}, "lg"."valor") IS NULL THEN NULL
+    ELSE COALESCE(${SUMA_TRASLADOS}, COALESCE(${DOC_LG}, "lg"."valor")) END + ${SUMA_VIAJES} END`;
 
   it('EXPR_LOGISTICA: sellada manda; si no, WHEN NOT gestiona THEN NULL ELSE COALESCE(doc, lg.valor) + Σ viajes', () => {
     expect(enReporte(EXPR_LOGISTICA)).toBe(
@@ -225,12 +227,14 @@ describe('AC3 — la logística autogestionada sigue en blanco aunque exista com
   it('el WHEN NOT GESTIONA_LOGISTICA THEN NULL va ANTES del ELSE COALESCE(…) en la rama estimada', () => {
     const sql = enReporte(EXPR_LOGISTICA_ESTIMADA);
     const iNull = sql.indexOf(NO_GESTIONA);
-    const iCoalesce = sql.indexOf(`ELSE COALESCE(${DOC_LG}`);
+    const iCoalesce = sql.indexOf(`ELSE CASE WHEN COALESCE(${DOC_LG}`);
     expect(iNull).toBeGreaterThan(-1);
     expect(iCoalesce).toBeGreaterThan(iNull);
-    // Y el COALESCE del documental NO aparece fuera de esa rama (p. ej. envolviendo el CASE entero).
+    // Y el COALESCE del documental NO aparece fuera de esa rama (p. ej. envolviendo el CASE entero):
+    // dos veces, ambas dentro del ELSE (el IS NULL del «no configurado» y el respaldo sin líneas).
     expect(sql.startsWith('CASE WHEN NOT')).toBe(true);
-    expect(sql.match(/COALESCE\(\(select "flito_comprobantes"."valor"/g)).toHaveLength(1);
+    expect(sql.match(/COALESCE\(\(select "flito_comprobantes"."valor"/g)).toHaveLength(2);
+    expect(sql.indexOf('COALESCE((select "flito_comprobantes"')).toBeGreaterThan(iNull);
   });
 
   it('autogestionada SIN excepción + comprobante aplicado: logistica = null, origen null, «Logística» en autogestionados y no en noConfigurados; el soporte sigue viajando', async () => {

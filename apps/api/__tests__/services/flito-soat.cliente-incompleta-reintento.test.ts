@@ -80,6 +80,7 @@ const OK = { clase: 'ok', datos: DATOS, vinEfectivo: VIN, organismoCodigo: '2528
 
 const fila = (over: Record<string, unknown> = {}) => ({
   id: ID, estado: 'incompleta', vin: VIN, companiaId: COMPANIA, intentos: 2,
+  placa: null, tipoSoat: 'inicial', modalidadConsulta: 'vin', motivoPendiente: 'runt_sin_respuesta',
   soatIdReservado: RESERVADO, solicitadoPorId: RADICADOR, solicitadoPorNombre: 'ana@motos.co', solicitadoEn: T0,
   facturaStorageKey: `clientes/acme/soat/facturas-venta/${RESERVADO}.pdf`, facturaHash: 'a'.repeat(64),
   facturaNombreArchivo: 'factura.pdf', facturaContentType: 'application/pdf', facturaTamanoBytes: 1234,
@@ -150,7 +151,7 @@ describe('AC1 — el RUNT responde OK: la incompleta pasa a Solicitado por el ca
     expect(r.status).toBe(200);
     expect(r.body).toEqual({ resultado: 'completada', soatId: RESERVADO, estado: 'solicitado', vigenciaProxima: null });
     expect(consultarMock).toHaveBeenCalledTimes(1);
-    expect(consultarMock).toHaveBeenCalledWith(VIN);
+    expect(consultarMock).toHaveBeenCalledWith(VIN, 'inicial');
   });
 
   it('el SOAT nace con id = soat_id_reservado, destino de la compañía AL MOMENTO y «enviado por» quien reintenta', async () => {
@@ -465,5 +466,18 @@ describe('logs — ni VIN ni placa en ningún desenlace', () => {
     expect(texto).not.toContain(VIN);
     expect(texto).not.toContain(PLACA);
     expect(texto).not.toContain('1020304050');
+  });
+});
+
+// ═══════════ HU #13947 — el reintento despacha un SOAT nuevo: con el cliente inactivo, 409 ═══════════
+
+describe('HU #13947 — reintento con la compañía inactiva', () => {
+  it('409 con el mensaje del AC, sin INSERT en `flito_soat` y la incompleta sigue sin resolver', async () => {
+    escenario({ clients: [{ proveedorId: PROVEEDOR, activo: true, name: 'Acme Transportes', active: false }] });
+    const r = await reintentar(await buildApp());
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: 'El cliente Acme Transportes está inactivo: no se pueden crear SOAT para él.' });
+    expect(espia.insertsEn('flito_soat')).toEqual([]);
+    expect(updatesIncompleta().some((d) => d.estado === 'completada')).toBe(false);
   });
 });

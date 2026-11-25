@@ -65,6 +65,7 @@ async function buildApp() {
 
 const filaIncompleta = {
   id: ID, estado: 'incompleta', vin: VIN, companiaId: COMPANIA, companiaNombre: 'Motos SAS',
+  placa: null, tipoSoat: 'inicial', modalidadConsulta: 'vin', motivoPendiente: 'runt_sin_respuesta',
   titular: 'ANA PÉREZ', solicitadoPorNombre: 'ana@motos.co', solicitadoEn: T0, intentos: 2,
   ultimoIntentoEn: T1, motivoDescarte: null, resueltaEn: null, resueltaPorId: null,
   resueltaPorNombre: null, soatId: null,
@@ -112,6 +113,7 @@ describe('AC1 — POST …/incompletas/buscar con soat.incompletas.buscar', () =
     expect(r.body.items[0]).toEqual({
       id: ID, estado: 'incompleta', vin: VIN, companiaId: COMPANIA, companiaNombre: 'Motos SAS',
       placa: null, marca: null, linea: null, titular: 'ANA PÉREZ',
+      tipoSoat: 'INICIAL', modalidadConsulta: 'vin', motivoPendiente: 'runt_sin_respuesta',
       solicitadoPorNombre: 'ana@motos.co', solicitadoEn: T0.toISOString(), intentos: 2,
       ultimoIntentoRuntEn: T1.toISOString(), descarte: null, soatId: null,
     });

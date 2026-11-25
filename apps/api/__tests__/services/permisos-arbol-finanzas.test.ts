@@ -16,7 +16,7 @@ const { ARBOL_FINANZAS, ARBOL_ADMINISTRACION } = await import('@operaciones/shar
 const { catalogoCompleto, catalogoPlano, catalogoOperacionesNuevas } = await import('../../src/modules/permisos/catalogo.js');
 const { OPERACIONES_DECLARADAS } = await import('../../src/modules/permisos/catalogo-operaciones.js');
 const { montajesDeFunciones } = await import('../../src/modules/permisos/inventario-guardas.js');
-const { ACCIONES_FINANZAS, AREA_FINANZAS, FUERA_DE_AREA_FINANZAS, PARTIDA_DE_OPERACION_NUEVA } = await import('../../src/modules/permisos/arbol/acciones-finanzas.js');
+const { ACCIONES_FINANZAS, AREA_FINANZAS, FUERA_DE_AREA_FINANZAS, OPERACIONES_NACIDAS_EN_EL_ARBOL, PARTIDA_DE_OPERACION_NUEVA } = await import('../../src/modules/permisos/arbol/acciones-finanzas.js');
 const { PARTIDA_DE_OPERACION_NUEVA_ADMINISTRACION } = await import('../../src/modules/permisos/arbol/acciones-administracion.js');
 const {
   ACCIONES_LECTURA, ACCIONES_POR_AREA, CODIGOS_ABSORBIDOS, ROL_CON_TODAS_LAS_ACCIONES, expandir, operacionesDe, predecesoresDe,
@@ -33,7 +33,7 @@ const FINANZAS = ACCIONES_POR_AREA.finanzas;
 const ANEXO = `
 Finanzas → Reporte de costos: Ver el listado de trámites · Exportar a Excel · Ver soportes · Ver viajes adicionales · Asignar servicios adicionales · Liquidar (incluye en lote) · Facturar · Enviar a Siigo · Reversar una liquidación
 Finanzas → Gastos diarios: Ver los gastos diarios
-Finanzas → Bolsas: Ver bolsas de clientes · Ver bolsas de tránsito · Crear bolsas · Editar bolsas · Registrar recargas y cargar saldo · Registrar y corregir movimientos manuales · Cerrar periodo y descargar extracto · Ver alertas y riesgo de saldo
+Finanzas → Bolsas: Ver bolsas de clientes · Ver bolsas de tránsito · Crear bolsas · Editar bolsas · Registrar recargas y cargar saldo · Registrar y corregir movimientos manuales · Cerrar periodo y descargar extracto · Ver alertas y riesgo de saldo · Ver el expediente documental · Cargar documentos del expediente
 Finanzas → Tarifas: Ver las tarifas (incluye historial) · Crear y modificar tarifas
 Finanzas → Servicios adicionales: Ver · Crear · Editar · Dar de baja
 Finanzas → Comprobantes: Cargar comprobantes · Asociar manualmente · Ver la cola de comprobantes · Descartar, releer o aceptar una diferencia
@@ -60,7 +60,7 @@ describe('AC1 — nivel 2 y nivel 3 exactamente según el catálogo aprobado (an
   it('el catálogo del código emite las 41 acciones (nivel 3) y marca nivel 2 a los 10 ítems; los códigos son los del mapeo', () => {
     const cat = catalogoCompleto();
     const accionesArbol = ARBOL.filter((n) => n.tipo === 'accion').map((n) => n.codigo).sort();
-    expect(accionesArbol).toHaveLength(41);
+    expect(accionesArbol).toHaveLength(43); // 41 del anexo + 2 de la HU #13889 (ADR-0028)
     expect(accionesArbol).toEqual([...FINANZAS]);
     const delCatalogo = cat.filter((f) => f.tipo === 'accion' && FINANZAS.includes(f.codigo));
     expect(delCatalogo.map((f) => f.codigo).sort()).toEqual(accionesArbol);
@@ -93,7 +93,7 @@ describe('AC6 — cobertura: los 68 códigos del área, en los dos sentidos', ()
   const cubiertas = new Set(FINANZAS.flatMap((a) => [...operacionesDe(a), ...predecesoresDe(a), ...(ACCIONES_FINANZAS[a]!.opcionales ?? [])]));
 
   it('son 68 en la partida, y cada uno está en ≥1 acción (grupo, predecesor, apoyo u opcional) o declarado fuera de área', () => {
-    expect(delArea).toHaveLength(68);
+    expect(delArea).toHaveLength(68); // del PLANO: las dos de la HU #13889 nacen en el árbol y no están aquí
     expect(delArea.filter((c) => !cubiertas.has(c) && !(c in FUERA_DE_AREA_FINANZAS))).toEqual([]);
     expect(Object.keys(FUERA_DE_AREA_FINANZAS)).toEqual(['liquidacion.pago_manual.administrar']);
     // HU #13429 (P-14): no lo absorbe Finanzas; lo expande el ítem antiguo «Órdenes de trabajo».
@@ -111,7 +111,8 @@ describe('AC6 — cobertura: los 68 códigos del área, en los dos sentidos', ()
 
   it('las operaciones nuevas son EXACTAMENTE las que exige hoy alguna guarda y no existían; su partida es el código viejo', () => {
     // HU #13428 suma las suyas (`PARTIDA_DE_OPERACION_NUEVA_ADMINISTRACION`): aquí, las de Finanzas.
-    expect(catalogoOperacionesNuevas().map((f) => f.codigo).filter((c) => !(c in PARTIDA_DE_OPERACION_NUEVA_ADMINISTRACION)).sort())
+    // HU #13889: las del expediente documental son nuevas SIN partida (no parten ninguna guarda vieja): aparte.
+    expect(catalogoOperacionesNuevas().map((f) => f.codigo).filter((c) => !(c in PARTIDA_DE_OPERACION_NUEVA_ADMINISTRACION) && !OPERACIONES_NACIDAS_EN_EL_ARBOL.has(c)).sort())
       .toEqual(Object.keys(PARTIDA_DE_OPERACION_NUEVA).sort());
     for (const [nueva, partida] of Object.entries(PARTIDA_DE_OPERACION_NUEVA)) {
       expect(plano.some((f) => f.codigo === nueva), nueva).toBe(false);
@@ -230,7 +231,11 @@ describe('AC4/AC5/AC7 — el paso sobre la partida real (0001..0231 plegadas): r
     const i = informeArbol(usuarios, { filasRol, filasUsuario: [] }, undefined, FINANZAS);
     const porRol = Object.fromEntries(i.cambios.map((c) => [c.rol, { pierde: c.pierde, gana: c.gana }]));
     expect(i.cambios.flatMap((c) => c.pierde)).toEqual([]);
-    expect(porRol).toEqual({ auditor: { pierde: [], gana: ['siigo.emision.ver'] } });
+    expect(porRol).toEqual({
+      // HU #13889 (ADR-0028): `admin` gana las dos del expediente documental por la regla «admin tiene todas las acciones».
+      admin: { pierde: [], gana: ['bolsas.documentos.cargar', 'bolsas.documentos.ver'] },
+      auditor: { pierde: [], gana: ['siigo.emision.ver'] },
+    });
     // Control: lo que tenía `admin` en el transitorio sigue efectivo por las acciones (credenciales, mapeo, freno…).
     const e = efectivasExpandidas(usuarios, despues).get(usuarios.find((u) => u.rol === 'admin')!.id)!;
     for (const op of Object.keys(PARTIDA_DE_OPERACION_NUEVA)) expect(e.has(op), op).toBe(true);

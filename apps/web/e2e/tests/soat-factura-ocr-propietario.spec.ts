@@ -19,6 +19,7 @@
 // `soat-cliente-solicitud.spec.ts` y `soat-vin-unico-ficha-runt.spec.ts`.
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
+import { elegirTipoInicial } from '../helpers/soat-tipo';
 import { loginAs, CLIENTE_CON_CANAL, OPERACIONES_USER } from '../helpers/auth';
 
 const PLACA = 'ABC123';
@@ -138,7 +139,7 @@ async function mockCanal(page: Page, opciones: {
 // ───────────────────────────── Localizadores y pasos ─────────────────────────────────────────────
 
 const btnConsultar = (page: Page) => page.getByRole('button', { name: 'Consultar el RUNT' });
-const btnEnviar = (page: Page) => page.getByRole('button', { name: 'Enviar al gestor' });
+const btnEnviar = (page: Page) => page.getByRole('button', { name: 'Enviar solicitud' });
 const fichaRunt = (page: Page) => page.getByRole('region', { name: 'Datos del RUNT' });
 const falta = (page: Page) => page.locator('#sol-falta');
 const chipRevisar = (page: Page) => page.getByText('⚠ Revise este dato');
@@ -210,6 +211,7 @@ test.describe('HU #12094 · AC1 — la lectura arranca al adjuntar', () => {
     await mockCola(page);
     const cap = await mockCanal(page, { retenerPrimera: true, porLlamada: [leida(EXTRACCION_COMPLETA)] });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     await adjuntar(page);
 
@@ -240,6 +242,7 @@ test.describe('HU #12094 · AC1 — la lectura arranca al adjuntar', () => {
       porLlamada: [fallo(503, 'Revisa los datos del archivo'), leida(EXTRACCION_COMPLETA)],
     });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     await page.getByLabel('VIN').fill(VIN);
     await adjuntar(page);
@@ -261,6 +264,7 @@ test.describe('HU #12094 · AC1 — la lectura arranca al adjuntar', () => {
     await mockCola(page);
     const cap = await mockCanal(page, { lectura: fallo(429, 'Demasiadas peticiones') });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     await adjuntar(page);
 
@@ -281,6 +285,7 @@ test.describe('HU #12094 · AC1 — la lectura arranca al adjuntar', () => {
       lectura: fallo(400, 'La factura de venta debe ser un PDF.', 'archivo_no_pdf'),
     });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     await adjuntar(page, 'no-es-pdf.pdf');
 
@@ -306,6 +311,7 @@ test.describe('HU #12094 · AC1 — la lectura arranca al adjuntar', () => {
       ],
     });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     await adjuntar(page, 'factura-A.pdf');
     await expect(page.getByRole('status').filter({ hasText: 'Leyendo la factura…' })).toBeVisible();
@@ -331,6 +337,7 @@ test.describe('HU #12094 · AC2 — el propietario llega escrito y editable', ()
     await mockCola(page);
     await mockCanal(page, { lectura: leida(EXTRACCION_COMPLETA) });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     await adjuntar(page);
     await expect(page.getByText('✓ Factura leída')).toBeVisible();
@@ -365,6 +372,7 @@ test.describe('HU #12094 · AC2 — el propietario llega escrito y editable', ()
       lectura: leida({ ...EXTRACCION_COMPLETA, municipio: campo(null), celular: { valor: null, confianza: 0.99, confiable: true } }),
     });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     await page.getByLabel('VIN').fill(VIN);
     await control(page, 'correo').fill(CORREO);
@@ -396,6 +404,7 @@ test.describe('HU #12094 · AC3 — los campos dudosos se confirman uno a uno', 
     const cola = await mockCola(page);
     const cap = await mockCanal(page, { lectura: leida(TRES_DUDOSOS) });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await prepararConLectura(page);
 
     await expect(chipRevisar(page)).toHaveCount(3);
@@ -425,6 +434,7 @@ test.describe('HU #12094 · AC3 — los campos dudosos se confirman uno a uno', 
     await mockCola(page);
     const cap = await mockCanal(page, { lectura: leida(TRES_DUDOSOS) });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await prepararConLectura(page);
 
     await page.getByRole('button', { name: 'Confirmar dirección' }).click();
@@ -452,6 +462,7 @@ test.describe('HU #12094 · AC3 — los campos dudosos se confirman uno a uno', 
     await mockCola(page);
     await mockCanal(page, { lectura: leida(TRES_DUDOSOS) });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await adjuntar(page);
     await expect(page.getByText('✓ Factura leída')).toBeVisible();
 
@@ -473,6 +484,7 @@ test.describe('HU #12094 · AC3 — los campos dudosos se confirman uno a uno', 
     const cola = await mockCola(page);
     const cap = await mockCanal(page, { lectura: leida(EXTRACCION_VACIA) });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     await page.getByLabel('VIN').fill(VIN);
     await adjuntar(page);
@@ -512,6 +524,7 @@ test.describe('HU #12094 · AC3 — los campos dudosos se confirman uno a uno', 
     const cola = await mockCola(page);
     const cap = await mockCanal(page, { lectura: fallo(503, 'El lector no está disponible') });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     await page.getByLabel('VIN').fill(VIN);
     await adjuntar(page);
@@ -553,6 +566,7 @@ test.describe('HU #12094 · AC4 — NIT ⇒ razón social; natural ⇒ nombres y
       }),
     });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await prepararConLectura(page);
 
     await expect(control(page, 'razonSocial')).toHaveValue('TRANSPORTES X SAS');
@@ -585,6 +599,7 @@ test.describe('HU #12094 · AC4 — NIT ⇒ razón social; natural ⇒ nombres y
     await mockCola(page);
     await mockCanal(page, { lectura: leida(EXTRACCION_COMPLETA) });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await page.getByLabel('VIN').fill(VIN);
     await control(page, 'correo').fill(CORREO);
     await adjuntar(page);
@@ -615,6 +630,7 @@ test.describe('HU #12094 · AC6 — la sobrescritura se avisa y se acepta campo 
       ],
     });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     await adjuntar(page);
     await expect(page.getByText('✓ Factura leída')).toBeVisible();
@@ -669,6 +685,7 @@ test.describe('HU #12094 · AC6 — la sobrescritura se avisa y se acepta campo 
       ],
     });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     await adjuntar(page);
     await expect(page.getByText('✓ Factura leída')).toBeVisible();
@@ -690,6 +707,7 @@ test.describe('HU #12094 · AC6 — la sobrescritura se avisa y se acepta campo 
     await mockCola(page);
     await mockCanal(page, { lectura: leida(EXTRACCION_COMPLETA) });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
 
     await page.getByLabel('VIN').fill(VIN);
     await control(page, 'correo').fill(CORREO);
@@ -713,6 +731,7 @@ test.describe('HU #12094 · AC7 — la procedencia viaja y no se pinta', () => {
       lectura: leida({ ...EXTRACCION_COMPLETA, municipio: campo('MEDELLÍN', false) }),
     });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await prepararConLectura(page);
 
     // Confirmar sin editar: sigue siendo lo que puso el concesionario.
@@ -752,6 +771,7 @@ test.describe('HU #12094 · AC7 — la procedencia viaja y no se pinta', () => {
     await mockCola(page);
     await mockCanal(page, { lectura: leida(EXTRACCION_COMPLETA) });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await adjuntar(page);
     await expect(page.getByText('✓ Factura leída')).toBeVisible();
 
@@ -773,6 +793,7 @@ test.describe('HU #12094 · AC8 — nada personal sale del cuerpo de los POST', 
     page.on('framenavigated', () => urls.push(page.url()));
     const cap = await mockCanal(page, { lectura: leida(EXTRACCION_COMPLETA) });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await prepararConLectura(page);
 
     cola.items = [{ id: UUID_SOLICITUD }];
@@ -816,6 +837,7 @@ test.describe('HU #12094 · la ficha de ayuda in-app del módulo SOAT', () => {
       ],
     });
     await page.goto('/flito/soat/solicitud');
+    await elegirTipoInicial(page);
     await prepararConLectura(page);
 
     // ── 1 · Lo que la pantalla dice HOY ─────────────────────────────────────────────────────────

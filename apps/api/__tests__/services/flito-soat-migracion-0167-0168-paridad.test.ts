@@ -213,15 +213,14 @@ describe('paridad `.sql` ↔ `schema.ts` — que las dos verdades sean la misma'
     expect(roleEnum.enumValues).not.toContain('operaciones');
   });
 
-  it('las tres columnas nuevas existen en `schema.ts` con el mismo nombre y nulabilidad', () => {
+  it('las columnas nuevas siguen en `schema.ts` con el mismo nombre y nulabilidad (salvo la retirada en la HU #13967)', () => {
     const u = columnas(users).get('compania_id');
     expect(u, 'users.compania_id no está en schema.ts').toBeDefined();
     expect(u!.notNull).toBe(false);
 
-    const c = columnas(clients).get('soat_sin_tramite');
-    expect(c, 'clients.soat_sin_tramite no está en schema.ts').toBeDefined();
-    expect(c!.notNull).toBe(true);
-    expect(c!.default).toBe(false);
+    // HU #13967: `clients.soat_sin_tramite` salió de `schema.ts` (la columna física queda sin uso hasta
+    // #13968; la 0262 retira el CHECK que la ataba). El SQL de la 0167 se sigue verificando arriba.
+    expect(columnas(clients).get('soat_sin_tramite')).toBeUndefined();
 
     const o = columnas(flitoSoat).get('origen');
     expect(o, 'flito_soat.origen no está en schema.ts').toBeDefined();

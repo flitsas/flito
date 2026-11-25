@@ -74,7 +74,7 @@ lab.post('/exportar', exigirFuncion('finanzas.reporte_costos.exportar'), ok);
 describe('AC2 — muestreo 200/403 por par ítem/acción (guarda real, resolutor real)', () => {
   beforeAll(() => {
     expect(MUESTRA.filter((m) => !m.op).map((m) => m.accion)).toEqual([]);
-    expect(MUESTRA).toHaveLength(41);
+    expect(MUESTRA).toHaveLength(43); // + las dos del expediente documental (HU #13889)
   });
 
   it.each(MUESTRA.map((m, i) => [m.accion, m.op, i] as const))('%s → %s', async (accion, op, i) => {

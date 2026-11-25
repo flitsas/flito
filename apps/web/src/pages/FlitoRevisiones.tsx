@@ -253,7 +253,7 @@ function Formulario({ revision, soloLectura, onResuelta, onActualizada }: {
         <p className="mt-1 text-sm" style={{ color: 'var(--flit-text-secondary)' }}>{revision.detalle}</p>
       </div>
 
-      <FlitField label="Trámite contra el que se concilia *" inputId={`${base}-tramite`}>
+      <FlitField label="Trámite contra el que se concilia *">
         <FlitComboboxBuscable
           id={`${base}-tramite`}
           etiquetaSeleccion={etiquetaSeleccion}

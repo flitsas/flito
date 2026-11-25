@@ -60,7 +60,7 @@ const SOPORTE = {
 };
 
 let saldoBolsa = 0;
-const bolsaVigente: Resolver = () => [{ id: BOLSA_ID, saldo: String(saldoBolsa) }];
+const bolsaVigente: Resolver = () => [{ id: BOLSA_ID, saldo: String(saldoBolsa), companiaId: COMPANIA, activa: true }];
 
 /** Movimiento manual ya asentado, tal como lo devuelve el SELECT por id. */
 function movimientoOriginal(over: Fila = {}): Fila {
@@ -71,12 +71,13 @@ function movimientoOriginal(over: Fila = {}): Fila {
     observacion: 'Pago en ventanilla', soporteId: SOPORTE_ID,
     registradoPorId: 9, registradoPorNombre: 'financiera@flit.io',
     llaveIdempotencia: null, corrigeMovimientoId: null, createdAt: AHORA,
+    activa: true, // HU #13899: estado de la bolsa, que la lectura trae por join
     ...over,
   };
 }
 
 /**
- * Responde a las DOS consultas que se hacen sobre `flito_bolsa_cierres`, distinguiéndolas por su
+ * Responde a las DOS consultas que se hacen sobre `flito_bolsas_unicas_cierres`, distinguiéndolas por su
  * filtro (el mock enruta por tabla, así que sin esto un cierre de enero haría parecer cerrado
  * también a marzo):
  *   · «¿está cerrado ESTE periodo?» (`exigirPeriodoAbierto`) — lleva el periodo en el `where`;
@@ -93,8 +94,8 @@ function cierresSegunConsulta(cerrados: string[]): Resolver {
 /** Deja el mock listo para asentar: bolsa con saldo y los periodos cerrados que se indiquen. */
 function escenario(periodosCerrados: string[] = []): void {
   kdb.when
-    .select('flito_bolsas', bolsaVigente)
-    .select('flito_bolsa_cierres', cierresSegunConsulta(periodosCerrados))
+    .select('flito_bolsas_unicas', bolsaVigente)
+    .select('flito_bolsas_unicas_cierres', cierresSegunConsulta(periodosCerrados))
     .insert('flito_soportes', [{ id: SOPORTE_ID }]);
 }
 
@@ -102,12 +103,12 @@ beforeEach(() => {
   kdb.reset();
   espia.reiniciar();
   saldoBolsa = 1_000_000;
-  kdb.when.insert('flito_bolsa_movimientos', () => [{
-    id: 'mov-nuevo', createdAt: AHORA, ...espia.ultimoInsertEn('flito_bolsa_movimientos'),
+  kdb.when.insert('flito_bolsas_unicas_movimientos', () => [{
+    id: 'mov-nuevo', createdAt: AHORA, ...espia.ultimoInsertEn('flito_bolsas_unicas_movimientos'),
   }]);
 });
 
-const escrito = () => espia.ultimoInsertEn('flito_bolsa_movimientos');
+const escrito = () => espia.ultimoInsertEn('flito_bolsas_unicas_movimientos');
 
 // ─────────────────────────── AC1: el movimiento manual ───────────────────────
 
@@ -149,7 +150,7 @@ describe('registrarMovimientoManual — AC1: la contingencia queda registrada y 
       COMPANIA, { tipo: 'salida', valor: 250000, motivo: 'Ajuste de contingencia', soporte: SOPORTE }, CTX,
     );
 
-    expect(espia.insertsEn('flito_bolsa_movimientos')).toHaveLength(2);
+    expect(espia.insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(2);
     expect(escrito().llaveIdempotencia).toBeNull();
   });
 
@@ -159,7 +160,7 @@ describe('registrarMovimientoManual — AC1: la contingencia queda registrada y 
       COMPANIA, { tipo: 'entrada', valor: 250000, motivo: 'Devolución del organismo', soporte: SOPORTE }, CTX,
     );
 
-    expect(espia.secuencia()).toEqual(['flito_soportes', 'flito_bolsa_movimientos']);
+    expect(espia.secuencia()).toEqual(['flito_soportes', 'flito_bolsas_unicas_movimientos']);
     expect(escrito().soporteId).toBe(SOPORTE_ID);
   });
 
@@ -216,7 +217,7 @@ describe('corregirMovimiento — AC2: se corrige con un ajuste, no editando el p
     // 100.000 registrados, 150.000 reales: faltan 50.000 por sacar. La corrección va en la misma
     // dirección que el original.
     escenario();
-    kdb.when.select('flito_bolsa_movimientos', [movimientoOriginal({ valor: '100000' })]);
+    kdb.when.select('flito_bolsas_unicas_movimientos', [movimientoOriginal({ valor: '100000' })]);
 
     const { correccion, saldo } = await corregirMovimiento(MOV_ID, 150000, 'Error de digitación', CTX);
 
@@ -228,7 +229,7 @@ describe('corregirMovimiento — AC2: se corrige con un ajuste, no editando el p
 
   it('corregir a la baja una salida devuelve la diferencia como entrada', async () => {
     escenario();
-    kdb.when.select('flito_bolsa_movimientos', [movimientoOriginal({ valor: '100000' })]);
+    kdb.when.select('flito_bolsas_unicas_movimientos', [movimientoOriginal({ valor: '100000' })]);
 
     const { saldo } = await corregirMovimiento(MOV_ID, 60000, 'Se cobró de menos en ventanilla', CTX);
 
@@ -238,7 +239,7 @@ describe('corregirMovimiento — AC2: se corrige con un ajuste, no editando el p
 
   it('corregir al alza una entrada asienta otra entrada', async () => {
     escenario();
-    kdb.when.select('flito_bolsa_movimientos', [movimientoOriginal({ tipo: 'entrada', valor: '100000' })]);
+    kdb.when.select('flito_bolsas_unicas_movimientos', [movimientoOriginal({ tipo: 'entrada', valor: '100000' })]);
 
     await corregirMovimiento(MOV_ID, 130000, 'Faltaba parte de la devolución', CTX);
     expect(escrito()).toMatchObject({ tipo: 'entrada', valor: '30000' });
@@ -246,7 +247,7 @@ describe('corregirMovimiento — AC2: se corrige con un ajuste, no editando el p
 
   it('corregir a la baja una entrada asienta una salida', async () => {
     escenario();
-    kdb.when.select('flito_bolsa_movimientos', [movimientoOriginal({ tipo: 'entrada', valor: '100000' })]);
+    kdb.when.select('flito_bolsas_unicas_movimientos', [movimientoOriginal({ tipo: 'entrada', valor: '100000' })]);
 
     await corregirMovimiento(MOV_ID, 70000, 'La devolución fue menor', CTX);
     expect(escrito()).toMatchObject({ tipo: 'salida', valor: '30000' });
@@ -256,18 +257,18 @@ describe('corregirMovimiento — AC2: se corrige con un ajuste, no editando el p
     // El histórico tiene que seguir mostrando qué se registró primero; lo que cambia es el saldo,
     // mediante un asiento nuevo.
     escenario();
-    kdb.when.select('flito_bolsa_movimientos', [movimientoOriginal()]);
+    kdb.when.select('flito_bolsas_unicas_movimientos', [movimientoOriginal()]);
 
     await corregirMovimiento(MOV_ID, 150000, 'Error de digitación', CTX);
 
-    expect(espia.updatesEn('flito_bolsa_movimientos')).toHaveLength(0);
+    expect(espia.updatesEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
     // Lo único que se actualiza es el saldo denormalizado de la bolsa.
-    expect(espia.updates.map((u) => u.tabla)).toEqual(['flito_bolsas']);
+    expect(espia.updates.map((u) => u.tabla)).toEqual(['flito_bolsas_unicas']);
   });
 
   it('la corrección apunta al movimiento que corrige y explica el cambio', async () => {
     escenario();
-    kdb.when.select('flito_bolsa_movimientos', [movimientoOriginal({ valor: '100000' })]);
+    kdb.when.select('flito_bolsas_unicas_movimientos', [movimientoOriginal({ valor: '100000' })]);
 
     await corregirMovimiento(MOV_ID, 150000, 'Error de digitación', CTX);
 
@@ -279,7 +280,7 @@ describe('corregirMovimiento — AC2: se corrige con un ajuste, no editando el p
     // Si la corrección cayera en «sin asignar», el extracto por organismo dejaría de cuadrar con
     // el movimiento que corrige.
     escenario();
-    kdb.when.select('flito_bolsa_movimientos', [movimientoOriginal()]);
+    kdb.when.select('flito_bolsas_unicas_movimientos', [movimientoOriginal()]);
 
     await corregirMovimiento(MOV_ID, 150000, 'Error de digitación', CTX);
 
@@ -292,7 +293,7 @@ describe('corregirMovimiento — lo que no se corrige', () => {
     // Viene del sellado de una liquidación: cambiarle el valor desalinearía la bolsa de lo que dice
     // la liquidación. El mensaje dice qué hacer en su lugar.
     escenario();
-    kdb.when.select('flito_bolsa_movimientos', [movimientoOriginal({ origen: 'automatico' })]);
+    kdb.when.select('flito_bolsas_unicas_movimientos', [movimientoOriginal({ origen: 'automatico' })]);
 
     await expect(corregirMovimiento(MOV_ID, 150000, 'Error de digitación', CTX))
       .rejects.toMatchObject({
@@ -304,7 +305,7 @@ describe('corregirMovimiento — lo que no se corrige', () => {
 
   it('una recarga tampoco se corrige por aquí', async () => {
     escenario();
-    kdb.when.select('flito_bolsa_movimientos', [movimientoOriginal({ origen: 'recarga' })]);
+    kdb.when.select('flito_bolsas_unicas_movimientos', [movimientoOriginal({ origen: 'recarga' })]);
 
     await expect(corregirMovimiento(MOV_ID, 150000, 'Error de digitación', CTX))
       .rejects.toMatchObject({ estado: 409 });
@@ -312,7 +313,7 @@ describe('corregirMovimiento — lo que no se corrige', () => {
 
   it('movimiento inexistente → 404', async () => {
     escenario();
-    kdb.when.select('flito_bolsa_movimientos', []);
+    kdb.when.select('flito_bolsas_unicas_movimientos', []);
 
     await expect(corregirMovimiento(MOV_ID, 150000, 'Error de digitación', CTX))
       .rejects.toMatchObject({ name: 'BolsaError', estado: 404, message: 'El movimiento no existe' });
@@ -322,7 +323,7 @@ describe('corregirMovimiento — lo que no se corrige', () => {
     // Asentar un movimiento de valor cero es imposible (lo rechaza el asiento), así que se corta
     // antes con un mensaje que explica el caso real: el valor ya es ese.
     escenario();
-    kdb.when.select('flito_bolsa_movimientos', [movimientoOriginal({ valor: '100000' })]);
+    kdb.when.select('flito_bolsas_unicas_movimientos', [movimientoOriginal({ valor: '100000' })]);
 
     await expect(corregirMovimiento(MOV_ID, 100000, 'Error de digitación', CTX))
       .rejects.toMatchObject({ name: 'BolsaError', message: 'El valor corregido es igual al actual' });
@@ -361,7 +362,7 @@ describe('periodo cerrado — lo manual se rechaza', () => {
     // El reporte de ese mes ya se firmó; tocar su saldo lo dejaría desmentido.
     const mes = periodoDesplazado(-2);
     escenario([mes]);
-    kdb.when.select('flito_bolsa_movimientos', [movimientoOriginal({ fecha: fechaEn(mes), periodo: mes })]);
+    kdb.when.select('flito_bolsas_unicas_movimientos', [movimientoOriginal({ fecha: fechaEn(mes), periodo: mes })]);
 
     await expect(corregirMovimiento(MOV_ID, 150000, 'Error de digitación', CTX))
       .rejects.toMatchObject({ estado: 409, message: 'No se pueden registrar ni editar movimientos de un periodo cerrado' });
@@ -387,7 +388,7 @@ describe('periodo cerrado — lo manual se rechaza', () => {
     // es el que lo cuenta.
     const mes = periodoDesplazado(-2);
     escenario([mes]);
-    kdb.when.select('flito_bolsa_movimientos', []);
+    kdb.when.select('flito_bolsas_unicas_movimientos', []);
 
     const asentadas = await registrarSalidasLiquidacion(
       kdb.db as never,
@@ -411,5 +412,40 @@ describe('periodo cerrado — lo manual se rechaza', () => {
       { tipo: 'salida', valor: 80000, motivo: 'El mismo ajuste, a mano', fecha: fechaEn(mes), soporte: SOPORTE },
       CTX,
     )).rejects.toBeInstanceOf(BolsaError);
+  });
+});
+
+// ─────────────── HU #13899 (AC8, Q7): la bolsa inactiva no admite manuales ni correcciones ───────────────
+
+describe('HU #13899 AC7/AC8 — manual y corrección exigen bolsa activa', () => {
+  const inactiva: Resolver = () => [{ id: BOLSA_ID, saldo: '1000000', companiaId: COMPANIA, activa: false }];
+
+  it('TC-22 · movimiento manual sobre bolsa inactiva → 409 bolsa_inactiva «Reactiva la bolsa primero»', async () => {
+    escenario();
+    kdb.when.select('flito_bolsas_unicas', inactiva);
+
+    await expect(registrarMovimientoManual(
+      COMPANIA, { tipo: 'entrada', valor: 250000, motivo: 'Devolución del organismo', soporte: SOPORTE }, CTX,
+    )).rejects.toMatchObject({ name: 'BolsaError', estado: 409, codigo: 'bolsa_inactiva', message: 'Reactiva la bolsa primero' });
+    expect(espia.insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
+  });
+
+  it('movimiento manual sin bolsa → 409 bolsa_inexistente y no se escribe nada', async () => {
+    escenario();
+    kdb.when.select('flito_bolsas_unicas', []);
+
+    await expect(registrarMovimientoManual(
+      COMPANIA, { tipo: 'entrada', valor: 250000, motivo: 'Devolución del organismo', soporte: SOPORTE }, CTX,
+    )).rejects.toMatchObject({ estado: 409, codigo: 'bolsa_inexistente' });
+    expect(espia.insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
+  });
+
+  it('TC-23 · corrección de un movimiento de una bolsa inactiva → 409 bolsa_inactiva', async () => {
+    escenario();
+    kdb.when.select('flito_bolsas_unicas_movimientos', [movimientoOriginal({ valor: '100000', activa: false })]);
+
+    await expect(corregirMovimiento(MOV_ID, 150000, 'Error de digitación', CTX))
+      .rejects.toMatchObject({ estado: 409, codigo: 'bolsa_inactiva', message: 'Reactiva la bolsa primero' });
+    expect(espia.insertsEn('flito_bolsas_unicas_movimientos')).toHaveLength(0);
   });
 });

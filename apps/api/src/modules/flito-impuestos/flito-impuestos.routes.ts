@@ -9,6 +9,10 @@ import { z } from 'zod';
 import { authMiddleware } from '../../shared/middleware/auth.js';
 import { exigirFuncion, tieneFuncion } from '../../shared/middleware/exigir-funcion.js';
 import { audit } from '../../shared/middleware/audit.js';
+import { drFlitGestionLimiter } from '../../shared/middleware/rateLimiter.js';
+import { busquedaGestionSchema, PAGINA_GESTION } from '../../shared/dr-flit-gestion.js';
+import { exigirConsultaGestionDrFlit } from '../flito-dr-flit/dr-flit.funciones.js';
+import type { ResultadoGestion, TarjetaImpuestoGestion } from '@operaciones/shared-types';
 import { historialDe } from '../../shared/historial/estado-historial.js';
 import { sendExcel } from '../../shared/utils/excel.js';
 import {
@@ -41,6 +45,7 @@ import { construirCertificadoPdf } from './certificado-pdf.js';
 import {
   asumirEnOperaciones, colaImpuestos, devolverAlGestor, facetasColaImpuestos, detalleImpuesto, enviarAlGestor,
   facturaVentaFlitConAcceso, reactivar, rechazar, registrosZipImpuestos, reversar,
+  type ImpuestoColaItem,
 } from './flito-impuestos.service.js';
 import { soportesDeImpuesto } from '../../shared/soportes/soportes-consulta.js';
 import { cargarReciboCaja, cargarRecibos, normalizarRutas, ReciboCajaError } from './flito-recibos.service.js';
@@ -336,6 +341,26 @@ const semaforosSchema = z.array(z.enum(SEMAFOROS_IMPUESTO)).min(1);
 // logPiiAccess` sobre sus ocho archivos daba 0—. Se cierra aquí y no solo en el export para no dejar
 // la ruta interactiva sin rastro mientras la de al lado lo escribe todo. Va DESPUÉS de la consulta y
 // con `await`, como en SOAT: `filas` no se sabe antes.
+
+// HU #13941 (AC4/AC6): consulta de gestión de Dr. Flit.
+const CAMPOS_PII_TARJETA_IMPUESTO = ['placa'] as const;
+
+const aTarjetaImpuesto = (f: ImpuestoColaItem): TarjetaImpuestoGestion => ({
+  id: f.id, placa: f.placa, idFlit: f.idFlit, estado: f.estado,
+  organismo: f.organismoNombre ?? f.organismoCodigo, liquidado: f.valorLiquidado, pagado: f.pagadoEn,
+});
+
+router.post('/buscar', exigirConsultaGestionDrFlit, exigirFuncion('impuestos.cola.ver'), drFlitGestionLimiter, async (req: Request, res: Response) => {
+  const parsed = busquedaGestionSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Datos inválidos' }); return; }
+  const ctx = await contextoImpuesto(req.user!);
+  const { items, total } = await colaImpuestos(ctx, { buscar: parsed.data.valor, ...PAGINA_GESTION });
+  await registrarAccesoImpuesto(req, { accion: 'search', filas: items.length, campos: CAMPOS_PII_TARJETA_IMPUESTO });
+  const cuerpo: ResultadoGestion<TarjetaImpuestoGestion> = { total, items: items.map(aTarjetaImpuesto) };
+  res.set('Cache-Control', 'no-store');
+  res.json(cuerpo);
+});
+
 router.get('/', exigirFuncion('impuestos.cola.ver'), async (req: Request, res: Response) => {
   const semaforoRaw = lista(req.query.semaforo);
   const semaforo = semaforoRaw ? semaforosSchema.safeParse(semaforoRaw) : undefined;

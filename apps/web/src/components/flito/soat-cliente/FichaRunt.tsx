@@ -58,9 +58,11 @@ export const dato = (v: string | null) => (v && v.trim() ? v : '—');
 interface Props {
   datos: PreconsultaRunt;
   consultadoEn: Date;
+  /** Renovación (HU #14019): el VIN del RUNT no se muestra antes de continuar. */
+  ocultarVin?: boolean;
 }
 
-export default function FichaRunt({ datos, consultadoEn }: Props) {
+export default function FichaRunt({ datos, consultadoEn, ocultarVin }: Props) {
   const { vehiculo, organismo } = datos;
   return (
     <section
@@ -81,7 +83,7 @@ export default function FichaRunt({ datos, consultadoEn }: Props) {
           que reconoce de un vistazo. El VIN detrás, que es el suyo. */}
       <Grupo titulo="Identificación">
         <Dato k="Placa" v={dato(vehiculo.placa)} />
-        <Dato k="VIN" v={dato(vehiculo.vin)} />
+        {!ocultarVin && <Dato k="VIN" v={dato(vehiculo.vin)} />}
       </Grupo>
 
       <Grupo titulo="Vehículo">

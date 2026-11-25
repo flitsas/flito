@@ -10,7 +10,7 @@
 // si esa casilla está inactiva, al ancestro desmarcado más alto (el que hay que tocar).
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { ancestroFaltante, type Indice, type Nodo } from './arbol';
+import { ancestroFaltante, type Indice, type Nodo, type TratoExclusivas } from './arbol';
 import { ArbolCtx, type ContextoArbol, type ModoArbol } from './contextoArbol';
 import { FilaNodo } from './NodoArbol';
 
@@ -30,11 +30,13 @@ interface Props {
   /** HU #13452: nodos cerrados por el enlace del rol (deshabilitados, con nota en el ítem). */
   cerrados?: ReadonlyMap<string, string>;
   notaCerrado?: string;
+  /** HU #13951: trato de las exclusivas del Administrador (panel de un rol; HU #13970: también del usuario). */
+  exclusivas?: TratoExclusivas;
 }
 
 export default function ArbolPermisos({
   arbol, indice, marcados, modo, editable, onToggle, onConjunto, abiertosIniciales, foco, usarEfectivoServidor = false,
-  cerrados, notaCerrado,
+  cerrados, notaCerrado, exclusivas,
 }: Props) {
   const idBase = useId();
   const [abiertos, setAbiertos] = useState<Set<string>>(() => new Set(abiertosIniciales ?? []));
@@ -71,8 +73,8 @@ export default function ArbolPermisos({
 
   const ctx = useMemo<ContextoArbol>(() => ({
     indice, marcados, modo, editable, usarEfectivoServidor, abiertos, alternarAbierto, onToggle, onConjunto, registrarInput, idBase,
-    cerrados, notaCerrado,
-  }), [indice, marcados, modo, editable, usarEfectivoServidor, abiertos, alternarAbierto, onToggle, onConjunto, registrarInput, idBase, cerrados, notaCerrado]);
+    cerrados, notaCerrado, exclusivas,
+  }), [indice, marcados, modo, editable, usarEfectivoServidor, abiertos, alternarAbierto, onToggle, onConjunto, registrarInput, idBase, cerrados, notaCerrado, exclusivas]);
 
   return (
     <ArbolCtx.Provider value={ctx}>

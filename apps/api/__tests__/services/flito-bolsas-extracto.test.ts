@@ -52,7 +52,7 @@ const filaBolsa = {
 };
 
 /**
- * Las tres consultas de `extractoDe` sobre `flito_bolsa_movimientos` van encoladas: preguntan por la
+ * Las tres consultas de `extractoDe` sobre `flito_bolsas_unicas_movimientos` van encoladas: preguntan por la
  * misma tabla y solo las distingue el orden en que se lanzan (totales, por organismo, por concepto).
  */
 function escenarioExtracto(
@@ -62,10 +62,10 @@ function escenarioExtracto(
   bolsa: Record<string, unknown>[] = [filaBolsa],
 ): void {
   kdb.when
-    .selectOnce('flito_bolsa_movimientos', [totales])
-    .selectOnce('flito_bolsa_movimientos', porOrganismo)
-    .selectOnce('flito_bolsa_movimientos', porConcepto)
-    .select('flito_bolsas', bolsa);
+    .selectOnce('flito_bolsas_unicas_movimientos', [totales])
+    .selectOnce('flito_bolsas_unicas_movimientos', porOrganismo)
+    .selectOnce('flito_bolsas_unicas_movimientos', porConcepto)
+    .select('flito_bolsas_unicas', bolsa);
 }
 
 /** Texto del SQL de una proyección: los trozos literales de la expresión, sin los parámetros. */

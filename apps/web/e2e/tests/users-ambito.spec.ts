@@ -218,20 +218,20 @@ test.describe('HU #12088 · AC1 — un tipoEnlace, un campo de ámbito', () => {
 // ───────────────────────── Catálogos · qué se ofrece y qué no se pierde ──────────────────────────
 
 test.describe('HU #12053 · los catálogos: activos al ofrecer, sin perder al asignado', () => {
-  test('TC-12053-03 · solo ofrece proveedores ACTIVOS aunque el endpoint devuelva inactivos', async ({ page }) => {
+  test('TC-12053-03 · el proveedor INACTIVO se ve con «(Inactivo)» pero no se puede elegir', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     mockUsers(page);
     await mockCatalogos(page);
     await abrirAlta(page, 'proveedor');
 
     const select = page.getByLabel('Proveedor', { exact: true });
-    // Opción vacía + los dos activos. «La Previsora» viene en la respuesta y NO se ofrece: dar de
-    // alta a alguien atado a una aseguradora que ya no opera es crear el problema.
-    await expect(select.getByRole('option')).toHaveText(['Seleccione proveedor…', 'SURA', 'Mundial de Seguros']);
-    await expect(select.getByRole('option', { name: /Previsora/ })).toHaveCount(0);
+    // HU #13963 (antes se ocultaba): «La Previsora» se ve, en gris y deshabilitada. Dar de alta a
+    // alguien atado a una aseguradora que ya no opera sigue sin ser posible.
+    await expect(select.getByRole('option')).toHaveText(['Seleccione proveedor…', 'SURA', 'Mundial de Seguros', 'La Previsora (Inactivo)']);
+    await expect(select.getByRole('option', { name: 'La Previsora (Inactivo)' })).toBeDisabled();
   });
 
-  test('TC-12053-04 · el proveedor inactivo ASIGNADO se reinyecta con «(inactivo)» y no se pierde al guardar', async ({ page }) => {
+  test('TC-12053-04 · el proveedor inactivo ASIGNADO se conserva con «(Inactivo)» y no se pierde al guardar', async ({ page }) => {
     await loginAs(page, OPERACIONES_USER);
     const heredado = usuario({ id: 5, username: 'gestor.previsora', name: 'Heredado', role: 'proveedor', flitoProveedorSoatId: PREVISORA });
     const { patches } = mockUsers(page, [heredado]);
@@ -244,7 +244,7 @@ test.describe('HU #12053 · los catálogos: activos al ofrecer, sin perder al as
     // Mutante: filtrar por `activo` sin reinyectar → el `<select>` se pinta en blanco y guardar se
     // lleva la atadura por delante. El valor es lo que lo mata; el matiz es lo que lo explica.
     await expect(select).toHaveValue(PREVISORA);
-    await expect(select.getByRole('option', { name: 'La Previsora (inactivo)' })).toHaveCount(1);
+    await expect(select.getByRole('option', { name: 'La Previsora (Inactivo)' })).toHaveCount(1);
 
     await page.getByLabel('Nombre completo').fill('Heredado editado');
     await page.getByRole('button', { name: 'Guardar cambios' }).click();

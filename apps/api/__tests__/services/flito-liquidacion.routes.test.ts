@@ -85,3 +85,16 @@ describe('POST /:tramiteId/liquidar — 422 cuando el trámite no es procesable 
     expect(liquidarMock).not.toHaveBeenCalled();
   });
 });
+
+// HU #13947 — un cliente inactivo no admite liquidaciones nuevas: la ruta traduce el error del helper a 409.
+describe('POST /:tramiteId/liquidar — 409 con el cliente inactivo (HU #13947)', () => {
+  it('ClienteNoOperableError → 409 con el mensaje del AC, y sin auditar', async () => {
+    const { ClienteNoOperableError, mensajeClienteInactivo } = await import('../../src/modules/clients/cliente-operable.js');
+    liquidarMock.mockRejectedValue(new ClienteNoOperableError(5, mensajeClienteInactivo('Transportes Andes', 'liquidaciones')));
+    const app = await buildApp();
+    const r = await request(app).post(`${BASE}/${TRAMITE}/liquidar`).set('Authorization', await tokenFinanciera());
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: 'El cliente Transportes Andes está inactivo: no se pueden crear liquidaciones para él.' });
+    expect(auditMock).not.toHaveBeenCalled();
+  });
+});

@@ -3,7 +3,6 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './lib/auth';
 import { ThemeProvider } from './lib/theme';
 import { hasPage, rutaInicio, PageSlug } from './lib/permissions';
-import { puedeVerAyudaFlito } from './lib/ayudaFlito';
 import PageContentSkeleton from './components/flit/PageContentSkeleton';
 import Login from './pages/Login';
 import { lazy, Suspense } from 'react';
@@ -148,7 +147,11 @@ function ProtectedRoute({ children, page }: { children: React.ReactNode; page?: 
 // ProtectedRoute page="flito_ayuda" dejaría la pantalla solo a admin.
 function AyudaFlitoGate({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  if (!puedeVerAyudaFlito(user)) return <NoAccess page="flito_ayuda" />;
+  // HU #13704 (P9-3a): autenticado sin fichas visibles NO es `NoAccess`: la página pinta
+  // «Su usuario aún no tiene módulos con ayuda». El ítem del menú sigue derivado de
+  // `puedeVerAyudaFlito` y queda oculto; `/flito/ayuda/:slug` sin permiso sigue en el NoAccess
+  // de esa pantalla (lo decide la ficha).
+  if (!user) return <NoAccess page="flito_ayuda" />;
   return <>{children}</>;
 }
 

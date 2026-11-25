@@ -134,6 +134,14 @@ function proyectar(fila: Record<string, unknown>, sel: Record<string, unknown>):
 }
 
 const nombreTabla = (t: unknown): string => { try { return getTableName(t as never); } catch { return '__expr__'; } };
+/** HU #13953: SELECT que registra el WHERE (para afirmar el filtro de vigentes) y resuelve a `filas`. */
+const consultaQueCaptura = (filas: unknown[], wheres: unknown[]) => {
+  const c: Record<string, unknown> = {};
+  c.from = () => c;
+  c.where = (w: unknown) => { wheres.push(w); return chain(filas); };
+  return c;
+};
+const sqlDe = (w: unknown): string => new PgDialect().sqlToQuery(w as never).sql;
 const render = (cond: unknown): { sql: string; params: unknown[] } => {
   const q = new PgDialect().sqlToQuery(cond as never);
   return { sql: q.sql, params: q.params as unknown[] };
@@ -696,6 +704,19 @@ describe('POST /api/users — rol cliente y compañía (AC1/AC2 de la HU #11913)
     expect(insertMock).not.toHaveBeenCalled();
   });
 
+  it('HU #13953 AC3: alta con la compañía de un cliente ELIMINADO → 400 con el texto de la HU; la consulta filtra vigentes', async () => {
+    selectMock.mockReturnValueOnce(chain([]));   // username libre
+    selectMock.mockReturnValueOnce(chain([]));   // email libre (HU #12089 AC6)
+    const wheres: unknown[] = [];
+    selectMock.mockReturnValueOnce(consultaQueCaptura([], wheres)); // el eliminado no pasa el filtro
+    const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
+      .send({ ...BODY_CLIENTE, companiaId: 77 });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('La compañía seleccionada no existe o fue eliminada.');
+    expect(sqlDe(wheres[0])).toMatch(/"clients"\."deleted_at" is null/);
+    expect(insertMock).not.toHaveBeenCalled();
+  });
+
   it('otro rol CON compañía → 400 (la compañía es del enlace compania y de nadie más)', async () => {
     const token = await testToken({ sub: 1, role: 'admin' });
     const app = await buildApp();
@@ -794,6 +815,20 @@ describe('PATCH /api/users/:id — compañía del cliente (AC2 por la puerta de 
       .send({ companiaId: 3 });
     expect(r.status).toBe(400);
     expect(r.body.error).toBe('Solo los roles con ámbito de compañía pueden tener compañía asignada');
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('PATCH /api/users/:id — HU #13953 AC3: compañía de un cliente eliminado', () => {
+  it('editar un cliente a la compañía de un eliminado → 400 con el texto de la HU, sin escribir', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'cliente', active: true, companiaId: 3 }]));
+    const wheres: unknown[] = [];
+    selectMock.mockReturnValueOnce(consultaQueCaptura([], wheres));
+    const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabecera())
+      .send({ companiaId: 77 });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe('La compañía seleccionada no existe o fue eliminada.');
+    expect(sqlDe(wheres[0])).toMatch(/"clients"\."deleted_at" is null/);
     expect(updateMock).not.toHaveBeenCalled();
   });
 });
@@ -2017,5 +2052,61 @@ describe('HU #12087 — contrato funciones en POST/PATCH (§4-8)', () => {
     expect(escrituras.filter((e) => e.tabla === 'permisos_usuario_funcion')).toHaveLength(0);
     expect(logWarnMock).toHaveBeenCalled();
     expect(String(logWarnMock.mock.calls[0]?.[1] ?? logWarnMock.mock.calls[0]?.[0])).toMatch(/allowedPages obsoleto/);
+  });
+});
+
+// HU #13944 — una excepción por usuario (conceder o revocar) sobre una función exclusiva del Administrador → 409, antes
+// de la transacción. La lectura es la misma que la de existencia: el mock devuelve la función de prueba marcada.
+describe('HU #13944 AC3 — excepciones por usuario sobre una función exclusiva del Administrador', () => {
+  const cabecera = async () => `Bearer ${await testToken({ sub: 1, role: 'admin' })}`;
+  const EXCLUSIVA = { codigo: 'accion.clientes.autogestion', nombreNegocio: 'Habilitar o revocar la autogestión del cliente', exclusivaAdmin: true };
+  const MSG_ASIGNAR = 'La función Habilitar o revocar la autogestión del cliente es exclusiva del Administrador y no se puede asignar a otro rol.';
+  const MSG_QUITAR = 'La función Habilitar o revocar la autogestión del cliente es exclusiva del Administrador y no se puede quitar.';
+  const BODY = { username: 'exc_user', name: 'Exc', email: 'e@x.com', password: STRONG_PWD, role: 'auditor' as const };
+
+  it('POST con `conceder` de la exclusiva → 409 «no se puede asignar»; ni el usuario ni la excepción se escriben', async () => {
+    selectMock.mockReturnValueOnce(chain([])); // username libre
+    selectMock.mockReturnValueOnce(chain([])); // email libre
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.soat' }, EXCLUSIVA])); // leerFunciones
+    const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
+      .send({ ...BODY, funciones: [{ codigo: 'pagina.soat', efecto: 'conceder' }, { codigo: 'accion.clientes.autogestion', efecto: 'conceder' }] });
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: MSG_ASIGNAR, funcion: 'accion.clientes.autogestion' });
+    expect(escrituras.filter((e) => e.tabla === 'users')).toHaveLength(0);
+    expect(escrituras.filter((e) => e.tabla === 'permisos_usuario_funcion')).toHaveLength(0);
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('PATCH con `revocar` de la exclusiva → 409 «no se puede quitar»; sin transacción', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'admin', active: true }])); // before
+    selectMock.mockReturnValueOnce(chain([EXCLUSIVA])); // leerFunciones
+    const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabecera())
+      .send({ funciones: [{ codigo: 'accion.clientes.autogestion', efecto: 'revocar' }] });
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: MSG_QUITAR, funcion: 'accion.clientes.autogestion' });
+    expect(escrituras.filter((e) => e.tabla === 'permisos_usuario_funcion')).toHaveLength(0);
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('PATCH con `conceder` de la exclusiva → 409 «no se puede asignar»', async () => {
+    selectMock.mockReturnValueOnce(chain([{ id: 5, role: 'auditor', active: true }])); // before
+    selectMock.mockReturnValueOnce(chain([EXCLUSIVA])); // leerFunciones
+    const r = await request(await buildApp()).patch('/api/users/5').set('Authorization', await cabecera())
+      .send({ funciones: [{ codigo: 'accion.clientes.autogestion', efecto: 'conceder' }] });
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({ error: MSG_ASIGNAR, funcion: 'accion.clientes.autogestion' });
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it('AC6: con la exclusiva en la base, una excepción sobre una función SIN marca se guarda como hoy', async () => {
+    selectMock.mockReturnValueOnce(chain([])); // username libre
+    selectMock.mockReturnValueOnce(chain([])); // email libre
+    selectMock.mockReturnValueOnce(chain([{ codigo: 'pagina.soat', exclusivaAdmin: false }, EXCLUSIVA])); // leerFunciones
+    const r = await request(await buildApp()).post('/api/users').set('Authorization', await cabecera())
+      .send({ ...BODY, funciones: [{ codigo: 'pagina.soat', efecto: 'conceder' }] });
+    expect(r.status).toBe(201);
+    expect(escrituras.filter((e) => e.tabla === 'permisos_usuario_funcion')[0]!.valores).toEqual([
+      { userId: 99, funcionCodigo: 'pagina.soat', efecto: 'conceder' },
+    ]);
   });
 });

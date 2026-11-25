@@ -14,7 +14,7 @@ import { COMPANIA_REQUERIDA, COMPANIA_RELOGIN, type CatalogoCompanias } from './
 import { AmbitoCampos } from './Ambito';
 import PermissionsPicker, { type CatalogoFuncionesEstado } from './PermissionsPicker';
 import CambioRolExcepciones from './CambioRolExcepciones';
-import { aviso409, indexar, type Aviso409, type Indice } from '../roles-permisos/arbol';
+import { aviso409, indexar, sinExclusivas, tratoExclusivasDe, type Aviso409, type Indice } from '../roles-permisos/arbol';
 import type { FocoArbol } from '../roles-permisos/ArbolPermisos';
 import {
   ORGANISMOS_RELOGIN, ORGANISMOS_REQUERIDO, PROVEEDOR_RELOGIN, PROVEEDOR_REQUERIDO,
@@ -106,10 +106,12 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
       if (f.role !== user.role) body.role = f.role;
 
       const prevFunc = user.funciones ?? [];
-      const nextFunc = funcionesDestino ?? f.excepciones;
+      // HU #13970: una excepción sobre una exclusiva del Administrador no es asignable: no viaja ni cuenta como cambio.
+      const limpiar = (l: FuncionDeUsuario[]) => (indiceArbol ? sinExclusivas(l, indiceArbol) : l);
+      const nextFunc = limpiar(funcionesDestino ?? f.excepciones);
       if (funcionesOk) {
         // Con `role` en el body, `funciones` viaja siempre (§4-3).
-        if (body.role !== undefined || claveFunciones(prevFunc) !== claveFunciones(nextFunc)) {
+        if (body.role !== undefined || claveFunciones(limpiar(prevFunc)) !== claveFunciones(nextFunc)) {
           body.funciones = nextFunc;
         }
       }
@@ -143,7 +145,8 @@ export default function EditForm({ user, companias, proveedores, organismos, cat
       onClose();
     } catch (err) {
       const cuerpo = cuerpoAntiBloqueo(err);
-      if (cuerpo) setAvisoBloqueo(aviso409(cuerpo, indiceArbol ?? indexar([]), 'usuario'));
+      // HU #13970 (AC3): el 409 `FuncionExclusivaAdmin` lleva su copy según el rol elegido; el formulario se conserva.
+      if (cuerpo) setAvisoBloqueo(aviso409(cuerpo, indiceArbol ?? indexar([]), 'usuario', tratoExclusivasDe(f.role)));
       else toast.error(formatErrors(err));
     }
     finally { setSubmitting(false); setPendienteRol(false); }
