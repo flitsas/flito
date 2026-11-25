@@ -14,6 +14,8 @@ export interface NodoDef {
   opcional?: boolean;
   /** HU #13951: función exclusiva del Administrador (contrato de la #13944). */
   exclusivaAdmin?: boolean;
+  /** Épica #14678: elemento del menú viejo (ADR-0048), oculto en el panel. */
+  deprecado?: boolean;
   hijos?: NodoDef[];
 }
 
@@ -45,6 +47,8 @@ export function arbolRol(defs: readonly NodoDef[], marcas: ReadonlySet<string>, 
       ...(d.tipo === 'item' ? { slug: d.codigo.slice('pagina.'.length) as NodoArbolRol['slug'] } : {}),
       ...(d.legado ? { legado: true } : {}), ...(d.derivado ? { derivado: true } : {}), ...(d.opcional ? { opcional: true } : {}),
       ...(d.exclusivaAdmin ? { exclusivaAdmin: true } : {}),
+      // Épica #14678: los elementos del menú viejo viajan `deprecado` (el panel no los pinta).
+      ...(d.deprecado ? { deprecado: true } : {}),
       marcado,
       efectivo: marcado && cadena,
       sinAcciones: d.tipo === 'item' && !d.legado && marcado && acciones.length > 0 && !acciones.some((a) => marcas.has(a.codigo)),

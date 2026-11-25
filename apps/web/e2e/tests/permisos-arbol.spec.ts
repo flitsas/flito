@@ -23,7 +23,7 @@ import {
   accion, arbolRol, arbolUsuario, codigosDe, elemento, item, opcional, type NodoDef,
 } from '../helpers/arbolPermisos';
 import {
-  COPY_AYUDA_DERIVADA, COPY_ITEM_ANTIGUO, COPY_ITEM_ANTIGUO_OPCIONALES, avisoSinAcciones, explicacionDesmarcado, fraseSinEfecto,
+  COPY_AYUDA_DERIVADA, COPY_FUERA_DE_AREAS, COPY_ITEM_ANTIGUO, COPY_ITEM_ANTIGUO_OPCIONALES, avisoSinAcciones, explicacionDesmarcado, fraseSinEfecto,
   rotuloOpcional,
 } from '../../src/pages/roles-permisos/arbol';
 import { COPY_SOLO_LECTURA } from '../../src/pages/roles-permisos/CuadroRol';
@@ -59,7 +59,9 @@ const ARBOL: NodoDef[] = [
 ];
 const TODO = codigosDe(ARBOL);
 const TITULO_SUELTOS = 'Permisos que no dependen del menú';
-const ELEMENTOS = ['General', 'Gestión', 'Tránsito', 'PESV', 'Administración', 'Ayuda', 'Perfil'];
+// Épica #14678: primero las opciones del menú, en el orden del catálogo; General, Ayuda y Perfil después, bajo
+// «Fuera de áreas» (el fixture conserva nombres del menú viejo: el panel no los distingue, solo agrupa por código).
+const ELEMENTOS = ['Gestión', 'Tránsito', 'PESV', 'Administración', 'General', 'Ayuda', 'Perfil'];
 
 const GESTOR = [
   'menu.general', 'pagina.dashboard', 'accion.tablero.ver',
@@ -125,6 +127,10 @@ test.describe('HU #13430 · árbol de permisos del rol', () => {
     // AC1: los elementos en el orden del menú, con sus nombres; Ayuda sin casilla ni chevron, con su frase.
     const filas = await page.locator('main li[data-codigo-fila^="menu."]').evaluateAll((els) => els.map((e) => e.getAttribute('data-codigo-fila')));
     expect(filas).toEqual(ELEMENTOS.map((n) => `menu.${n === 'Gestión' ? 'gestion' : n === 'Tránsito' ? 'transito' : n === 'Administración' ? 'administracion' : n.toLowerCase()}`));
+    // El rótulo «Fuera de áreas» va justo antes de General (Épica #14678).
+    const rotulo = page.locator('main li[data-grupo-panel="fuera-de-areas"]');
+    await expect(rotulo).toHaveText(COPY_FUERA_DE_AREAS);
+    expect(await rotulo.evaluate((el) => el.nextElementSibling?.getAttribute('data-codigo-fila'))).toBe('menu.general');
     for (const nombre of ELEMENTOS.filter((n) => n !== 'Ayuda')) {
       await expect(page.getByRole('checkbox', { name: `${nombre} · rol Gestor de trámites`, exact: true })).toBeVisible();
     }
@@ -295,6 +301,29 @@ test.describe('HU #13430 · árbol de permisos del rol', () => {
     await expect(page.getByRole('button', { name: /Marcar todo/ })).toHaveCount(0);
     await expect(page.getByText(/Sin guardar/)).toHaveCount(0);
     expect(puts).toHaveLength(0);
+  });
+
+  test('Épica #14678: un elemento deprecado no se pinta, pero su marca se conserva y el PUT la devuelve', async ({ page }) => {
+    const { puts } = mockPermisos(page);
+    // Registrada después: tiene prioridad sobre la del mock para el árbol del gestor.
+    const conViejo = [...GESTOR, 'menu.finanzas'];
+    await page.route(/\/api\/permisos\/roles\/gestor_tramites\/arbol$/, (r) => r.fulfill(json({
+      rol: { codigo: 'gestor_tramites', nombre: 'Gestor de trámites', tipoEnlace: 'ninguno' },
+      arbol: arbolRol([...ARBOL, elemento('finanzas', 'Finanzas', [], { deprecado: true })], new Set(conViejo)),
+    })));
+    await abrir(page);
+    await botonRol(page, 'Gestor de trámites').click();
+    await expect(page.getByRole('heading', { name: 'Gestor de trámites', level: 2 })).toBeVisible();
+    await expect(fila(page, 'menu.gestion')).toBeVisible();
+    await expect(fila(page, 'menu.finanzas')).toHaveCount(0);
+    await expect(page.getByRole('checkbox', { name: /^Finanzas · / })).toHaveCount(0);
+
+    await casilla(page, 'menu.gestion').click();
+    await page.getByRole('button', { name: 'Guardar cambios' }).click();
+    await expect.poll(() => puts.length).toBe(1);
+    const enviadas = (puts[0].postDataJSON() as { funciones: string[] }).funciones;
+    expect(enviadas).toContain('menu.finanzas');
+    expect(enviadas).toEqual(conViejo.filter((c) => c !== 'menu.gestion').sort());
   });
 
   test('axe (AC8): sin violaciones graves con el árbol desplegado y un parcial', async ({ page }) => {

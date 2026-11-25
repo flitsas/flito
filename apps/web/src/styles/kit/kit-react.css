@@ -243,6 +243,98 @@ button.kit-paso__boton:hover .kit-paso__etiqueta { color: var(--kit-azul); }
 .menu-lateral__fila[aria-expanded="true"] .menu-lateral__flecha { transform: rotate(180deg); }
 @media (prefers-reduced-motion: reduce) { .menu-lateral__flecha { transition: none; } }
 
+/* ---------- Menú por áreas (Épica #14678, spec docs/ux/epica-14678-menu-por-areas.md; maqueta aprobada) ----------
+   Paneles del dock SIN scroll: rejilla de 3 columnas y, en Kyverum (> 24 entradas), riel vertical de subgrupos.
+   Estados dentro de la cápsula. Movimiento sutil con los tokens del kit; las dos duraciones aprobadas fuera de
+   --motion-fast/--motion-base quedan declaradas aquí con nombre propio (spec §8). Todo se apaga con reduced-motion. */
+:root { --motion-entrada: 240ms; --motion-giro: 600ms; }
+
+.dock .dock__menu.dock__menu--area { width: min(880px, calc(100vw - 64px)); }
+@media (min-width: 1024px) and (max-width: 1100px) { .dock .dock__menu--area { width: min(880px, calc(100vw - 64px)); } }
+.rejilla-area { padding: 0 var(--space-12) var(--space-4); }
+.rejilla-area > .dock__seccion + .dock__seccion { margin-top: var(--space-4); }
+.dock__menu .rejilla-sub { margin: var(--space-10) 0 var(--space-4); padding: 0 12px; font-size: var(--text-micro); font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-tertiary); }
+.dock__menu ul.rejilla-entradas { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px var(--space-8); padding: 0; }
+.dock__menu .rejilla-entradas li + li > a { border-top: 0; }
+.dock__menu a.entrada-compacta { min-height: 44px; padding: 6px 10px; border-radius: var(--radius-md); gap: var(--space-10);
+  transition: background-color var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease); }
+.dock__menu a.entrada-compacta:hover { background: var(--kit-hover); }
+.dock__menu a.entrada-compacta:focus-visible { outline: 2px solid var(--color-action); outline-offset: 2px; }
+.entrada-compacta .kico { width: 32px; height: 32px; flex: none; transition: background-color var(--motion-fast) var(--ease), transform var(--motion-fast) var(--ease); }
+/* Hasta 2 líneas, nunca «…»: un nombre de módulo cortado no se puede leer. */
+.dock__entrada .entrada-compacta__nombre { display: -webkit-box; flex: 1; min-width: 0; font-weight: 500; line-height: 1.25;
+  -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; transition: color var(--motion-fast) var(--ease); }
+/* Hover: el disco se tiñe y crece apenas (escala 1,06: excepción aprobada por el humano, spec §12); el nombre toma la acción. */
+.dock__menu a.entrada-compacta:hover .kico { background: var(--color-accent-soft); transform: scale(1.06); }
+.dock__menu a.entrada-compacta:hover .entrada-compacta__nombre { color: var(--color-action); }
+
+.panel-riel { display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: var(--space-12); padding: var(--space-4) var(--space-12); }
+.riel { position: relative; display: flex; flex-direction: column; gap: 2px; padding-right: var(--space-10); border-right: 1px solid var(--color-border); }
+.riel__tab { display: flex; align-items: center; gap: var(--space-8); width: 100%; min-height: 40px; padding: 8px 12px; border: 0;
+  border-radius: var(--radius-md); background: transparent; color: var(--color-text-primary); font: inherit; font-weight: 500;
+  text-align: left; cursor: pointer; transition: background-color var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease); }
+.riel__tab:hover { background: var(--kit-hover); }
+.riel__tab[aria-selected="true"] { background: var(--color-accent-soft); color: var(--color-action); font-weight: 600; }
+.riel__tab:focus-visible { outline: 2px solid var(--color-action); outline-offset: 2px; }
+.riel__nombre { flex: 1; min-width: 0; }
+.riel__cuenta { font-size: var(--text-caption); color: var(--color-text-tertiary); font-variant-numeric: tabular-nums; }
+.riel__marca { position: absolute; left: 0; top: 0; width: 3px; height: 40px; border-radius: 3px; background: var(--color-action); z-index: 1;
+  transition: transform var(--motion-base) var(--ease), height var(--motion-base) var(--ease); }
+.riel__panel { align-self: start; min-width: 0; }
+
+/* Indicador del dock: la píldora del estado abierto (--kit-hover) se desliza al botón abierto. */
+.dock--indicador .dock__grupo, .dock--indicador > .dock__item { position: relative; z-index: 1; }
+.dock--indicador .dock__item { transition: background-color var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease); }
+.dock--indicador .dock__item[aria-expanded="true"] { background: transparent; }
+.dock__indicador { position: absolute; z-index: 0; left: 0; top: 0; width: 0; height: 0; border-radius: var(--radius-pill); background: var(--kit-hover);
+  opacity: 0; pointer-events: none; transition: transform var(--motion-base) var(--ease), width var(--motion-base) var(--ease), opacity var(--motion-fast) var(--ease); }
+
+@keyframes dock-entrar { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes entrada-suave { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes panel-salir { to { opacity: 0; transform: translateY(6px); } }
+@keyframes aparecer { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cajon-entrar { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: none; } }
+.dock.dock--entra { animation: dock-entrar var(--motion-entrada) var(--ease) both; }
+.dock__menu.dock__menu--saliendo { animation: panel-salir var(--motion-fast) var(--ease) both; pointer-events: none; }
+.dock__menu .rejilla-entradas > li, .riel__tab { animation: entrada-suave var(--motion-base) var(--ease) both; animation-delay: calc(var(--i, 0) * 14ms); }
+
+/* Estados del dock: dentro de la cápsula, misma silueta que en reposo (spec §4). */
+.dock-esqueleto { display: inline-flex; align-items: center; gap: var(--space-8); padding: 0 var(--space-4); }
+.dock-esqueleto__pastilla { display: inline-block; width: 128px; height: 36px; border-radius: var(--radius-pill); }
+.dock-aviso { display: inline-flex; align-items: center; gap: var(--space-8); min-height: 40px; padding: 0 var(--space-12) 0 var(--space-8);
+  font-size: var(--text-caption); color: var(--color-text-primary); animation: aparecer var(--motion-base) var(--ease) both; }
+.dock .dock-aviso { white-space: nowrap; }
+.dock-aviso__icono { width: 22px; height: 22px; flex: none; }
+.dock-aviso[data-tono="danger"] { color: var(--flit-danger-ink); font-weight: 600; }
+.dock-reintentar .dock__nombre, .dock-reintentar .menu-lateral__nombre { color: var(--color-action); font-weight: 600; }
+.dock-reintentar__giro svg { animation: kit-girar var(--motion-giro) var(--ease); }
+.dock-reintentar:focus-visible { outline: 2px solid var(--color-action); outline-offset: 2px; }
+
+/* Menú lateral (< 1024 px): entra desde la izquierda; acordeones con altura animada; lo cerrado no entra en Tab. */
+.menu-lateral__velo { animation: aparecer var(--motion-base) var(--ease) both; }
+.kit-modal.menu-lateral { animation: cajon-entrar var(--motion-entrada) var(--ease) both; }
+.menu-lateral__plegable { display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden;
+  transition: grid-template-rows var(--motion-base) var(--ease), opacity var(--motion-base) var(--ease), visibility 0s linear var(--motion-base); }
+.menu-lateral__plegable[data-abierto="true"] { grid-template-rows: 1fr; opacity: 1; visibility: visible;
+  transition: grid-template-rows var(--motion-base) var(--ease), opacity var(--motion-base) var(--ease), visibility 0s; }
+.menu-lateral__plegable-interior { overflow: hidden; min-height: 0; }
+.menu-lateral__sub { justify-content: flex-start; font-weight: 600; color: var(--color-text-secondary); }
+.menu-lateral__sub .menu-lateral__nombre { text-align: left; }
+.menu-lateral__sub[aria-expanded="true"] .menu-lateral__flecha { transform: rotate(180deg); }
+.menu-lateral__entradas--sub { padding-left: var(--space-12); }
+.menu-lateral__entradas .menu-lateral__entrada.menu-lateral__sub { min-height: 44px; }
+.menu-lateral__esqueleto { display: grid; gap: var(--space-4); padding: var(--space-4); }
+.menu-lateral__esqueleto-fila { display: block; height: 44px; border-radius: 9px; }
+.menu-lateral__estado { display: grid; gap: var(--space-4); padding: var(--space-4); }
+.menu-lateral__aviso { margin: 0; padding: var(--space-8); white-space: normal; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dock, .dock *, .dock__indicador, .riel__marca, .menu-lateral__plegable, .kit-modal.menu-lateral, .menu-lateral *, .menu-lateral__velo {
+    animation: none !important; transition: none !important; }
+  .dock__menu a.entrada-compacta:hover .kico { transform: none; }
+}
+
 /* ---------- Correcciones de integración del rediseño (S1–S6) ---------- */
 /* #1 Cabecera: el ícono del módulo va en el flujo flex (no absoluto). Absoluto y centrado en el alto, se montaba sobre
    la miga y la h1 cuando la cabecera envolvía (<lg). 20 + 56 + 16 de hueco = los 92 px de la propuesta. */

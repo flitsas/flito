@@ -18,6 +18,7 @@ import {
   type EstadoCasilla, type Nodo, type Origen,
 } from './arbol';
 import { idDe, sufijoQuien, useArbol } from './contextoArbol';
+import { ordenDeSubgrupos, subgrupoDePagina } from '../../components/shell/sectionMeta';
 
 const SECUNDARIO = { color: 'var(--color-text-secondary)' } as const;
 const LINEA = { borderColor: 'var(--color-border)' } as const;
@@ -241,7 +242,16 @@ function PanelNodo({ nodo, panelId }: { nodo: Nodo; panelId: string }) {
         </div>
       )}
       <ul role="list" className="flex flex-col">
-        {noOpcionales(nodo).map((h) => <FilaNodo key={h.codigo} nodo={h} padre={nodo} />)}
+        {subgruposDe(nodo).map((g) => (g.titulo === null
+          ? g.nodos.map((h) => <FilaNodo key={h.codigo} nodo={h} padre={nodo} />)
+          : (
+            <li key={g.titulo} data-subgrupo={g.titulo}>
+              <p className="pb-1 pt-3 text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>{g.titulo}</p>
+              <ul role="list" aria-label={g.titulo} className="flex flex-col">
+                {g.nodos.map((h) => <FilaNodo key={h.codigo} nodo={h} padre={nodo} />)}
+              </ul>
+            </li>
+          )))}
         {opcionales.length > 0 && (
           <li id={idRotulo} className="pt-2 text-xs font-semibold" style={SECUNDARIO}>{rotuloOpcional(nodo.nombre)}</li>
         )}
@@ -249,6 +259,28 @@ function PanelNodo({ nodo, panelId }: { nodo: Nodo; panelId: string }) {
       </ul>
     </ContenedorPanel>
   );
+}
+
+/** Opción del menú cuyos ítems el panel agrupa con los subgrupos del riel del dock (Épica #14678, solo presentación). */
+const ELEMENTO_CON_SUBGRUPOS = { codigo: 'menu.kyverum', seccion: 'kyverum' } as const;
+
+/**
+ * Los hijos (no opcionales) de un nodo en el orden en que se pintan. En Kyverum, agrupados por subgrupo en el orden
+ * del riel (Tránsito · Flota · Mantenimiento · PESV · RNDC · LAFT · Trámites) y, al final, los ítems sin entrada de
+ * menú. Los subgrupos no son nodos del árbol (ADR-0048, decisión 6): no tienen casilla ni cuentan en «k de n».
+ */
+function subgruposDe(nodo: Nodo): Array<{ titulo: string | null; nodos: Nodo[] }> {
+  const hijos = noOpcionales(nodo);
+  if (nodo.codigo !== ELEMENTO_CON_SUBGRUPOS.codigo) return [{ titulo: null, nodos: hijos }];
+  const porTitulo = new Map<string | null, Nodo[]>();
+  for (const h of hijos) {
+    const t = h.slug ? subgrupoDePagina(ELEMENTO_CON_SUBGRUPOS.seccion, h.slug) : null;
+    porTitulo.set(t, [...(porTitulo.get(t) ?? []), h]);
+  }
+  const orden = [...ordenDeSubgrupos(ELEMENTO_CON_SUBGRUPOS.seccion), ...[...porTitulo.keys()].filter((t): t is string => t !== null && !ordenDeSubgrupos(ELEMENTO_CON_SUBGRUPOS.seccion).includes(t))];
+  const grupos = orden.filter((t) => porTitulo.has(t)).map((t) => ({ titulo: t as string | null, nodos: porTitulo.get(t)! }));
+  if (porTitulo.has(null)) grupos.push({ titulo: null, nodos: porTitulo.get(null)! });
+  return grupos;
 }
 
 export function ContenedorPanel({ id, leyenda, children }: { id: string; leyenda: string; children: ReactNode }) {

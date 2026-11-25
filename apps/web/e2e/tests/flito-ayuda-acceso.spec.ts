@@ -20,14 +20,14 @@ test.describe('FLITO — Ayuda · acceso', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
   // HU #13431: «Ayuda» es su propio elemento del menú, el último, y con un solo ítem se pinta como
-  // enlace directo (no hay disclosure «General» que abrir).
+  // enlace directo (no hay disclosure que abrir). Épica #14678: sigue el último tras las opciones por áreas.
   test('AC1 — proveedor ve Ayuda FLITO como último elemento del menú y navega', async ({ page }) => {
     await loginAs(page, PROVEEDOR_USER);
     await page.goto('/');
     await expect(page.getByRole('button', { name: BUSCADOR })).toBeVisible();
 
     // El dock conserva la ESTRUCTURA del menú de develop (FlitNavBar: SECTION_ORDER termina en «Ayuda», y una
-    // sección de una sola página es enlace directo): «Ayuda» sigue ahí como enlace a /flito/ayuda. Además es la
+    // opción de una sola página es enlace directo): «Ayuda» sigue ahí como enlace a /flito/ayuda. Además es la
     // última entrada del menú de usuario antes de salir.
     const nav = page.getByRole('navigation', { name: 'Navegación principal' });
     await expect(nav.getByRole('link', { name: 'Ayuda', exact: true })).toHaveAttribute('href', '/flito/ayuda');

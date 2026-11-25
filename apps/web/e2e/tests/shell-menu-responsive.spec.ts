@@ -1,15 +1,16 @@
-// Shell del UI Kit 2026 (Épica #14560, Sesión A) — navegación responsive:
-//   · ≥1024 px: dock con «Más». Las secciones que caben van con nombre, en SECTION_ORDER; las que no, en el panel
-//     del «Más», en el mismo orden. Fila + «Más» = el menú completo, sin perder ni repetir ninguna.
-//   · <1024 px: sin dock; el ☰ del topbar abre el menú lateral con las mismas secciones en el mismo orden. Escape lo
-//     cierra y devuelve el foco al ☰; navegar lo cierra.
-// La referencia del orden es el propio dock a 1920 px: fila + «Más» con las 12 secciones del admin (shell-navbar.spec.ts
-// ya compara esos nombres con el catálogo): así este spec no fija a mano las claves de sección.
-// Épica #14590: la Torre de Control es una sección propia por decisión humana; con ella el admin tiene 12 y a 1920 px
-// las del final pasan al «Más».
+// Shell del UI Kit 2026 (Épica #14560, Sesión A) — navegación responsive. Épica #14678 (menú por áreas,
+// spec docs/ux/epica-14678-menu-por-areas.md §3 y §7):
+//   · ≥1024 px: dock en UNA fila con las seis opciones del admin (Operaciones, Financiera, Gerencial, Kyverum,
+//     Administración, Ayuda), en SECTION_ORDER y con nombre; caben sin «Más». Los paneles abren hacia arriba.
+//   · <1024 px: sin dock; el ☰ del topbar abre el menú lateral con las mismas opciones en el mismo orden, en
+//     acordeón (varias abiertas a la vez, la de la página actual abierta de entrada) y subgrupos plegables con su
+//     cantidad (Kyverum: siete; Gerencial: Torre de Control). Escape lo cierra y devuelve el foco al ☰; navegar lo cierra.
+// La referencia del orden es el propio dock a 1920 px (shell-navbar.spec.ts ya compara esos nombres con el catálogo):
+// así este spec no fija a mano las claves de las opciones.
 import type { Page } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
-import { loginAs, ADMIN_USER } from '../helpers/auth';
+import { loginAs, sobreDeMios, ADMIN_USER, MENSAJERO_USER } from '../helpers/auth';
+import { COPY_MENU_ERROR, COPY_MENU_VACIO } from '../../src/components/shell/useEstadoMenu';
 
 const TABLERO_VACIO = {
   soat: {}, impuestos: {}, revisionesPendientes: { soat: 0, impuestos: 0 },
@@ -32,11 +33,11 @@ const dock = (page: Page) => page.locator('[data-vt="floating-nav"]');
 const botonMenu = (page: Page) => page.getByRole('button', { name: 'Abrir menú de navegación' });
 const menuLateral = (page: Page) => page.getByRole('dialog', { name: 'Menú de navegación' });
 
-/** Claves de sección de la fila del dock, en el orden del DOM, sin el «Más». */
+/** Claves de las opciones de la fila del dock, en el orden del DOM (sin el indicador ni el «Más»). */
 const seccionesDeLaFila = (page: Page) => page.evaluate(() =>
   Array.from(document.querySelector('[data-vt="floating-nav"]')!.children)
     .map((k) => k.getAttribute('data-seccion') ?? '')
-    .filter((s) => s !== 'mas'));
+    .filter((s) => s !== '' && s !== 'mas'));
 
 async function ordenDeReferencia(page: Page): Promise<string[]> {
   await page.setViewportSize({ width: 1920, height: 900 });
@@ -44,45 +45,32 @@ async function ordenDeReferencia(page: Page): Promise<string[]> {
   await mockApi(page);
   await page.goto('/');
   await expect(dock(page)).toBeVisible();
-  // Épica #14590 (decisión humana: Torre como sección propia): 12 secciones; a 1920 px las del final van al «Más».
-  const mas = dock(page).getByRole('button', { name: 'Más', exact: true });
-  await expect(mas).toBeVisible();
-  const enFila = await seccionesDeLaFila(page);
-  await mas.click();
-  const enMas = await page.locator('#flit-navbar-panel-mas .dock__seccion').evaluateAll((els) => els.map((e) => e.getAttribute('data-seccion') ?? ''));
-  await page.keyboard.press('Escape');
-  await expect(page.locator('#flit-navbar-panel-mas')).toHaveCount(0);
-  const orden = [...enFila, ...enMas];
-  expect(orden).toHaveLength(12);
+  await expect(dock(page).getByRole('button', { name: 'Más', exact: true })).toHaveCount(0);
+  const orden = await seccionesDeLaFila(page);
+  expect(orden).toEqual(['operaciones', 'financiera', 'gerencial', 'kyverum', 'administracion', 'ayuda']);
   return orden;
 }
 
-test.describe('Shell · dock con «Más» (≥1024 px)', () => {
-  for (const width of [1280, 1440]) {
-    test(`${width} px · fila con nombre + «Más» = SECTION_ORDER completo, en orden`, async ({ page }) => {
+test.describe('Shell · dock (≥1024 px)', () => {
+  for (const width of [1024, 1280, 1440]) {
+    test(`${width} px · las seis opciones en una fila, con nombre y en SECTION_ORDER; un panel abre encima y cierra`, async ({ page }) => {
       const referencia = await ordenDeReferencia(page);
       await page.setViewportSize({ width, height: 900 });
 
-      const mas = dock(page).getByRole('button', { name: 'Más', exact: true });
-      await expect(mas).toBeVisible();
-      await expect(mas).toHaveAttribute('aria-expanded', 'false');
-      const enFila = await seccionesDeLaFila(page);
-      expect(enFila.length).toBeGreaterThan(0);
-      // Épica #14590 (decisión humana): 12 secciones con la Torre de Control.
-      expect(enFila.length).toBeLessThan(12);
-      // Las de la fila, con su nombre a la vista (no hay modo solo-íconos).
+      await expect(dock(page).getByRole('button', { name: 'Más', exact: true })).toHaveCount(0);
+      await expect.poll(() => seccionesDeLaFila(page)).toEqual(referencia);
+      // Con su nombre a la vista (no hay modo solo-íconos).
       const nombresOcultos = await page.evaluate(() =>
         Array.from(document.querySelectorAll('[data-vt="floating-nav"] .dock__nombre'))
           .filter((n) => (n as HTMLElement).offsetWidth <= 1).length);
       expect(nombresOcultos).toBe(0);
 
-      await mas.click();
-      await expect(mas).toHaveAttribute('aria-expanded', 'true');
-      await expect(mas).toHaveAttribute('aria-controls', 'flit-navbar-panel-mas');
-      const panel = page.locator('#flit-navbar-panel-mas');
+      const trigger = dock(page).getByRole('button', { name: 'Administración', exact: true });
+      await trigger.click();
+      await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+      await expect(trigger).toHaveAttribute('aria-controls', 'flit-navbar-panel-administracion');
+      const panel = page.locator('#flit-navbar-panel-administracion');
       await expect(panel).toBeVisible();
-      const enMas = await panel.locator('.dock__seccion').evaluateAll((els) => els.map((e) => e.getAttribute('data-seccion') ?? ''));
-      expect([...enFila, ...enMas]).toEqual(referencia);
 
       // El panel cabe en la pantalla y queda por encima del dock.
       await page.waitForTimeout(300);
@@ -93,14 +81,14 @@ test.describe('Shell · dock con «Más» (≥1024 px)', () => {
       expect(cajaPanel.y).toBeGreaterThanOrEqual(0);
       expect(cajaPanel.y + cajaPanel.height).toBeLessThanOrEqual(cajaDock.y + 1);
 
-      // Escape cierra y devuelve el foco al «Más».
+      // Escape cierra y devuelve el foco al botón de la opción.
       await page.keyboard.press('Escape');
-      await expect(mas).toHaveAttribute('aria-expanded', 'false');
+      await expect(trigger).toHaveAttribute('aria-expanded', 'false');
       await expect(panel).toHaveCount(0);
-      await expect(mas).toBeFocused();
+      await expect(trigger).toBeFocused();
 
-      // Navegar desde el «Más» lo cierra.
-      await mas.click();
+      // Navegar desde el panel lo cierra.
+      await trigger.click();
       await panel.getByRole('link').first().click();
       await expect(panel).toHaveCount(0);
     });
@@ -137,9 +125,9 @@ test.describe('Shell · ☰ y menú lateral (<1024 px)', () => {
       const orden = await menu.locator('.menu-lateral__secciones > li').evaluateAll((els) => els.map((e) => e.getAttribute('data-seccion') ?? ''));
       expect(orden).toEqual(referencia);
 
-      // El panel no desborda la pantalla.
+      // El panel no desborda la pantalla (se mide al terminar su entrada desde la izquierda).
+      await expect.poll(async () => (await menu.boundingBox())!.x).toBeGreaterThanOrEqual(0);
       const caja = (await menu.boundingBox())!;
-      expect(caja.x).toBeGreaterThanOrEqual(0);
       expect(caja.x + caja.width).toBeLessThanOrEqual(width);
 
       await page.keyboard.press('Escape');
@@ -162,14 +150,103 @@ test.describe('Shell · ☰ y menú lateral (<1024 px)', () => {
     await expect(botonMenu(page)).toBeFocused();
 
     await botonMenu(page).click();
-    const gestion = menu.getByRole('button', { name: 'Gestión', exact: true });
-    await gestion.click();
-    await expect(gestion).toHaveAttribute('aria-expanded', 'true');
-    const enlace = menu.locator('#flit-menu-lateral-gestion').getByRole('link').first();
+    const operaciones = menu.getByRole('button', { name: 'Operaciones', exact: true });
+    await operaciones.click();
+    await expect(operaciones).toHaveAttribute('aria-expanded', 'true');
+    const enlace = menu.locator('#flit-menu-lateral-operaciones').getByRole('link').first();
+    await expect(enlace).toBeVisible();
     const destino = await enlace.getAttribute('href');
     await enlace.click();
     await expect(menu).toHaveCount(0);
     expect(new URL(page.url()).pathname).toBe(destino);
+  });
+
+  test('390 px · acordeón: varias opciones abiertas a la vez; subgrupos plegables con su cantidad; lo cerrado no se ve', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await loginAs(page, ADMIN_USER);
+    await mockApi(page);
+    await page.goto('/');
+    await botonMenu(page).click();
+    const menu = menuLateral(page);
+
+    const operaciones = menu.getByRole('button', { name: 'Operaciones', exact: true });
+    const kyverum = menu.getByRole('button', { name: 'Kyverum', exact: true });
+    await expect(kyverum).toHaveAttribute('aria-expanded', 'false');
+    // Cerrado = fuera de la vista y del orden de Tab (visibility: hidden).
+    await expect(menu.locator('#flit-menu-lateral-kyverum')).toBeHidden();
+    await operaciones.click();
+    await kyverum.click();
+    await expect(operaciones).toHaveAttribute('aria-expanded', 'true');
+    await expect(kyverum).toHaveAttribute('aria-expanded', 'true');
+
+    // Kyverum: siete subgrupos plegables, en el orden del riel, con su cantidad.
+    const subgrupos = menu.locator('#flit-menu-lateral-kyverum .menu-lateral__sub');
+    await expect(subgrupos).toHaveCount(7);
+    expect(await subgrupos.locator('.menu-lateral__nombre').allTextContents())
+      .toEqual(['Tránsito', 'Flota', 'Mantenimiento', 'PESV', 'RNDC', 'LAFT', 'Trámites']);
+    const pesv = menu.getByRole('button', { name: 'PESV', exact: true });
+    await expect(pesv.locator('.menu-lateral__cuenta')).toHaveText('25');
+    await expect(menu.getByRole('link', { name: 'Conductores', exact: true })).toBeHidden();
+    await pesv.click();
+    await expect(pesv).toHaveAttribute('aria-expanded', 'true');
+    await expect(menu.getByRole('link', { name: 'Conductores', exact: true })).toBeVisible();
+
+    // Sin desborde horizontal dentro del cajón.
+    const desborde = await menu.evaluate((el) => {
+      const cuerpo = el.querySelector('.menu-lateral__cuerpo') as HTMLElement;
+      return cuerpo.scrollWidth - cuerpo.clientWidth;
+    });
+    expect(desborde).toBeLessThanOrEqual(0);
+  });
+
+  test('390 px · en una página de Kyverum el cajón abre la opción y el subgrupo de esa página', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await loginAs(page, ADMIN_USER);
+    await mockApi(page);
+    await page.goto('/pesv/conductores');
+    await botonMenu(page).click();
+    const menu = menuLateral(page);
+    await expect(menu.getByRole('button', { name: 'Kyverum', exact: true })).toHaveAttribute('aria-expanded', 'true');
+    await expect(menu.getByRole('button', { name: 'Kyverum', exact: true })).toHaveAttribute('aria-current', 'true');
+    await expect(menu.getByRole('button', { name: 'PESV', exact: true })).toHaveAttribute('aria-expanded', 'true');
+    await expect(menu.getByRole('button', { name: 'RNDC', exact: true })).toHaveAttribute('aria-expanded', 'false');
+    await expect(menu.getByRole('link', { name: 'Conductores', exact: true })).toHaveAttribute('aria-current', 'page');
+    // `/pesv` es prefijo de la página actual: su entrada no se marca (`finExacto`); solo hay una entrada actual.
+    await expect(menu.locator('a[href="/pesv"]')).not.toHaveAttribute('aria-current', /.*/);
+    await expect(menu.locator('a[aria-current="page"]')).toHaveCount(1);
+  });
+
+  // Spec UX §4: en el cajón, el mismo mensaje que en la barra, arriba; sin toast.
+  test('390 px · error: «No se pudo cargar el menú.» con «Reintentar»; al reintentar aparecen las opciones', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    let falla = true;
+    await loginAs(page, ADMIN_USER, { funciones: null });
+    await page.route(/\/api\/permisos\/mios$/, (route) => (falla
+      ? route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"x"}' })
+      : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(sobreDeMios(ADMIN_USER)) })));
+    await mockApi(page);
+    await page.goto('/');
+    await botonMenu(page).click();
+    const menu = menuLateral(page);
+    await expect(menu.getByRole('alert')).toHaveText(COPY_MENU_ERROR);
+    await expect(menu.getByRole('button', { name: 'Operaciones', exact: true })).toHaveCount(0);
+    falla = false;
+    await menu.getByRole('button', { name: 'Reintentar', exact: true }).click();
+    await expect(menu.getByRole('button', { name: 'Operaciones', exact: true })).toBeVisible();
+    await expect(menu.getByRole('alert')).toHaveCount(0);
+  });
+
+  test('390 px · vacío: sin ninguna opción, el aviso con el siguiente paso arriba del cajón', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await loginAs(page, { ...MENSAJERO_USER, role: 'e2e_sin_modulos', allowedPages: [] }, { funciones: [] });
+    await mockApi(page);
+    await page.goto('/');
+    await botonMenu(page).click();
+    const menu = menuLateral(page);
+    await expect(menu.getByRole('status')).toHaveText(COPY_MENU_VACIO);
+    await expect(menu.locator('.menu-lateral__secciones')).toHaveCount(0);
+    // Solo «Cerrar menú»: ninguna opción desplegable.
+    await expect(menu.getByRole('button')).toHaveCount(1);
   });
 
   test('1023 → 1024 px · al pasar a lg el menú lateral se cierra y aparece el dock', async ({ page }) => {
