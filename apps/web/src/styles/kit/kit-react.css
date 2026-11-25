@@ -328,6 +328,14 @@ button.kit-paso__boton:hover .kit-paso__etiqueta { color: var(--kit-azul); }
 .menu-lateral__esqueleto-fila { display: block; height: 44px; border-radius: 9px; }
 .menu-lateral__estado { display: grid; gap: var(--space-4); padding: var(--space-4); }
 .menu-lateral__aviso { margin: 0; padding: var(--space-8); white-space: normal; }
+/* Áreas sin pantallas (PR 4, spec «Áreas sin pantallas (Próximamente)»): el panel usa el ancho BASE del kit (.dock__menu,
+   320 px), solo texto, sin ícono extra ni botón. En el drawer, el mismo aviso alineado con el nombre de la fila. */
+.dock-proximamente { padding: var(--space-4) var(--space-18) var(--space-8); }
+.dock-proximamente__titulo { margin: 0; font-weight: 600; color: var(--color-text-primary); }
+.dock-proximamente__texto { margin: 2px 0 0; font-size: var(--text-caption); color: var(--color-text-secondary); }
+.dock__menu .dock-proximamente-sub { margin: 0 0 var(--space-4); padding: 0 12px; font-size: var(--text-caption); color: var(--color-text-secondary); }
+.menu-lateral__proximamente { padding: 2px var(--space-12) var(--space-10) calc(4px + 36px + var(--space-10)); }
+.menu-lateral__proximamente p { margin: 0; }
 
 @media (prefers-reduced-motion: reduce) {
   .dock, .dock *, .dock__indicador, .riel__marca, .menu-lateral__plegable, .kit-modal.menu-lateral, .menu-lateral *, .menu-lateral__velo {

@@ -3,7 +3,9 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { SECTION_LABEL, type NavItem } from '../shell/navItems';
 import { useNavSections, type SectionGroup } from '../shell/useNavSections';
 import { useDisclosureNav } from '../shell/useDisclosureNav';
-import { finExacto, groupItems, groupOf, usaRiel, type ItemGroup } from '../shell/sectionMeta';
+import {
+  COPY_PROXIMAMENTE, COPY_PROXIMAMENTE_TEXTO, COPY_PROXIMAMENTE_TITULO, finExacto, groupItems, groupOf, usaRiel, type ItemGroup,
+} from '../shell/sectionMeta';
 import { ICONO_SECCION, descripcionDeRuta, iconoDeRuta } from '../shell/iconosNav';
 import { COPY_MENU_ERROR, COPY_MENU_VACIO, useEstadoMenu, type EstadoDelMenu } from '../shell/useEstadoMenu';
 import { Icono } from './kit/Icono';
@@ -21,6 +23,7 @@ import { useDesdeLg } from '../shell/useDesdeLg';
 //   · el filtrado por permisos NO vive aquí: es `useNavSections` (mismo árbol que el buscador y el menú lateral);
 //   · disclosure APG (button aria-expanded + lista de enlaces), SIN role="menu"; no abre al pasar el puntero;
 //   · una opción con una sola entrada es enlace directo con el nombre de la entrada (p. ej. solo Tablero);
+//   · un área sin pantallas activada para el usuario (PR 4) abre un panel angosto «Próximamente», sin enlaces;
 //   · los estados (cargando, error, vacío) van DENTRO de la cápsula, sin caja propia (spec §4).
 //
 // Desde 1024 px el dock MIDE cuántas opciones caben con nombre (fila espejo). Con las seis del admin caben siempre;
@@ -140,7 +143,7 @@ function DockLleno({ grouped, routeSection }: { grouped: SectionGroup[]; routeSe
   const reservaDrFlit = useDrFlitVisible();
   const [caben, setCaben] = useState(grouped.length);
   const [saliendo, setSaliendo] = useState<ClaveDock | null>(null);
-  const abiertaAntes = useRef<ClaveDock | null>(null);
+  const [abiertaAntes, setAbiertaAntes] = useState<ClaveDock | null>(openSection);
   const firma = grouped.map((g) => `${g.section}:${g.items.length}`).join('|');
 
   // El panel sale centrado sobre su botón. Si ese centro lo sacaría de la pantalla (las opciones de los extremos),
@@ -200,15 +203,20 @@ function DockLleno({ grouped, routeSection }: { grouped: SectionGroup[]; routeSe
   }, [openSection, triggerId, navRef, caben]);
 
   // Cierre (spec §8): el panel que se cierra se funde en `--motion-fast` antes de desmontarse. Con reduced-motion,
-  // se oculta al instante.
+  // se oculta al instante. PR 4 (arquitectura 4.7): `saliendo` se deriva EN EL RENDER (patrón prevProp), no en un
+  // efecto: React vuelve a renderizar antes de confirmar, así que el MISMO nodo del panel sigue montado y solo cambia
+  // su clase. Con el efecto, el panel se desmontaba un fotograma y volvía como nodo nuevo, con el fundido desde cero.
+  // Si se abre otro panel mientras el anterior se funde, el fundido sigue: solo se limpia si se reabre el que salía.
+  if (openSection !== abiertaAntes) {
+    setAbiertaAntes(openSection);
+    if (abiertaAntes && !sinMovimiento()) setSaliendo(abiertaAntes);
+    else if (saliendo === openSection || sinMovimiento()) setSaliendo(null);
+  }
   useEffect(() => {
-    const antes = abiertaAntes.current;
-    abiertaAntes.current = openSection;
-    if (!antes || antes === openSection || sinMovimiento()) { setSaliendo(null); return; }
-    setSaliendo(antes);
-    const t = window.setTimeout(() => setSaliendo((s) => (s === antes ? null : s)), SALIDA_MS);
+    if (!saliendo) return;
+    const t = window.setTimeout(() => setSaliendo((s) => (s === saliendo ? null : s)), SALIDA_MS);
     return () => window.clearTimeout(t);
-  }, [openSection]);
+  }, [saliendo]);
 
   const enFila = grouped.slice(0, caben);
   const enMas = grouped.slice(caben);
@@ -226,7 +234,7 @@ function DockLleno({ grouped, routeSection }: { grouped: SectionGroup[]; routeSe
     };
   };
 
-  const pintarSeccion = ({ section, items }: SectionGroup) => {
+  const pintarSeccion = ({ section, items, proximamente }: SectionGroup) => {
     const titulo = SECTION_LABEL[section];
     const glifo = <span className="kico" aria-hidden="true"><IconoGlifo icono={ICONO_SECCION[section]} /></span>;
     if (items.length === 1) {
@@ -239,20 +247,28 @@ function DockLleno({ grouped, routeSection }: { grouped: SectionGroup[]; routeSe
     }
     const abierto = openSection === section;
     const visible = abierto || saliendo === section;
+    // Área «Próximamente» (PR 4): el botón se describe con el aviso. Con el panel montado, la descripción es su cuerpo;
+    // cerrado, un texto `hidden` con el mismo id (aria-describedby lo lee aunque esté oculto).
+    const idAviso = `flit-navbar-proximamente-${section}`;
+    const clasePanel = proximamente ? 'dock__menu' : 'dock__menu dock__menu--ancho dock__menu--area';
     return (
-      <div key={section} className="dock__grupo" data-seccion={section}>
+      <div key={section} className="dock__grupo" data-seccion={section} data-proximamente={proximamente ? 'true' : undefined}>
         <button type="button" className="dock__item" id={triggerId(section)} aria-expanded={abierto} aria-controls={abierto ? panelId(section) : undefined}
+          aria-describedby={proximamente ? idAviso : undefined}
           aria-current={routeSection === section ? 'page' : undefined} onClick={() => toggle(section)}>
           {glifo}<span className="dock__nombre">{titulo}</span>
           <Icono nombre="arriba" className="dock__flecha" size={16} />
         </button>
+        {proximamente && !visible && <span id={idAviso} hidden>{COPY_PROXIMAMENTE_TITULO} {COPY_PROXIMAMENTE_TEXTO}</span>}
         {visible && (
-          <div {...propsPanel(section)} className={`dock__menu dock__menu--ancho dock__menu--area flit-panel-up${abierto ? '' : ' dock__menu--saliendo'}`} data-grupo={section}>
+          <div {...propsPanel(section)} className={`${clasePanel} flit-panel-up${abierto ? '' : ' dock__menu--saliendo'}`} data-grupo={section}>
             <div className="dock__cabeza">
               <span className="kico" aria-hidden="true"><IconoGlifo icono={ICONO_SECCION[section]} /></span>
-              <div><strong>{titulo}</strong><small>{items.length} módulos</small></div>
+              <div><strong>{titulo}</strong><small>{proximamente ? COPY_PROXIMAMENTE : `${items.length} módulos`}</small></div>
             </div>
-            <ContenidoPanel section={section} items={items} panelId={panelId(section)} />
+            {proximamente
+              ? <AvisoProximamente id={idAviso} />
+              : <ContenidoPanel section={section} items={items} panelId={panelId(section)} />}
           </div>
         )}
       </div>
@@ -281,10 +297,12 @@ function DockLleno({ grouped, routeSection }: { grouped: SectionGroup[]; routeSe
                   <div><strong>Más opciones</strong><small>{enMas.length} {enMas.length === 1 ? 'opción' : 'opciones'}</small></div>
                 </div>
                 <div className="rejilla-area">
-                  {enMas.map(({ section, items }) => (
+                  {enMas.map(({ section, items, proximamente }) => (
                     <div key={section} className="dock__seccion" data-seccion={section}>
                       <p className="rejilla-sub">{SECTION_LABEL[section]}</p>
-                      <RejillaEntradas items={items} />
+                      {proximamente
+                        ? <p className="dock-proximamente-sub">{COPY_PROXIMAMENTE}</p>
+                        : <RejillaEntradas items={items} />}
                     </div>
                   ))}
                 </div>
@@ -299,7 +317,7 @@ function DockLleno({ grouped, routeSection }: { grouped: SectionGroup[]; routeSe
           <span key={section} className="dock__item">
             <span className="kico"><IconoGlifo icono={ICONO_SECCION[section]} /></span>
             <span className="dock__nombre">{items.length === 1 ? items[0].label : SECTION_LABEL[section]}</span>
-            {items.length > 1 && <Icono nombre="arriba" className="dock__flecha" size={16} />}
+            {items.length !== 1 && <Icono nombre="arriba" className="dock__flecha" size={16} />}
           </span>
         ))}
         <span className="dock__item">
@@ -309,6 +327,16 @@ function DockLleno({ grouped, routeSection }: { grouped: SectionGroup[]; routeSe
         </span>
       </div>
     </>
+  );
+}
+
+/** Cuerpo del panel de un área sin pantallas (PR 4): dos líneas, sin enlaces ni `role="status"` (lo abrió el usuario). */
+function AvisoProximamente({ id }: { id: string }) {
+  return (
+    <div className="dock-proximamente" id={id}>
+      <p className="dock-proximamente__titulo">{COPY_PROXIMAMENTE_TITULO}</p>
+      <p className="dock-proximamente__texto">{COPY_PROXIMAMENTE_TEXTO}</p>
+    </div>
   );
 }
 

@@ -146,3 +146,11 @@ export function ordenDeSubgrupos(section: Seccion): string[] {
 export function finExacto(to: string): boolean {
   return to === '/' || NAV_ENTRADAS.some((e) => e.to.startsWith(`${to}/`));
 }
+
+/**
+ * Copy del aviso de un área sin pantallas (Épica #14678, PR 4; spec UX «Copy exacto»). Lo comparten el dock y el
+ * menú lateral: cabecera «Próximamente» donde va «N módulos» y dos líneas sin plazo ni enlaces.
+ */
+export const COPY_PROXIMAMENTE = 'Próximamente';
+export const COPY_PROXIMAMENTE_TITULO = 'Esta área aún no tiene módulos.';
+export const COPY_PROXIMAMENTE_TEXTO = 'Aparecerán aquí cuando estén disponibles.';

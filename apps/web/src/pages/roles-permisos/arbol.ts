@@ -55,6 +55,17 @@ export function normalizar(nodos: readonly NodoEntrada[] | undefined): Nodo[] {
 export const ELEMENTOS_FUERA_DE_AREAS: ReadonlySet<string> = new Set(['menu.general', CODIGO_AYUDA, 'menu.perfil']);
 export const COPY_FUERA_DE_AREAS = 'Fuera de áreas';
 
+/**
+ * Épica #14678, PR 4: las áreas sin pantallas (Comercial, Diseño, Tecnología, Infraestructura, Producto) son elementos
+ * marcables sin hijos. Llevan «Sin pantallas aún» en vez de «k de n» y una línea que dice qué hace marcarlas. Solo las
+ * del grupo de áreas: un elemento de «Fuera de áreas» sin hijos no la lleva. Con su primer ítem, la marca desaparece.
+ */
+export const COPY_SIN_PANTALLAS = 'Sin pantallas aún';
+export const COPY_EXPLICACION_SIN_PANTALLAS =
+  'Al marcarla, el área aparece en el menú con el aviso «Próximamente». No da acceso a ninguna pantalla.';
+export const elementoSinPantallas = (n: Nodo): boolean =>
+  n.tipo === 'elemento' && !n.derivado && !n.deprecado && n.hijos.length === 0 && !ELEMENTOS_FUERA_DE_AREAS.has(n.codigo);
+
 export interface GruposDelPanel { areas: Nodo[]; fuera: Nodo[] }
 
 /** Los elementos del panel en sus dos grupos de presentación (sin reordenar dentro de cada uno). */
