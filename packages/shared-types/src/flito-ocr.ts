@@ -223,8 +223,14 @@ export const CAMPO_VEHICULO_FACTURA_VENTA_LABEL: Record<CampoVehiculoFacturaVent
 export type CampoDireccionFacturaVenta =
   | typeof CampoFacturaVenta.DIRECCION | typeof CampoFacturaVenta.MUNICIPIO | typeof CampoFacturaVenta.DEPARTAMENTO;
 
-/** Las 10 claves de la extracción de Impuestos: 7 del vehículo + 3 de dirección. */
-export type CampoExtraccionFacturaImpuesto = CampoVehiculoFacturaVenta | CampoDireccionFacturaVenta;
+/** Identidad del propietario en la factura (Épica #14163). */
+export type CampoPropietarioFacturaVenta =
+  | typeof CampoFacturaVenta.TIPO_DOCUMENTO | typeof CampoFacturaVenta.NUMERO_DOCUMENTO
+  | typeof CampoFacturaVenta.NOMBRES | typeof CampoFacturaVenta.APELLIDOS | typeof CampoFacturaVenta.RAZON_SOCIAL;
+
+/** Claves de extracción de Impuestos: vehículo + dirección + propietario (14163). */
+export type CampoExtraccionFacturaImpuesto =
+  | CampoVehiculoFacturaVenta | CampoDireccionFacturaVenta | CampoPropietarioFacturaVenta;
 
 /** De dónde salió la extracción de la factura en el análisis post-envío de Impuestos (HU #12826). */
 export type FuenteExtraccionFactura = 'notas_finales' | 'ocr';

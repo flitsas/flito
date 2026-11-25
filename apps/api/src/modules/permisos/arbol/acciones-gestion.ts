@@ -112,6 +112,12 @@ export const ACCIONES_GESTION: Readonly<Record<string, AccionArbol>> = {
   'accion.impuestos.reemplazar_comprobante': { operaciones: ['impuestos.recibos.reemplazar'] },
   'accion.impuestos.corregir_direccion': { operaciones: ['impuestos.tramite.corregir_direccion'] },
   'accion.impuestos.descargar_certificado': { operaciones: ['impuestos.certificado.descargar'] },
+  // Épica #14163 (0274): nace después de la siembra; solo admin; operación absorbida.
+  'accion.impuestos.certificar_sin_tramite': {
+    operaciones: [],
+    predecesores: [],
+    apoyo: ['impuestos.certificacion_directa.gestionar'],
+  },
   // ── Derechos ──
   'accion.derechos.ver_listado': { lectura: true, operaciones: ['derechos.cola.ver', 'derechos.cola.filtrar'] },
   'accion.derechos.cargar': { operaciones: ['derechos.recibos.cargar', 'derechos.candidatos.ver'] },

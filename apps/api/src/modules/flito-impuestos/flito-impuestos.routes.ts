@@ -58,6 +58,7 @@ import certificadosRouter from './flito-impuestos.certificados.routes.js';
 import reciboFaseRouter from './flito-impuestos.recibo-fase.routes.js';
 import reciboReemplazoRouter from './flito-impuestos.recibo-reemplazo.routes.js';
 import soportePdfRouter from './flito-impuestos.soporte-pdf.routes.js';
+import certificacionDirectaRouter from './flito-impuestos.certificacion-directa.routes.js';
 import { contarDireccionesSinConfirmar } from './flito-impuestos.export-pago.js';
 
 const router = Router();
@@ -68,6 +69,7 @@ router.use(certificadosRouter(contextoImpuesto)); // HU #13205: POST /certificad
 router.use(reciboFaseRouter(contextoImpuesto)); // HU #13208: POST /:id/recibos (carga por fase)
 router.use(reciboReemplazoRouter(contextoImpuesto)); // HU #13269: POST /:id/recibos/reemplazar-pago
 router.use(soportePdfRouter(contextoImpuesto)); // Bug #14532: POST /:id/soportes/pdf (un PDF por tipo)
+router.use(certificacionDirectaRouter(contextoImpuesto)); // Épica #14163: certificacion-directa
 
 const ESTADOS = ['pendiente', 'solicitado', 'con_novedad', 'pagado'] as const;
 

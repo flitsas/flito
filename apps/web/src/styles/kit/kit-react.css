@@ -1,0 +1,380 @@
+/* Piezas del port a React que la propuesta resuelve con JS o con clases de flit develop packages/ui. Solo tokens. */
+.kit-icono { display: inline-block; flex: none; vertical-align: -0.125em; }
+.kit-disco { flex: none; display: inline-grid; place-items: center; border-radius: 50%; background: var(--kit-hover); color: var(--kit-azul); }
+.kit-disco > svg { width: 56%; height: 56%; display: block; }
+.kit-imagen { flex: none; display: inline-block; }
+[data-theme="dark"] .kit-disco { color: var(--kit-linea-texto, #a9c9fc); }
+
+/* ---------- Etiqueta de estado con punta (StatusChip / etiquetaKit; .badge de la propuesta) ---------- */
+.kit-etiqueta {
+  --c: #5e6a7b; position: relative; isolation: isolate; display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 22px 4px 10px; border-radius: 999px 0 0 999px;
+  clip-path: polygon(0 0, 100% 0, calc(100% - 11px) 50%, 100% 100%, 0 100%);
+  color: var(--ct, var(--c)); border: 0; font-size: 0.8125rem; font-weight: 700; line-height: 1.25; white-space: nowrap;
+}
+.kit-etiqueta::before { content: ""; position: absolute; inset: 0; z-index: -2; border-radius: inherit; clip-path: inherit; background: var(--c); }
+.kit-etiqueta::after {
+  content: ""; position: absolute; inset: 1px 2px 1px 1px; z-index: -1; border-radius: inherit;
+  clip-path: polygon(0 0, 100% 0, calc(100% - 10px) 50%, 100% 100%, 0 100%);
+  background: color-mix(in srgb, var(--c) 10%, var(--color-surface-elevated));
+}
+.kit-etiqueta--icono { padding-left: 4px; }
+.kit-etiqueta--ajuste { white-space: normal; text-align: left; }
+.kit-etiqueta__punto { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--c); }
+.kit-etiqueta__icono { width: 20px; height: 20px; flex: none; }
+/* Tonos (README de la propuesta; claro con --ct oscurecido a AA; oscuro = derivación de ui-kit-2026.css). */
+.kit-etiqueta[data-tono="ok"] { --c: #8cc63f; --ct: #4f7121; }
+.kit-etiqueta[data-tono="warn"] { --c: #ff4e00; --ct: #bd3a00; }
+.kit-etiqueta[data-tono="danger"] { --c: #c10000; --ct: #c10000; }
+.kit-etiqueta[data-tono="info"] { --c: #1d53ff; --ct: #1d53ff; }
+.kit-etiqueta[data-tono="neutro"] { --c: #5e6a7b; --ct: #5e6a7b; }
+.kit-etiqueta[data-tono="tinta"] { --c: #162744; --ct: #162744; }
+.kit-etiqueta[data-tono="radicado"], .kit-etiqueta[data-tono="entregado"] { --c: #00a99d; --ct: #00736b; }
+.kit-etiqueta[data-tono="revocado"] { --c: #f9ac00; --ct: #8b6000; }
+.kit-etiqueta[data-tono="anulado"] { --c: #c1272d; --ct: #c1272d; }
+.kit-etiqueta[data-tono="preasignacion"] { --c: #f77a00; --ct: #a54f00; }
+[data-theme="dark"] .kit-etiqueta { --c: #a9b8d4; }
+[data-theme="dark"] .kit-etiqueta[data-tono="ok"] { --c: #a6d95f; --ct: #a6d95f; }
+[data-theme="dark"] .kit-etiqueta[data-tono="warn"], [data-theme="dark"] .kit-etiqueta[data-tono="preasignacion"] { --c: #ff7a40; --ct: #ff7a40; }
+[data-theme="dark"] .kit-etiqueta[data-tono="danger"], [data-theme="dark"] .kit-etiqueta[data-tono="anulado"] { --c: #ff6b6b; --ct: #ff6b6b; }
+[data-theme="dark"] .kit-etiqueta[data-tono="info"] { --c: #8fb0ff; --ct: #8fb0ff; }
+[data-theme="dark"] .kit-etiqueta[data-tono="neutro"] { --c: #a9b8d4; --ct: #a9b8d4; }
+[data-theme="dark"] .kit-etiqueta[data-tono="tinta"] { --c: #e6f0ff; --ct: #e6f0ff; }
+[data-theme="dark"] .kit-etiqueta[data-tono="radicado"], [data-theme="dark"] .kit-etiqueta[data-tono="entregado"] { --c: #2fd6c9; --ct: #2fd6c9; }
+[data-theme="dark"] .kit-etiqueta[data-tono="revocado"] { --c: #f9ac00; --ct: #f9ac00; }
+
+/* ---------- Botón del kit: el .btn de la propuesta acepta tamaño y ancho de las páginas ---------- */
+.btn.btn--bloque { width: 100%; }
+.btn.btn--bloque-sm { width: 100%; }
+@media (min-width: 640px) { .btn.btn--bloque-sm { width: auto; } }
+
+/* ---------- Pestañas (.pestanas): línea inferior; activa azul 3 px; se desliza en teléfono ---------- */
+.kit-pestanas { display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; max-width: 100%; margin: 0 0 var(--space-16); }
+.kit-pestanas::-webkit-scrollbar { display: none; }
+.kit-pestana {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; padding: 0 18px;
+  border: 0; border-bottom: 2px solid var(--kit-gris); background: transparent; color: var(--kit-gris);
+  font-size: 0.875rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap;
+  text-decoration: none; cursor: pointer; transition: color var(--motion-fast) var(--ease);
+}
+.kit-pestana:hover { color: var(--kit-azul); }
+.kit-pestana:focus-visible { outline: 2px solid var(--kit-azul); outline-offset: -2px; }
+.kit-pestana--activa, .kit-pestana[aria-current="page"], .kit-pestana[aria-selected="true"] { color: var(--kit-azul); border-bottom: 3px solid var(--kit-azul); }
+@media (max-width: 640px) { .kit-pestana { padding: 0 16px; } }
+
+/* ---------- Interruptor (.interruptor): el dibujo del paquete ---------- */
+.kit-interruptor { flex: none; width: 68px; height: 36px; padding: 0; border: 0; border-radius: 999px; cursor: pointer;
+  background: url("/kit/interruptor-apagado.svg") center / contain no-repeat; transition: filter var(--motion-fast) var(--ease); }
+.kit-interruptor:hover { filter: brightness(0.95); }
+.kit-interruptor[aria-checked="true"] { background-image: url("/kit/interruptor-encendido.svg"); }
+.kit-interruptor--alerta[aria-checked="true"] { background-image: url("/kit/interruptor-encendido-alerta.svg"); }
+.kit-interruptor[aria-busy="true"] { cursor: progress; opacity: 0.7; }
+
+/* ---------- Avance horizontal (ol.pasos) ---------- */
+.kit-pasos { display: flex; margin: 0; padding: 16px 16px 4px; list-style: none; overflow-x: auto; }
+.kit-paso { position: relative; flex: 1 1 0; min-width: 96px; }
+.kit-paso + .kit-paso::before { content: ""; position: absolute; top: 15px; left: -50%; width: 100%; height: 2px; background: var(--kit-linea); z-index: 0; }
+.kit-paso[data-estado="hecho"]::before, .kit-paso[data-estado="actual"]::before { background: var(--kit-azul); }
+.kit-paso__boton { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; border: 0; background: transparent; padding: 0; color: inherit; text-align: center; font: inherit; }
+button.kit-paso__boton { cursor: pointer; border-radius: 9px; }
+button.kit-paso__boton:hover .kit-paso__etiqueta { color: var(--kit-azul); }
+.kit-paso__num { position: relative; z-index: 1; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
+  border: 2px solid var(--kit-gris); background: var(--color-surface-elevated); color: var(--kit-gris); font-weight: 700; font-size: 0.875rem; }
+.kit-paso[data-estado="hecho"] .kit-paso__num { border-color: var(--kit-verde); background: var(--kit-verde); color: var(--kit-sobre-relleno); }
+.kit-paso[data-estado="actual"] .kit-paso__num { border-color: var(--kit-azul); color: var(--kit-azul); outline: 4px solid var(--kit-hover); }
+.kit-paso__etiqueta { font-size: 0.875rem; font-weight: 400; color: var(--color-text-primary); }
+.kit-paso__sub { font-size: 0.75rem; color: var(--color-text-tertiary); }
+.kit-paso[data-estado="actual"] .kit-paso__etiqueta { font-weight: 700; color: var(--kit-azul); }
+
+/* ---------- Esqueleto (reemplaza animate-pulse): bloques hover que respiran; quietos con reduced-motion ---------- */
+@keyframes kit-respirar { 50% { opacity: 0.55; } }
+.kit-esqueleto { border-radius: 9px; background: var(--kit-hover); animation: kit-respirar 1.6s var(--ease) infinite; }
+@media (prefers-reduced-motion: reduce) { .kit-esqueleto { animation: none; } }
+
+/* ---------- Aviso (toast) del kit: arriba a la derecha, borde y fondo semántico al 10 % ---------- */
+.kit-aviso { --c: var(--kit-azul); display: flex; align-items: center; gap: 10px; width: min(380px, calc(100vw - 32px));
+  padding: 10px 8px 10px 12px; border-radius: 9px; border: 1px solid var(--c);
+  background: color-mix(in srgb, var(--c) 10%, var(--color-surface-elevated)); color: var(--color-text-primary);
+  box-shadow: var(--kit-sombra); font-size: 0.875rem; line-height: 1.35; }
+.kit-aviso__icono { flex: none; width: 30px; height: 30px; }
+.kit-aviso__texto { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.kit-aviso__cerrar { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 9px;
+  background: transparent; color: var(--color-text-primary); cursor: pointer; transition: background-color var(--motion-fast) var(--ease); }
+.kit-aviso__cerrar:hover { background: var(--kit-hover); }
+.kit-aviso[data-tono="ok"] { --c: var(--kit-verde); }
+.kit-aviso[data-tono="warn"] { --c: var(--kit-naranja); }
+.kit-aviso[data-tono="danger"] { --c: var(--kit-rojo); }
+[data-theme="dark"] .kit-aviso[data-tono="danger"] { --c: #ff6b6b; }
+
+/* ---------- Aviso en página (InlineAlert) ---------- */
+.kit-alerta { --c: var(--kit-azul); display: flex; align-items: flex-start; gap: 10px; padding: 12px 16px; border-radius: 9px;
+  border: 1px solid var(--c); background: color-mix(in srgb, var(--c) 10%, var(--color-surface-elevated)); color: var(--color-text-primary); }
+.kit-alerta__icono { flex: none; width: 24px; height: 24px; }
+.kit-alerta[data-tono="ok"] { --c: var(--kit-verde); }
+.kit-alerta[data-tono="warn"] { --c: var(--kit-naranja); }
+.kit-alerta[data-tono="danger"] { --c: var(--kit-rojo); }
+[data-theme="dark"] .kit-alerta[data-tono="danger"] { --c: #ff6b6b; }
+
+/* ---------- Modal del kit en React (dialog.modal de la propuesta): blanco, ícono 52 centrado ---------- */
+.kit-velo { position: fixed; inset: 0; z-index: 60; display: flex; overflow-y: auto; background: var(--kit-velo); backdrop-filter: blur(5px); }
+.kit-modal { position: relative; display: flex; flex-direction: column; width: 100%; min-width: 0; border: 1px solid var(--color-border);
+  border-radius: 9px; background: var(--color-surface-elevated); color: var(--color-text-primary); box-shadow: none; }
+.kit-modal__cabeza { position: relative; flex: none; display: flex; flex-direction: column; align-items: center; gap: var(--space-8);
+  padding: var(--space-24) 56px var(--space-4); text-align: center; }
+.kit-modal__titulo { margin: 0; color: var(--color-heading); font-size: 1.375rem; font-weight: 700; line-height: 1.2; }
+.kit-modal__ante { color: var(--kit-gris); font-size: 0.8125rem; }
+.kit-modal__cerrar { position: absolute; top: 8px; right: 8px; display: grid; place-items: center; width: 36px; height: 36px; border: 0;
+  border-radius: 9px; background: transparent; color: var(--color-text-primary); cursor: pointer; transition: background-color var(--motion-fast) var(--ease); }
+.kit-modal__cerrar:hover { background: var(--kit-hover); }
+.kit-modal__cerrar:disabled { cursor: not-allowed; opacity: 0.5; }
+.kit-modal__cuerpo { padding: var(--space-16) var(--space-24) var(--space-24); }
+.kit-modal--lateral { border-radius: 9px 0 0 9px; height: 100dvh; }
+.kit-modal--lateral .kit-modal__cabeza { align-items: flex-start; text-align: left; flex-direction: row; padding: var(--space-16) 56px var(--space-8) var(--space-24); }
+@media (max-width: 640px) { .kit-modal__cabeza { padding: var(--space-20) 48px var(--space-4); } .kit-modal__cuerpo { padding: var(--space-16); } }
+
+/* ---------- Tabla del kit (DataTable / FlitTable): matriz = scroll horizontal, sin tarjetas ---------- */
+.tabla-wrap.kit-matriz { overflow-x: auto; }
+.tabla-wrap.kit-matriz table { min-width: max-content; }
+@media (max-width: 900px) {
+  .tabla-wrap.kit-matriz { border: 1px solid var(--color-border); border-radius: 9px; background: var(--color-surface-elevated); }
+  .tabla-wrap.kit-matriz th { background: var(--kit-linea); color: var(--kit-tinta-fija); font-size: 0.8125rem; font-weight: 700; text-transform: uppercase; }
+}
+[data-theme="dark"] .tabla-wrap.kit-matriz th { color: var(--color-text-primary); }
+.kit-paginacion { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-8); padding-top: var(--space-8); }
+
+/* ---------- Píldora de datos del trámite, vehículo y bloques pequeños ---------- */
+.kit-vacio { display: grid; justify-items: center; gap: var(--space-8); padding: var(--space-32) var(--space-16); text-align: center; color: var(--kit-gris); font-weight: 600; }
+.kit-vacio .kit-disco { width: 72px; height: 72px; color: var(--kit-gris); }
+.kit-vacio p { margin: 0; max-width: 46ch; }
+.kit-vacio small { font-weight: 400; color: var(--color-text-tertiary); }
+
+/* Cabecera sin ícono de módulo: sin el hueco de 92 px de la ilustración. */
+.page-header.kit-header--sin-ilus { padding-left: var(--space-24); }
+@media (max-width: 640px) { .page-header.kit-header--sin-ilus { padding-left: var(--space-16); } }
+.page-header h1 { font-size: var(--text-h1); }
+@media (max-width: 640px) { .page-header h1 { font-size: 1.625rem; } }
+
+/* Carga rechazada: borde naranja (el error del kit es naranja). */
+.carga.kit-carga--rechazada { border-style: solid; border-color: var(--kit-naranja); background: color-mix(in srgb, var(--kit-naranja) 8%, var(--color-surface-elevated)); }
+.carga.kit-carga { min-height: 120px; padding: var(--space-16); }
+
+/* ---------- FlitTable (tabla densa de FLITO): aspecto de la tabla del kit con scroll horizontal ---------- */
+.kit-tabla-flit { border: 1px solid var(--color-border); border-radius: 9px; background: var(--color-surface-elevated); }
+.kit-th { background: var(--kit-linea); color: var(--kit-tinta-fija); font-size: 0.8125rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; }
+[data-theme="dark"] .kit-th { color: var(--color-text-primary); }
+.kit-tr { border-top: 1px solid var(--color-border); }
+.kit-tr:hover { background: var(--kit-hover); }
+.kit-tr > td { font-size: 0.875rem; }
+.tabla-wrap.kit-matriz table.matriz td { text-align: left; }
+.filtro-activo { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px 0 12px; border: 1px solid var(--kit-azul); border-radius: 999px; background: var(--kit-hover); color: var(--color-action); font-size: var(--text-caption); cursor: pointer; transition: filter var(--motion-fast) var(--ease); }
+.filtro-activo:hover { filter: brightness(0.96); }
+
+/* ---------- Dock: íconos de imagen y capas (≤1100 px solo íconos lo resuelve el CSS del kit) ---------- */
+.dock .dock__item .kico > img { width: 24px; height: 24px; }
+.dock__entrada .kico > img, .dock__cabeza .kico > img { width: 60%; height: 60%; }
+.dock { z-index: 30; }
+.dock__menu { z-index: 31; }
+.control-icono button svg { position: static; transform: none; color: inherit; }
+
+/* Menú de usuario (ronda 2): título de sección como .dock__seccion p; Salir en naranja AA (#D44100 con blanco). */
+.menu-usuario__seccion p { margin: var(--space-6) 0 var(--space-4); padding: 0 12px; font-size: var(--text-micro); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--kit-gris); }
+.menu-usuario__seccion + li > .menu-usuario__entrada { border-top: 0; }
+.menu-flotante .menu-usuario__pie .btn, .menu-flotante .menu-usuario__pie .btn:hover { background: var(--kit-naranja-boton); color: var(--kit-sobre-relleno); }
+.menu-usuario { max-height: calc(100dvh - 84px); overflow-y: auto; }
+/* Cabeceras azules (menú de usuario y menús del dock): relleno #1D53FF en los dos temas, para que el texto blanco
+   cumpla AA también en oscuro (--kit-azul allí es #8FB0FF, color de texto, no de relleno). */
+.dock__cabeza, .menu-usuario__cabeza { background: var(--kit-azul-relleno); }
+/* Teléfono: el menú de usuario no se mete bajo el dock (barra 72 + dock ~96). */
+@media (max-width: 640px) { .menu-usuario { max-height: calc(100dvh - 72px - 104px); } }
+
+/* Dock por secciones del catálogo (SECTION_ORDER, hasta 11), solo ≥1024 px. Entre 1024 y 1440 px se compacta el
+   aire (nombre 14 px) y hasta 1280 px sin chevron. Las secciones que no caben con nombre las lleva el «Más» (lo mide
+   FlitNavBar con su fila espejo): ya no hay modo solo-íconos. <1024 px no hay dock (☰ + menú lateral). */
+@media (min-width: 1024px) and (max-width: 1440px) {
+  .dock { gap: 0; padding: 6px 8px; }
+  .dock .dock__item { gap: 6px; padding: 0 8px 0 4px; font-size: 0.875rem; }
+  .dock .dock__item[aria-current="page"]::after { left: 22px; }
+}
+/* 1024–1100 px: el kit de la propuesta (tableta) oculta el nombre y agranda el glifo; aquí el nombre se ve siempre. */
+@media (min-width: 1024px) and (max-width: 1100px) {
+  .dock .dock__item span { position: static; width: auto; height: auto; overflow: visible; clip: auto; white-space: nowrap; }
+  .dock .dock__item .kico { width: 36px; height: 36px; }
+}
+@media (max-width: 1280px) { .dock .dock__flecha { display: none; } }
+@media (max-width: 1023.98px) { .dock { display: none; } }
+/* Fila espejo con la que FlitNavBar mide cuántas secciones caben: misma piel, fuera de pantalla e invisible. */
+.dock.dock--medida { visibility: hidden; pointer-events: none; top: 0; bottom: auto; left: 0; right: auto; translate: 0 -200%;
+  max-width: none; width: max-content; z-index: -1; }
+/* Panel del «Más»: varias secciones en columnas; si no caben en alto, se desplaza dentro del panel. */
+.dock .dock__menu--mas { overflow-y: auto; max-height: calc(100dvh - var(--kit-alto-barra) - var(--kit-alto-dock) - 32px); }
+
+/* ---------- ☰ del topbar (<1024 px) y menú lateral (FlitSidebar) ---------- */
+.barra__menu { flex: none; display: inline-grid; place-items: center; width: 40px; height: 40px; margin-right: var(--space-8);
+  border: 0; border-radius: 9px; background: transparent; color: var(--color-text-primary); cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease); }
+.barra__menu:hover { background: var(--kit-hover); }
+.barra__menu:focus-visible { outline: 2px solid var(--color-action); outline-offset: 2px; }
+@media (min-width: 1024px) { .barra__menu { display: none; } }
+
+.kit-velo.menu-lateral__velo { justify-content: flex-start; align-items: stretch; overflow: hidden; }
+.kit-modal.menu-lateral { width: min(22rem, 88vw); max-width: 100vw; overflow: hidden; border-radius: 0 9px 9px 0; }
+.menu-lateral .kit-modal__cabeza { padding: var(--space-16) 56px var(--space-8) var(--space-20); }
+.menu-lateral__cuerpo { min-height: 0; flex: 1; overflow-y: auto; padding: var(--space-4) var(--space-8) var(--space-24); }
+.menu-lateral__secciones, .menu-lateral__entradas { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.menu-lateral__entradas { padding: 2px 0 var(--space-8) var(--space-20); }
+.menu-lateral__entradas[hidden] { display: none; }
+.menu-lateral__fila, .menu-lateral__entrada { display: flex; align-items: center; gap: var(--space-10); width: 100%; min-height: 44px;
+  padding: 4px 12px 4px 4px; border: 0; border-radius: 9px; background: transparent; color: var(--color-text-primary);
+  font: inherit; font-weight: 600; text-align: left; text-decoration: none; cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease); }
+.menu-lateral__entrada { min-height: 40px; font-weight: 400; font-size: 0.875rem; }
+.menu-lateral__fila .kico { width: 36px; height: 36px; flex: none; }
+.menu-lateral__entrada .kico { width: 28px; height: 28px; flex: none; }
+.menu-lateral__fila .kico svg { width: 22px; height: 22px; }
+.menu-lateral__entrada .kico svg { width: 18px; height: 18px; }
+.menu-lateral__fila .kico > img, .menu-lateral__entrada .kico > img { width: 60%; height: 60%; }
+.menu-lateral__fila:hover, .menu-lateral__entrada:hover { background: var(--kit-hover); color: var(--kit-azul); }
+.menu-lateral__fila:focus-visible, .menu-lateral__entrada:focus-visible { outline: 2px solid var(--color-action); outline-offset: -2px; }
+.menu-lateral__fila[aria-current], .menu-lateral__entrada[aria-current="page"] { color: var(--kit-azul); }
+.menu-lateral__entrada[aria-current="page"] { background: var(--kit-hover); font-weight: 600; }
+.menu-lateral__nombre { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-lateral__cuenta { color: var(--kit-gris); font-size: var(--text-micro); font-variant-numeric: tabular-nums; }
+.menu-lateral__flecha { flex: none; transition: transform var(--motion-fast) var(--ease); }
+.menu-lateral__fila[aria-expanded="true"] .menu-lateral__flecha { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .menu-lateral__flecha { transition: none; } }
+
+/* ---------- Correcciones de integración del rediseño (S1–S6) ---------- */
+/* #1 Cabecera: el ícono del módulo va en el flujo flex (no absoluto). Absoluto y centrado en el alto, se montaba sobre
+   la miga y la h1 cuando la cabecera envolvía (<lg). 20 + 56 + 16 de hueco = los 92 px de la propuesta. */
+.page-header .page-header__ilus { position: static; transform: none; flex: none; }
+.page-header:hover .page-header__ilus { transform: none; }
+.page-header:not(.kit-header--sin-ilus) { padding-left: var(--space-20); }
+/* ≤640 px sin ícono (lo pide el kit); `.kit-disco { display:inline-grid }` va después en la capa y lo volvía a pintar. */
+@media (max-width: 640px) {
+  .page-header:not(.kit-header--sin-ilus) { padding-left: var(--space-16); }
+  .page-header .page-header__ilus { display: none; }
+}
+/* #7 Acciones de la cabecera: los botones no se estiran al alto de la fila. */
+.page-header .page-header__acciones { align-items: flex-start; }
+/* Las acciones de la cabecera ocupan lo que necesitan, a la derecha del título (no reparten el ancho sobrante). */
+@media (min-width: 768px) { .page-header > .page-header__acciones { flex: 0 1 auto; width: auto; } }
+/* Teléfono: los botones de la cabecera ocupan el ancho (kit) y su rótulo envuelve en vez de recortarse
+   («Cargar comprobantes de SOAT (masivo)» se cortaba a 375 px). */
+@media (max-width: 640px) {
+  .page-header .page-header__acciones .btn { white-space: normal; height: auto; min-height: 44px; padding-block: var(--space-8); text-align: center; line-height: 1.25; }
+}
+
+/* #2 DataTable en modo tarjetas (≤900 px): la etiqueta envuelve dentro de su celda; la punta usa 50 % del alto. */
+@media (max-width: 900px) {
+  .tabla-wrap[data-modo="tarjetas"] .kit-etiqueta { white-space: normal; max-width: 100%; text-align: left; }
+}
+
+/* #3 Tablas con scroll propio: su ancho de contenido (cabeceras nowrap) no infla al contenedor. Sin esto, dentro de
+   una card que es hija de grid/flex (min-width:auto) la card crecía al ancho de la tabla (~2400 px) y el scroll no
+   aparecía. Con contain:inline-size la tabla toma el ancho del padre y desborda en su propio scroll. */
+.kit-tabla-flit, .tabla-wrap.kit-matriz { width: 100%; max-width: 100%; contain: inline-size; }
+/* El `.sr-only` (absoluto) de la cabecera «Acciones» se posicionaba contra el documento y, con la tabla en su scroll,
+   abría desborde horizontal de página (1427 px a 1280 en Impuestos). Con el wrap posicionado queda dentro del scroll. */
+.tabla-wrap { position: relative; }
+
+/* #5 Reserva inferior: el dock flotante (18 px + ~72 px) no tapa la última fila ni el control enfocado. Solo ≥1024 px,
+   donde hay dock; por debajo solo se reserva el botón de Dr. Flit cuando está (`kit-main--drflit`: 16 + 64 de botón + 16 de aire).
+   La barra superior fija no tapa el control enfocado (`scroll-padding-top`). */
+html { scroll-padding-top: calc(var(--kit-alto-barra) + var(--space-8)); scroll-padding-bottom: calc(136px + env(safe-area-inset-bottom, 0px)); }
+@media (min-width: 1024px) { .kit-main { padding-bottom: calc(136px + env(safe-area-inset-bottom, 0px)); } }
+@media (max-width: 1023.98px) {
+  :root:root { --kit-alto-dock: 0px; }
+  html { scroll-padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+  .kit-main { padding-bottom: calc(var(--space-24) + env(safe-area-inset-bottom, 0px)); }
+  .kit-main.kit-main--drflit { padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px) + var(--flit-fab-offset, 0px)); }
+}
+
+/* #8 El margen entre cards es del flujo de bloque: en grid/flex manda el gap. */
+:is(.grid, .inline-grid, .flex, .inline-flex, .rejilla) > .card + .card { margin-top: 0; }
+
+/* Cada panel del dock sale encima de SU botón (el grupo es el ancla, `position: relative` del kit). Si el centro
+   lo sacaría de la pantalla, FlitNavBar lo desplaza lo justo con `--dock-desp`. */
+/* El centrado del panel del dock va en `translate` y no en `transform`: la animación `flit-panel-up` (fill both)
+   deja `transform: translateY(0)` y se comía el `translateX(-50%)` del kit, así que el panel salía corrido media
+   anchura a la derecha. ≤1100 px los paneles anchos (y ≤640 todos) son `fixed` a lo ancho: sin centrado. */
+/* Centrado sobre el ítem + desplazamiento medido por FlitNavBar (`--dock-desp`) para que no se salga de la pantalla. */
+.dock .dock__menu { transform: none; translate: calc(-50% + var(--dock-desp, 0px)) 0; }
+/* 1024–1100 px: el panel ancho sigue anclado encima de su ítem (el kit lo fijaba a lo ancho, lejos del ítem). */
+@media (min-width: 1024px) and (max-width: 1100px) {
+  .dock .dock__grupo { position: relative; }
+  .dock .dock__menu--ancho { position: absolute; left: 50%; right: auto; top: auto; bottom: calc(100% + 14px); width: min(760px, calc(100vw - 64px)); }
+}
+@media (max-width: 640px) { .dock .dock__menu { translate: none; } }
+
+/* «Más» del dock: los puntos del kit en horizontal, para no confundirse con el glifo de Tablero (rejilla). */
+.kico--mas svg { transform: rotate(90deg); }
+
+/* ---------- Ancho completo (Épica #14560): las páginas con tablas muy anchas (Comparendos, 13 columnas) marcan su raíz
+   con data-ancho="completo" y el contenido del shell suelta el tope de 1680 px del kit, como en develop. ---------- */
+.kit-main:has([data-ancho="completo"]) { max-width: none; }
+
+/* ---------- Botón deshabilitado (Épica #14560, evidencias DEV) ----------
+   kit-ui.css (generado) pinta todo `.btn[disabled]` con relleno --kit-gris y texto blanco: en oscuro --kit-gris es lila
+   claro y el «‹ Anterior» apagado pesaba más que el «Siguiente ›» activo. Aquí (capa components, después de kit-ui) el
+   deshabilitado es la MISMA variante atenuada, con el color de texto de cada variante. El «ocupado» sigue opaco. */
+.btn[disabled], .btn[disabled]:hover { background: var(--b); opacity: 0.45; filter: none; transform: none; cursor: not-allowed; }
+.btn.positiva[disabled] { color: var(--kit-tinta-fija); }
+.btn.ghost[disabled], .btn.ghost[disabled]:hover { background: transparent; color: var(--color-action); }
+[data-theme="dark"] .btn:not(.secondary):not(.navy):not(.ghost):not(.positiva):not(.alerta)[disabled] { --b: var(--kit-azul-relleno); }
+.btn[aria-busy="true"][disabled] { opacity: 1; cursor: progress; }
+
+/* ---------- Gráficos: forma de punto y valor al pasar el cursor (Épica #14590) ---------- */
+.leyenda i[data-forma="cuadrado"] { border-radius: 1px; }
+.leyenda i[data-forma="rombo"] { border-radius: 1px; transform: rotate(45deg) scale(0.85); }
+.grafico { position: relative; }
+.grafico__columna { fill: transparent; pointer-events: all; cursor: crosshair; }
+.grafico__foco { stroke: var(--kit-linea); stroke-width: 1; pointer-events: none; }
+/* Eje fluido (spec Torre vistas flexibles §4): marca de 4 px en cada corte, también en los que no llevan rótulo. */
+.grafico__marca { stroke: var(--color-text-tertiary); stroke-width: 1; }
+/* Valor al pasar el cursor/tocar: aparece al instante (sin el retardo del <title> nativo). */
+.grafico__tip { position: absolute; z-index: 2; pointer-events: none; transform: translate(-50%, calc(-100% - 10px));
+  min-width: 120px; max-width: min(260px, 90%); padding: var(--space-8) var(--space-12); border-radius: 8px;
+  background: var(--color-surface-elevated); color: var(--color-text-primary); border: 1px solid var(--color-border);
+  box-shadow: var(--kit-sombra); font-size: var(--text-caption); line-height: 1.35; }
+.grafico__tip[data-lado="izq"] { transform: translate(-12px, calc(-100% - 10px)); }
+.grafico__tip[data-lado="der"] { transform: translate(calc(-100% + 12px), calc(-100% - 10px)); }
+.grafico__tip[data-abajo] { transform: translate(-50%, 12px); }
+.grafico__tip[data-lado="izq"][data-abajo] { transform: translate(-12px, 12px); }
+.grafico__tip[data-lado="der"][data-abajo] { transform: translate(calc(-100% + 12px), 12px); }
+.grafico__tip-titulo { margin: 0 0 var(--space-4); font-weight: 600; color: var(--color-text-tertiary); }
+.grafico__tip ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.grafico__tip li { display: flex; align-items: center; gap: var(--space-8); white-space: nowrap; }
+.grafico__tip li b { margin-left: auto; padding-left: var(--space-12); font-variant-numeric: tabular-nums; }
+.grafico__tip i { flex: none; width: 10px; height: 10px; border-radius: 50%; }
+.grafico__tip i[data-forma="cuadrado"] { border-radius: 1px; }
+.grafico__tip i[data-forma="rombo"] { border-radius: 1px; transform: rotate(45deg) scale(0.85); }
+
+/* ── Tabla cruzada de la Torre (Épica #14590, spec UX `flito-torre-explorador-flexible.md` §5.3) ──
+   `DataTable matriz encabezadoFila`: la 1.ª columna es `<th scope="row">` y queda FIJA al desplazar, con su esquina de
+   cabecera también fija (encima de todo). Solo afecta a matrices con encabezado de fila (las de antes no lo tienen). */
+.tabla-wrap.kit-matriz table.matriz th[scope="row"],
+.tabla-wrap.kit-matriz table.matriz:has(th[scope="row"]) thead th:first-child {
+  position: sticky; left: 0; z-index: 1; max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: left; background: var(--color-surface-elevated); border-right: 1px solid var(--color-border); }
+.tabla-wrap.kit-matriz table.matriz th[scope="row"] {
+  display: table-cell; text-transform: none; letter-spacing: 0; font-size: inherit; font-weight: 600; color: var(--color-text-primary); }
+.tabla-wrap.kit-matriz table.matriz:has(th[scope="row"]) thead th:first-child { z-index: 2; background: var(--kit-linea); }
+.tabla-wrap.kit-matriz table.matriz tfoot th, .tabla-wrap.kit-matriz table.matriz tfoot td {
+  padding: 12px 14px; background: var(--color-surface-elevated); border-top: 2px solid var(--color-border); font-weight: 700; }
+@media (max-width: 1023px) {
+  .tabla-wrap.kit-matriz table.matriz th[scope="row"],
+  .tabla-wrap.kit-matriz table.matriz:has(th[scope="row"]) thead th:first-child { max-width: 9rem; }
+}
+/* <901 px la matriz heredaba de kit-propuesta.css la «fila tarjeta» de la tabla base (border-spacing 0 6px, celdas con
+   borde y radio) y se descuadraba: se aplana a una rejilla continua, como a ≥901 (solo borde superior, sin radio). */
+@media (max-width: 900px) {
+  .tabla-wrap.kit-matriz table.matriz { border-spacing: 0; }
+  .tabla-wrap.kit-matriz table.matriz td,
+  .tabla-wrap.kit-matriz table.matriz tbody th[scope="row"],
+  .tabla-wrap.kit-matriz table.matriz tfoot th[scope="row"] {
+    border: 0; border-top: 1px solid var(--color-border); border-radius: 0; vertical-align: middle; }
+  .tabla-wrap.kit-matriz table.matriz th[scope="row"] { border-right: 1px solid var(--color-border); }
+  .tabla-wrap.kit-matriz table.matriz th { border-radius: 0; }
+  .tabla-wrap.kit-matriz table.matriz tfoot td,
+  .tabla-wrap.kit-matriz table.matriz tfoot th[scope="row"] { border-top: 2px solid var(--color-border); }
+}
