@@ -152,12 +152,13 @@ test.describe('FLITO — Ayuda · fichas de gestión (HU #11894)', () => {
     await expect(page.getByText('Esta ficha está pendiente.')).toHaveCount(0);
   });
 
-  test('TC-11894-08 AC3 — Tablero es el de General (P-11); «Entregar trámites» vive en Gestión Trámites, sin ficha Compuerta', async ({ page }) => {
+  test('TC-11894-08 AC3 — Tablero es el de Gerencial (P-11, Épica #14678); «Entregar trámites» vive en Gestión Trámites, sin ficha Compuerta', async ({ page }) => {
     // HU #13431: el «Tablero FLITO» se absorbió en el Tablero de General (P-11). La ficha lleva al
     // ítem del menú y ya no a una pantalla aparte por dirección.
     const tablero = leerFicha('flito_tablero');
     const entraTablero = seccion(tablero, 'Cómo se entra');
-    expect(entraTablero).toMatch(/sección \*\*General\*\*, ítem \*\*Tablero\*\*/);
+    // Épica #14678: Tablero es la primera entrada de la opción Gerencial (antes, enlace directo de General).
+    expect(entraTablero).toMatch(/pulse \*\*Gerencial\*\*[^.]*el ítem \*\*Tablero\*\*/);
     expect(entraTablero).not.toMatch(/\/flito\/tablero/);
     expect(entraTablero).not.toMatch(/NAV_ITEMS/);
     expect(tablero).not.toMatch(/Tablero FLITO/);
@@ -201,7 +202,8 @@ test.describe('FLITO — Ayuda · fichas de gestión (HU #11894)', () => {
     // «Ir a la pantalla SOAT» de abajo. Lo que sigue prohibido es mencionar el legacy `/soat`.
     // Las imágenes de la propia ficha viven en `./soat/…` (HU #13771): esa carpeta no es una ruta.
     expect(md.replaceAll('/flito/soat', '').replaceAll('](./soat/', '](./')).not.toMatch(/\/soat\b/);
-    expect(seccion(md, 'Cómo se entra')).toMatch(/\*\*SOAT e Impuestos\*\*[^.]*el ítem \*\*SOAT\*\*/);
+    // Épica #14678: SOAT vive en la opción Operaciones, rejilla plana (sin el grupo «SOAT e Impuestos»).
+    expect(seccion(md, 'Cómo se entra')).toMatch(/\*\*Operaciones\*\*[^.]*el ítem \*\*SOAT\*\*/);
 
     await loginAs(page, PROVEEDOR_USER);
     await page.goto('/flito/ayuda/soat');
