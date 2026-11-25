@@ -117,7 +117,7 @@ describe('AC2/AC3 — cómo queda declarada la página en el web', () => {
 
     expect(item).toBeDefined();
     expect(item?.to).toBe('/flito/comparendos');
-    expect(item?.section).toBe('gestion');
+    expect(item?.section).toBe('operaciones'); // Épica #14678: Comparendos vive en Operaciones (antes «Gestión»).
     // `roles` restringe DENTRO de quienes ya tienen el slug. Aquí el slug ya es la regla entera:
     // repetirla crearía dos sitios que pueden divergir.
     expect(item?.roles).toBeUndefined();
