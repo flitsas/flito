@@ -17,8 +17,9 @@
 -- sus marcas de rol y de usuario —también las que un administrador haya puesto desde el panel después de la 0316: con
 -- el código anterior esas áreas no existen y no daban ninguna pantalla, así que lo efectivo en páginas no cambia— y
 -- devuelve Gerencial y Kyverum a su orden de la 0315 (3 y 4).
--- Sin probar todavía: backend-agent lo prueba en BEGIN/ROLLBACK sobre la base local con la 0316 aplicada (P6) y lo
--- ejerce `__tests__/db/migracion-0316.test.ts`. Quitar esta línea cuando esté probado.
+-- Probado (2026-11-25): en BEGIN/ROLLBACK sobre la base local con la 0316 aplicada (P6), y lo ejerce
+-- `apps/api/__tests__/db/migracion-0316.test.ts` (deja la base exactamente como antes de la 0316, también con marcas
+-- puestas desde el panel).
 BEGIN;
 DELETE FROM permisos_usuario_funcion WHERE funcion_codigo IN ('menu.comercial', 'menu.diseno', 'menu.tecnologia', 'menu.infraestructura', 'menu.producto');
 DELETE FROM permisos_rol_funcion WHERE funcion_codigo IN ('menu.comercial', 'menu.diseno', 'menu.tecnologia', 'menu.infraestructura', 'menu.producto');

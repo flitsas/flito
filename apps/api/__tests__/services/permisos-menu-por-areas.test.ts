@@ -14,7 +14,7 @@ import { catalogoCompleto } from '../../src/modules/permisos/catalogo.js';
 import { expandir, PADRE } from '../../src/modules/permisos/arbol/expansion.js';
 import { REPARTO_TORRE } from '../../src/modules/permisos/arbol/acciones-torre.js';
 import {
-  catalogoAntesDeAreas, ELEMENTO_ANTERIOR, ELEMENTOS_NUEVOS_14678, MENU_POR_AREAS, PADRE_ANTES_DE_AREAS,
+  catalogoAntesDeAreas, ELEMENTO_ANTERIOR, ELEMENTOS_AREAS_VACIAS_14678, ELEMENTOS_NUEVOS_14678, MENU_POR_AREAS, PADRE_ANTES_DE_AREAS,
 } from '../../src/modules/permisos/arbol/menu-por-areas.js';
 import {
   bloquesInsertSiRolExiste, leerRepartoSembrado, literalesDeRol, menuPorAreasDeSql, MIGRACIONES_CON_REPARTO,
@@ -23,6 +23,8 @@ import { leerMigracion } from '../helpers/base-en-tx.js';
 
 const MIGRACION = '0315_flito_menu_por_areas.sql';
 const SQL = leerMigracion(MIGRACION);
+const MIGRACION_0316 = '0316_flito_menu_areas_proximamente.sql';
+const SQL_0316 = leerMigracion(MIGRACION_0316);
 const pagina = (slug: string) => `pagina.${slug}`;
 
 /** El mapa aprobado (ADR-0048, «Decisiones del humano»), por página. Las páginas sin entrada de menú, marcadas. */
@@ -67,11 +69,14 @@ describe('el mapa del menú por áreas (ADR-0048)', () => {
 
   it('opciones nuevas en el orden del menú; ocho deprecados sin hijos; Administración reutilizada y viva', () => {
     const vivos = ELEMENTOS_PERMISOS.filter((e) => !e.deprecado).sort((a, b) => a.orden - b.orden).map((e) => e.codigo);
-    expect(vivos).toEqual(['menu.operaciones', 'menu.financiera', 'menu.gerencial', 'menu.kyverum', 'menu.general', 'menu.administracion',
+    expect(vivos).toEqual(['menu.operaciones', 'menu.financiera', 'menu.comercial', 'menu.diseno', 'menu.tecnologia',
+      'menu.infraestructura', 'menu.producto', 'menu.gerencial', 'menu.kyverum', 'menu.general', 'menu.administracion',
       'menu.ayuda', 'menu.perfil']);
-    // Orden 1-4: antes que todo; los deprecados y General conservan el suyo (sin empates con las opciones nuevas).
+    // Orden 1-9: antes que todo; Gerencial y Kyverum pasan a 8 y 9 con la 0316 (PR 4) para dejar 3-7 a las áreas
+    // vacías. Los deprecados y General conservan el suyo (sin empates con las opciones nuevas). El texto de la 0315
+    // (aplicada) no cambia: sigue sembrando 3 y 4, y la 0316 re-numera.
     expect(ELEMENTOS_NUEVOS_14678.map((c) => [c, ELEMENTOS_PERMISOS.find((e) => e.codigo === c)!.orden])).toEqual([
-      ['menu.operaciones', 1], ['menu.financiera', 2], ['menu.gerencial', 3], ['menu.kyverum', 4],
+      ['menu.operaciones', 1], ['menu.financiera', 2], ['menu.gerencial', 8], ['menu.kyverum', 9],
     ]);
     expect(SQL).toMatch(/\('menu\.operaciones', 'operaciones', 'Operaciones', '[^']*', 'elemento', '1', '1'\)/);
     expect(SQL).toMatch(/\('menu\.kyverum', 'kyverum', 'Kyverum', '[^']*', 'elemento', '1', '4'\)/);
@@ -176,5 +181,74 @@ describe('V3 / R7 descartada — el elemento de cada página del reparto posteri
     for (const { pagina: p, viejo } of MENU_POR_AREAS) {
       for (const rol of cat.get(p)!.roles) expect(cat.get(viejo)!.roles, `${viejo} ← ${p} (${rol})`).toContain(rol);
     }
+  });
+});
+
+/** Épica #14678 PR 4: las cinco áreas sin pantallas (`ELEMENTOS_AREAS_VACIAS_14678`), en el orden de `SECTION_ORDER`. */
+const AREAS_VACIAS: ReadonlyArray<readonly [string, string, number]> = [
+  ['menu.comercial', 'Comercial', 3], ['menu.diseno', 'Diseño', 4], ['menu.tecnologia', 'Tecnología', 5],
+  ['menu.infraestructura', 'Infraestructura', 6], ['menu.producto', 'Producto', 7],
+];
+
+describe('la migración 0316 (Épica #14678 PR 4: áreas sin pantallas)', () => {
+  const sinComentarios = SQL_0316.replace(/--[^\n]*/g, '');
+
+  it('siembra los cinco elementos, nivel 1, orden 3-7, con el `modulo` y el texto del catálogo', () => {
+    expect(ELEMENTOS_AREAS_VACIAS_14678).toEqual(AREAS_VACIAS.map(([c]) => c));
+    const cat = new Map(catalogoCompleto().map((f) => [f.codigo, f]));
+    for (const [codigo, nombre, orden] of AREAS_VACIAS) {
+      const modulo = codigo.slice(5);
+      expect(sinComentarios).toContain(
+        `('${codigo}', '${modulo}', '${nombre}', 'Ver la sección «${nombre}» del menú.', 'elemento', '1', '${orden}')`,
+      );
+      expect(cat.get(codigo), codigo).toMatchObject({ tipo: 'elemento', modulo, nombreNegocio: nombre });
+    }
+  });
+
+  it('re-numera Gerencial a 8 y Kyverum a 9 en un UPDATE aparte con `IS DISTINCT FROM` (idempotente)', () => {
+    expect(sinComentarios).toMatch(/UPDATE permisos_funciones AS f SET orden = v\.orden\s+FROM \(VALUES \('menu\.gerencial', 8\), \('menu\.kyverum', 9\)\)/);
+    expect(sinComentarios).toMatch(/f\.orden IS DISTINCT FROM v\.orden/);
+    expect(sinComentarios).toMatch(/IS DISTINCT FROM \(EXCLUDED\.modulo/);
+    for (const c of ['menu.gerencial', 'menu.kyverum']) expect(ELEMENTOS_PERMISOS.find((e) => e.codigo === c)?.orden, c).toBe(c === 'menu.gerencial' ? 8 : 9);
+  });
+
+  it('sin marca para ningún rol (admin incluido) ni usuario, sin auditoría, sin transacción propia', () => {
+    expect(sinComentarios).not.toMatch(/permisos_rol_funcion|permisos_usuario_funcion|permisos_auditoria/);
+    expect(literalesDeRol(SQL_0316)).toEqual([]);
+    expect(bloquesInsertSiRolExiste(SQL_0316)).toEqual([]);
+    expect(sinComentarios).not.toMatch(/\b(BEGIN|COMMIT)\b/);
+    expect(MIGRACIONES_CON_REPARTO).toContain(MIGRACION_0316);
+  });
+});
+
+describe('áreas vacías (Épica #14678 PR 4)', () => {
+  it('ningún nodo del árbol cuelga de una de las cinco: no tienen pantallas', () => {
+    for (const c of ELEMENTOS_AREAS_VACIAS_14678) {
+      expect(PADRE.has(c), c).toBe(true); // existen en el árbol (si no, el resolutor no las vería)
+      expect(PADRE.get(c), c).toBeNull();
+      expect(hijosDe(c), c).toEqual([]);
+    }
+  });
+
+  it('un rol con solo `menu.comercial` lo tiene efectivo y no gana ninguna página ni operación', () => {
+    expect([...expandir(['menu.comercial'])]).toEqual(['menu.comercial']);
+    const todas = expandir([...ELEMENTOS_AREAS_VACIAS_14678]);
+    expect([...todas].sort()).toEqual([...ELEMENTOS_AREAS_VACIAS_14678].sort());
+    // Revocar gana: con `revocar` del elemento en el usuario, no queda nada.
+    expect([...expandir(['menu.comercial'], ['menu.comercial'])]).toEqual([]);
+  });
+
+  it('pérdidas = 0 y ganancias = 0: el catálogo no les da roles y ninguna migración se las marca a un rol', () => {
+    const cat = new Map(catalogoCompleto().map((f) => [f.codigo, f]));
+    for (const c of ELEMENTOS_AREAS_VACIAS_14678) expect(cat.get(c)?.roles, c).toEqual([]);
+    for (const [rol, codigos] of leerRepartoSembrado()) {
+      for (const c of ELEMENTOS_AREAS_VACIAS_14678) expect(codigos.has(c), `${rol} ${c}`).toBe(false);
+    }
+  });
+
+  it('el árbol de antes (generadores históricos) no las tiene', () => {
+    for (const c of ELEMENTOS_AREAS_VACIAS_14678) expect(PADRE_ANTES_DE_AREAS.has(c), c).toBe(false);
+    const antes = catalogoAntesDeAreas(catalogoCompleto());
+    expect(antes.some((f) => ELEMENTOS_AREAS_VACIAS_14678.includes(f.codigo))).toBe(false);
   });
 });

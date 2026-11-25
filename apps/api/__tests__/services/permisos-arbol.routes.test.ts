@@ -55,8 +55,10 @@ describe('AC1 / TC-01 — GET /arbol: la estructura del árbol sin marcas', () =
     expect(r.status).toBe(200);
     const arbol = r.body.arbol as NodoArbolDef[];
     const raices = arbol.filter((n) => n.padre === null).sort((a, b) => a.orden - b.orden).map((n) => n.codigo);
-    // Épica #14678 (ADR-0048): las cuatro opciones por áreas primero (orden 1-4); los ocho de antes, deprecados.
-    expect(raices).toEqual(['menu.operaciones', 'menu.financiera', 'menu.gerencial', 'menu.kyverum', 'menu.general', 'menu.gestion',
+    // Épica #14678 (ADR-0048): las opciones por áreas primero (orden 1-9: las cinco sin pantallas de la 0316 entre
+    // Financiera y Gerencial); los ocho de antes, deprecados.
+    expect(raices).toEqual(['menu.operaciones', 'menu.financiera', 'menu.comercial', 'menu.diseno', 'menu.tecnologia',
+      'menu.infraestructura', 'menu.producto', 'menu.gerencial', 'menu.kyverum', 'menu.general', 'menu.gestion',
       'menu.transito', 'menu.flota', 'menu.mantenimiento', 'menu.pesv', 'menu.rndc', 'menu.laft', 'menu.finanzas', 'menu.administracion',
       'menu.ayuda', 'menu.perfil']);
     expect(arbol.filter((n) => n.deprecado).map((n) => n.codigo).sort()).toEqual(['menu.finanzas', 'menu.flota', 'menu.gestion', 'menu.laft',

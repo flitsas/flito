@@ -14,6 +14,15 @@ import { PADRE } from './expansion.js';
 /** Los elementos que siembra la 0315 (opciones del menú con entradas). `menu.administracion` se reutiliza. */
 export const ELEMENTOS_NUEVOS_14678: readonly string[] = ['menu.operaciones', 'menu.financiera', 'menu.gerencial', 'menu.kyverum'];
 
+/**
+ * Las cinco áreas sin pantallas que siembra la 0316 (PR 4): sin hijos y sin marca para ningún rol, `admin` incluido
+ * (decisión de David del 2026-11-25, enmienda 1 de ADR-0048). No existían antes de la 0315 ni de la 0316, así que el
+ * árbol de antes tampoco las tiene.
+ */
+export const ELEMENTOS_AREAS_VACIAS_14678: readonly string[] = [
+  'menu.comercial', 'menu.diseno', 'menu.tecnologia', 'menu.infraestructura', 'menu.producto',
+];
+
 /** El elemento de antes → sus páginas que se mueven, con el orden que tenían (árbol de `develop` antes de la 0315). */
 const ANTES: ReadonlyArray<readonly [string, ReadonlyArray<readonly [string, number]>]> = [
   ['menu.gestion', [
@@ -63,7 +72,8 @@ export const MENU_POR_AREAS: readonly MovimientoDeArea[] = ANTES.flatMap(([viejo
 /** La página que la 0315 movió → el elemento del que colgaba antes. */
 export const ELEMENTO_ANTERIOR: ReadonlyMap<string, string> = new Map(MENU_POR_AREAS.map((m) => [m.pagina, m.viejo]));
 const ORDEN_ANTERIOR: ReadonlyMap<string, number> = new Map(MENU_POR_AREAS.map((m) => [m.pagina, m.ordenViejo]));
-const NUEVOS = new Set(ELEMENTOS_NUEVOS_14678);
+/** Lo que no existía en el árbol de antes: los cuatro de la 0315 y las cinco áreas vacías de la 0316. */
+const NUEVOS = new Set([...ELEMENTOS_NUEVOS_14678, ...ELEMENTOS_AREAS_VACIAS_14678]);
 
 /** El árbol de antes de la 0315 (nodo → padre), para los reportes en seco de la 0239 y la 0240 (su resolutor). */
 export const PADRE_ANTES_DE_AREAS: ReadonlyMap<string, string | null> = new Map(
@@ -76,7 +86,7 @@ export function padreAntesDeAreas(codigo: string): string | null {
 }
 
 /**
- * El catálogo como era antes de la 0315: sin los cuatro elementos nuevos y con cada página movida en su elemento y
+ * El catálogo como era antes de la 0315: sin los cuatro elementos nuevos (ni las cinco áreas de la 0316) y con cada página movida en su elemento y
  * orden de antes. Solo para regenerar migraciones históricas; los roles no se tocan (ningún generador histórico emite
  * los roles de un elemento).
  */
