@@ -14,10 +14,10 @@
 //
 //   npx playwright test e2e/tests/shell-menu-catalogo.spec.ts --reporter=line
 //
-// Shell del UI Kit 2026 (Épica #14560): el dock pinta las secciones del menú original (SECTION_ORDER) con los
-// nombres del catálogo, sin reagrupar ni isotipo; «Ayuda» es la última sección (las que no caben, en el «Más»). La cuenta (Perfil, Ayuda,
-// Cambiar contraseña, Cerrar sesión) vive en el menú de usuario.
-
+// Shell del UI Kit 2026 (Épica #14560): el dock pinta las opciones del menú (SECTION_ORDER) con los nombres del
+// catálogo, sin isotipo; «Ayuda» es la última. Épica #14678: las opciones son las áreas de la empresa con entradas
+// más Kyverum y Administración (Operaciones, Financiera, Gerencial, Kyverum, Administración, Ayuda). La cuenta
+// (Perfil, Ayuda, Cambiar contraseña, Cerrar sesión) vive en el menú de usuario.
 import type { Page } from '@playwright/test';
 import { ARBOL_PERMISOS, ELEMENTOS_PERMISOS } from '@operaciones/shared-types';
 import { test, expect } from '../helpers/fixtures';
@@ -48,30 +48,35 @@ async function opcionesDeUsuario(page: Page) {
 }
 
 test.describe('HU #13431 — menú con los nombres del catálogo', () => {
-  // 1920 px: con la Torre (Épica #14590, decisión humana) son 12 secciones y las del final pasan al «Más».
+  // 1920 px: las seis opciones del admin caben en la fila (Épica #14678).
   test.use({ viewport: { width: 1920, height: 900 } });
 
-  test('AC4 — las secciones y los ítems se rotulan con el catálogo (LAFT, no «Cumplimiento»)', async ({ page }) => {
+  test('AC4 — las opciones y los ítems se rotulan con el catálogo (LAFT, no «Cumplimiento»)', async ({ page }) => {
     await loginAs(page, ADMIN_USER);
     await page.goto('/');
     await listo(page);
-    for (const clave of ['gestion', 'transito', 'laft', 'finanzas']) {
+
+    for (const clave of ['operaciones', 'financiera', 'gerencial', 'kyverum', 'administracion']) {
       await expect(nav(page).getByRole('button', { name: nombreElemento(clave), exact: true })).toBeVisible();
     }
-    // Épica #14590: la Torre de Control es una sección propia por decisión humana; con 12 secciones las del final
-    // (Administración incluida) pasan al «Más» a 1920 px.
-    await nav(page).getByRole('button', { name: 'Más', exact: true }).click();
-    await expect(page.locator('#flit-navbar-panel-mas').getByText(nombreElemento('administracion'), { exact: true })).toBeVisible();
-    await page.keyboard.press('Escape');
+    await expect(nav(page).getByRole('button', { name: 'Más', exact: true })).toHaveCount(0);
     await expect(nav(page).getByRole('button', { name: 'Cumplimiento', exact: true })).toHaveCount(0);
-    // «General» con solo Tablero se pinta como enlace directo con el nombre del ítem.
-    await expect(nav(page).getByRole('link', { name: nombreItem('dashboard'), exact: true })).toHaveAttribute('href', '/');
-    // Administración es sección del dock, no del menú de usuario.
+    // LAFT es un subgrupo del riel de Kyverum, con su nombre del catálogo.
+    await nav(page).getByRole('button', { name: nombreElemento('kyverum'), exact: true }).click();
+    await expect(page.getByRole('tab', { name: 'LAFT', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    // Tablero es la primera entrada de Gerencial y lleva a `/`.
+    await nav(page).getByRole('button', { name: nombreElemento('gerencial'), exact: true }).click();
+    await expect(page.locator('#flit-navbar-panel-gerencial').getByRole('link').first()).toHaveAccessibleName(nombreItem('dashboard'));
+    await expect(page.getByRole('link', { name: nombreItem('dashboard'), exact: true })).toHaveAttribute('href', '/');
+    await page.keyboard.press('Escape');
+
+    // Administración es opción del dock, no del menú de usuario.
     const menu = await opcionesDeUsuario(page);
     await expect(menu.locator('.menu-usuario__seccion')).toHaveCount(0);
     await page.getByRole('button', { name: /Menú de usuario/ }).click();
 
-    await nav(page).getByRole('button', { name: nombreElemento('gestion'), exact: true }).click();
+    await nav(page).getByRole('button', { name: nombreElemento('operaciones'), exact: true }).click();
     // El ítem lleva el nombre del catálogo, no el rótulo fijo anterior («Derechos de tránsito»).
     await expect(page.getByRole('link', { name: nombreItem('flito_derechos'), exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Derechos de tránsito', exact: true })).toHaveCount(0);
@@ -85,7 +90,7 @@ test.describe('HU #13431 — menú con los nombres del catálogo', () => {
     await listo(page);
     await expect(nav(page).getByRole('link', { name: nombreItem('flito_bolsas'), exact: true })).toBeVisible();
     await expect(nav(page).getByRole('link', { name: nombreItem('flito_tarifas'), exact: true })).toHaveCount(0);
-    // Un solo ítem visible: ninguna sección desplegable, ni Tablero (no tiene `dashboard`), ni Administración.
+    // Un solo ítem visible: ninguna opción desplegable, ni Tablero (no tiene `dashboard`), ni Administración.
     await expect(nav(page).getByRole('button')).toHaveCount(0);
     const menu = await opcionesDeUsuario(page);
     await expect(menu.locator('.menu-usuario__seccion')).toHaveCount(0);
@@ -93,7 +98,7 @@ test.describe('HU #13431 — menú con los nombres del catálogo', () => {
 });
 
 test.describe('HU #13431 — AC1 · «Ayuda» derivada de los capítulos visibles', () => {
-  // 1920 px: caben todas las secciones con nombre; a 1440 las últimas pasan al «Más» (shell-menu-responsive).
+  // 1920 px: caben todas las opciones con nombre.
   test.use({ viewport: { width: 1920, height: 900 } });
 
   test('con capítulos visibles: «Ayuda» es la última sección, en el dock y en ⌘K (y en el menú de usuario)', async ({ page }) => {
@@ -201,8 +206,8 @@ test.describe('HU #13431 — AC6 · usuario enlazado a compañía', () => {
     await loginAs(page, CLIENTE_USER);
     await page.goto('/');
     await listo(page);
-    // Secciones que solo tienen módulos sin compañía, catálogos o configuración.
-    for (const clave of ['finanzas', 'administracion', 'transito', 'pesv', 'laft', 'rndc', 'mantenimiento']) {
+    // Opciones que solo tienen módulos sin compañía, catálogos o configuración (Épica #14678: los legacy van en Kyverum).
+    for (const clave of ['kyverum', 'administracion']) {
       await expect(nav(page).getByRole('button', { name: nombreElemento(clave), exact: true })).toHaveCount(0);
     }
     await expect(nav(page).getByRole('link', { name: nombreItem('flito_tarifas'), exact: true })).toHaveCount(0);

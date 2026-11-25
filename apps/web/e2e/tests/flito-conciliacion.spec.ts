@@ -195,7 +195,7 @@ async function cerrarSesion(page: Page): Promise<void> {
 test.describe('FLITO — Conciliación · acceso y menú (AC1)', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('financiera entra, la pantalla consulta el API y el menú la ofrece en Finanzas', async ({ page }) => {
+  test('financiera entra, la pantalla consulta el API y el menú la ofrece en Financiera', async ({ page }) => {
     await loginAs(page, FINANCIERA_USER);
     const vistas = espiarModulo(page);
     await mockLista(page, [RESUMEN]);
@@ -207,7 +207,7 @@ test.describe('FLITO — Conciliación · acceso y menú (AC1)', () => {
     expect(vistas.some((l) => l === 'GET /api/flito/conciliacion/boletas')).toBe(true);
 
     const nav = page.getByRole('navigation', { name: 'Navegación principal' });
-    await nav.getByRole('button', { name: 'Finanzas', exact: true }).click();
+    await nav.getByRole('button', { name: 'Financiera', exact: true }).click();
     const enlace = page.getByRole('link', { name: 'Conciliación', exact: true });
     await expect(enlace).toBeVisible();
     await expect(enlace).toHaveAttribute('href', '/flito/conciliacion');
@@ -248,7 +248,7 @@ test.describe('FLITO — Conciliación · acceso y menú (AC1)', () => {
     // decisión (`hasPage`) que toma `ProtectedRoute`. Si alguien vaciara `allowedPages` de este
     // fixture, esto se pondría rojo en vez de dejar el caso midiendo el gate equivocado en silencio.
     const nav = page.getByRole('navigation', { name: 'Navegación principal' });
-    await nav.getByRole('button', { name: 'Finanzas', exact: true }).click();
+    await nav.getByRole('button', { name: 'Financiera', exact: true }).click();
     await expect(page.getByRole('link', { name: 'Conciliación', exact: true })).toBeVisible();
 
     await reposo(page);

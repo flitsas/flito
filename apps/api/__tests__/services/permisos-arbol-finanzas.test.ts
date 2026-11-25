@@ -31,21 +31,22 @@ const FINANZAS = ACCIONES_POR_AREA.finanzas;
  * de P-15 y el renombre del freno de P-18): elemento → ítem → acciones, en orden.
  */
 const ANEXO = `
-Finanzas → Reporte de costos: Ver el listado de trámites · Exportar a Excel · Ver soportes · Ver viajes adicionales · Asignar servicios adicionales · Liquidar (incluye en lote) · Facturar · Enviar a Siigo · Reversar una liquidación
-Finanzas → Gastos diarios: Ver los gastos diarios
-Finanzas → Bolsas: Ver bolsas de clientes · Ver bolsas de tránsito · Crear bolsas · Editar bolsas · Registrar recargas y cargar saldo · Registrar y corregir movimientos manuales · Cerrar periodo y descargar extracto · Ver alertas y riesgo de saldo · Ver el expediente documental · Cargar documentos del expediente
-Finanzas → Tarifas: Ver las tarifas (incluye historial) · Crear y modificar tarifas
-Finanzas → Servicios adicionales: Ver · Crear · Editar · Dar de baja
-Finanzas → Comprobantes: Cargar comprobantes · Asociar manualmente · Ver la cola de comprobantes · Descartar, releer o aceptar una diferencia
-Finanzas → Conciliación: Ver las boletas cargadas · Cargar boleta · Conciliar, descartar o volver a cruzar · Cargar o reemplazar el comprobante de la boleta
-Finanzas → Facturación electrónica · Parametrización: Ver la parametrización · Mapeo de conceptos · Configuración de terceros
-Finanzas → Facturación electrónica · Operación: Ver las facturas emitidas · Reintentar, reenviar el correo, marcar como fallida y reactivar · Quitar el freno de emisión
-Administración → Integración con Siigo: Registrar credenciales de pruebas · Registrar credenciales de producción · Probar la conexión
+Financiera → Reporte de costos: Ver el listado de trámites · Exportar a Excel · Ver soportes · Ver viajes adicionales · Asignar servicios adicionales · Liquidar (incluye en lote) · Facturar · Enviar a Siigo · Reversar una liquidación
+Financiera → Gastos diarios: Ver los gastos diarios
+Financiera → Bolsas: Ver bolsas de clientes · Ver bolsas de tránsito · Crear bolsas · Editar bolsas · Registrar recargas y cargar saldo · Registrar y corregir movimientos manuales · Cerrar periodo y descargar extracto · Ver alertas y riesgo de saldo · Ver el expediente documental · Cargar documentos del expediente
+Financiera → Tarifas: Ver las tarifas (incluye historial) · Crear y modificar tarifas
+Financiera → Servicios adicionales: Ver · Crear · Editar · Dar de baja
+Financiera → Comprobantes: Cargar comprobantes · Asociar manualmente · Ver la cola de comprobantes · Descartar, releer o aceptar una diferencia
+Financiera → Conciliación: Ver las boletas cargadas · Cargar boleta · Conciliar, descartar o volver a cruzar · Cargar o reemplazar el comprobante de la boleta
+Financiera → Facturación electrónica · Parametrización: Ver la parametrización · Mapeo de conceptos · Configuración de terceros
+Financiera → Facturación electrónica · Operación: Ver las facturas emitidas · Reintentar, reenviar el correo, marcar como fallida y reactivar · Quitar el freno de emisión
+Financiera → Integración con Siigo: Registrar credenciales de pruebas · Registrar credenciales de producción · Probar la conexión
 `.trim().split('\n');
 
 // HU #13428: Administración ya trae Usuarios y Roles y permisos (su test: permisos-arbol-administracion); aquí, solo Integración con Siigo.
 const ARBOL = [...ARBOL_FINANZAS, ...ARBOL_ADMINISTRACION.filter((n) => n.codigo === 'pagina.siigo_credenciales' || n.padre === 'pagina.siigo_credenciales')];
-const ELEMENTO: Record<string, string> = { 'menu.finanzas': 'Finanzas', 'menu.administracion': 'Administración' };
+// Épica #14678 (ADR-0048): las nueve de Finanzas y la Integración con Siigo cuelgan de Financiera.
+const ELEMENTO: Record<string, string> = { 'menu.financiera': 'Financiera' };
 
 describe('AC1 — nivel 2 y nivel 3 exactamente según el catálogo aprobado (anexo literal)', () => {
   it('elemento → ítem → acciones, en orden y con el nombre literal', () => {

@@ -10,6 +10,8 @@
 //      nuevo: las acciones de reparto universal (Perfil, «Ver los manuales» de Dr. Flit) y su cadena.
 // Ambos por `JOIN permisos_roles`: un ambiente sin el rol recibe 0 filas, no una FK rota.
 import { catalogoCompleto, type FuncionCatalogo } from '../catalogo.js';
+// Épica #14678: migraciones ya aplicadas — se regeneran con el árbol de antes de la 0315 (menú por áreas).
+import { catalogoAntesDeAreas, padreAntesDeAreas } from './menu-por-areas.js';
 import { ACCIONES_UNIVERSALES, ancestrosDe, ROL_CON_TODAS_LAS_ACCIONES } from './expansion.js';
 import { ACCIONES_TORRE, ITEMS_TORRE_ARBOL, REPARTO_TORRE } from './acciones-torre.js';
 import { lit } from './sql-arbol.js';
@@ -36,11 +38,15 @@ const itemsDe = (t: TramoTorre): string[] => ITEMS_TORRE_ARBOL.filter(enTramo(t)
 export const ROLES_NUEVOS_TORRE = ['gerencia_comercial', 'gerencia_general'] as const;
 
 /** La acción y su cadena (acción → ítem → elemento), en ese orden. */
-const cadena = (accion: string): string[] => [accion, ...ancestrosDe(accion)];
+// Épica #14678: la 0303-0310 ya se aplicaron; su cadena es la de antes de la 0315 (la Torre colgaba de General).
+const cadena = (accion: string): string[] => {
+  const ancestros = ancestrosDe(accion); // [..., pagina.*, menu.*]
+  return [accion, ...ancestros.slice(0, -1), padreAntesDeAreas(ancestros.at(-2)!)!];
+};
 
 /** Siembra: los ítems (nivel 2) y sus acciones (nivel 3), padres antes que hijas. */
 export function sqlSiembraTorre(catalogo: FuncionCatalogo[] = catalogoCompleto(), tramo: TramoTorre = 'fundacion'): string {
-  const porCodigo = new Map(catalogo.map((f) => [f.codigo, f]));
+  const porCodigo = new Map(catalogoAntesDeAreas(catalogo).map((f) => [f.codigo, f]));
   const ACCIONES = accionesDe(tramo);
   const items = itemsDe(tramo);
   const porOrden = (a: string, b: string): number => porCodigo.get(a)!.orden! - porCodigo.get(b)!.orden!;

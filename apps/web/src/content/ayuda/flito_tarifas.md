@@ -12,8 +12,8 @@ consultas:
   - cómo cambio la tarifa de un cliente
   - cuánto nos cobra un proveedor
   - cómo fijo lo que cobra un proveedor de SOAT o de logística
-version: 2.4
-fecha: 2026-11-17
+version: 2.5
+fecha: 2026-11-25
 ---
 ## Qué es
 
@@ -27,7 +27,7 @@ Administrador y Financiera. El Auditor, el Proveedor y el Gestor de Impuestos no
 
 ## Cómo se entra
 
-En la barra de navegación al pie de la pantalla, pulse **Finanzas** y, en el panel que se abre, el ítem **Tarifas**. También desde **Clientes y proveedores**, con el botón **Tarifas** de la fila de una compañía, que abre esta pantalla con esa compañía ya elegida. Si la sección no cabe en la barra, está en **Más**, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «tarifas».
+En la barra de navegación al pie de la pantalla, pulse **Financiera** y, en el panel que se abre, el ítem **Tarifas**. También desde **Clientes y proveedores**, con el botón **Tarifas** de la fila de una compañía, que abre esta pantalla con esa compañía ya elegida. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y abra la opción en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «tarifas».
 
 ## Pasos
 

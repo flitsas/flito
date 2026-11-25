@@ -17,8 +17,8 @@ consultas:
   - cómo elimino una certificación sin trámite
   - cómo corrijo el número, la fecha o el avalúo de la factura
   - cómo reintento la lectura del número, la fecha o el avalúo de la factura
-version: 1.18
-fecha: 2026-11-23
+version: 1.19
+fecha: 2026-11-25
 ---
 ## Qué es
 
@@ -30,7 +30,7 @@ Gestor de Impuestos (ve **Solicitado** y **Pagado** de los organismos que el Adm
 
 ## Cómo se entra
 
-En la barra de navegación al pie de la pantalla, pulse **Gestión** y, en el grupo **SOAT e Impuestos** del panel que se abre, el ítem **Impuestos**. Si la sección no cabe en la barra, está en **Más**, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «Impuestos».
+En la barra de navegación al pie de la pantalla, pulse **Operaciones** y, en el panel que se abre, el ítem **Impuestos**. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y abra la opción en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «Impuestos».
 
 ## Pasos
 

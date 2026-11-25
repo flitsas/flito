@@ -64,7 +64,7 @@ test.describe('FLITO — Finanzas · Gastos diarios (HU #12624)', () => {
   test.use({ viewport: { width: 1366, height: 768 } });
 
   test('AC2 — con la página: ítem «Gastos diarios» tras «Reporte de costos», ruta protegida y ⌘K', async ({ page }) => {
-    // 1920 px: el admin ve las 11 secciones en la fila; a 1366 Finanzas pasa al «Más» (Épica #14560).
+    // 1920 px: el dock completo cabe en la fila (Épica #14678: el área es «Financiera»).
     await page.setViewportSize({ width: 1920, height: 900 });
     await loginAs(page, OPERACIONES_USER);
     await mockGastos(page);
@@ -72,12 +72,12 @@ test.describe('FLITO — Finanzas · Gastos diarios (HU #12624)', () => {
     await expect(page.getByRole('heading', { name: 'Gastos diarios' })).toBeVisible();
 
     const nav = page.getByRole('navigation', { name: 'Navegación principal' });
-    await nav.getByRole('button', { name: 'Finanzas', exact: true }).click();
-    const enlaces = page.locator('#flit-navbar-panel-finanzas a');
+    await nav.getByRole('button', { name: 'Financiera', exact: true }).click();
+    const enlaces = page.locator('#flit-navbar-panel-financiera a');
     const textos = await enlaces.allInnerTexts();
     const iCostos = textos.findIndex((t) => /^Reporte de costos$/.test(t.trim()));
     const iGastos = textos.findIndex((t) => /^Gastos diarios$/.test(t.trim()));
-    expect(iCostos, 'Reporte de costos está en Finanzas').toBeGreaterThanOrEqual(0);
+    expect(iCostos, 'Reporte de costos está en Financiera').toBeGreaterThanOrEqual(0);
     expect(iGastos, 'Gastos diarios va justo después de Reporte de costos').toBe(iCostos + 1);
     await expect(page.getByRole('link', { name: 'Gastos diarios', exact: true })).toHaveAttribute('href', '/finanzas/gastos-diarios');
     await page.keyboard.press('Escape');
@@ -96,7 +96,7 @@ test.describe('FLITO — Finanzas · Gastos diarios (HU #12624)', () => {
     expect(peticiones).toHaveLength(0);
 
     const nav = page.getByRole('navigation', { name: 'Navegación principal' });
-    await nav.getByRole('button', { name: 'Finanzas', exact: true }).click();
+    await nav.getByRole('button', { name: 'Financiera', exact: true }).click();
     await expect(page.getByRole('link', { name: 'Reporte de costos', exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Gastos diarios', exact: true })).toHaveCount(0);
   });

@@ -7,8 +7,8 @@ palabras_clave:
 consultas:
   - cómo configuro las credenciales de Siigo
   - por qué falla la conexión con Siigo
-version: 1.5
-fecha: 2026-11-17
+version: 1.6
+fecha: 2026-11-25
 ---
 ## Qué es
 
@@ -20,7 +20,7 @@ Quien tenga el ítem **Integración con Siigo**. De partida, solo el Administrad
 
 ## Cómo se entra
 
-En la barra de navegación al pie de la pantalla, pulse **Administración** y, en el panel que se abre, el ítem **Integración con Siigo**. También desde este capítulo de la ayuda, con **Ir a la pantalla**. Distíngala de **Credenciales RNDC**, que vive en la sección **RNDC** y es otra integración, y de **Facturación electrónica · Parametrización** y **Operación**, que están en **Finanzas**. Si la sección no cabe en la barra, está en **Más**, al final de ella. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y elija la sección en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «siigo».
+En la barra de navegación al pie de la pantalla, pulse **Financiera** y, en el panel que se abre, el ítem **Integración con Siigo**. También desde este capítulo de la ayuda, con **Ir a la pantalla**. Distíngala de **Credenciales RNDC**, que vive en **Kyverum › RNDC** y es otra integración, y de **Facturación electrónica · Parametrización** y **Operación**, que están en la misma opción **Financiera**. En tableta o teléfono no hay barra al pie: pulse el botón de menú de la barra superior y abra la opción en el menú lateral. También puede pulsar **Ctrl + K** (**Command + K** en Mac) y escribir «siigo».
 
 ## Pasos
 
@@ -29,7 +29,7 @@ En la barra de navegación al pie de la pantalla, pulse **Administración** y, e
 3. Para comprobar que la credencial activa funciona, pulse **Probar conexión** (mientras tanto dice **Probando…**); la tarjeta le muestra el **Resultado de la prueba**. Si hizo demasiadas pruebas seguidas, espere un minuto antes de repetir. ![Resultado de la prueba con conexión correcta para el usuario demo de pruebas](./siigo_credenciales/03-probar-conexion.png)
 4. Para retirar una credencial, pulse **Desactivar** y confírmelo en el diálogo (**Desactivando…** mientras se aplica). El registro no se borra: queda en el historial de ese ambiente con la fecha del día. Mientras no registre otra, FLITO no podrá conectarse a Siigo en ese ambiente.
 5. Al terminar una acción, un aviso en la parte superior le confirma lo que pasó. Las credenciales anteriores están en **Historial de este ambiente (N)**, que se abre y se cierra, con **Usuario**, **Estado**, **Llave**, **Registrada** y **Desactivada**. ![Historial del ambiente de pruebas abierto con una credencial demo anterior inactiva](./siigo_credenciales/04-historial.png)
-6. Si lo que usted necesita son las credenciales del RNDC, vaya al menú **RNDC**, ítem **Credenciales RNDC**. No es esta pantalla.
+6. Si lo que usted necesita son las credenciales del RNDC, vaya a la opción **Kyverum**, subgrupo **RNDC**, ítem **Credenciales RNDC**. No es esta pantalla.
 
 ![Diagrama del ciclo de una credencial por ambiente: sin configurar, registrar y cifrar, activa, probar la conexión, registrar otra al rotar la llave o desactivarla dejándola en el historial](./siigo_credenciales/ciclo-credencial.svg)
 

@@ -11,19 +11,23 @@ import type { NombreIcono } from '../flit/kit/Icono';
 
 export type IconoNav = NombreIcono | `@${string}`;
 
-/** Glifo de cada sección del dock (inyectivo en el dock). */
+/**
+ * Glifo de cada opción del dock (inyectivo en el dock). Épica #14678: sin glifos nuevos; cada opción reutiliza el de
+ * la sección de origen (spec UX §Mapa final): Operaciones ← Gestión (`tramites`), Financiera ← Finanzas (`pesos`),
+ * Gerencial ← Torre (`reportes`), Kyverum = `archivo` (glifo existente), Administración y Ayuda sin cambio. Las áreas
+ * aún sin entradas no se pintan: `documento` provisional hasta que tengan las suyas (se decide entonces).
+ */
 export const ICONO_SECCION: Record<NavItem['section'], NombreIcono> = {
-  general: 'rejilla',
-  torre: 'reportes',
-  gestion: 'tramites',
-  transito: 'radicacion',
-  flota: 'carro',
-  mantenimiento: 'reintento',
-  pesv: 'escudo',
-  rndc: 'fuentes-oficiales',
-  laft: 'identidad',
-  finanzas: 'pesos',
-  admin: 'ajustes',
+  operaciones: 'tramites',
+  financiera: 'pesos',
+  comercial: 'documento',
+  diseno: 'documento',
+  tecnologia: 'documento',
+  infraestructura: 'documento',
+  producto: 'documento',
+  gerencial: 'reportes',
+  kyverum: 'archivo',
+  administracion: 'ajustes',
   ayuda: 'ayuda',
 };
 
@@ -32,7 +36,7 @@ interface MetaRuta { icono: IconoNav; descripcion?: string }
 // Ruta exacta → glifo (y una línea de ayuda opcional bajo el nombre en el panel).
 const META_RUTA: Record<string, MetaRuta> = {
   '/': { icono: 'rejilla' },
-  // Gestión
+  // Operaciones
   '/vehicles': { icono: 'placa', descripcion: 'Placas y RUNT' },
   '/clients': { icono: 'empresas' },
   '/tramite': { icono: '@tramite-traspaso', descripcion: 'Traspasos' },
@@ -45,7 +49,7 @@ const META_RUTA: Record<string, MetaRuta> = {
   '/flito/ruta': { icono: 'marcador' },
   '/flito/soat': { icono: 'vencido' },
   '/flito/impuestos': { icono: 'pesos' },
-  // Tránsito
+  // Kyverum · Tránsito (Organismos STT vive en Administración; su URL no cambia)
   '/transito': { icono: 'radicacion', descripcion: 'Bandeja de tránsito' },
   '/transito/organismos': { icono: 'banco', descripcion: 'Organismos de tránsito' },
   // Flota y Mantenimiento
@@ -93,7 +97,7 @@ const META_RUTA: Record<string, MetaRuta> = {
   '/laft/oficial': { icono: 'persona' },
   '/laft/plan-auditorias': { icono: 'calendario' },
   '/laft/tablero': { icono: 'reportes' },
-  // Finanzas
+  // Financiera
   '/finanzas/reporte-costos': { icono: 'reportes' },
   '/finanzas/gastos-diarios': { icono: 'calendario' },
   '/flito/bolsas': { icono: 'carpeta' },

@@ -160,7 +160,7 @@ test.describe('FLITO — Servicios adicionales · acceso (AC1, AC6)', () => {
 
       await page.goto('/flito/tarifas');
       const nav = page.getByRole('navigation', { name: 'Navegación principal' });
-      await nav.getByRole('button', { name: 'Finanzas', exact: true }).click();
+      await nav.getByRole('button', { name: 'Financiera', exact: true }).click();
       const enlace = nav.getByRole('link', { name: 'Servicios adicionales', exact: true });
       await expect(enlace).toHaveAttribute('href', '/flito/servicios-adicionales');
       const etiquetas = await nav.getByRole('link').allInnerTexts();
@@ -219,7 +219,7 @@ test.describe('FLITO — Servicios adicionales · acceso (AC1, AC6)', () => {
       expect(vistas).toEqual([]);
 
       const nav = page.getByRole('navigation', { name: 'Navegación principal' });
-      const finanzas = nav.getByRole('button', { name: 'Finanzas', exact: true });
+      const finanzas = nav.getByRole('button', { name: 'Financiera', exact: true });
       if (await finanzas.count()) await finanzas.click();
       await expect(nav.getByRole('link', { name: 'Servicios adicionales', exact: true })).toHaveCount(0);
 
@@ -662,7 +662,7 @@ test.describe('FLITO — Servicios adicionales · dar de baja (AC5)', () => {
 test.describe('FLITO — Servicios adicionales · ficha de ayuda (AC7)', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('TC-16 financiera la ve en Finanzas y la abre; el auditor no la ve; el .md sigue la plantilla', async ({ page }) => {
+  test('TC-16 financiera la ve en Financiera y la abre; el auditor no la ve; el .md sigue la plantilla', async ({ page }) => {
     await loginAs(page, FINANCIERA_USER);
     await page.goto('/flito/ayuda');
     await expect(page.getByRole('link', { name: 'Abrir ficha de Servicios adicionales' })).toBeVisible();

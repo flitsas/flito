@@ -21,6 +21,7 @@ description: |
 |---|---|---|
 | Justo después de `create_pull_request` de una **HU o un Bug** | **Modo A** | `Custom.Commits` sección «PR abierta» (HTML) + Discussion breve + hyperlink si se puede |
 | PR de **HU o Bug** **MERGED** a `develop` / `staging` / `release` | **Modo B** | Añadir «Integrado» en `Custom.Commits` **sin borrar** lo previo + `Deploy*` según rama |
+| **PR de Épica:** PR `EPICA/<ID>` (sin Features ni HUs sueltas) | **Modo A en la Épica** | El tipo `Epic` **no tiene** `Custom.Commits` ni `DeployDEV/QA/PDN` ni `Evidences` (verificado con `get_type`, 2026-11-24). La trazabilidad va en `System.History` (Discussion) con el PR, sus AC verificados y su bloque de la Épica; el campo `Custom.*` no se intenta. Modo B: mismo comentario de cierre, sin `Deploy*`. Requiere «sí» humano |
 | **Modo Feature:** PR `FEATURE/<ID>` (un PR, N HUs) | **Modo A / B en lote** | Mismo HTML canónico de `Custom.Commits` escrito en **cada** HU/Bug que el PR cubre (una escritura por WI, un solo PR de referencia); `DeployDEV=true` en todas al MERGED. Es la escritura (b) de «Modo Feature» en `AGENTS.md`; requiere «sí» humano |
 | Ráfaga de merges | Modo B por PR (o consolidado al tip con evidencia de cada SHA) + **una** `devops-agent` M1 al tip | No omitir Commits «por presupuesto de tokens» |
 

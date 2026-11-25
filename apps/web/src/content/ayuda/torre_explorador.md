@@ -46,8 +46,8 @@ consultas:
   - cómo está repartido el trabajo del equipo
   - qué tengo que atender hoy
   - qué cambió frente al periodo anterior
-version: 1.5
-fecha: 2026-11-19
+version: 1.6
+fecha: 2026-11-25
 ---
 ## Qué es
 
@@ -59,7 +59,7 @@ Gerencia general, gerencia comercial, gerencia financiera, el Administrador y el
 
 ## Cómo se entra
 
-Menú **Torre de Control**, ítem **Resumen 360°** (o **Comercial**, **Operativa**, **Productos**, **Logística**, **Financiera** o **Explorador**). Dentro de la Torre, las pestañas de arriba llevan de una página a otra. **Umbrales y alertas** está en el menú **Administración**. La lista de registros de una cifra no es un ítem del menú: se abre desde la cifra.
+Opción **Gerencial** del menú, subgrupo **Torre de Control**, ítem **Resumen 360°** (o **Comercial**, **Operativa**, **Productos**, **Logística**, **Financiera** o **Explorador**). Dentro de la Torre, las pestañas de arriba llevan de una página a otra. **Umbrales y alertas** está en el mismo subgrupo, al final. La lista de registros de una cifra no es un ítem del menú: se abre desde la cifra.
 
 ## Pasos
 

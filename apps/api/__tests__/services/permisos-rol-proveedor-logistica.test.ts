@@ -23,7 +23,7 @@ import { leerMigracion } from '../helpers/base-en-tx.js';
 
 const [[ROL_0298, FILAS_0298]] = bloquesRepartoUnRol(leerMigracion('0299_permisos_rol_proveedor_logistica.sql')) as [[string, string[]]];
 // Lo que el rol ya traía (SOAT) y la rama del menú que comparten las dos páginas.
-const SOAT = ['menu.gestion', 'pagina.flito_soat', 'accion.soat.ver_listado', 'accion.soat.cargar_comprobantes'];
+const SOAT = ['menu.operaciones', 'pagina.flito_soat', 'accion.soat.ver_listado', 'accion.soat.cargar_comprobantes'];
 const ROL = [...SOAT, ...FILAS_0298!];
 
 const P = (servicios: ('soat' | 'logistica')[], activo = true): ProveedorDePermisos => ({ id: 'p-a', activo, servicios });
@@ -66,7 +66,7 @@ describe('funcionesDePermisos — la frontera por servicio en `/me`', () => {
     expect(f.filter(esLogistica)).toEqual([]); // …pero `/me` no las publica
     expect(f).toContain('soat.solicitud.ver');
     expect(f).toContain('pagina.flito_soat');
-    expect(f).toContain('menu.gestion');
+    expect(f).toContain('menu.operaciones');
   });
 
   it('proveedor solo de Logística: sin SOAT; con consola, actas, Mi ruta y viaje a cliente', async () => {
@@ -83,7 +83,7 @@ describe('funcionesDePermisos — la frontera por servicio en `/me`', () => {
     for (const id of [3, 4]) {
       const f = permisos.funcionesDePermisos(await resolver(id));
       expect(f.filter((c) => esSoat(c) || esLogistica(c))).toEqual([]);
-      expect(f).toContain('menu.gestion');
+      expect(f).toContain('menu.operaciones');
     }
   });
 

@@ -15,6 +15,9 @@
 // HU #13589 (P-35..P-37): sin bloque «Permisos que no dependen del menú»; el árbol es solo el del menú y
 // Administración trae «Rendimiento». AC1/AC3/AC4 (panel) → «HU #13589 · panel sin permisos sueltos»; AC2 →
 // aserto en «usuario». Menú, Tablero y /admin/rendimiento → `permisos-rendimiento.spec.ts`.
+//
+// Épica #14678 PR 4 (arquitectura §4.9, AC4): las áreas sin pantallas salen entre Financiera y Gerencial con «Sin
+// pantallas aún» y su línea, sin chevron, marcables y guardables → «Épica #14678 PR 4 · áreas sin pantallas».
 import type { Page, Request } from '@playwright/test';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, ADMIN_USER } from '../helpers/auth';
@@ -23,7 +26,7 @@ import {
   accion, arbolRol, arbolUsuario, codigosDe, elemento, item, opcional, type NodoDef,
 } from '../helpers/arbolPermisos';
 import {
-  COPY_AYUDA_DERIVADA, COPY_ITEM_ANTIGUO, COPY_ITEM_ANTIGUO_OPCIONALES, avisoSinAcciones, explicacionDesmarcado, fraseSinEfecto,
+  COPY_AYUDA_DERIVADA, COPY_EXPLICACION_SIN_PANTALLAS, COPY_FUERA_DE_AREAS, COPY_SIN_PANTALLAS, COPY_ITEM_ANTIGUO, COPY_ITEM_ANTIGUO_OPCIONALES, avisoSinAcciones, explicacionDesmarcado, fraseSinEfecto,
   rotuloOpcional,
 } from '../../src/pages/roles-permisos/arbol';
 import { COPY_SOLO_LECTURA } from '../../src/pages/roles-permisos/CuadroRol';
@@ -59,7 +62,9 @@ const ARBOL: NodoDef[] = [
 ];
 const TODO = codigosDe(ARBOL);
 const TITULO_SUELTOS = 'Permisos que no dependen del menú';
-const ELEMENTOS = ['General', 'Gestión', 'Tránsito', 'PESV', 'Administración', 'Ayuda', 'Perfil'];
+// Épica #14678: primero las opciones del menú, en el orden del catálogo; General, Ayuda y Perfil después, bajo
+// «Fuera de áreas» (el fixture conserva nombres del menú viejo: el panel no los distingue, solo agrupa por código).
+const ELEMENTOS = ['Gestión', 'Tránsito', 'PESV', 'Administración', 'General', 'Ayuda', 'Perfil'];
 
 const GESTOR = [
   'menu.general', 'pagina.dashboard', 'accion.tablero.ver',
@@ -73,10 +78,11 @@ const rol = (codigo: string, nombre: string, usuarios = 0) => ({
 });
 const ROLES = [rol('admin', 'Administrador', 2), rol('gestor_tramites', 'Gestor de trámites', 4), rol('sin_nada', 'Sin nada')];
 
-interface Opciones { put?: (codigo: string, funciones: string[]) => ReturnType<typeof json> }
+interface Opciones { put?: (codigo: string, funciones: string[]) => ReturnType<typeof json>; arbol?: NodoDef[] }
 
 function mockPermisos(page: Page, o: Opciones = {}) {
-  const cuadros: Record<string, string[]> = { admin: [...TODO], gestor_tramites: [...GESTOR], sin_nada: [] };
+  const arbolDef = o.arbol ?? ARBOL;
+  const cuadros: Record<string, string[]> = { admin: [...codigosDe(arbolDef)], gestor_tramites: [...GESTOR], sin_nada: [] };
   const puts: Request[] = [];
   page.route(/\/api\/permisos\/roles$/, (r) => r.fulfill(json({ roles: ROLES })));
   page.route(/\/api\/permisos\/funciones$/, (r) => r.fulfill(json({ grupos: [] })));
@@ -86,7 +92,7 @@ function mockPermisos(page: Page, o: Opciones = {}) {
     const datos = ROLES.find((x) => x.codigo === codigo);
     return r.fulfill(json({
       rol: { codigo, nombre: datos?.nombre ?? codigo, tipoEnlace: 'ninguno' },
-      arbol: arbolRol(ARBOL, marcas),
+      arbol: arbolRol(arbolDef, marcas),
     }));
   });
   page.route(/\/api\/permisos\/roles\/([^/]+)\/funciones$/, (r) => {
@@ -125,6 +131,10 @@ test.describe('HU #13430 · árbol de permisos del rol', () => {
     // AC1: los elementos en el orden del menú, con sus nombres; Ayuda sin casilla ni chevron, con su frase.
     const filas = await page.locator('main li[data-codigo-fila^="menu."]').evaluateAll((els) => els.map((e) => e.getAttribute('data-codigo-fila')));
     expect(filas).toEqual(ELEMENTOS.map((n) => `menu.${n === 'Gestión' ? 'gestion' : n === 'Tránsito' ? 'transito' : n === 'Administración' ? 'administracion' : n.toLowerCase()}`));
+    // El rótulo «Fuera de áreas» va justo antes de General (Épica #14678).
+    const rotulo = page.locator('main li[data-grupo-panel="fuera-de-areas"]');
+    await expect(rotulo).toHaveText(COPY_FUERA_DE_AREAS);
+    expect(await rotulo.evaluate((el) => el.nextElementSibling?.getAttribute('data-codigo-fila'))).toBe('menu.general');
     for (const nombre of ELEMENTOS.filter((n) => n !== 'Ayuda')) {
       await expect(page.getByRole('checkbox', { name: `${nombre} · rol Gestor de trámites`, exact: true })).toBeVisible();
     }
@@ -295,6 +305,29 @@ test.describe('HU #13430 · árbol de permisos del rol', () => {
     await expect(page.getByRole('button', { name: /Marcar todo/ })).toHaveCount(0);
     await expect(page.getByText(/Sin guardar/)).toHaveCount(0);
     expect(puts).toHaveLength(0);
+  });
+
+  test('Épica #14678: un elemento deprecado no se pinta, pero su marca se conserva y el PUT la devuelve', async ({ page }) => {
+    const { puts } = mockPermisos(page);
+    // Registrada después: tiene prioridad sobre la del mock para el árbol del gestor.
+    const conViejo = [...GESTOR, 'menu.finanzas'];
+    await page.route(/\/api\/permisos\/roles\/gestor_tramites\/arbol$/, (r) => r.fulfill(json({
+      rol: { codigo: 'gestor_tramites', nombre: 'Gestor de trámites', tipoEnlace: 'ninguno' },
+      arbol: arbolRol([...ARBOL, elemento('finanzas', 'Finanzas', [], { deprecado: true })], new Set(conViejo)),
+    })));
+    await abrir(page);
+    await botonRol(page, 'Gestor de trámites').click();
+    await expect(page.getByRole('heading', { name: 'Gestor de trámites', level: 2 })).toBeVisible();
+    await expect(fila(page, 'menu.gestion')).toBeVisible();
+    await expect(fila(page, 'menu.finanzas')).toHaveCount(0);
+    await expect(page.getByRole('checkbox', { name: /^Finanzas · / })).toHaveCount(0);
+
+    await casilla(page, 'menu.gestion').click();
+    await page.getByRole('button', { name: 'Guardar cambios' }).click();
+    await expect.poll(() => puts.length).toBe(1);
+    const enviadas = (puts[0].postDataJSON() as { funciones: string[] }).funciones;
+    expect(enviadas).toContain('menu.finanzas');
+    expect(enviadas).toEqual(conViejo.filter((c) => c !== 'menu.gestion').sort());
   });
 
   test('axe (AC8): sin violaciones graves con el árbol desplegado y un parcial', async ({ page }) => {
@@ -519,5 +552,65 @@ test.describe('HU #13430 · excepciones por usuario (AC4)', () => {
       { codigo: 'pagina.organismos', efecto: 'conceder' },
     ]));
     expect(cuerpo.funciones).toHaveLength(3);
+  });
+});
+
+// Épica #14678 PR 4: árbol con las 11 áreas del menú en el orden del catálogo (las cinco sin pantallas, sin hijos) y,
+// fuera de áreas, un elemento sin hijos (Perfil) que NO lleva la marca: la condición es «área sin ítems», no «sin hijos».
+const AREAS_VACIAS = [
+  ['comercial', 'Comercial'], ['diseno', 'Diseño'], ['tecnologia', 'Tecnología'], ['infraestructura', 'Infraestructura'], ['producto', 'Producto'],
+] as const;
+const ARBOL_AREAS: NodoDef[] = [
+  elemento('operaciones', 'Operaciones', [item('flito_soat', 'SOAT', [accion('accion.soat.ver_listado', 'Ver el listado')])]),
+  elemento('financiera', 'Financiera', [item('flito_bolsas', 'Bolsas', [], { legado: true })]),
+  ...AREAS_VACIAS.map(([clave, nombre]) => elemento(clave, nombre, [])),
+  elemento('gerencial', 'Gerencial', [item('dashboard', 'Tablero', [accion('accion.tablero.ver', 'Ver el tablero')])]),
+  elemento('administracion', 'Administración', [item('users', 'Usuarios', [accion('accion.usuarios.ver', 'Ver usuarios')])]),
+  elemento('general', 'General', [item('flito_drflit', 'Dr. Flit', [], { legado: true })]),
+  elemento('ayuda', 'Ayuda', [], { derivado: true }),
+  elemento('perfil', 'Perfil', []),
+];
+
+test.describe('Épica #14678 PR 4 · áreas sin pantallas en el panel de roles (AC4)', () => {
+  test('las cinco entre Financiera y Gerencial con «Sin pantallas aún», sin chevron, marcables; guardar y recargar persiste', async ({ page }) => {
+    const { puts } = mockPermisos(page, { arbol: ARBOL_AREAS });
+    await abrir(page);
+    await botonRol(page, 'Gestor de trámites').click();
+    await expect(page.getByRole('heading', { name: 'Gestor de trámites', level: 2 })).toBeVisible();
+
+    const filas = await page.locator('main li[data-codigo-fila^="menu."]').evaluateAll((els) => els.map((e) => e.getAttribute('data-codigo-fila')));
+    const desdeFinanciera = filas.slice(filas.indexOf('menu.financiera'), filas.indexOf('menu.gerencial') + 1);
+    expect(desdeFinanciera).toEqual(['menu.financiera', ...AREAS_VACIAS.map(([c]) => `menu.${c}`), 'menu.gerencial']);
+
+    for (const [clave, nombre] of AREAS_VACIAS) {
+      const f = fila(page, `menu.${clave}`);
+      await expect(f).toContainText(COPY_SIN_PANTALLAS);
+      await expect(f.locator('[data-aviso="sin-pantallas"]')).toHaveText(COPY_EXPLICACION_SIN_PANTALLAS);
+      await expect(desplegar(page, nombre)).toHaveCount(0);
+      const c = casilla(page, `menu.${clave}`);
+      await expect(c).toBeEnabled();
+      await expect(c).not.toBeChecked();
+      await expect(c).not.toHaveAttribute('aria-checked', /.*/);
+      // La casilla se describe con la explicación y con la marca.
+      await expect(c).toHaveAccessibleDescription(new RegExp(`${COPY_EXPLICACION_SIN_PANTALLAS.slice(0, 30)}.*${COPY_SIN_PANTALLAS}`));
+    }
+    // Las áreas con ítems conservan «k de n»; Perfil (fuera de áreas, sin hijos) no lleva la marca.
+    await expect(fila(page, 'menu.financiera')).not.toContainText(COPY_SIN_PANTALLAS);
+    await expect(fila(page, 'menu.perfil')).toHaveCount(1);
+    await expect(fila(page, 'menu.perfil')).not.toContainText(COPY_SIN_PANTALLAS);
+    await expect(fila(page, 'menu.perfil').locator('[data-aviso="sin-pantallas"]')).toHaveCount(0);
+
+    await casilla(page, 'menu.comercial').click();
+    await expect(casilla(page, 'menu.comercial')).toBeChecked();
+    await page.getByRole('button', { name: 'Guardar cambios' }).click();
+    await expect(page.getByText('Permisos de Gestor de trámites guardados: cada usuario los verá en su siguiente acción.')).toBeVisible();
+    expect(puts).toHaveLength(1);
+    expect((puts[0].postDataJSON() as { funciones: string[] }).funciones).toContain('menu.comercial');
+
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Roles y permisos', level: 1 })).toBeVisible();
+    await botonRol(page, 'Gestor de trámites').click();
+    await expect(casilla(page, 'menu.comercial')).toBeChecked();
+    await expect(fila(page, 'menu.comercial')).toContainText(COPY_SIN_PANTALLAS);
   });
 });

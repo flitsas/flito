@@ -18,6 +18,7 @@ import {
 import { SUELTAS_INCORPORADAS_13588 } from '../../src/modules/permisos/arbol/expansion.js';
 import { NOMBRES_LEGADO } from '../../src/modules/permisos/catalogo-operaciones.legado.js';
 import { MIGRACIONES_CON_REPARTO, leerRepartoSembrado } from '../helpers/permisos-seed-sql.js';
+import { ELEMENTOS_AREAS_VACIAS_14678, ELEMENTOS_NUEVOS_14678, PADRE_ANTES_DE_AREAS } from '../../src/modules/permisos/arbol/menu-por-areas.js';
 
 const PESV_CON_ADMINISTRAR = ITEMS_LEGADO.filter((i) => i.acciones.length > 0);
 
@@ -31,7 +32,8 @@ describe('AC1 / TC-02 y TC-03 — los ítems antiguos en el nivel 2', () => {
       expect(i.acciones.map((a) => a.clave)).toEqual(['administrar']);
     }
     // Los 5 PESV sin operaciones siguen puros.
-    expect(ITEMS_LEGADO.filter((i) => i.elemento === 'pesv' && i.acciones.length === 0).map((i) => i.slug).sort())
+    // Épica #14678: PESV cuelga ahora de Kyverum, con el resto del legado.
+    expect(ITEMS_LEGADO.filter((i) => i.elemento === 'kyverum' && i.slug.startsWith('pesv') && i.acciones.length === 0).map((i) => i.slug).sort())
       .toEqual(['pesv', 'pesv_indicadores_operacion', 'pesv_mi_jornada', 'pesv_reportar_incidente', 'pesv_siniestralidad']);
   });
 
@@ -97,7 +99,7 @@ describe('AC3 / TC-07 — se retiran los 43 transitorios; `siigo.conceptos.admin
       expect(codigos.has(t), t).toBe(false);
       expect(CODIGOS_ABSORBIDOS.has(t), t).toBe(true);
     }
-    expect(expandir(['menu.finanzas', 'pagina.siigo_parametrizacion', 'accion.facturacion_parametrizacion.mapeo_conceptos'])
+    expect(expandir(['menu.financiera', 'pagina.siigo_parametrizacion', 'accion.facturacion_parametrizacion.mapeo_conceptos'])
       .has('siigo.conceptos.administrar')).toBe(true);
   });
 });
@@ -112,7 +114,8 @@ const SUELTAS = new Set(SUELTAS_INCORPORADAS_13588);
 /** Operaciones y páginas (los `menu.*` y `accion.*` son contenedores, no acceso por sí mismos). */
 const acceso = (s: Set<string>) => new Set([...s].filter((c) => !c.startsWith('menu.') && !c.startsWith('accion.') && !SUELTAS.has(c)));
 const hoy = (rol: string) => acceso(expandirSinCadena(ANTES.get(rol) ?? []));
-const manana = (rol: string) => acceso(expandir(DESPUES.get(rol) ?? []));
+// Épica #14678: «mañana» es el resolutor de la 0239, con su árbol (antes del menú por áreas de la 0315).
+const manana = (rol: string) => acceso(expandir(DESPUES.get(rol) ?? [], [], PADRE_ANTES_DE_AREAS));
 
 const PESV_SIN = (...fuera: string[]) => FAMILIA_ADMINISTRACION_PESV.filter((c) => !fuera.includes(c));
 const LIDER_TENIA = [
@@ -170,7 +173,10 @@ describe('AC3 / TC-08 y TC-25 — paridad con el gating: nadie pierde; solo se g
   it('el rol que tenía todo tiene todo: admin, con todos los elementos y todas las acciones «Administrar»', () => {
     const admin = DESPUES.get('admin')!;
     for (const i of PESV_CON_ADMINISTRAR) expect(admin.has(`accion.${i.slug}.administrar`), i.slug).toBe(true);
-    for (const e of catalogoCompleto().filter((f) => f.tipo === 'elemento')) expect(admin.has(e.codigo), e.codigo).toBe(true);
+    // Los cuatro de la 0315 y las cinco áreas vacías de la 0316 (Épica #14678) aún no existían en la 0239; las cinco,
+    // además, no se le marcan a `admin` (decisión de David del 2026-11-25).
+    const posteriores = [...ELEMENTOS_NUEVOS_14678, ...ELEMENTOS_AREAS_VACIAS_14678];
+    for (const e of catalogoCompleto().filter((f) => f.tipo === 'elemento' && !posteriores.includes(f.codigo))) expect(admin.has(e.codigo), e.codigo).toBe(true);
   });
 });
 

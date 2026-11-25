@@ -32,15 +32,48 @@ type NodoEntrada = NodoArbolDef & { hijos?: readonly NodoEntrada[]; efectivo?: b
 /** Ayuda no se marca nunca (derivada): el `PUT` con `menu.ayuda` daría 400. */
 export const CODIGO_AYUDA = 'menu.ayuda';
 
-/** Copia el árbol del API en la forma que pinta el panel, ordenado por `orden` entre hermanos. */
+/**
+ * Copia el árbol del API en la forma que pinta el panel, ordenado por `orden` entre hermanos. Épica #14678 (ADR-0048):
+ * los elementos `deprecado` (el menú viejo por dominios) no se pintan. El API los sigue devolviendo sin hijos; sus
+ * marcas no se tocan: `marcadosDelApi` las conserva en el borrador y el `PUT` las devuelve tal cual (expand → contract).
+ */
 export function normalizar(nodos: readonly NodoEntrada[] | undefined): Nodo[] {
   return [...(nodos ?? [])]
+    .filter((n) => !n.deprecado)
     .sort((a, b) => a.orden - b.orden)
     .map((n) => ({
       codigo: n.codigo, nombre: n.nombre, tipo: n.tipo, padre: n.padre, orden: n.orden,
       descripcion: n.descripcion, slug: n.slug, legado: n.legado, derivado: n.derivado, nivel: n.nivel,
-      opcional: n.opcional, exclusivaAdmin: n.exclusivaAdmin, efectivoServidor: n.efectivo, hijos: normalizar(n.hijos),
+      opcional: n.opcional, exclusivaAdmin: n.exclusivaAdmin, deprecado: n.deprecado, efectivoServidor: n.efectivo, hijos: normalizar(n.hijos),
     }));
+}
+
+/**
+ * Épica #14678: General (Dr. Flit), Ayuda y Perfil no son opciones del menú por áreas. El panel los pinta después de
+ * las opciones, bajo el rótulo «Fuera de áreas»; el resto conserva el orden del catálogo (el del menú).
+ */
+export const ELEMENTOS_FUERA_DE_AREAS: ReadonlySet<string> = new Set(['menu.general', CODIGO_AYUDA, 'menu.perfil']);
+export const COPY_FUERA_DE_AREAS = 'Fuera de áreas';
+
+/**
+ * Épica #14678, PR 4: las áreas sin pantallas (Comercial, Diseño, Tecnología, Infraestructura, Producto) son elementos
+ * marcables sin hijos. Llevan «Sin pantallas aún» en vez de «k de n» y una línea que dice qué hace marcarlas. Solo las
+ * del grupo de áreas: un elemento de «Fuera de áreas» sin hijos no la lleva. Con su primer ítem, la marca desaparece.
+ */
+export const COPY_SIN_PANTALLAS = 'Sin pantallas aún';
+export const COPY_EXPLICACION_SIN_PANTALLAS =
+  'Al marcarla, el área aparece en el menú con el aviso «Próximamente». No da acceso a ninguna pantalla.';
+export const elementoSinPantallas = (n: Nodo): boolean =>
+  n.tipo === 'elemento' && !n.derivado && !n.deprecado && n.hijos.length === 0 && !ELEMENTOS_FUERA_DE_AREAS.has(n.codigo);
+
+export interface GruposDelPanel { areas: Nodo[]; fuera: Nodo[] }
+
+/** Los elementos del panel en sus dos grupos de presentación (sin reordenar dentro de cada uno). */
+export function gruposDelPanel(arbol: readonly Nodo[]): GruposDelPanel {
+  return {
+    areas: arbol.filter((n) => !ELEMENTOS_FUERA_DE_AREAS.has(n.codigo)),
+    fuera: arbol.filter((n) => ELEMENTOS_FUERA_DE_AREAS.has(n.codigo)),
+  };
 }
 
 /** Los códigos que el API trae marcados (`marcado`), sin derivados. */

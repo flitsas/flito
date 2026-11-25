@@ -8,6 +8,9 @@ import ModalPortal from '../flit/ModalPortal';
 import { Icono } from '../flit/kit/Icono';
 import { IconoGlifo } from '../flit/kit/IconoGlifo';
 import { iconoDeRuta } from './iconosNav';
+import { groupOf } from './sectionMeta';
+import { useNavSections } from './useNavSections';
+import { COPY_MENU_ERROR, useEstadoMenu } from './useEstadoMenu';
 
 interface Props {
   open: boolean;
@@ -39,14 +42,19 @@ export default function CommandPalette({ open, onClose }: Props) {
   const optionId = (idx: number): string => `${listboxId}-opt-${idx}`;
 
   const allowed = useMemo(() => effectivePages(user), [user]);
+  // Épica #14678 (spec UX §4): si `/permisos/mios` falló, la paleta no lista entradas (fail-closed, como el dock y el
+  // menú lateral): muestra el mismo «No se pudo cargar el menú.» con «Reintentar». Sin toast: es un estado persistente.
+  const { grouped: opciones } = useNavSections();
+  const menu = useEstadoMenu(opciones);
+  const conError = menu.estado === 'error';
   // En el orden del menú (SECTION_ORDER, sort estable): «Ayuda» va al final, como en la barra y el
   // drawer (HU #13431), aunque su ítem se declare antes en NAV_ITEMS. Enter y el índice activo leen
   // esta misma lista, así que lo pintado y lo ejecutado no se desalinean.
   const items = useMemo(
-    () => NAV_ITEMS
+    () => (conError ? [] : NAV_ITEMS
       .filter((it) => navItemPermitido(it, user, allowed, funciones))
-      .sort((a, b) => SECTION_ORDER.indexOf(a.section) - SECTION_ORDER.indexOf(b.section)),
-    [allowed, user, funciones],
+      .sort((a, b) => SECTION_ORDER.indexOf(a.section) - SECTION_ORDER.indexOf(b.section))),
+    [allowed, user, funciones, conError],
   );
 
   const filtered = useMemo<NavItem[]>(() => {
@@ -70,6 +78,14 @@ export default function CommandPalette({ open, onClose }: Props) {
     });
     return Array.from(map.entries());
   }, [filtered]);
+
+  // Épica #14678 (spec UX §5): sin consulta el grupo ya dice la opción, así que el subtítulo es el subgrupo («RNDC»,
+  // «Torre de Control») o nada; con consulta los resultados se mezclan, y dice «Opción · subgrupo» (o solo la opción).
+  const subtitulo = (it: NavItem): string | null => {
+    const sub = groupOf(it);
+    if (!query.trim()) return sub;
+    return sub ? `${SECTION_LABEL[it.section]} · ${sub}` : SECTION_LABEL[it.section];
+  };
 
   // Reset al abrir.
   useEffect(() => {
@@ -195,7 +211,16 @@ export default function CommandPalette({ open, onClose }: Props) {
           className="resultados overflow-y-auto px-4 pb-2 sm:px-6"
           style={{ maxHeight: 'min(52vh, 28rem)' }}
         >
-          {filtered.length === 0 ? (
+          {conError ? (
+            <div className="kit-vacio !py-8">
+              <img src="/kit/aviso-error.svg" alt="" aria-hidden="true" width={40} height={40} />
+              <p role="alert">{COPY_MENU_ERROR}</p>
+              <button type="button" className="btn secondary transition-colors" aria-busy={menu.reintentando || undefined}
+                onClick={menu.reintentar}>
+                Reintentar
+              </button>
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="kit-vacio !py-8">
               <Icono nombre="buscar" disco size={72} />
               <p>No encontramos nada con «{query}». Prueba con el nombre de un módulo.</p>
@@ -224,7 +249,7 @@ export default function CommandPalette({ open, onClose }: Props) {
                       className="resultado text-left transition-colors"
                     >
                       <span className="kico !h-8 !w-8" aria-hidden="true"><IconoGlifo icono={iconoDeRuta(it.to)} /></span>
-                      <span className="min-w-0"><strong className="truncate">{it.label}</strong><small>{SECTION_LABEL[section]}</small></span>
+                      <span className="min-w-0"><strong className="truncate">{it.label}</strong>{subtitulo(it) && <small>{subtitulo(it)}</small>}</span>
                     </button>
                   );
                 })}
@@ -233,6 +258,8 @@ export default function CommandPalette({ open, onClose }: Props) {
           )}
         </div>
 
+        {/* Con el menú en error no hay nada que navegar ni contar: sin pie. */}
+        {!conError && (
         <div className="flex h-10 items-center justify-between border-t border-[color:var(--color-divider)] px-6 text-xs text-[color:var(--color-text-tertiary)]">
           <span className="hidden items-center gap-3 sm:flex">
             <span><kbd className="flit-shell-kbd rounded px-1.5 py-0.5">↑↓</kbd> navegar</span>
@@ -242,6 +269,7 @@ export default function CommandPalette({ open, onClose }: Props) {
             {filtered.length} {filtered.length === 1 ? 'resultado' : 'resultados'}
           </span>
         </div>
+        )}
       </div>
     </div>
     </ModalPortal>

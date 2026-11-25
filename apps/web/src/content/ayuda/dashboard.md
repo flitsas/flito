@@ -12,8 +12,8 @@ consultas:
   - qué veo al iniciar sesión
   - por qué mi inicio no muestra indicadores
   - dónde veo los documentos por vencer
-version: 1.2
-fecha: 2026-11-17
+version: 1.3
+fecha: 2026-11-25
 ---
 ## Qué es
 
@@ -25,7 +25,7 @@ Quien tenga el ítem **Tablero de control** en **Roles y permisos**. De partida 
 
 ## Cómo se entra
 
-Es lo primero que ve al iniciar sesión. Para volver a él, abra el menú **General** y pulse **Tablero de control**.
+Es lo primero que ve al iniciar sesión. Para volver a él, abra la opción **Gerencial** del menú y pulse **Tablero**, el primer ítem.
 
 > [!NOTA]
 > Si su usuario también tiene el Tablero FLITO, al entrar a FLITO verá ese tablero en lugar del Panel operativo. Para saber cómo se usa, consulte la ficha [Tablero](/flito/ayuda/flito_tablero).
