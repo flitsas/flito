@@ -8,6 +8,9 @@
 //   · P-24, alternativa A1 (David, 2026-10-13): los 20 ítems PESV con operaciones llevan UNA acción de nivel 3,
 //     «Administrar», que absorbe sus transitorios. El ítem da la pantalla y la acción, la administración: así
 //     el conductor conserva sus pantallas sin ganar la administración. Los 5 PESV sin operaciones siguen puros.
+// Épica #14678 (ADR-0048): los ítems antiguos cuelgan de Kyverum (Vehículos, de Operaciones; Privacidad y Drive, de
+// Administración). SOAT y Lector de impuestos antiguos y Mantenimiento (general) no tienen entrada de menú: van con
+// su familia legacy en Kyverum.
 import type { NodoArbolDef } from './index.js';
 import { itemsANodos, type AccionDef, type ItemDef } from './nodos.js';
 
@@ -23,18 +26,20 @@ function items(elemento: string, desde: number, defs: Def[]): ItemDef[] {
   }));
 }
 
-/** Los ítems antiguos, por elemento y en el orden del menú (después de los ítems FLITO del mismo elemento). */
+/**
+ * Los ítems antiguos, por elemento y en el orden del menú (después de los ítems FLITO del mismo elemento).
+ * Épica #14678 (ADR-0048): los módulos legacy cuelgan de Kyverum, en el orden de su riel (Tránsito, Flota,
+ * Mantenimiento, PESV, RNDC, LAFT, Trámites); Vehículos va a Operaciones; Privacidad y Drive siguen en Administración.
+ */
 export const ITEMS_LEGADO: readonly ItemDef[] = [
-  ...items('gestion', 110, [
-    ['vehicles', 'Vehículos'], ['tramite', 'Trámite Digital'], ['soat', 'SOAT (antiguo)'], ['tax_reader', 'Lector de impuestos (antiguo)'],
-  ]),
-  ...items('transito', 20, [['transito', 'Bandeja de trámites']]),
-  ...items('flota', 10, [['fleet', 'Flota']]),
-  ...items('mantenimiento', 10, [
+  ...items('operaciones', 110, [['vehicles', 'Vehículos']]),
+  ...items('kyverum', 10, [['transito', 'Bandeja de trámites']]),
+  ...items('kyverum', 20, [['fleet', 'Flota']]),
+  ...items('kyverum', 30, [
     ['maintenance_inicio', 'Mantenimiento'], ['maintenance_ordenes', 'Órdenes de trabajo'],
     ['maintenance_indicadores', 'Indicadores mant.'], ['maintenance', 'Mantenimiento (general)'],
   ]),
-  ...items('pesv', 10, [
+  ...items('kyverum', 70, [
     ['pesv', 'Tablero PESV'], ['pesv_conductores', 'Conductores', true], ['pesv_capacitaciones', 'Capacitaciones', true],
     ['pesv_incidentes', 'Incidentes', true], ['pesv_siniestralidad', 'Estadística siniestros'], ['pesv_checklists', 'Checklists', true],
     ['pesv_alcoholimetria', 'Alcoholimetría', true], ['pesv_emergencias', 'Emergencias', true],
@@ -46,12 +51,14 @@ export const ITEMS_LEGADO: readonly ItemDef[] = [
     ['pesv_pernocta', 'Zonas de pernocta', true], ['pesv_raci', 'Matriz RACI', true], ['pesv_normativa', 'Tracker normativo', true],
     ['pesv_retencion', 'Retención documental', true],
   ]),
-  ...items('rndc', 10, [['rndc', 'RNDC'], ['rndc_admin', 'Credenciales RNDC']]),
-  ...items('laft', 10, [
+  ...items('kyverum', 320, [['rndc', 'RNDC'], ['rndc_admin', 'Credenciales RNDC']]),
+  ...items('kyverum', 340, [
     ['laft', 'Cumplimiento LAFT'], ['laft_unusual', 'Operaciones inusuales'], ['laft_trainings', 'Capacitaciones LAFT'],
     ['laft_manual', 'Manual SARLAFT'], ['laft_oficial', 'Oficial cumplimiento'], ['laft_audit_plan', 'Plan de auditorías'],
     ['laft_dashboard', 'Tablero LAFT'],
   ]),
+  // Trámites: Trámite Digital (entrada del menú) y, sin entrada propia, SOAT y Lector de impuestos antiguos (P-28).
+  ...items('kyverum', 410, [['tramite', 'Trámite Digital'], ['soat', 'SOAT (antiguo)'], ['tax_reader', 'Lector de impuestos (antiguo)']]),
   ...items('administracion', 40, [['privacy', 'Privacidad y datos'], ['drive', 'Google Drive']]),
 ];
 

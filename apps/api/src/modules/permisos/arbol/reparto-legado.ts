@@ -11,6 +11,7 @@ import { ACCIONES_POR_AREA, expandirComoEn13429, expandirSinCadena } from './exp
 import { TRANSITORIOS_RETIRADOS } from './acciones-legado.js';
 import { repartirPorTodos, type FilasReparto } from './reparto-arbol.js';
 import { cadenaDelArbol, paresLegado } from './sql-legado.js';
+import { PADRE_ANTES_DE_AREAS } from './menu-por-areas.js';
 
 const clave = (a: string | number, b: string) => `${a}\u0000${b}`;
 
@@ -77,7 +78,7 @@ function efectivoDe(rolCodigos: Iterable<string>, propias: FilaUsuarioEnSeco[], 
   const revocados = propias.filter((f) => f.efecto === 'revocar').map((f) => f.codigo);
   for (const r of revocados) m.delete(r);
   // HU #13588: «mañana» es el resolutor de la #13429, con las 5 sueltas aún transversales (su paso es la 0240).
-  return acceso(cadena ? expandirComoEn13429(m, revocados) : expandirSinCadena(m, revocados));
+  return acceso(cadena ? expandirComoEn13429(m, revocados, PADRE_ANTES_DE_AREAS) : expandirSinCadena(m, revocados)); // Épica #14678: el árbol de la 0239
 }
 
 const TRANSITORIOS = new Set(TRANSITORIOS_RETIRADOS);

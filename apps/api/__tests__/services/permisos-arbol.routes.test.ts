@@ -55,14 +55,18 @@ describe('AC1 / TC-01 — GET /arbol: la estructura del árbol sin marcas', () =
     expect(r.status).toBe(200);
     const arbol = r.body.arbol as NodoArbolDef[];
     const raices = arbol.filter((n) => n.padre === null).sort((a, b) => a.orden - b.orden).map((n) => n.codigo);
-    expect(raices).toEqual(['menu.general', 'menu.gestion', 'menu.transito', 'menu.flota', 'menu.mantenimiento', 'menu.pesv',
-      'menu.rndc', 'menu.laft', 'menu.finanzas', 'menu.administracion', 'menu.ayuda', 'menu.perfil']);
+    // Épica #14678 (ADR-0048): las cuatro opciones por áreas primero (orden 1-4); los ocho de antes, deprecados.
+    expect(raices).toEqual(['menu.operaciones', 'menu.financiera', 'menu.gerencial', 'menu.kyverum', 'menu.general', 'menu.gestion',
+      'menu.transito', 'menu.flota', 'menu.mantenimiento', 'menu.pesv', 'menu.rndc', 'menu.laft', 'menu.finanzas', 'menu.administracion',
+      'menu.ayuda', 'menu.perfil']);
+    expect(arbol.filter((n) => n.deprecado).map((n) => n.codigo).sort()).toEqual(['menu.finanzas', 'menu.flota', 'menu.gestion', 'menu.laft',
+      'menu.mantenimiento', 'menu.pesv', 'menu.rndc', 'menu.transito']);
     const por = new Map(arbol.map((n) => [n.codigo, n]));
     expect(por.get('menu.ayuda')).toMatchObject({ derivado: true, nivel: 1 });
-    expect(por.get('pagina.flito_soat')).toMatchObject({ tipo: 'item', padre: 'menu.gestion', nivel: 2 });
+    expect(por.get('pagina.flito_soat')).toMatchObject({ tipo: 'item', padre: 'menu.operaciones', nivel: 2 });
     expect(por.get('accion.soat.exportar_pago')).toMatchObject({ tipo: 'accion', padre: 'accion.soat.exportar', nivel: 4 });
     expect(por.get('vehicles.propietario.ver_documento')).toMatchObject({ tipo: 'operacion', opcional: true, padre: 'pagina.vehicles', nivel: 3 });
-    expect(por.get('pagina.fleet')).toMatchObject({ tipo: 'item', legado: true, padre: 'menu.flota' });
+    expect(por.get('pagina.fleet')).toMatchObject({ tipo: 'item', legado: true, padre: 'menu.kyverum' });
     // TC-03: los ítems antiguos no tienen nivel 3, salvo «Administrar» en los PESV con operaciones (A1).
     const accionesBajoAntiguos = arbol.filter((n) => n.tipo === 'accion' && por.get(n.padre!)?.legado).map((n) => n.codigo);
     expect(accionesBajoAntiguos.every((c) => /^accion\.pesv_[a-z_]+\.administrar$/.test(c))).toBe(true);
@@ -80,13 +84,13 @@ describe('AC1, AC4, AC5, AC6 — GET /roles/:codigo/arbol', () => {
   };
 
   it('TC-01: marcado y efectivo por nodo, anidado en `hijos` y ordenado', async () => {
-    const r = await pedir(['menu.gestion', 'pagina.flito_soat', 'accion.soat.exportar']);
+    const r = await pedir(['menu.operaciones', 'pagina.flito_soat', 'accion.soat.exportar']);
     expect(r.status).toBe(200);
     expect(r.body.rol).toEqual({ codigo: 'rol_a', nombre: 'Rol A', tipoEnlace: 'ninguno' });
     const arbol = r.body.arbol as NodoArbolRol[];
     expect(buscar(arbol, 'accion.soat.exportar')).toMatchObject({ marcado: true, efectivo: true });
     expect(buscar(arbol, 'accion.soat.exportar_pago')).toMatchObject({ marcado: false, efectivo: false });
-    expect(buscar(arbol, 'menu.gestion')!.hijos.map((h) => h.codigo)).toContain('pagina.flito_soat');
+    expect(buscar(arbol, 'menu.operaciones')!.hijos.map((h) => h.codigo)).toContain('pagina.flito_soat');
     expect(buscar(arbol, 'menu.ayuda')).toMatchObject({ derivado: true, marcado: false });
   });
 

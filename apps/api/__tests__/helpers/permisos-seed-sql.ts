@@ -94,6 +94,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0308_flito_torre_productos.sql', // Épica #14590 (B3): ítem «Torre · Productos» + ver (los roles que ven Operativa) y su umbral
   '0309_flito_torre_logistica.sql', // Épica #14590 (B4): ítem «Torre · Logística» + ver (el reparto de Productos) y su umbral
   '0310_flito_torre_equipo.sql', // Épica #14590 (B5): acción «Ver la operación del equipo» (solo gerencia_general y admin)
+  '0315_flito_menu_por_areas.sql', // Épica #14678 (ADR-0048): menú por áreas — 4 elementos nuevos, re-padre y su elemento al rol
 ] as const;
 
 /**
@@ -212,6 +213,15 @@ function bloquesDelete(sql: string, tabla: string): string[] {
 function bloquesUpdateModulo(sql: string): string[] {
   const re = /UPDATE permisos_funciones AS f\s+SET modulo = v\.modulo\s+FROM \(VALUES([\s\S]*?)\) AS v\(codigo, modulo\)\s+WHERE f\.codigo = v\.codigo\s+AND f\.modulo IS DISTINCT FROM v\.modulo\s*;/g;
   return [...sinComentariosSql(sql).matchAll(re)].map((m) => m[1]!);
+}
+
+/**
+ * Épica #14678 (0315) — El mapa `tmp_menu_areas_<n> (pagina, viejo, nuevo, orden)`: la página, el elemento del que
+ * colgaba y el nuevo. `null` si el archivo no lo trae.
+ */
+export function menuPorAreasDeSql(sql: string): [string, string, string, string][] | null {
+  const m = /INSERT INTO tmp_menu_areas_\d+ \(pagina, viejo, nuevo, orden\) VALUES([\s\S]*?);/.exec(sinComentariosSql(sql));
+  return m ? tuplas(m[1]!).map(([p, v, n, o]) => [p!, v!, n!, o!]) : null;
 }
 
 const literales = (texto: string): string[] =>
@@ -346,6 +356,17 @@ export function repartoDeSql(sqls: readonly string[], nombre = 'sql'): Map<strin
         for (const [codigo, item] of leg.cadena) if (codigos.has(codigo)) codigos.add(item);
         for (const [codigo, , elemento] of leg.cadena) if (codigos.has(codigo)) codigos.add(elemento);
         for (const [fn] of leg.legado) codigos.delete(fn);
+      }
+    }
+    // Épica #14678 (0315): el elemento nuevo a quien tenía la página efectiva (página y elemento viejo), y fuera la
+    // marca dormida que el elemento nuevo despertaría (pasos 4a y 6; en el mundo plano no hay dormidas).
+    const areas = menuPorAreasDeSql(sql);
+    if (areas) {
+      for (const codigos of reparto.values()) {
+        const antes = new Set(codigos);
+        for (const [p, v, n] of areas) if (antes.has(p) && antes.has(v)) codigos.add(n);
+        // N1: también si lo marcado ahora es el elemento de antes (`menu.administracion`, viejo y nuevo a la vez).
+        for (const [p, v, n] of areas) if (codigos.has(p) && (codigos.has(n) || codigos.has(v)) && !(antes.has(p) && antes.has(v))) codigos.delete(p);
       }
     }
   }

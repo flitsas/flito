@@ -31,9 +31,9 @@ const AREA = ACCIONES_POR_AREA.administracion;
 const ANEXO = `
 Administración → Usuarios: Ver usuarios · Crear usuario · Editar usuario · Cambiar la contraseña de otro usuario · Desactivar o reactivar · Dar de baja (eliminar) · Ver el historial · Exportar a Excel · Cerrar sesiones
 Administración → Roles y permisos: Ver roles · Crear rol · Editar rol · Asignar permisos · Eliminar rol
-Gestión → Clientes y proveedores: Ver clientes y proveedores · Crear y editar clientes · Crear y editar proveedores · Habilitar o revocar la autogestión del cliente · Elegir proveedor de SOAT sin trámite · Datos fiscales · Activar o desactivar clientes · Eliminar clientes · Activar o desactivar proveedores · Eliminar proveedores
-Gestión → Bitácora: Ver la bitácora
-General → Tablero: Ver (solo ver)
+Operaciones → Clientes y proveedores: Ver clientes y proveedores · Crear y editar clientes · Crear y editar proveedores · Habilitar o revocar la autogestión del cliente · Elegir proveedor de SOAT sin trámite · Datos fiscales · Activar o desactivar clientes · Eliminar clientes · Activar o desactivar proveedores · Eliminar proveedores
+Operaciones → Bitácora: Ver la bitácora
+Gerencial → Tablero: Ver (solo ver)
 Perfil → Perfil: Ver mis datos · Cambiar mi contraseña
 `.trim().split('\n');
 
@@ -75,7 +75,7 @@ describe('AC1 — el catálogo es exactamente la lista aprobada', () => {
     const cat = new Set(catalogoCompleto().map((f) => f.codigo));
     expect(cat.has('pagina.flito_ayuda')).toBe(false);
     expect(cat.has('pagina.flito_tablero')).toBe(false);
-    expect(expandir(['menu.general', 'pagina.dashboard', 'accion.dashboard.ver']).has('pagina.flito_tablero')).toBe(true); // HU #13429: con su cadena
+    expect(expandir(['menu.gerencial', 'pagina.dashboard', 'accion.dashboard.ver']).has('pagina.flito_tablero')).toBe(true); // Épica #14678: Tablero en Gerencial // HU #13429: con su cadena
   });
 });
 

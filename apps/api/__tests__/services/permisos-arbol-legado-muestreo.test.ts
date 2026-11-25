@@ -66,7 +66,7 @@ describe('AC2 / TC-05 — ítem antiguo: 200 con el ítem y su elemento, 403 sin
   });
 
   it('P-24 A1: el ítem PESV solo no administra; con «Administrar» sí', async () => {
-    fijar({ 1: ['menu.pesv', 'pagina.pesv_plan'], 2: ['menu.pesv', 'pagina.pesv_plan', 'accion.pesv_plan.administrar'] });
+    fijar({ 1: ['menu.kyverum', 'pagina.pesv_plan'], 2: ['menu.kyverum', 'pagina.pesv_plan', 'accion.pesv_plan.administrar'] }); // Épica #14678
     expect((await request(lab).post('/pesv-plan').set('x-sub', '1')).status).toBe(403);
     expect((await request(lab).post('/pesv-plan').set('x-sub', '2')).status).toBe(200);
   });

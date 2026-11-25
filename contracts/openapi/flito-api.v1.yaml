@@ -79579,6 +79579,8 @@ paths:
                           type: boolean
                         derivado:
                           type: boolean
+                        deprecado:
+                          type: boolean
                         exclusivaAdmin:
                           type: boolean
                         nivel:
@@ -80621,6 +80623,8 @@ paths:
                         legado:
                           type: boolean
                         derivado:
+                          type: boolean
+                        deprecado:
                           type: boolean
                         exclusivaAdmin:
                           type: boolean
@@ -120703,6 +120707,8 @@ paths:
                             - torre_logistica
                             - flito_ayuda
                         derivado:
+                          type: boolean
+                        deprecado:
                           type: boolean
                         opcional:
                           type: boolean

@@ -50,10 +50,11 @@ async function jwt(sub: number, rol: string): Promise<string> {
 
 describe('AC1 — `vehicles.vehiculos.consultar` llega con su ítem, sin casilla propia', () => {
   it.each([
-    ['Vehículos', ['menu.gestion', 'pagina.vehicles']],
-    ['SOAT (antiguo)', ['menu.gestion', 'pagina.soat']],
-    ['Flota (decisión del 2026-10-15: «si está en varios módulos, en cada uno»)', ['menu.flota', 'pagina.fleet']],
-    ['Trámite Digital', ['menu.gestion', 'pagina.tramite']],
+    // Épica #14678 (ADR-0048): con el árbol de hoy — Vehículos en Operaciones; SOAT antiguo, Flota y Trámite en Kyverum.
+    ['Vehículos', ['menu.operaciones', 'pagina.vehicles']],
+    ['SOAT (antiguo)', ['menu.kyverum', 'pagina.soat']],
+    ['Flota (decisión del 2026-10-15: «si está en varios módulos, en cada uno»)', ['menu.kyverum', 'pagina.fleet']],
+    ['Trámite Digital', ['menu.kyverum', 'pagina.tramite']],
   ])('rol con solo %s + cadena → la tiene', (_n, marcados) => {
     expect(expandir(marcados).has(VEH)).toBe(true);
   });
@@ -72,12 +73,12 @@ describe('AC1 — `vehicles.vehiculos.consultar` llega con su ítem, sin casilla
 
 describe('AC2 — Trámite Digital trae las búsquedas RUNT y Fasecolda', () => {
   it('rol con solo Trámite Digital + cadena → las tres', () => {
-    const e = expandir(['menu.gestion', 'pagina.tramite']);
+    const e = expandir(['menu.kyverum', 'pagina.tramite']);
     for (const b of BUSQUEDAS) expect(e.has(b), b).toBe(true);
   });
 
   it('ningún otro ítem las da: Vehículos, SOAT y Flota no', () => {
-    const e = expandir(['menu.gestion', 'pagina.vehicles', 'pagina.soat', 'menu.flota', 'pagina.fleet']);
+    const e = expandir(['menu.operaciones', 'pagina.vehicles', 'menu.kyverum', 'pagina.soat', 'pagina.fleet']);
     for (const b of BUSQUEDAS) expect(e.has(b), b).toBe(false);
     for (const b of BUSQUEDAS) expect(alternativasDe(b).map((a) => a[0]), b).toEqual(['pagina.tramite']);
   });
@@ -108,7 +109,7 @@ describe('AC3 — una fila directa heredada ya no da nada (fallo cerrado)', () =
 
 describe('AC4 — la excepción de usuario que revoca el ítem se lleva la operación', () => {
   it('rol con «Vehículos» + revocar `pagina.vehicles` → sin `vehicles.vehiculos.consultar`', () => {
-    const delRol = ['menu.gestion', 'pagina.vehicles'];
+    const delRol = ['menu.operaciones', 'pagina.vehicles'];
     expect(expandir(delRol).has(VEH)).toBe(true);
     const m = delRol.filter((c) => c !== 'pagina.vehicles');
     expect(expandir(m, ['pagina.vehicles']).has(VEH)).toBe(false);
@@ -116,7 +117,7 @@ describe('AC4 — la excepción de usuario que revoca el ítem se lleva la opera
 
   it('por HTTP: el mismo usuario recibe 403 en el listado de vehículos', async () => {
     await registrarUsuarioDePrueba(9202, {
-      rol: 'gestor_vehiculos', tipoEnlace: 'ninguno', funcionesDelRol: ['menu.gestion', 'pagina.vehicles'],
+      rol: 'gestor_vehiculos', tipoEnlace: 'ninguno', funcionesDelRol: ['menu.operaciones', 'pagina.vehicles'],
       excepciones: [{ codigo: 'pagina.vehicles', efecto: 'revocar' }],
     });
     const r = await request(app).get('/api/vehicles').set('Authorization', await jwt(9202, 'gestor_vehiculos'));
