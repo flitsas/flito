@@ -10,7 +10,7 @@
 // si esa casilla está inactiva, al ancestro desmarcado más alto (el que hay que tocar).
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { ancestroFaltante, type Indice, type Nodo, type TratoExclusivas } from './arbol';
+import { COPY_FUERA_DE_AREAS, ancestroFaltante, gruposDelPanel, type Indice, type Nodo, type TratoExclusivas } from './arbol';
 import { ArbolCtx, type ContextoArbol, type ModoArbol } from './contextoArbol';
 import { FilaNodo } from './NodoArbol';
 
@@ -76,10 +76,20 @@ export default function ArbolPermisos({
     cerrados, notaCerrado, exclusivas,
   }), [indice, marcados, modo, editable, usarEfectivoServidor, abiertos, alternarAbierto, onToggle, onConjunto, registrarInput, idBase, cerrados, notaCerrado, exclusivas]);
 
+  // Épica #14678: las opciones del menú primero; General, Ayuda y Perfil después, bajo «Fuera de áreas».
+  const { areas, fuera } = useMemo(() => gruposDelPanel(arbol), [arbol]);
+
   return (
     <ArbolCtx.Provider value={ctx}>
       <ul role="list" className="flex min-w-0 flex-col">
-        {arbol.map((n) => <FilaNodo key={n.codigo} nodo={n} />)}
+        {areas.map((n) => <FilaNodo key={n.codigo} nodo={n} />)}
+        {fuera.length > 0 && (
+          <li className="border-t px-2 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide sm:px-3"
+            style={{ borderColor: 'var(--color-border)', color: 'var(--color-text-tertiary)' }} data-grupo-panel="fuera-de-areas">
+            {COPY_FUERA_DE_AREAS}
+          </li>
+        )}
+        {fuera.map((n) => <FilaNodo key={n.codigo} nodo={n} />)}
       </ul>
     </ArbolCtx.Provider>
   );
