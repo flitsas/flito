@@ -14,12 +14,13 @@
 // Habeas Data: el candidato NO lleva datos de persona (ni propietario, ni cédula, ni teléfono): llaves
 // del vehículo, tipo, empresa y estados. Ningún log de aquí lleva una llave leída.
 
-import { desc, eq, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, or, sql, type SQL } from 'drizzle-orm';
 import {
   CampoComprobante, CONCEPTOS_COSTO, ConceptoCosto, CruceComprobante, MotivoPendienteComprobante,
   type AdmisionConcepto, type CandidatoTramiteDto, type ExtraccionComprobante,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
+import { TRAMITE_VIVO } from '../../shared/tramite-vigente.js';
 import {
   clients, flitoComprobantes, flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones, flitoSoat, flitoTramites, vehicles,
 } from '../../db/schema.js';
@@ -217,7 +218,9 @@ export async function candidatosPorLlave(llaves: LlavesLeidas): Promise<Hallazgo
     const valor = valorDe(llaves, tipo);
     if (!valor || !valor.trim()) continue;
     hayLlave = true;
-    const filas = await consultaCandidatos().where(condicionLlave(tipo, valor)).orderBy(desc(flitoTramites.createdAt));
+    // Épica #14707 (D10): un trámite muerto no es candidato (ni por placa, VIN ni radicado).
+    const filas = await consultaCandidatos().where(and(condicionLlave(tipo, valor), TRAMITE_VIVO()))
+      .orderBy(desc(flitoTramites.createdAt), desc(flitoTramites.id));
     if (filas.length > 0) return { candidatos: (filas as FilaCandidato[]).map(aCandidato), cruce: tipo, hayLlave };
   }
   return { candidatos: [], cruce: null, hayLlave };
@@ -225,8 +228,8 @@ export async function candidatosPorLlave(llaves: LlavesLeidas): Promise<Hallazgo
 
 /** El buscador manual (`POST /tramites/buscar`): la misma forma y el mismo `admite`, tope 20, más recientes primero. */
 export async function candidatosPorTexto(buscar: string): Promise<CandidatoTramiteDto[]> {
-  const filas = await consultaCandidatos().where(condicionBusqueda(buscar))
-    .orderBy(desc(flitoTramites.createdAt)).limit(MAX_CANDIDATOS_BUSQUEDA);
+  const filas = await consultaCandidatos().where(and(condicionBusqueda(buscar), TRAMITE_VIVO()))
+    .orderBy(desc(flitoTramites.createdAt), desc(flitoTramites.id)).limit(MAX_CANDIDATOS_BUSQUEDA);
   return (filas as FilaCandidato[]).slice(0, MAX_CANDIDATOS_BUSQUEDA).map(aCandidato);
 }
 

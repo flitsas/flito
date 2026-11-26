@@ -145,7 +145,8 @@ describe('AC1 — las tres patas, en una sola consulta paginada', () => {
     const pagina = await consultarBandeja({ ambiente: 'pruebas', ahora: AHORA });
     const item = pagina.items[0]!;
 
-    expect(item.tramites).toEqual([{ tramiteId: TRAMITE, idFlit: 'FLIT-9001' }]);
+    // Épica #14707 (D8): con su vigencia para el chip («vigente» sin estado de muerte).
+    expect(item.tramites).toEqual([{ tramiteId: TRAMITE, idFlit: 'FLIT-9001', vigenciaTramite: 'vigente' }]);
     expect(item.clienteId).toBe(7);
     expect(item.clienteNombre).toBe('Transportes del Norte SAS');
     expect(item.ocurridoEn).toBe(HACE_TRES_DIAS.toISOString());

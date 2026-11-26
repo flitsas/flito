@@ -189,6 +189,8 @@ const NUEVAS = ['soatConciliado', 'boletaReferencia', 'soatConciliadoEn'] as con
 const FILA_BASE = {
   tramiteId: 'aaaa1111-2222-4333-8444-555566667777', idFlit: 'FLIT-1',
   placa: 'ABC123', estado: 'Aprobado', empresa: 'ACME', tipoTramite: 'Traspaso',
+  // Épica #14707 (decisión cerrada 6): toda fila trae su vigencia (vivo → «vigente»; el revocado lleva su chip).
+  vigenciaTramite: 'vigente',
   vin: 'VIN1', marca: 'RENAULT', linea: 'LOGAN',
   fechaAprobacion: '2026-07-14T15:30:00.000Z',
   fechaCreacion: '2026-07-01T00:00:00.000Z',

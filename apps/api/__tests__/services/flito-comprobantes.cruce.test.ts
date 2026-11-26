@@ -124,6 +124,9 @@ afterEach(() => { fijarFuenteDePermisos(fuenteDePrueba); });
 
 // ═════════════════ AC2 · prioridad id_flit > vin > placa; igualdad normalizada; D8 ══════════════
 
+/** Épica #14707 (D10): el predicado del trámite vivo que acompaña a toda búsqueda de candidatos. */
+const VIVO = ` and "flito_tramites"."estado" IS DISTINCT FROM 'anulado')`;
+
 describe('AC2 — candidatosPorLlave: prioridad, normalización y D8', () => {
   it('idFlit «FLIT-ARHZZ1» que no existe y placa «XYZ789» que sí → el cruce se fija por PLACA (la llave que da 0 no bloquea a la siguiente)', async () => {
     kdb.when.selectOnce(T_TRAM, []).selectOnce(T_TRAM, [fila({ idFlit: 'FLIT-XYZ', placa: 'XYZ789' })]);
@@ -134,9 +137,10 @@ describe('AC2 — candidatosPorLlave: prioridad, normalización y D8', () => {
     // Dos consultas: primero id_flit (0 filas), luego placa; el vin vacío se salta.
     const qs = condicionesTramites();
     expect(qs).toHaveLength(2);
-    expect(qs[0]!.sql).toBe('UPPER("flito_tramites"."id_flit") = $1');
+    // Épica #14707 (D10): cada llave va con el predicado del trámite vivo.
+    expect(qs[0]!.sql).toBe(`(UPPER("flito_tramites"."id_flit") = $1${VIVO}`);
     expect(qs[0]!.params).toEqual(['FLIT-ARHZZ1']);
-    expect(qs[1]!.sql).toBe('UPPER(REPLACE("vehicles"."plate", \'-\', \'\')) = $1');
+    expect(qs[1]!.sql).toBe(`(UPPER(REPLACE("vehicles"."plate", '-', '')) = $1${VIVO}`);
     expect(qs[1]!.params).toEqual(['XYZ789']); // sin guion y en mayúsculas
   });
 
@@ -155,7 +159,7 @@ describe('AC2 — candidatosPorLlave: prioridad, normalización y D8', () => {
     expect(h.cruce).toBe('vin');
     const qs = condicionesTramites();
     expect(qs).toHaveLength(1);
-    expect(qs[0]!.sql).toBe('UPPER("vehicles"."vin") = $1');
+    expect(qs[0]!.sql).toBe(`(UPPER("vehicles"."vin") = $1${VIVO}`);
     expect(qs[0]!.params).toEqual(['1HGCM82633A004352']);
   });
 
@@ -404,7 +408,7 @@ describe('AC5 — GET /:id devuelve candidatos; POST /tramites/buscar por body',
     expect(JSON.stringify(res.body)).not.toContain('Juan');
     // El predicado: contención normalizada en id_flit / placa (sin guion) / vin; la llave no viaja en la URL.
     const q = condicionesTramites().at(-1)!;
-    expect(q.sql).toBe('(UPPER("flito_tramites"."id_flit") LIKE $1 or UPPER(REPLACE("vehicles"."plate", \'-\', \'\')) LIKE $2 or UPPER("vehicles"."vin") LIKE $3)');
+    expect(q.sql).toBe(`((UPPER("flito_tramites"."id_flit") LIKE $1 or UPPER(REPLACE("vehicles"."plate", '-', '')) LIKE $2 or UPPER("vehicles"."vin") LIKE $3)${VIVO}`);
     expect(q.params).toEqual(['%ABC-12%', '%ABC12%', '%ABC-12%']);
     expect(renderizar(condicionBusqueda('flit')).params).toEqual(['%FLIT%', '%FLIT%', '%FLIT%']);
   });

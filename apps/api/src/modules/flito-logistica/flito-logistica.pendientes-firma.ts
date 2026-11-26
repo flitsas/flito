@@ -27,6 +27,8 @@ export function condicionPendientesFirma(ctx: LogisticaCtx): SQL {
     eq(D.tipo, LT), eq(D.actaOrganismoPendiente, true), sql`${D.recogidaFirmanteId} IS NULL`,
     inArray(D.estado, [...ESTADOS_CONFIRMABLES]),
     sql`NOT EXISTS (select 1 from flito_logistica_acta_lineas l where l.documento_id = ${D.id} and l.punto = 'organismo')`,
+    // Épica #14707: la LT de un trámite muerto ya no espera firma (sin trámite: sigue pendiente).
+    sql`NOT EXISTS (select 1 from flito_tramites t where t.id = ${D.tramiteId} and t.estado = 'anulado')`,
   )!;
   if (ctx.operaAjenas) return base;
   // Propia = la escaneó este usuario (primer evento del documento, el de la recogida), igual que en confirmarRecogida.

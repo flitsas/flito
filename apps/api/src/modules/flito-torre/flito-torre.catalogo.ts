@@ -22,7 +22,7 @@
 // RN-TOR-L1: costo e ingreso excluyen las liquidaciones de trámites anulados/abortados/revocados (`LIQUIDACION_VIGENTE`).
 import { sql, type SQL } from 'drizzle-orm';
 import {
-  esFechaBasePermitida, fechaBasePorDefecto, type ColumnaDetalleId, type FechaBaseTorre, type MetricaTorreId,
+  MOTIVOS_DESCARTE, esFechaBasePermitida, fechaBasePorDefecto, type ColumnaDetalleId, type FechaBaseTorre, type MetricaTorreId,
 } from '@operaciones/shared-types';
 import {
   flitoDerechosTramite, flitoImpuestos, flitoLiquidaciones, flitoSoat, flitoSoportes, flitoTramiteHistorial, flitoTramites,
@@ -37,6 +37,7 @@ import {
   FECHA_DERECHO_CREACION, FECHA_DERECHO_PAGO, FECHA_IMPUESTO_CREACION, FECHA_IMPUESTO_PAGO, FECHA_SOAT_CREACION, FECHA_SOAT_PAGO,
 } from './flito-torre.productos-sql.js';
 import { TorreConsultaInvalidaError } from './flito-torre.service.js';
+import { TRAMITE_VIVO } from '../../shared/tramite-vigente.js';
 
 export type FormaMetrica = 'conteo' | 'suma' | 'tasa' | 'tiempo';
 
@@ -121,14 +122,27 @@ export const ESTADOS_FLIT_CERRADOS = ['aprobado', 'anulado', 'abortado', 'rechaz
 export const EN_CURSO = sql`(${T.fechaAprobacion} IS NULL
   AND COALESCE(lower(${T.flitEstado}), '') NOT IN ${[...ESTADOS_FLIT_CERRADOS]})`;
 
-/** RN-TOR-L1: estados de FLIT cuya liquidación no se suma. «Rechazado» NO está (decisión L-β). */
-export const ESTADOS_FLIT_ANULADOS = ['anulado', 'abortado', 'revocado'] as const;
+/**
+ * RN-TOR-L1: estados de FLIT cuya liquidación no se suma. «Rechazado» NO está (decisión L-β). Épica #14707: son los
+ * motivos de un trámite muerto (`MOTIVOS_DESCARTE`, shared-types), la misma lista que decide la vigencia.
+ */
+export const ESTADOS_FLIT_ANULADOS = MOTIVOS_DESCARTE;
 
 /**
- * RN-TOR-L1: el fragmento ÚNICO de «liquidación vigente». El `COALESCE` es obligatorio: sin él un `flit_estado` nulo
- * daría `NULL` y la liquidación se excluiría por error. Exige `flito_tramites` en el `FROM`.
+ * RN-TOR-L1: el fragmento ÚNICO de «liquidación vigente». Épica #14707 (ADR-0049 §1): se apoya en el predicado
+ * compartido del trámite vivo (`flito_tramites.estado IS DISTINCT FROM 'anulado'`; FLIT 1 mapea Abortado/Revocado a
+ * `anulado` desde la 0318) y conserva el corte por `flit_estado` crudo, para una fila que aún no se haya resincronizado.
+ * El `COALESCE` es obligatorio: sin él un `flit_estado` nulo daría `NULL`. Exige `flito_tramites` en el `FROM`.
  */
-export const LIQUIDACION_VIGENTE = sql`COALESCE(lower(${T.flitEstado}), '') NOT IN ${[...ESTADOS_FLIT_ANULADOS]}`;
+export const LIQUIDACION_VIGENTE = sql`(${TRAMITE_VIVO()} AND COALESCE(lower(${T.flitEstado}), '') NOT IN ${[...ESTADOS_FLIT_ANULADOS]})`;
+/** Épica #14707: un trámite muerto no se cuenta en los conteos de trámites (sí sigue en `wip`, que ya lo excluye). */
+const VIVO = TRAMITE_VIVO();
+/**
+ * Épica #14707: un SOAT/impuesto `descartado` no existe en FLITO, ni en los conteos ni en las SUMAS de lo pagado: el
+ * descarte conserva `pagado_en` y `valor_pagado` (D3a, D5), así que filtrar solo por la fecha de pago lo sumaría.
+ */
+export const SOAT_NO_DESCARTADO = sql`${flitoSoat.estado} <> 'descartado'`;
+export const IMPUESTO_NO_DESCARTADO = sql`${flitoImpuestos.estado} <> 'descartado'`;
 
 /** El trámite está en una factura de Siigo activa. */
 export const FACTURADO = sql`EXISTS (SELECT 1 FROM ${SF}
@@ -208,14 +222,15 @@ export const CATALOGO_SQL: Record<MetricaTorreId, DefMetricaSql> = {
   // RN-TOR-M13: métrica neutra del constructor. `tramites`+creación ≡ `tramites_creados`; `tramites`+aprobación ≡
   // `tramites_aprobados` (sin mirar `flit_estado`, RN-TOR-M1: «siguen en Aprobado» es el filtro `flitEstados`).
   tramites: {
-    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [], forma: 'conteo',
+    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [VIVO], forma: 'conteo',
     fechas: { creacion: POR_CREACION, aprobacion: POR_APROBACION, facturacion: POR_FACTURACION },
   },
   tramites_creados: {
-    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [], forma: 'conteo', fechas: { creacion: POR_CREACION },
+    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [VIVO], forma: 'conteo', fechas: { creacion: POR_CREACION },
   },
+  // Con `VIVO` también aquí para que siga valiendo RN-TOR-M13 (`tramites`+aprobación ≡ `tramites_aprobados`).
   tramites_aprobados: {
-    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [], forma: 'conteo', fechas: { aprobacion: POR_APROBACION },
+    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [VIVO], forma: 'conteo', fechas: { aprobacion: POR_APROBACION },
   },
   tiempo_creacion_aprobacion: {
     desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [], forma: 'tiempo', valor: HORAS_CICLO,
@@ -230,7 +245,7 @@ export const CATALOGO_SQL: Record<MetricaTorreId, DefMetricaSql> = {
   impuestos_pagados: {
     desde: sql`${flitoImpuestos} LEFT JOIN ${T} ON ${T.id} = ${flitoImpuestos.tramiteId}`,
     dims: { compania: flitoImpuestos.companiaId, organismo: flitoImpuestos.organismoCodigo, tipoTramite: T.tipoTramite, flitEstado: T.flitEstado },
-    fijas: [], forma: 'suma', valor: sql`COALESCE(${flitoImpuestos.valorPagado}, 0)`,
+    fijas: [IMPUESTO_NO_DESCARTADO], forma: 'suma', valor: sql`COALESCE(${flitoImpuestos.valorPagado}, 0)`,
     fechas: { pago: { fecha: { expr: flitoImpuestos.pagadoEn }, campoFecha: 'pagado_en', fijas: [sql`${flitoImpuestos.pagadoEn} IS NOT NULL`] } },
   },
   derechos_pagados: {
@@ -258,25 +273,25 @@ export const CATALOGO_SQL: Record<MetricaTorreId, DefMetricaSql> = {
     campoFoto: 'último cambio de estado',
   },
   tasa_aprobacion: {
-    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [], forma: 'tasa', valor: APROBADO, fechas: { creacion: POR_CREACION },
+    desde: DESDE_TRAMITES, dims: DIMS_TRAMITE, fijas: [VIVO], forma: 'tasa', valor: APROBADO, fechas: { creacion: POR_CREACION },
   },
   // RN-TOR-L1: es un CONTEO de trámites (no suma la liquidación), así que no lleva `LIQUIDACION_VIGENTE`.
   sin_facturar: {
-    desde: DESDE_TRAMITES_LIQ, dims: DIMS_TRAMITE, fijas: [sql`NOT ${FACTURADO}`], forma: 'conteo',
+    desde: DESDE_TRAMITES_LIQ, dims: DIMS_TRAMITE, fijas: [sql`NOT ${FACTURADO}`, VIVO], forma: 'conteo',
     fechas: { aprobacion: POR_APROBACION },
   },
   // B3 (Productos), RN-TOR-M15: sin fecha base nueva (decisión del humano): creación del registro o pago. El SOAT se ve
   // con su PRIMER trámite (RN-TOR-P1); impuesto y derecho, con el suyo (LEFT JOIN, como `impuestos_pagados`).
   soat_gestionados: {
-    desde: DESDE_SOAT, dims: DIMS_SOAT, fijas: [], forma: 'conteo', colsDetalle: COLS_SOAT,
+    desde: DESDE_SOAT, dims: DIMS_SOAT, fijas: [SOAT_NO_DESCARTADO], forma: 'conteo', colsDetalle: COLS_SOAT,
     fechas: { creacion: PRODUCTO_CREACION(FECHA_SOAT_CREACION, 'flito_soat.created_at'), pago: PRODUCTO_PAGO(FECHA_SOAT_PAGO, 'pagado_en') },
   },
   soat_pagados_valor: {
-    desde: DESDE_SOAT, dims: DIMS_SOAT, fijas: [], forma: 'suma', valor: sql`COALESCE(${flitoSoat.valorPagado}, 0)`, colsDetalle: COLS_SOAT,
+    desde: DESDE_SOAT, dims: DIMS_SOAT, fijas: [SOAT_NO_DESCARTADO], forma: 'suma', valor: sql`COALESCE(${flitoSoat.valorPagado}, 0)`, colsDetalle: COLS_SOAT,
     fechas: { pago: PRODUCTO_PAGO(FECHA_SOAT_PAGO, 'pagado_en') },
   },
   impuestos_gestionados: {
-    desde: DESDE_IMPUESTOS, dims: DIMS_IMPUESTO, fijas: [], forma: 'conteo', colsDetalle: COLS_IMPUESTO,
+    desde: DESDE_IMPUESTOS, dims: DIMS_IMPUESTO, fijas: [IMPUESTO_NO_DESCARTADO], forma: 'conteo', colsDetalle: COLS_IMPUESTO,
     fechas: { creacion: PRODUCTO_CREACION(FECHA_IMPUESTO_CREACION, 'flito_impuestos.created_at'), pago: PRODUCTO_PAGO(FECHA_IMPUESTO_PAGO, 'pagado_en') },
   },
   derechos_registrados: {

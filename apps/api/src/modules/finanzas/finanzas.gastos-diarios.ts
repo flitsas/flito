@@ -29,6 +29,7 @@ import {
 } from '../../db/schema.js';
 import { createdInRangeCondition, hoyColombia, parseFechaQuery } from '../../shared/utils/fecha-rango.js';
 import { TASA_GMF } from '../flito-liquidacion/flito-liquidacion.service.js';
+import { sumaEnFinanzasPorTramite, TRAMITE_SUMA_EN_FINANZAS } from '../../shared/tramite-vigente.js';
 import {
   claveEmpresa, EXPR_LOGISTICA_ESTIMADA, indiceEmpresas, JOIN_EXC_LOGISTICA, JOIN_LG, lg,
   type EmpresaMaestro,
@@ -154,6 +155,7 @@ export function ensamblarDerecho<Q extends PgSelect>(q: Q, r: RangoDias, empresa
       sql`${flitoDerechosTramite.valor} IS NOT NULL`,
       sql`${flitoDerechosTramite.fechaPago} BETWEEN ${r.desde}::date AND ${r.hasta}::date`,
       deEmpresas(flitoDerechosTramite.tramiteId, empresas),
+      sumaEnFinanzasPorTramite(flitoDerechosTramite.tramiteId), // Épica #14707: anulado/abortado fuera; revocado suma
     ))
     .groupBy(DIA_DERECHO);
 }
@@ -164,6 +166,7 @@ export function ensamblarServicios<Q extends PgSelect>(q: Q, r: RangoDias, empre
     .where(and(
       enRango(flitoTramiteServiciosAdicionales.asignadoEn, r),
       deEmpresas(flitoTramiteServiciosAdicionales.tramiteId, empresas),
+      sumaEnFinanzasPorTramite(flitoTramiteServiciosAdicionales.tramiteId),
     ))
     .groupBy(DIA_SERVICIOS);
 }
@@ -186,6 +189,7 @@ export function ensamblarLogistica<Q extends PgSelect>(q: Q, r: RangoDias, empre
       sql`${flitoTramites.fechaAprobacion} IS NOT NULL`,
       enRango(flitoTramites.fechaAprobacion, r),
       empresas?.length ? inArray(flitoTramites.companiaNit, empresas) : undefined,
+      TRAMITE_SUMA_EN_FINANZAS(),
     ))
     .groupBy(DIA_LOGISTICA);
 }

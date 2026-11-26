@@ -42,6 +42,7 @@ import {
 import { guiaParaCodigo, esReintentable } from './siigo.errors.js';
 import { redactarPIIEnTextoLibre } from './siigo.redaccion.js';
 import { OPERACION_ENCOLAR } from './siigo.freno.service.js';
+import { vigenciaTramite } from '@operaciones/shared-types';
 import type { SiigoAmbiente } from './credenciales.service.js';
 
 /** El hito que marca «esto se dio por perdido». Ya estaba declarado, esperando a esta historia. */
@@ -444,6 +445,7 @@ async function cargar(casos: FilaCaso[]): Promise<Cargas> {
     tramiteId: siigoFacturaTramites.tramiteId,
     idFlit: flitoTramites.idFlit,
     companiaId: flitoTramites.companiaId,
+    estado: flitoTramites.estado, flitEstado: flitoTramites.flitEstado, // Épica #14707: vigencia (chip «Revocado»)
   }).from(siigoFacturaTramites)
     .innerJoin(flitoTramites, eq(flitoTramites.id, siigoFacturaTramites.tramiteId))
     .where(inArray(siigoFacturaTramites.facturaId, facturaIds));
@@ -512,15 +514,17 @@ export async function nombreDeClienteDeFactura(facturaId: string): Promise<strin
   return empresa?.name ?? null;
 }
 
-interface Vinculo {
+export interface Vinculo {
   facturaId: string; tramiteId: string; idFlit: string | null; companiaId: number | null;
+  estado?: string | null; flitEstado?: string | null;
 }
 
-function agruparTramites(vinculos: Vinculo[]): Map<string, SiigoBandejaTramite[]> {
+/** Exportada para el test (Épica #14707: la vigencia de cada trámite). */
+export function agruparTramites(vinculos: Vinculo[]): Map<string, SiigoBandejaTramite[]> {
   const salida = new Map<string, SiigoBandejaTramite[]>();
   for (const v of vinculos) {
     const lista = salida.get(String(v.facturaId)) ?? [];
-    lista.push({ tramiteId: String(v.tramiteId), idFlit: v.idFlit ?? null });
+    lista.push({ tramiteId: String(v.tramiteId), idFlit: v.idFlit ?? null, vigenciaTramite: vigenciaTramite(v.estado, v.flitEstado) });
     salida.set(String(v.facturaId), lista);
   }
   return salida;

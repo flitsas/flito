@@ -8,7 +8,8 @@
 
 import { and, count, eq, inArray, isNotNull, notInArray, sql, type SQL } from 'drizzle-orm';
 import { ANS_OPERATIVO,
-  ALERTAS_OPERATIVAS, EstadoImpuesto, EstadoSoat, ESTADOS_TRAMITE_FLITO_TERMINADOS, FlujoRevision,
+  ALERTAS_OPERATIVAS, EstadoImpuesto, EstadoSoat, ESTADOS_IMPUESTO_OPERATIVOS, ESTADOS_SOAT_OPERATIVOS,
+  ESTADOS_TRAMITE_FLITO_TERMINADOS, FlujoRevision,
   type AlertaOperativa,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
@@ -65,8 +66,10 @@ async function contarAlertas(porCompania?: SQL): Promise<Record<AlertaOperativa,
 async function contarSoat(porCompania?: SQL): Promise<Record<string, number>> {
   const filas = await db.select({ estado: flitoSoat.estado, total: count() })
     .from(flitoSoat).innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
-    .where(and(eq(clients.soatAutogestionable, false), porCompania)).groupBy(flitoSoat.estado);
-  const r = Object.fromEntries(Object.values(EstadoSoat).map((e) => [e, 0]));
+    .where(and(eq(clients.soatAutogestionable, false), inArray(flitoSoat.estado, [...ESTADOS_SOAT_OPERATIVOS]), porCompania))
+    .groupBy(flitoSoat.estado);
+  // Épica #14707: `descartado` (trámite muerto) no existe en FLITO, ni como clave del conteo.
+  const r = Object.fromEntries(ESTADOS_SOAT_OPERATIVOS.map((e) => [e, 0]));
   for (const f of filas) r[f.estado] = Number(f.total);
   return r;
 }
@@ -74,8 +77,9 @@ async function contarSoat(porCompania?: SQL): Promise<Record<string, number>> {
 async function contarImpuestos(porCompania?: SQL): Promise<Record<string, number>> {
   const filas = await db.select({ estado: flitoImpuestos.estado, total: count() })
     .from(flitoImpuestos).innerJoin(clients, eq(flitoImpuestos.companiaId, clients.id))
-    .where(and(eq(clients.impuestosAutogestionable, false), porCompania)).groupBy(flitoImpuestos.estado);
-  const r = Object.fromEntries(Object.values(EstadoImpuesto).map((e) => [e, 0]));
+    .where(and(eq(clients.impuestosAutogestionable, false), inArray(flitoImpuestos.estado, [...ESTADOS_IMPUESTO_OPERATIVOS]), porCompania))
+    .groupBy(flitoImpuestos.estado);
+  const r = Object.fromEntries(ESTADOS_IMPUESTO_OPERATIVOS.map((e) => [e, 0]));
   for (const f of filas) r[f.estado] = Number(f.total);
   return r;
 }

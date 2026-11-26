@@ -8,8 +8,16 @@
 //     trámites (D3b). `descartado` (su trámite murió en FLIT) → 409 `TRAMITE_NO_VIGENTE` en toda acción de avance.
 //   · Red de seguridad: el trigger FL409 de la 0318 impide salir de `descartado` aunque una acción olvide el guard.
 //   · Este archivo NO importa `flito-soat.service.ts` (sin ciclos).
+import { sql, type SQL } from 'drizzle-orm';
 import { EstadoSoat, ESTADO_SOAT_LABEL, type MotivoDescarte } from '@operaciones/shared-types';
+import { flitoSoat } from '../../db/schema.js';
 import { exigirRegistroVigente } from '../../shared/tramite-vigente.js';
+
+/**
+ * Épica #14707 (diseño §7): lecturas que listan «todos» los SOAT (cola, conteo, facetas, export, ZIP) no cuentan un
+ * `descartado`: su trámite ya no existe en FLITO. Función: cada consulta recibe su propio nodo SQL.
+ */
+export const SOAT_NO_DESCARTADO = (): SQL => sql`${flitoSoat.estado} <> 'descartado'`;
 
 export class SoatError extends Error {
   constructor(public status: number, message: string, public codigo?: string) { super(message); }

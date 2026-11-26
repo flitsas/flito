@@ -75,7 +75,8 @@ const ESTADO_IMPUESTO = { estado: sql`${I.estado}::text` };
 
 export const CONJUNTOS_PRODUCTOS_SQL: Record<ConjuntoProductoId, ConjuntoSql> = {
   // ── SOAT ──
-  soat_por_estado: conjunto('soat_por_estado', SOAT, 'soat_creacion', () => [], {
+  // Épica #14707: un SOAT/impuesto `descartado` no existe en FLITO (sin cubo propio ni pagado sumado).
+  soat_por_estado: conjunto('soat_por_estado', SOAT, 'soat_creacion', () => [sql`${S.estado} <> 'descartado'`], {
     fecha: FECHA_SOAT_CREACION, campoFecha: 'flito_soat.created_at', dimensiones: ESTADO_SOAT,
   }),
   soat_por_vencer: conjunto('soat_por_vencer', SOAT, 'soat_foto', (u) => [SOAT_PAGADO,
@@ -85,7 +86,7 @@ export const CONJUNTOS_PRODUCTOS_SQL: Record<ConjuntoProductoId, ConjuntoSql> = 
   }),
   soat_vigencia_no_verificada: conjunto('soat_vigencia_no_verificada', SOAT, 'soat_foto',
     () => [SOAT_PAGADO, sql`${S.estadoVigencia} = 'no_verificado'`], { campoFecha: 'estado_vigencia' }),
-  soat_pagados_periodo: conjunto('soat_pagados_periodo', SOAT, 'soat_pago', () => [sql`${S.pagadoEn} IS NOT NULL`], {
+  soat_pagados_periodo: conjunto('soat_pagados_periodo', SOAT, 'soat_pago', () => [sql`${S.pagadoEn} IS NOT NULL`, sql`${S.estado} <> 'descartado'`], {
     fecha: FECHA_SOAT_PAGO, campoFecha: 'pagado_en',
   }),
   soat_incompletas_abiertas: conjunto('soat_incompletas_abiertas', {
@@ -95,7 +96,7 @@ export const CONJUNTOS_PRODUCTOS_SQL: Record<ConjuntoProductoId, ConjuntoSql> = 
       campoFecha: 'estado actual', dimensiones: { motivo: claveMotivo(flitoSoatIncompletas.motivoPendiente) },
     }),
   // ── Impuestos ──
-  impuestos_por_estado: conjunto('impuestos_por_estado', IMPUESTO, 'impuesto_creacion', () => [], {
+  impuestos_por_estado: conjunto('impuestos_por_estado', IMPUESTO, 'impuesto_creacion', () => [sql`${I.estado} <> 'descartado'`], {
     fecha: FECHA_IMPUESTO_CREACION, campoFecha: 'flito_impuestos.created_at', dimensiones: ESTADO_IMPUESTO,
   }),
   impuestos_rechazados_periodo: conjunto('impuestos_rechazados_periodo', IMPUESTO, 'impuesto_creacion',
@@ -103,11 +104,11 @@ export const CONJUNTOS_PRODUCTOS_SQL: Record<ConjuntoProductoId, ConjuntoSql> = 
       fecha: FECHA_IMPUESTO_CREACION, campoFecha: 'flito_impuestos.created_at', dimensiones: { motivo: claveMotivo(I.motivoRechazo) },
     }),
   impuestos_con_diferencia: conjunto('impuestos_con_diferencia', IMPUESTO, 'impuesto_creacion',
-    () => [sql`${I.marcadoPorDiferencia} = true`], { fecha: FECHA_IMPUESTO_CREACION, campoFecha: 'flito_impuestos.created_at' }),
+    () => [sql`${I.marcadoPorDiferencia} = true`, sql`${I.estado} <> 'descartado'`], { fecha: FECHA_IMPUESTO_CREACION, campoFecha: 'flito_impuestos.created_at' }),
   impuestos_direccion_pendiente: conjunto('impuestos_direccion_pendiente', IMPUESTO, 'impuesto_foto',
-    () => [sql`${I.direccionPendienteRevision} = true`], { campoFecha: 'estado actual' }),
+    () => [sql`${I.direccionPendienteRevision} = true`, sql`${I.estado} <> 'descartado'`], { campoFecha: 'estado actual' }),
   // RN-TOR-P6.
-  impuestos_pagados_periodo: conjunto('impuestos_pagados_periodo', IMPUESTO, 'impuesto_pago', () => [sql`${I.pagadoEn} IS NOT NULL`], {
+  impuestos_pagados_periodo: conjunto('impuestos_pagados_periodo', IMPUESTO, 'impuesto_pago', () => [sql`${I.pagadoEn} IS NOT NULL`, sql`${I.estado} <> 'descartado'`], {
     fecha: FECHA_IMPUESTO_PAGO, campoFecha: 'pagado_en',
   }),
   // ── Derechos ──

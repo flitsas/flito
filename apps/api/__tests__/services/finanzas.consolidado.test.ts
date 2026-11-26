@@ -274,9 +274,12 @@ describe('AC3 — mismo predicado que el detalle (CF-13)', () => {
     expect(detalle.params).toEqual(expect.arrayContaining(['05266', '05001', '811011779', 'Traspaso', 'rechazado']));
   });
 
-  it('sin filtro no hay WHERE: el universo entero, como el detalle', () => {
+  // Épica #14707 (decisión cerrada 6): sin filtro, el WHERE es SOLO el corte de anulados/abortados (el revocado suma).
+  it('sin filtro, el WHERE es solo el de finanzas (anulado/abortado fuera): el universo entero, como el detalle', () => {
     const t = trozos(SQL_CONSOLIDADO('mes').sql);
-    expect(t.where).toBeNull();
+    expect(t.where).toContain(`"flito_tramites"."estado" IS DISTINCT FROM 'anulado'`);
+    expect(t.where).toContain(`= 'revocado'`);
+    expect(t.where).not.toMatch(/\$\d/);
   });
 
   it('la lista de JOIN renderizada es la de conJoins, byte a byte', () => {

@@ -252,7 +252,8 @@ describe('predicado de llaves', () => {
     escenario({ modulo: 'soat' });
     await post({ texto: 'F123' });
     const w = render(candidatas()[0]!.wheres);
-    expect(ligado(w, `ft.soat_id = "flito_soat"."id" AND UPPER(REPLACE(REPLACE(ft.id_flit, '-', ''), ' ', '')) LIKE `)).toBe('%F123%');
+    // Épica #14707: solo entre los trámites VIVOS del SOAT.
+    expect(ligado(w, `ft.soat_id = "flito_soat"."id" AND ft.estado IS DISTINCT FROM 'anulado' AND UPPER(REPLACE(REPLACE(ft.id_flit, '-', ''), ' ', '')) LIKE `)).toBe('%F123%');
   });
 
   it.each(['soat', 'impuestos', 'factura_venta', 'derechos'])('%s: ninguna consulta menciona compradores ni documento', async (modulo) => {

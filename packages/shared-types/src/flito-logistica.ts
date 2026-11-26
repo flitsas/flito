@@ -8,6 +8,8 @@
 // físico en manos del cliente) es DISTINTO del EstadoTramiteFlito.ENTREGADO (compuerta
 // SOAT+Impuestos). Son enums y tablas separadas y ocurren en momentos distintos.
 
+import type { VigenciaTramite } from './flito-tramite-vigencia.js';
+
 /**
  * Estado de un documento físico (LT o placa) a lo largo del ciclo logístico:
  *
@@ -281,6 +283,11 @@ export interface DestinosViajeLogistica {
 export interface TramiteFilaLogistica {
   tramiteId: string;
   idFlit: string;
+  /**
+   * Épica #14707 (D8): trámite anulado/abortado/revocado = no existe en FLITO. Su LT ya movida sigue como histórico
+   * (con chip, sin acciones); sin LT no sale en la consola.
+   */
+  vigenciaTramite: VigenciaTramite;
   placa: string | null;
   vin: string | null;
   propietario?: string | null;

@@ -293,6 +293,8 @@ describe('AC2 · B — `GET /:id/soportes` con el token del cliente', () => {
       'POST /api/flito/dr-flit/casos-soporte',
       // HU #13856 (IA-4): chat con IA; solo el mensaje del propio usuario (`sub`), nada del montaje SOAT.
       'POST /api/flito/dr-flit/chat',
+      // Épica #14707 (ADR-0049 §7): avisos personales del propio usuario (`sub`), nada del montaje SOAT.
+      'GET /api/flito/avisos', 'POST /api/flito/avisos/visto',
     ]);
   });
 });

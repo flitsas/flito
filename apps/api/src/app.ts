@@ -38,6 +38,7 @@ import flitoCompuertaRoutes from './modules/flito-compuerta/flito-compuerta.rout
 import flitoTramitesRoutes from './modules/flito-tramites/flito-tramites.routes.js';
 import flitoVistasColumnasRoutes from './modules/flito-vistas-columnas/flito-vistas-columnas.routes.js';
 import flitoTableroRoutes from './modules/flito-tablero/flito-tablero.routes.js';
+import flitoAvisosRoutes from './modules/flito-avisos/flito-avisos.routes.js';
 import flitoDrFlitRoutes from './modules/flito-dr-flit/dr-flit.routes.js';
 import flitoBitacoraRoutes from './modules/flito-bitacora/flito-bitacora.routes.js';
 import flitoProveedoresRoutes from './modules/flito-parametrizacion/flito-proveedores.routes.js';
@@ -298,6 +299,9 @@ export function createApp() {
   // ADR-0045: vistas de columnas persistidas. Sin `conAlcance`: no son filas de enlace, son configuración por usuario.
   app.use('/api/flito/vistas-columnas', flitoVistasColumnasRoutes);
   app.use('/api/flito/tablero', conAlcance('tablero', flitoTableroRoutes));
+  // Épica #14707 (ADR-0049 §7): avisos PERSONALES (cada usuario lee y marca solo los suyos). SIN `conAlcance`: sus dos
+  // rutas son de sesión y están en `RUTAS_TRANSVERSALES`, así que las alcanza también un usuario con enlace.
+  app.use('/api/flito/avisos', flitoAvisosRoutes);
   // HU #13803 (Feature #13695) — Dr. Flit. SIN `conAlcance` a propósito (diseño F5 §D3): sus rutas son
   // de sesión (datos del propio usuario) y se declaran en `RUTAS_TRANSVERSALES`. HU #13941: sin exclusión por
   // enlace; cada ruta exige su función de Dr. Flit (`dr-flit.funciones.ts`).

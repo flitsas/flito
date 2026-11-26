@@ -48,8 +48,10 @@ const NULO_TEXTO = sql`NULL::text` as unknown as AnyColumn;
 // ── SOAT ───────────────────────────────────────────────────────────────────────────────────────────────
 
 /** RN-TOR-P1. */
+// Épica #14707: el primer trámite VIVO del SOAT (un muerto solo si no queda ninguno vivo), para no atribuirle el SOAT.
 export const DESDE_SOAT = sql`${S} LEFT JOIN LATERAL (SELECT torre_t1.* FROM ${T} torre_t1 WHERE torre_t1.soat_id = ${S.id}
-  ORDER BY torre_t1.created_at ASC, torre_t1.id ASC LIMIT 1) ${sql.identifier('flito_tramites')} ON true`;
+  ORDER BY (torre_t1.estado IS NOT DISTINCT FROM 'anulado') ASC, torre_t1.created_at ASC, torre_t1.id ASC LIMIT 1)
+  ${sql.identifier('flito_tramites')} ON true`;
 export const DIMS_SOAT: DimensionesBase = {
   compania: S.companiaId, organismo: S.organismoCodigo, tipoTramite: T.tipoTramite, flitEstado: T.flitEstado,
 };

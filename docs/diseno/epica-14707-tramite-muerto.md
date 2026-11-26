@@ -21,7 +21,7 @@ Las alternativas y su justificación están en el ADR. Este documento es el mapa
 | D4 avance vs salida | Guards (§6) |
 | D5 descarte lógico | Enum `descartado`, terminal, con trigger |
 | D6 aviso | `flito_avisos_usuario` más la API (§3) |
-| D7 / D8 visibles, sin acciones | `vigencia` / `vigenciaTramite` en los DTO, chip en el web y guard |
+| D7 / D8 visibles, sin acciones | `vigenciaTramite` en los DTO, chip en el web y guard |
 | D10 placa | Los cruces excluyen muertos y descartados. `vehicles.plate` no se toca |
 | D11 liberar | Núcleo de `desaplicar` con `dueno: 'conservar'` |
 | D12 | Guard de red en liquidar, Siigo y logística; solo se activa de verdad con un revocado |
@@ -116,7 +116,7 @@ stateDiagram-v2
 
 | DTO / respuesta | Campo nuevo |
 |---|---|
-| Listado y detalle de Gestión Trámites (`flito-tramites`) | `vigencia: VigenciaTramite` |
+| Listado y detalle de Gestión Trámites (`flito-tramites`) | `vigenciaTramite: VigenciaTramite` (y `vehiculo.tipoServicio`) |
 | SOAT e impuesto proyectados en el trámite | `estado` puede valer `'descartado'` |
 | Bandeja Siigo (`siigo.bandeja.service.ts`) y documentos de logística (`flito-logistica.consulta.ts`) | `vigenciaTramite: VigenciaTramite` (D8, para el chip «Revocado») |
 | Elegibilidad Siigo | motivo nuevo de no elegible `tramite_no_vigente` (si los motivos están enumerados en shared-types, se añade allí) |
@@ -124,11 +124,20 @@ stateDiagram-v2
 ### 3.3 API de avisos (módulo nuevo `flito-avisos`, montado en `/api/flito/avisos`)
 
 ```http
-GET  /api/flito/avisos?soloNoVistos=true      authMiddleware · sin requireRole · solo los de req.user.sub
-200 { "avisos": AvisoUsuarioDto[], "noVistos": number }   // como máximo 50, del más reciente al más antiguo
+GET  /api/flito/avisos                       authMiddleware · sin requireRole · sin query · solo los de req.user.sub
+200 { "avisos": AvisoUsuarioDto[], "noVistos": number }   // solo NO vistos; como máximo 50, del más reciente al más antiguo
 
-POST /api/flito/avisos/:id/visto              :id = uuid (z.string().guid()) · idempotente
-204   (ya visto: también 204)   ·   404 si no existe o es de otro usuario (sin pistas)
+POST /api/flito/avisos/visto                 body { "ids": uuid[] } (1..200, .strict()) · idempotente
+200 { "marcados": number }   // propios que pasaron a vistos; ajenos, inexistentes y ya vistos se ignoran sin pistas
+400 body inválido (lista vacía, id no uuid, campo extra)
+// Las dos están en RUTAS_TRANSVERSALES: también las alcanza un usuario con enlace (solo ve los suyos).
+```
+
+```ts
+// packages/shared-types/src/flito-avisos.ts (además de lo de abajo)
+export const MAX_AVISOS_USUARIO = 50; export const MAX_IDS_AVISOS_VISTOS = 200;
+export interface MarcarAvisosVistosBody { ids: string[] }
+export interface MarcarAvisosVistosRespuesta { marcados: number }
 ```
 
 ```ts
@@ -361,7 +370,7 @@ Lo que filtra `estado='pagado'` o un estado concreto excluye `descartado` sin ca
 | Logística por documento | `flito-logistica/flito-logistica.consulta.ts:277`, `flito-logistica.pendientes-firma.ts`, actas, `idsClasificadosDe` | Pendientes: `TRAMITE_VIVO`. Histórico: `vigenciaTramite` |
 | Cruces por placa | `flito-impuestos/flito-recibos.service.ts:497` (`buscarCandidato`), `flito-comprobantes/flito-comprobantes.cruce.ts:73,137` | `TRAMITE_VIVO` y `estado <> 'descartado'` |
 | Alertas sin gestión | `flito-tramites/flito-tramites.service.ts:548` | `TRAMITE_VIVO` |
-| Gestión Trámites (listado y detalle) | `flito-tramites/flito-tramites.service.ts` | Campo `vigencia` (D7: siguen visibles) |
+| Gestión Trámites (listado y detalle) | `flito-tramites/flito-tramites.service.ts` | Campo `vigenciaTramite` (D7: siguen visibles) |
 
 `buscarEnAdquisicion` (`flito-soat.service.ts:2084`) exige `solicitado`, así que ya excluye `descartado`. Su `limit 1` sin `ORDER BY` es una Nota previa: se arregla solo si cabe sin líneas netas nuevas.
 
@@ -424,7 +433,7 @@ Tests del Bloque 1 (P1, archivos nuevos en `apps/api/src/__tests__/`):
 | DTO con `vigencia` / `vigenciaTramite` (shared-types de Siigo y logística, si están tipados allí) | modificar | +20 |
 | `contracts/openapi/flito-api.v1.yaml` | **regenerar** con `npm run contrato:generar` (no se edita a mano) | — |
 
-Tests: `flito-avisos.test.ts` (aislamiento entre usuarios, 404 ajeno, idempotencia de visto, purga) y uno por lectura que demuestre que el muerto no se cuenta (cola, tablero, Torre, bandeja Siigo, cruces).
+Tests: `flito-avisos.test.ts` (aislamiento entre usuarios, ajeno ignorado sin pistas, idempotencia de visto, purga, usuario con enlace) y uno por lectura que demuestre que el muerto no se cuenta (cola, tablero, Torre, bandeja Siigo, cruces).
 
 ### Bloque 3 — web (≈ 450 líneas)
 
@@ -435,7 +444,7 @@ Antes, `ux-agent` **slim** para el panel de avisos y el chip y aviso de página 
 | `apps/web/src/lib/api.ts` | modificar (`avisos.listar`, `avisos.marcarVisto`; el 409 `TRAMITE_NO_VIGENTE` como error tipado) | +25 |
 | `apps/web/src/components/flit/AvisosUsuario.tsx` | crear (botón con contador y panel; 4 estados; marcar visto; `aria-label`) | 140 |
 | `apps/web/src/components/flit/FlitTopbar.tsx` | modificar (montar `AvisosUsuario`) | +4 |
-| `apps/web/src/components/flito/tramites/tiposTramites.ts` | modificar (`vigencia` en `TramiteFila`; `esAccionable` exige `'vigente'`) | +4 |
+| `apps/web/src/components/flito/tramites/tiposTramites.ts` | modificar (`vigenciaTramite` en `TramiteFila`; `esAccionable` exige `'vigente'`) | +4 |
 | `apps/web/src/components/flito/tramites/FilaTramite.tsx` | modificar (chip Anulado/Abortado con el tono `anulado` y Revocado con el tono `revocado`; sin acciones) | +20 |
 | `apps/web/src/components/flito/tramites/detalle/ModalDetalleTramite.tsx` | modificar (`InlineAlert` persistente «no existe en FLITO», acciones ocultas, liquidación/factura marcadas «Revocado») | +40 |
 | `apps/web/src/components/flito/tramites/CeldasTramite.tsx`, `soat/ChipEstadoSoat.tsx`, `ImpuestoCola.tsx` | modificar (presentación de `descartado`) | +15 |

@@ -42,6 +42,7 @@ import {
 import {
   startLogisticaRetencionCron, stopLogisticaRetencionCron,
 } from './modules/flito-logistica/flito-logistica-retencion.cron.js';
+import { startAvisosPurgaCron, stopAvisosPurgaCron } from './modules/flito-avisos/flito-avisos.cron.js';
 import { startSoatMasivoCron, stopSoatMasivoCron } from './modules/flito-soat/flito-soat-masivo.cron.js';
 import { startDrflitPurgaCron, stopDrflitPurgaCron } from './modules/flito-dr-flit/dr-flit.cron.js';
 import {
@@ -146,6 +147,9 @@ const server = app.listen(env.PORT, () => {
     // `documento_cifrado` y `documento_ultimos` en las firmas vencidas (03:00 de Colombia). Noop si
     // LOGISTICA_RETENCION_CRON_ENABLED!=1. Candado `flito-logistica-retencion`.
     startLogisticaRetencionCron();
+    // Épica #14707 (ADR-0049 §7): purga diaria de avisos por usuario (vistos > 90 días, no vistos > 180). Candado
+    // `flito-avisos-purga`; 04:00 hora de Colombia.
+    startAvisosPurgaCron();
     // FLITO SOAT: worker de la carga masiva de renovaciones (HU #14132, ADR-0032). Noop si
     // SOAT_MASIVO_WORKER_ENABLED=0 (defecto: encendido). Cola en Postgres (SKIP LOCKED); sin candado en el tick.
     startSoatMasivoCron();
@@ -208,6 +212,7 @@ function shutdown(signal: string) {
   stopSoatVigenciaCron();
   stopSoatRetencionCron();
   stopLogisticaRetencionCron();
+  stopAvisosPurgaCron();
   stopSoatMasivoCron();
   stopDrflitPurgaCron();
   stopSoatBorradosPendientesCron();

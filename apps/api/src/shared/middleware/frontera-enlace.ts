@@ -130,6 +130,17 @@ export const RUTAS_TRANSVERSALES: readonly RutaTransversal[] = congelar([
       + 'salvo su contador diario). Corredor SOAT/Impuestos también ven a Dr. Flit. Mismas guardas que '
       + '/autorizacion, más `drflitChatLimiter`, autorización `ia` vigente (428) y cupo diario.',
   },
+  {
+    metodo: 'GET', patron: '/api/flito/avisos',
+    porque: 'Avisos personales (Épica #14707, ADR-0049 §7; decisión del humano 2026-11-26): quien ENVIÓ una solicitud '
+      + 'de SOAT/impuesto que se retiró por un trámite muerto la ve, tenga el enlace que tenga (compañía, proveedor, '
+      + 'organismo). Solo los avisos del PROPIO usuario (`sub` del token, sin `:id` ni query).',
+  },
+  {
+    metodo: 'POST', patron: '/api/flito/avisos/visto',
+    porque: 'Avisos personales (Épica #14707): marcar vistos SUS avisos (body `{ ids }`; un id ajeno se ignora sin '
+      + 'pistas). Mismo alcance que el GET: solo filas con `usuario_id` = `sub` del token.',
+  },
 ]);
 
 function congelar(lista: RutaTransversal[]): readonly RutaTransversal[] {

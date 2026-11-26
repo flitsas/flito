@@ -66,6 +66,7 @@ export function aDetalle(f: TramiteFila): TramiteDetalle {
   return {
     id: f.tramiteId,
     idFlit: f.idFlit,
+    vigenciaTramite: f.vigenciaTramite,
     resumen: {
       estado: f.estado, asignado: f.asignado, tipoTramite: f.tipoTramite, fuente: f.fuente,
       creado: f.fechaCreacion, aprobado: f.fechaAprobacion, ciudad: f.ciudad,
@@ -74,7 +75,7 @@ export function aDetalle(f: TramiteFila): TramiteDetalle {
     },
     vehiculo: {
       placa: f.vehiculo.placa, vin: f.vehiculo.vin, marca: f.vehiculo.marca,
-      linea: f.vehiculo.linea, clase: f.vehiculo.tipoVehiculo,
+      linea: f.vehiculo.linea, clase: f.vehiculo.tipoVehiculo, tipoServicio: f.vehiculo.tipoServicio,
     },
     propietarios: f.compradores.map((c) => ({
       nombreCompleto: c.nombreCompleto, tipoDocumento: c.tipoDocumento, numeroDocumento: c.numeroDocumento,

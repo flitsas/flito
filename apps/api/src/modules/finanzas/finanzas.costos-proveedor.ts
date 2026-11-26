@@ -48,6 +48,7 @@ import { ESTADOS_COSTO_PROVEEDOR } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { flitoLiquidaciones, flitoSoat, flitoTramites } from '../../db/schema.js';
 import { aIso } from '../../shared/utils/fecha-rango.js';
+import { sumaEnFinanzasEn } from '../../shared/tramite-vigente.js';
 
 /**
  * Las reglas «gestiona», como SQL sobre la fila del trámite (reporte) o como literal (sellado).
@@ -68,16 +69,20 @@ function objeto(estado: SQL | string, resto: Partial<Record<Exclude<keyof CostoP
 
 const SIN_PROVEEDOR = objeto('sin_proveedor');
 
-/** RN-CP-02/03 — el primer trámite (created_at, id) de este SOAT NO es este: ya se contó allí. */
+/**
+ * RN-CP-02/03 — el primer trámite (created_at, id) de este SOAT NO es este: ya se contó allí. Épica #14707: solo entre
+ * los trámites que SUMAN en finanzas (un anulado/abortado no sale en el reporte: atribuirle el costo lo perdería).
+ */
+const P1_SUMA = sumaEnFinanzasEn('p1');
 const HAY_UNO_ANTERIOR = sql`EXISTS (
   SELECT 1 FROM flito_tramites p1
-   WHERE p1.soat_id = ${flitoTramites.soatId}
+   WHERE p1.soat_id = ${flitoTramites.soatId} AND ${P1_SUMA}
      AND (p1.created_at, p1.id) < (${flitoTramites.createdAt}, ${flitoTramites.id}))`;
 
 const YA_CONTADO = sql`(
   SELECT ${objeto('ya_contado', { contadoEnTramiteId: sql`p1.id`, contadoEnIdFlit: sql`p1.id_flit` })}
     FROM flito_tramites p1
-   WHERE p1.soat_id = ${flitoTramites.soatId}
+   WHERE p1.soat_id = ${flitoTramites.soatId} AND ${P1_SUMA}
    ORDER BY p1.created_at, p1.id
    LIMIT 1)`;
 
