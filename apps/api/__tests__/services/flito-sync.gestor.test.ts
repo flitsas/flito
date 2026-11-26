@@ -15,6 +15,7 @@ vi.mock('../../src/shared/logger.js', () => ({ logger: logMock, loggerFor: () =>
 
 const { aTramite, MAX_GESTOR } = await import('../../src/modules/flito-sync/flit-http.adapter.js');
 const { gestorSiViene, tramiteCambia } = await import('../../src/modules/flito-sync/solo-si-cambia.js');
+const { escribirTramite } = await import('../../src/modules/flito-sync/flito-sync.service.js');
 
 const item = (over: Record<string, unknown> = {}) => ({
   Id: 'FLIT-099002', Vin: '9FKTEST00000000002', Placa: 'ZZZ002', Ciudad: 'FUNZA', Estado: 'Aprobado',
@@ -55,5 +56,29 @@ describe('sync · el gestor ausente no pisa con null lo guardado', () => {
     expect(tramiteCambia(guardado, { ciudad: 'FUNZA', ...gestorSiViene(null, null) })).toBe(false);
     expect(tramiteCambia(guardado, { ciudad: 'FUNZA', ...gestorSiViene('Pedro Ruiz', null) })).toBe(true);
     expect(tramiteCambia(guardado, { ciudad: 'FUNZA', ...gestorSiViene('Marta Gómez', 'm@x.co') })).toBe(false);
+  });
+});
+
+describe('escribirTramite · fila con gestor y valores sin gestor', () => {
+  it('no hay cambios ni diferencia de gestor en la Bitácora (la fuente que no lo trae no lo borra)', async () => {
+    const existente = {
+      id: 'eeee0000-0000-0000-0000-000000000320', flitEstado: 'Aprobado', ciudad: 'FUNZA', tipoTramite: 'Otros',
+      facturaVentaFlitId: null, fechaAprobacion: null, companiaId: null, organismoCodigo: null, plateComplete: 'ZZZ320',
+      nombreGestor: 'Marta Gómez', correoGestor: 'm@x.co',
+    };
+    const valores = {
+      flitEstado: 'Aprobado', ciudad: 'FUNZA', tipoTramite: 'Otros', facturaVentaFlitId: null, fechaAprobacion: null,
+      companiaId: null, organismoCodigo: null, plateComplete: 'ZZZ320', ...gestorSiViene(null, null),
+    };
+    const set = vi.fn();
+    const tx = {
+      update: () => ({ set: (v: unknown) => { set(v); return { where: () => ({ returning: async () => [existente] }) }; } }),
+      insert: () => { throw new Error('no debe escribir historial'); },
+    };
+    const r = await escribirTramite(tx as never, existente as never, 'FLIT-320', valores as never);
+    expect(r.huboCambios).toBe(false);
+    expect(r.diferencias.map((d) => d.campo)).not.toContain('nombre_gestor');
+    expect(r.diferencias.map((d) => d.campo)).not.toContain('correo_gestor');
+    expect(set.mock.calls[0]![0]).not.toHaveProperty('nombreGestor');
   });
 });
