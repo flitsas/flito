@@ -127,6 +127,8 @@ export function ContenidoPropietario({ d }: { d: DetalleTramite }) {
       <div className="border-t border-[color:var(--color-border)] pt-3">
         <p className={`m-0 mb-2 text-xs font-semibold ${secundario}`}>Empresa gestora</p>
         <dl className={grid}>
+          <Dato etiqueta="Gestor">{o(g.nombrePersona)}</Dato>
+          <Dato etiqueta="Correo del gestor">{o(g.correoPersona)}</Dato>
           <Dato etiqueta="Nombre">{o(g.nombre)}</Dato>
           <Dato etiqueta="NIT">{o(g.nit)}</Dato>
           <Dato etiqueta="En FLITO">
