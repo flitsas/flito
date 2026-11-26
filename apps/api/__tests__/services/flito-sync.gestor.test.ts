@@ -82,3 +82,15 @@ describe('escribirTramite · fila con gestor y valores sin gestor', () => {
     expect(set.mock.calls[0]![0]).not.toHaveProperty('nombreGestor');
   });
 });
+
+describe('gestorSiViene · formato del correo', () => {
+  it('un correo válido pasa', () => {
+    expect(gestorSiViene(null, 'marta@gestora.co')).toEqual({ correoGestor: 'marta@gestora.co' });
+  });
+
+  it.each([['x@y.co?bcc=a@b.co'], ['marta @gestora.co'], ['marta.gestora.co'], ['a@b'], ['a@b.co,c@d.co'], ['<a@b.co>']])(
+    'se omite %s (como si no viniera: no pisa lo guardado)', (malo) => {
+      expect(gestorSiViene('Marta', malo)).toEqual({ nombreGestor: 'Marta' });
+    },
+  );
+});
