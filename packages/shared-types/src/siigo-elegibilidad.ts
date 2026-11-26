@@ -48,6 +48,8 @@ export const MOTIVOS_TRAMITE_NO_ELEGIBLE = [
   'compuerta_cerrada',
   /** Ya tiene una factura viva: emitir otra sería duplicarla ante la DIAN. */
   'ya_facturado',
+  /** Épica #14707 (D12): FLIT anuló, abortó o revocó el trámite; en FLITO ya no existe y no se factura. */
+  'tramite_no_vigente',
 ] as const;
 export type MotivoTramiteNoElegible = (typeof MOTIVOS_TRAMITE_NO_ELEGIBLE)[number];
 
@@ -90,6 +92,8 @@ export const MOTIVO_TRAMITE_NO_ELEGIBLE_TEXTO: Record<MotivoTramiteNoElegible, s
     'La parametrización contable no está confirmada.',
   ya_facturado:
     'El trámite ya tiene una factura electrónica viva. Emitir otra la duplicaría ante la DIAN.',
+  tramite_no_vigente:
+    'FLIT anuló, abortó o revocó este trámite: en FLITO ya no existe y no se factura.',
 };
 
 /** Un motivo con su explicación. El `detalle` puede venir de otro servicio, sin retocar. */

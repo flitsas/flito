@@ -659,3 +659,35 @@ describe('AC11 — servicios adicionales: la puente vuelve a como estaba antes d
     nadaCambio(); // …y se deshizo con todo
   });
 });
+
+// ═════════════════ Épica #14707 (ADR-0049 §5, D11) ══════════════════════════════════════════════
+
+describe('Épica #14707 — dueño `descartado`: se libera el comprobante sin revertir el dueño', () => {
+  it('desaplicar con el SOAT descartado ya no responde 409: no corre la reversa del SOAT y el comprobante vuelve a pendiente', async () => {
+    armarSoat('descartado');
+    await desaplicar(ID, { destino: 'pendiente', motivo: MOTIVO }, CTX);
+    expect(h.reversaSoat).not.toHaveBeenCalled();
+    expect(h.revertir).toHaveBeenCalledTimes(1); // la bolsa sí se devuelve
+    expect(espia.updatesEn(T_SOAT)).toEqual([]);
+    expect(espia.updatesEn(T_COMP)[0]!.datos).toMatchObject({ estado: 'pendiente', tramiteId: null });
+  });
+
+  it('liberarAplicadoEnTx (dueño `conservar`): bolsa devuelta como «sistema», sin tocar el dueño, comprobante a pendiente', async () => {
+    const { liberarAplicadoEnTx } = await import('../../src/modules/flito-comprobantes/flito-comprobantes.desaplicar.js');
+    kdb.when.selectOnce(T_COMP, [fila()]).select(T_TRAM, [tramite]).update(T_COMP, [{ id: ID }]);
+    await liberarAplicadoEnTx(kdb.db as never, ID, 'trámite FLIT-ABC001 ya no existe en FLITO (Épica 14707)');
+    expect(h.reversaSoat).not.toHaveBeenCalled();
+    expect(h.reversaImp).not.toHaveBeenCalled();
+    expect(h.revertir).toHaveBeenCalledWith(expect.anything(), ID, { userId: null, nombre: 'sistema' }, expect.objectContaining({ motivo: expect.stringContaining('Épica 14707') }));
+    expect(espia.updatesEn(T_SOAT)).toEqual([]);
+    expect(espia.updatesEn(T_COMP)[0]!.datos).toMatchObject({ estado: 'pendiente', tramiteId: null, esPago: null });
+  });
+
+  it('liberarAplicadoEnTx con el periodo cerrado: ComprobanteError periodo_cerrado ANTES de escribir nada', async () => {
+    const { liberarAplicadoEnTx } = await import('../../src/modules/flito-comprobantes/flito-comprobantes.desaplicar.js');
+    kdb.when.selectOnce(T_COMP, [fila()]).select(T_TRAM, [tramite]);
+    h.exigir.mockImplementationOnce(async () => { throw new PeriodoCerradoError('bolsa-1', '2026-10', 'Bolsa A'); });
+    await expect(liberarAplicadoEnTx(kdb.db as never, ID, 'motivo de prueba')).rejects.toMatchObject({ codigo: 'periodo_cerrado' });
+    expect(espia.updates).toEqual([]);
+  });
+});

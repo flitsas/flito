@@ -26,6 +26,7 @@ import {
 import { limitadorRunt, type LimitadorRunt } from './runt-limitador.js';
 import type { ConsultaRuntAnalisis } from './flito-impuestos.runt-consulta.js';
 import { LIMPIEZA_DIRECCION_REANALISIS, PENDIENTE_SI_SIN_DIRECCION } from './flito-impuestos.direccion.js';
+import { exigirImpuestoVigente } from '../../shared/tramite-vigente.js';
 
 const log = loggerFor('flito-impuestos.analisis');
 
@@ -130,12 +131,14 @@ const enCursoDe = (id: string): SQL =>
 
 export async function ejecutarAnalisis(id: string): Promise<'completado' | 'error_analisis' | 'omitido'> {
   const [fila] = await db.select({
+    estado: flitoImpuestos.estado,
     analisisEstado: flitoImpuestos.analisisEstado,
     analisisEncoladoEn: flitoImpuestos.analisisEncoladoEn,
     analizadoEn: flitoImpuestos.analizadoEn,
   }).from(flitoImpuestos).where(eq(flitoImpuestos.id, id)).limit(1);
 
   if (!fila || fila.analisisEstado !== AnalisisEstadoImpuesto.EN_CURSO) return 'omitido';
+  if (fila.estado === EstadoImpuesto.DESCARTADO) return 'omitido'; // Épica #14707: el cron no analiza un descartado.
   // AC2: ya analizado después del último encolado explícito → ni OCR ni RUNT.
   if (fila.analizadoEn && fila.analisisEncoladoEn && fila.analizadoEn >= fila.analisisEncoladoEn) return 'omitido';
 
@@ -224,6 +227,7 @@ export async function reanalizarImpuesto(id: string, ahora = new Date()): Promis
   const [imp] = await db.select({ estado: flitoImpuestos.estado, analisisEstado: flitoImpuestos.analisisEstado })
     .from(flitoImpuestos).where(eq(flitoImpuestos.id, id)).limit(1);
   if (!imp) return { resultado: 'NO_ENCONTRADO' };
+  exigirImpuestoVigente(imp); // Épica #14707 (I): 409 si está `descartado`.
   if (imp.estado !== EstadoImpuesto.SOLICITADO) return { resultado: 'NO_SOLICITADO' };
   if (imp.analisisEstado === null) return { resultado: 'SIN_ANALISIS' };
   if (imp.analisisEstado === AnalisisEstadoImpuesto.EN_CURSO) return { resultado: 'ANALISIS_EN_CURSO' };

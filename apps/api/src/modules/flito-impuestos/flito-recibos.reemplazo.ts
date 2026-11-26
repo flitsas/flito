@@ -31,6 +31,7 @@ import {
   validarComprobantePorId,
 } from './flito-recibos.service.js';
 import type { ArchivoSubido, ImpuestoCtx } from './flito-factura-venta.service.js';
+import { exigirImpuestoVigente } from '../../shared/tramite-vigente.js';
 
 /** Error de negocio del reemplazo: lleva `codigo` porque la pantalla decide por él. */
 export class ReemplazoComprobanteError extends Error {
@@ -69,6 +70,7 @@ export async function reemplazarComprobantePago(
   await exigirCompaniaPropia([impuestoId], ctx); // HU #13426 (AC3)
   const imp = await buscarConAcceso(impuestoId, ctx);
   if (!imp) throw new ReemplazoComprobanteError(404, CodigoErrorReemplazoComprobante.NO_ENCONTRADO, 'El impuesto no existe');
+  exigirImpuestoVigente(imp); // Épica #14707 (I): un impuesto `descartado` no admite acciones de avance (409).
   if (imp.estado !== EstadoImpuesto.PAGADO) {
     throw new ReemplazoComprobanteError(409, CodigoErrorReemplazoComprobante.ESTADO_NO_PERMITIDO,
       'El comprobante de pago solo se reemplaza en un impuesto pagado.');

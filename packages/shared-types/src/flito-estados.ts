@@ -168,6 +168,8 @@ export const EstadoSoat = {
   SOLICITADO: 'solicitado',
   CON_NOVEDAD: 'con_novedad',
   PAGADO: 'pagado',
+  /** Épica #14707 (ADR-0049 §2): su trámite murió en FLIT. Terminal; el trigger FL409 impide salir. */
+  DESCARTADO: 'descartado',
 } as const;
 
 export type EstadoSoat = (typeof EstadoSoat)[keyof typeof EstadoSoat];
@@ -177,6 +179,7 @@ export const ESTADO_SOAT_LABEL: Record<EstadoSoat, string> = {
   solicitado: 'Solicitado',
   con_novedad: 'Con novedad',
   pagado: 'Pagado',
+  descartado: 'Descartado',
 };
 
 /**
@@ -200,7 +203,13 @@ export function soatBloqueaReencolado(estado: EstadoSoat): boolean {
  * es historial del vehículo; los otros tres (`pendiente`, `solicitado`, `con_novedad`) son ABIERTOS
  * ("en proceso") y de ellos puede haber uno solo por vehículo (índices únicos parciales de la 0267).
  */
-export const ESTADOS_SOAT_TERMINALES: readonly EstadoSoat[] = ['pagado'];
+export const ESTADOS_SOAT_TERMINALES: readonly EstadoSoat[] = ['pagado', 'descartado'];
+
+/**
+ * Épica #14707 (ADR-0049 §2): estados que cuentan en colas, tablero y filtros (todos menos `descartado`).
+ * Toda lectura que liste «todos los estados» usa esta lista, nunca `Object.values(EstadoSoat)`.
+ */
+export const ESTADOS_SOAT_OPERATIVOS: readonly EstadoSoat[] = ['pendiente', 'solicitado', 'con_novedad', 'pagado'];
 
 /** ¿El SOAT está abierto (en proceso), es decir, NO terminal? */
 export function soatEstaAbierto(estado: EstadoSoat): boolean {
@@ -257,6 +266,8 @@ export const EstadoImpuesto = {
   SOLICITADO: 'solicitado',
   CON_NOVEDAD: 'con_novedad',
   PAGADO: 'pagado',
+  /** Épica #14707 (ADR-0049 §2): su trámite murió en FLIT. Terminal; el trigger FL409 impide salir. */
+  DESCARTADO: 'descartado',
 } as const;
 
 export type EstadoImpuesto = (typeof EstadoImpuesto)[keyof typeof EstadoImpuesto];
@@ -266,7 +277,11 @@ export const ESTADO_IMPUESTO_LABEL: Record<EstadoImpuesto, string> = {
   solicitado: 'Solicitado',
   con_novedad: 'Con novedad',
   pagado: 'Pagado',
+  descartado: 'Descartado',
 };
+
+/** Épica #14707: estados del impuesto que cuentan en colas, tablero y filtros (todos menos `descartado`). */
+export const ESTADOS_IMPUESTO_OPERATIVOS: readonly EstadoImpuesto[] = ['pendiente', 'solicitado', 'con_novedad', 'pagado'];
 
 /**
  * HU #12825: ciclo del análisis post-envío de un impuesto (OCR de la factura + RUNT + semáforo), que

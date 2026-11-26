@@ -41,6 +41,7 @@ export interface ImpuestoItem {
 
 export const TONO_IMPUESTO: Record<EstadoImpuesto, ChipTone> = {
   pendiente: 'draft', solicitado: 'active', con_novedad: 'danger', pagado: 'success',
+  descartado: 'neutral', // Épica #14707: su trámite murió en FLIT.
 };
 // `pesos` vive en `lib/pesos.ts` desde la HU #12620 (lo comparte la consola logística); se re-exporta
 // para quien ya lo importaba de aquí.

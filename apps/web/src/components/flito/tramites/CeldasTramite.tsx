@@ -18,9 +18,9 @@ import { esAccionable, fecha, pesos, type TramiteFila } from './tiposTramites';
 // por esta pantalla; se completaban solo porque el `Record` es exhaustivo. La HU #12080 los quita de
 // `EstadoSoat` y del enum de Postgres, así que las dos entradas se van con ellos.
 const TONO_SOAT: Record<EstadoSoat, ChipTone> = {
-  pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success',
+  pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success', descartado: 'neutral', // Épica #14707
 };
-const TONO_IMP: Record<EstadoImpuesto, ChipTone> = { pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success' };
+const TONO_IMP: Record<EstadoImpuesto, ChipTone> = { pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success', descartado: 'neutral' };
 
 const tenue = 'text-[color:var(--color-text-tertiary)]';
 const peligro = 'text-[color:var(--kit-rojo-texto)]';

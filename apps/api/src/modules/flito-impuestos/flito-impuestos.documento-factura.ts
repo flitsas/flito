@@ -20,7 +20,7 @@
 // (AGENTS.md §14/§16) — la auditoría de la mutación va por `audit()` en la ruta, no por
 // `logPiiAccess`/`pii_access_log`.
 
-import { eq, sql, type SQL } from 'drizzle-orm';
+import { and, eq, ne, sql, type SQL } from 'drizzle-orm';
 import {
   TipoCambioDocumentoFactura,
   type CampoExtraido, type DatosDocumentoFacturaImpuesto,
@@ -30,6 +30,7 @@ import { db } from '../../db/client.js';
 import { flitoImpuestos } from '../../db/schema.js';
 import { loggerFor } from '../../shared/logger.js';
 import { descargarFacturaDeImpuesto, extraerDeFactura, FacturaNoDisponibleError } from './flito-impuestos.extraccion.js';
+import { exigirImpuestoVigentePorId } from '../../shared/tramite-vigente.js';
 
 const log = loggerFor('flito-impuestos.documento-factura');
 
@@ -89,9 +90,10 @@ export async function corregirDatosDocumentoFactura(
 
   const [fila] = await db.update(flitoImpuestos)
     .set({ extraccionFacturaVenta: expr, updatedAt: new Date() })
-    .where(eq(flitoImpuestos.id, id))
+    .where(and(eq(flitoImpuestos.id, id), ne(flitoImpuestos.estado, 'descartado')))
     .returning();
-  if (!fila) return null;
+  // Épica #14707 (I): un impuesto `descartado` no se corrige (409); el UPDATE ya lo excluyó.
+  if (!fila) { await exigirImpuestoVigentePorId(id); return null; }
   log.info({ impuestoId: id }, 'documento-factura: corrección manual guardada');
   return bloqueDatosDocumentoFacturaDetalle(fila.extraccionFacturaVenta);
 }
@@ -133,9 +135,10 @@ export async function reintentarLecturaDocumentoFactura(
 
   const [fila] = await db.update(flitoImpuestos)
     .set({ extraccionFacturaVenta: expr, updatedAt: new Date() })
-    .where(eq(flitoImpuestos.id, id))
+    .where(and(eq(flitoImpuestos.id, id), ne(flitoImpuestos.estado, 'descartado')))
     .returning();
-  if (!fila) return { resultado: 'NO_ENCONTRADO' };
+  // Épica #14707 (I): ídem en el reintento.
+  if (!fila) { await exigirImpuestoVigentePorId(id); return { resultado: 'NO_ENCONTRADO' }; }
   log.info({ impuestoId: id }, 'documento-factura: reintento de lectura guardado');
   return { resultado: 'OK', datos: bloqueDatosDocumentoFacturaDetalle(fila.extraccionFacturaVenta) };
 }

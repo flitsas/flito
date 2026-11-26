@@ -24,6 +24,7 @@ import {
   TrasladoActaNoEncontradaError, TrasladoEstadoNoAdmisibleError, TrasladoLtsNoCoincidenError,
   TrasladoNoEncontradoError,
 } from './flito-logistica-traslados.errors.js';
+import { COLUMNAS_TRAMITE_DE_DOCUMENTO, exigirDocumentosVivos } from '../../shared/tramite-vigente.js';
 
 export interface DespachoTrasladoInput { mensajeroId: number; firmaEntrega?: string | null; entregaNombre?: string | null }
 
@@ -115,9 +116,10 @@ async function lineasDe(exec: DbOrTx, trasladoId: string): Promise<LineaMin[]> {
     .orderBy(flitoLogisticaTrasladoLts.documentoId).for('update');
 }
 
-async function docsDe(exec: DbOrTx, ids: string[]): Promise<Array<{ id: string; estado: string }>> {
+async function docsDe(exec: DbOrTx, ids: string[]): Promise<Array<{ id: string; estado: string; tramiteEstado?: string | null }>> {
   if (!ids.length) return [];
-  return exec.select({ id: flitoLogisticaDocumentos.id, estado: flitoLogisticaDocumentos.estado })
+  // Épica #14707: con el estado del trámite de cada LT (`exigirDocumentosVivos`), sin otra lectura.
+  return exec.select({ id: flitoLogisticaDocumentos.id, estado: flitoLogisticaDocumentos.estado, ...COLUMNAS_TRAMITE_DE_DOCUMENTO })
     .from(flitoLogisticaDocumentos).where(inArray(flitoLogisticaDocumentos.id, ids))
     .orderBy(flitoLogisticaDocumentos.id).for('update');
 }
@@ -158,6 +160,7 @@ export async function despacharTraslado(
     await exigirMensajeroAsignable(tx, datos.mensajeroId, ctx.alcance, acta.proveedorId);
     const lineas = await lineasDe(tx, t.id);
     const docs = await docsDe(tx, lineas.map((l) => l.documentoId));
+    exigirDocumentosVivos(docs); // Épica #14707 (T): ninguna LT de un trámite muerto avanza (409)
     const ahora = new Date();
     const nombre = datos.entregaNombre?.trim() || ctx.username;
     if (firmaKey) {
@@ -243,6 +246,7 @@ export async function entregarTraslado(
     const { entregadas, devueltas } = partirLineas(lineas, datos);
     if (entregadas.length === 0) throw new EntregaSinEntregadasError();
     const docs = await docsDe(tx, lineas.map((l) => l.documentoId));
+    exigirDocumentosVivos(docs); // Épica #14707 (T): ninguna LT de un trámite muerto avanza (409)
     const porId = new Map(docs.map((d) => [d.id, d]));
     const ahora = new Date();
     const firmaId = randomUUID();
@@ -323,6 +327,7 @@ export async function firmarLlegadaFlit(
     const { entregadas, devueltas } = partirLineas(lineas, datos);
     if (entregadas.length === 0) throw new EntregaSinEntregadasError();
     const docs = await docsDe(tx, lineas.map((l) => l.documentoId));
+    exigirDocumentosVivos(docs); // Épica #14707 (T): ninguna LT de un trámite muerto avanza (409)
     const porId = new Map(docs.map((d) => [d.id, d]));
     const ahora = new Date();
     const firmaId = randomUUID();

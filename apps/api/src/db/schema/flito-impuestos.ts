@@ -1,6 +1,6 @@
 // FLITO Impuestos: `flito_impuestos` y sus certificaciones contra el RUNT. Se re-exporta desde `../schema.ts` (HU #13984).
 import {
-  pgTable, varchar, text, boolean, timestamp, integer, pgEnum, index, jsonb, numeric, uuid, smallint,
+  pgTable, varchar, text, boolean, timestamp, integer, pgEnum, index, jsonb, numeric, uuid, smallint, check,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 // FLITO (migración): tipos de extracción OCR persistidos en columnas jsonb.
@@ -23,7 +23,8 @@ import { organismosTransitoConfig, flitoTramites } from './tramites.js';
 // Estados unificados de SOAT e impuestos: pendiente | solicitado | con_novedad | pagado (ver
 // flito-estados.ts). Los valores viejos (en_adquisicion, en_gestion, sin_factura, retenido,
 // rechazado, no_aplica) quedan deprecados en el enum de Postgres, pero se omiten del literal.
-export const flitoImpuestoEstadoEnum = pgEnum('flito_impuesto_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado']);
+// Épica #14707 (0317): `descartado` = su trámite murió en FLIT; terminal (trigger FL409 de la 0318).
+export const flitoImpuestoEstadoEnum = pgEnum('flito_impuesto_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado', 'descartado']);
 /** HU #12825: ciclo del análisis post-envío. NULL en la columna = nunca encolado (histórico). */
 export const flitoImpuestoAnalisisEstadoEnum = pgEnum('flito_impuesto_analisis_estado', ['en_curso', 'completado', 'error_analisis']);
 /** HU #12827: semáforo factura vs RUNT. NULL en la columna = sin calcular. */
@@ -93,10 +94,15 @@ export const flitoImpuestos = pgTable('flito_impuestos', {
   direccionConfirmadaPorId: integer('direccion_confirmada_por_id').references(() => users.id, { onDelete: 'set null' }),
   direccionConfirmadaPorNombre: text('direccion_confirmada_por_nombre'),
   direccionConfirmadaEn: timestamp('direccion_confirmada_en', { withTimezone: true }),
+  /** Épica #14707 (0318): cuándo y por qué se descartó. El trámite muerto es `tramite_id` (1:1). */
+  descartadoEn: timestamp('descartado_en', { withTimezone: true }),
+  motivoDescarte: varchar('motivo_descarte', { length: 10 }).$type<'anulado' | 'abortado' | 'revocado'>(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   estadoIdx: index('idx_flito_impuestos_estado').on(t.estado),
+  motivoDescarteChk: check('flito_impuestos_motivo_descarte_chk', sql`${t.motivoDescarte} IS NULL OR ${t.motivoDescarte} IN ('anulado','abortado','revocado')`),
+  descarteChk: check('flito_impuestos_descarte_chk', sql`(${t.estado} = 'descartado') = (${t.descartadoEn} IS NOT NULL AND ${t.motivoDescarte} IS NOT NULL)`),
   organismoIdx: index('idx_flito_impuestos_organismo').on(t.organismoCodigo),
   // Épica #14590 (0303): impuestos pagados por compañía y periodo (Torre de Control).
   companiaPagadoIdx: index('idx_flito_impuestos_compania_pagado').on(t.companiaId, t.pagadoEn),

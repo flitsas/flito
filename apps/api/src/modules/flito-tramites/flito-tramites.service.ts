@@ -15,7 +15,7 @@
 import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import {
   EstadoImpuesto, EstadoTramiteFlito, ESTADOS_TRAMITE_FLITO_TERMINADOS,
-  ANS_OPERATIVO, CampoDocumentoFacturaImpuesto, type AlertaOperativa,
+  ANS_OPERATIVO, CampoDocumentoFacturaImpuesto, tramiteMuerto, type AlertaOperativa,
 } from '@operaciones/shared-types';
 import type { FuenteTramite } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
@@ -814,7 +814,7 @@ export async function registrosZipTramites(ids: string[], alcance: AlcanceResuel
  */
 export async function solicitarSoat(tramiteIds: string[], proveedorSoatId: string, ctx: TramitesCtx): Promise<ResultadoSolicitudSoat> {
   const tramites = await db.select({
-    soatId: flitoTramites.soatId, soatAutogestionable: clients.soatAutogestionable,
+    soatId: flitoTramites.soatId, soatAutogestionable: clients.soatAutogestionable, estado: flitoTramites.estado,
   }).from(flitoTramites)
     .innerJoin(clients, eq(flitoTramites.companiaId, clients.id))
     .where(inArray(flitoTramites.id, tramiteIds));
@@ -823,6 +823,8 @@ export async function solicitarSoat(tramiteIds: string[], proveedorSoatId: strin
   let sinRegistro = 0;
   const soatIds = new Set<string>();
   for (const t of tramites) {
+    // Épica #14707 (TL): un trámite muerto se OMITE del lote (no habilitado: cuenta como sin registro), sin 409.
+    if (tramiteMuerto(t.estado)) { sinRegistro += 1; continue; }
     if (t.soatAutogestionable) { autogestionados += 1; continue; }
     if (!t.soatId) { sinRegistro += 1; continue; }
     soatIds.add(t.soatId);
@@ -842,7 +844,7 @@ export async function solicitarSoat(tramiteIds: string[], proveedorSoatId: strin
 export async function solicitarImpuestos(tramiteIds: string[], ctx: TramitesCtx): Promise<ResultadoSolicitudImpuestos> {
   const tramites = await db.select({
     tramiteId: flitoTramites.id, idFlit: flitoTramites.idFlit, placa: vehicles.plate,
-    impuestoId: flitoImpuestos.id, impuestoEstado: flitoImpuestos.estado,
+    impuestoId: flitoImpuestos.id, impuestoEstado: flitoImpuestos.estado, estado: flitoTramites.estado,
   }).from(flitoTramites)
     .innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
     .leftJoin(flitoImpuestos, eq(flitoImpuestos.tramiteId, flitoTramites.id))
@@ -851,6 +853,8 @@ export async function solicitarImpuestos(tramiteIds: string[], ctx: TramitesCtx)
   const enviables: string[] = [];
   let noEnviables = 0;
   for (const t of tramites) {
+    // Épica #14707 (TL): un trámite muerto se OMITE (no enviable), sin 409. Su impuesto ya es `descartado`.
+    if (tramiteMuerto(t.estado)) { noEnviables += 1; continue; }
     // Sin registro de impuesto = autogestionado (exento); solo 'pendiente' es enviable al gestor.
     if (t.impuestoId && t.impuestoEstado === EstadoImpuesto.PENDIENTE) enviables.push(t.impuestoId);
     else noEnviables += 1;

@@ -119,6 +119,8 @@ const impuestoPagadoDelVehiculo = {
 function txConSelects(...respuestas: unknown[][]) {
   const inserts: { tabla: string; values: Record<string, unknown> }[] = [];
   const select = vi.fn();
+  // Épica #14707: la primera lectura de la tx es el guard `exigirTramiteVivo` (FOR SHARE); vacío = pasa.
+  select.mockReturnValueOnce(chain([]));
   for (const r of respuestas) select.mockReturnValueOnce(chain(r));
   select.mockReturnValue(chain([]));
 
@@ -206,8 +208,9 @@ describe('desbloquear impuesto — no crea el impuesto que el vehículo ya tiene
 
     await desbloquear(TRAMITE, CONCEPTO_EXCEPCION.IMPUESTO, 'lo pide el cliente', ctx);
 
-    // El impuesto del trámite y (HU #13947) el cliente con FOR SHARE; la regla por vehículo ni se intenta.
-    expect(tx.select).toHaveBeenCalledTimes(2);
+    // Épica #14707: el guard del trámite vivo; el impuesto del trámite y (HU #13947) el cliente con FOR SHARE; la
+    // regla por vehículo ni se intenta.
+    expect(tx.select).toHaveBeenCalledTimes(3);
     expect(inserts.map((i) => i.tabla)).toContain(getTableName(flitoImpuestos));
   });
 });
@@ -244,6 +247,6 @@ describe('HU #13947 — desbloquear con el cliente inactivo', () => {
     const { tx } = txConSelects([{ id: 'soat-1', estado: 'solicitado', vin: 'VIN00000000000001' }]);
 
     await expect(desbloquear(TRAMITE, CONCEPTO_EXCEPCION.SOAT, 'lo pide el cliente', ctx)).resolves.toBeDefined();
-    expect(tx.select).toHaveBeenCalledTimes(1);
+    expect(tx.select).toHaveBeenCalledTimes(2); // Épica #14707: el guard del trámite vivo + el SOAT del VIN
   });
 });

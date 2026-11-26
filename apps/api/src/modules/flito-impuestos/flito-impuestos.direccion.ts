@@ -26,6 +26,7 @@ import { celdaDesdeJson, expresionesFlitRaw } from '../../shared/export/cola-fli
 import { loggerFor } from '../../shared/logger.js';
 import { registrarAccesoSistema } from './flito-impuestos.extraccion.js';
 import type { PasoAnalisis } from './flito-impuestos.analisis.service.js';
+import { exigirImpuestoVigentePorId } from '../../shared/tramite-vigente.js';
 
 const log = loggerFor('flito-impuestos.direccion');
 
@@ -187,6 +188,7 @@ export async function corregirDireccionImpuesto(
   id: string, datos: { direccion: string; municipio: string; departamento: string },
   actor: { userId: number; nombre: string },
 ): Promise<DireccionCompradorImpuesto | null> {
+  await exigirImpuestoVigentePorId(id); // Épica #14707 (I): 409 si está `descartado`.
   const [fila] = await db.update(flitoImpuestos).set({
     direccionFactura: datos.direccion,
     municipioFactura: datos.municipio,

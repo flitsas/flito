@@ -4,7 +4,7 @@
 //
 // Reglas que viven aquí:
 //   · RN-PROV-1 — Impacto (solo lectura): `soatEnCurso` = filas de `flito_soat` con `proveedor_soat_id` = P y
-//       `estado <> 'pagado'`; `companiasGestorPorDefecto` = clientes VIGENTES (`clienteVigente()`) cuyo gestor por
+//       `estado NOT IN ('pagado','descartado')` (Épica #14707); `companiasGestorPorDefecto` = clientes VIGENTES (`clienteVigente()`) cuyo gestor por
 //       defecto de «SOAT sin trámite» es P (`clients.flito_proveedor_soat_sin_tramite_id`); `usuariosAfectados` =
 //       usuarios con `flito_proveedor_id` = P y sin baja lógica (HU #14354: la pertenencia del modelo nuevo). `puedeEliminar`/`motivoNoEliminable` = RN-PROV-6
 //       (HU #13960, `motivoNoEliminableProveedor`).
@@ -18,7 +18,8 @@
 //       sí, y uno con ambos servicios sigue la regla de Logística.
 //   · RN-PEST-2 — `versionEsperada` obligatoria (edición simultánea). Inactivar invalida las sesiones de sus usuarios; la
 //       ruta limpia la caché de sesión y de permisos tras el commit. Se audita dentro de la transacción.
-import { and, asc, count, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, count, eq, isNull, sql } from 'drizzle-orm';
+import { SOAT_ABIERTO } from '../flito-soat/flito-soat-actual.js';
 import {
   SERVICIO_PROVEEDOR_LABEL, type ImpactoProveedorDto, type ProveedorListaItemDto, type ServicioProveedor,
 } from '@operaciones/shared-types';
@@ -88,7 +89,7 @@ export async function impactoProveedorSoat(tx: Ejecutor, id: string): Promise<Im
 
   const [soat, companias, usuarios] = await Promise.all([
     tx.select({ total: count() }).from(flitoSoat)
-      .where(and(eq(flitoSoat.proveedorSoatId, id), ne(flitoSoat.estado, 'pagado'))),
+      .where(and(eq(flitoSoat.proveedorSoatId, id), SOAT_ABIERTO())), // Épica #14707: ni `pagado` ni `descartado`
     tx.select({ name: clients.name }).from(clients)
       .where(and(eq(clients.flitoProveedorSoatSinTramiteId, id), clienteVigente()))
       .orderBy(asc(clients.name)),

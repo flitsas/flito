@@ -1,0 +1,225 @@
+<!doctype html>
+<!--
+  Maqueta DESCARTABLE — Trámite anulado, abortado o revocado en FLIT «no existe» en FLITO (Épica #14707).
+  Spec: docs/ux/epica-14707-tramite-muerto.md · Diseño: docs/diseno/epica-14707-tramite-muerto.md · ADR-0049.
+  No se importa a apps/web. Clases reales del kit + torre-maqueta.css. Vistas: ?vista=… · Tema: &tema=oscuro.
+  Datos 100 % ficticios.
+-->
+<html lang="es" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FLITO · Trámite muerto (maqueta)</title>
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-variables.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/tokens.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-propuesta.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-ui.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-react.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-responsive.css">
+  <link rel="stylesheet" href="torre-maqueta.css">
+  <style>
+    /* Solo lo que en la app da Tailwind; sin colores propios. */
+    .tenue { font-size: var(--text-caption); font-style: italic; color: var(--color-text-tertiary); }
+    .retiros { display: grid; gap: 6px; margin: var(--space-10) 0; }
+    .retiros li { display: grid; grid-template-columns: 1fr; gap: 2px 16px; align-items: center; font-size: var(--text-caption); }
+    @media (min-width: 640px) { .retiros li { grid-template-columns: auto auto 1fr auto; } }
+    .acciones-aviso { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-10); }
+    .linea-error { font-size: 14px; color: var(--color-text-secondary); }
+    .modal-demo { position: relative; padding: var(--space-16) 0; }
+    .modal-demo .kit-modal { position: relative; max-width: 100%; }
+    .modal-cuerpo { display: grid; grid-template-columns: 1fr; gap: var(--space-16); }
+    @media (min-width: 1024px) { .modal-cuerpo { grid-template-columns: 12rem minmax(0, 1fr); } }
+    .indice li { padding: 6px 0; font-size: var(--text-caption); }
+    .toast-demo { display: flex; justify-content: flex-end; }
+    .toast-demo .kit-aviso { max-width: 28rem; }
+    .img-ico { width: 14px; height: 14px; }
+    td, th { vertical-align: top; }
+  </style>
+</head>
+<body class="kit-cuerpo">
+<main class="kit-main pila">
+  <nav class="maqueta-nav" aria-label="Vistas de la maqueta">Maqueta · Trámite muerto ·
+    <a href="?vista=bandeja">Gestión Trámites</a> · <a href="?vista=detalle-anulado">detalle anulado</a> ·
+    <a href="?vista=detalle-revocado">detalle revocado</a> · <a href="?vista=cola">cola SOAT con aviso</a> ·
+    <a href="?vista=cola-muchos">más de 5</a> · <a href="?vista=cola-error">aviso con error</a> · <a href="?vista=cola-impuestos">cola Impuestos con aviso</a> ·
+    <a href="?vista=toast">rechazo 409</a> · <a href="?vista=bandeja&amp;tema=oscuro">oscuro</a>
+  </nav>
+
+  <!-- ═══ S1 · Gestión Trámites ═══ -->
+  <section data-vista="bandeja" class="pila">
+    <div class="page-header kit-header--sin-ilus" data-kit="cabecera"><div class="page-header__texto">
+      <h1>Gestión Trámites</h1><p>Trámites leídos de FLIT. Solo los Asignados habilitan las gestiones.</p>
+    </div></div>
+    <div class="card">
+      <div class="tabla-wrap"><table class="kit-tabla-flit">
+        <thead><tr><th><input type="checkbox" aria-label="Seleccionar todos los trámites con acciones"></th><th>Ver</th><th>Trámite</th><th>Creado</th><th>Vehículo</th><th>SOAT</th><th>Impuestos</th><th>Soportes</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><input type="checkbox" aria-label="Seleccionar KLM482"></td>
+            <td><button class="btn secondary sm">Ver</button></td>
+            <td class="tabular">2026-000812<br><span class="nota">Traspaso</span><br><span class="kit-etiqueta" data-tono="info"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Asignado</span></td>
+            <td>12 nov</td>
+            <td><span class="placa"><span class="placa__num">KLM 482</span></span><br><span class="nota">Mazda 3 · Automóvil</span></td>
+            <td><button class="btn secondary sm">Solicitar</button></td>
+            <td><button class="btn secondary sm">Solicitar</button></td>
+            <td><a href="#" class="enlace">Ver soportes</a></td>
+          </tr>
+          <tr>
+            <td><input type="checkbox" disabled aria-label="No se puede seleccionar RTX019: el trámite está anulado en FLIT" title="No se puede seleccionar RTX019: el trámite está anulado en FLIT"></td>
+            <td><button class="btn secondary sm">Ver</button></td>
+            <td class="tabular">2026-000815<br><span class="nota">Traspaso</span><br><span class="kit-etiqueta kit-etiqueta--icono" data-tono="anulado"><img class="img-ico" src="../../../apps/web/public/kit/estado-anulado.svg" alt="" aria-hidden="true">Anulado</span></td>
+            <td>13 nov</td>
+            <td><span class="placa"><span class="placa__num">RTX 019</span></span><br><span class="nota">Renault Logan</span></td>
+            <td><span class="tenue">Descartado</span></td>
+            <td><span class="tenue">Descartado</span></td>
+            <td><a href="#" class="enlace">Ver soportes</a></td>
+          </tr>
+          <tr>
+            <td><input type="checkbox" disabled aria-label="No se puede seleccionar JHU773: el trámite está revocado en FLIT" title="No se puede seleccionar JHU773: el trámite está revocado en FLIT"></td>
+            <td><button class="btn secondary sm">Ver</button></td>
+            <td class="tabular">2026-000790<br><span class="nota">Matrícula inicial</span><br><span class="kit-etiqueta kit-etiqueta--icono" data-tono="revocado"><img class="img-ico" src="../../../apps/web/public/kit/estado-revocado.svg" alt="" aria-hidden="true">Revocado</span></td>
+            <td>02 nov</td>
+            <td><span class="placa"><span class="placa__num">JHU 773</span></span><br><span class="nota">Kia Picanto</span></td>
+            <td><span class="tenue">Descartado</span></td>
+            <td><span class="tenue">Descartado</span></td>
+            <td><a href="#" class="enlace">Ver soportes</a></td>
+          </tr>
+        </tbody>
+      </table></div>
+      <p class="nota">Fila 1 vigente (sin cambio). Fila 2 anulada o abortada. Fila 3 revocada: su SOAT e impuesto salen de las colas (descartados); su liquidación y cobro se ven como histórico en finanzas.</p>
+    </div>
+  </section>
+
+  <!-- ═══ S2 · Detalle anulado / revocado ═══ -->
+  <section data-vista="detalle-anulado detalle-revocado" class="modal-demo">
+    <div class="kit-modal" role="dialog" aria-labelledby="titulo-detalle">
+      <div class="kit-modal__cabeza">
+        <div>
+          <small class="kit-modal__ante">Gestión Trámites · 4 de 128</small>
+          <div class="fila">
+            <h2 id="titulo-detalle" class="kit-modal__titulo tabular" data-texto-anulado="2026-000815" data-texto-revocado="2026-000790">2026-000815</h2>
+            <span class="kit-etiqueta" data-tono="neutro"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Fuente FLIT</span>
+            <span class="kit-etiqueta kit-etiqueta--icono" data-tono="anulado" data-solo="detalle-anulado"><img class="img-ico" src="../../../apps/web/public/kit/estado-anulado.svg" alt="" aria-hidden="true">Anulado</span>
+            <span class="kit-etiqueta kit-etiqueta--icono" data-tono="revocado" data-solo="detalle-revocado"><img class="img-ico" src="../../../apps/web/public/kit/estado-revocado.svg" alt="" aria-hidden="true">Revocado</span>
+          </div>
+        </div>
+        <div class="fila"><button class="btn ghost sm">‹ Anterior</button><button class="btn ghost sm">Siguiente ›</button><button class="btn secondary sm">Cerrar</button></div>
+      </div>
+      <div class="kit-modal__cuerpo modal-cuerpo">
+        <ul class="indice" aria-label="Secciones"><li>Resumen</li><li>Vehículo</li><li>Propietario y comprador</li><li>Soportes (3)</li><li>Costos y facturación</li><li>Historial</li></ul>
+        <div class="pila">
+          <div class="kit-alerta" data-tono="warn" role="alert" tabindex="-1" data-solo="detalle-anulado">
+            <img src="../../../apps/web/public/kit/aviso-alerta.svg" alt="" aria-hidden="true" class="kit-alerta__icono">
+            <div><p class="m-0"><strong>Trámite anulado en FLIT</strong></p>
+            <p>Este trámite se anuló en FLIT, por eso en FLITO ya no tiene acciones: no se puede solicitar SOAT ni impuestos, ni entregar. Si tenía un SOAT o un impuesto en curso, se descartó y salió de su cola.</p></div>
+          </div>
+          <div class="kit-alerta" data-tono="warn" role="alert" tabindex="-1" data-solo="detalle-revocado">
+            <img src="../../../apps/web/public/kit/aviso-alerta.svg" alt="" aria-hidden="true" class="kit-alerta__icono">
+            <div><p class="m-0"><strong>Trámite revocado en FLIT</strong></p>
+            <p>Este trámite se completó, pero FLIT lo revocó y dejó de valer. En FLITO ya no tiene acciones. Su cobro y su liquidación se conservan como histórico: puedes consultarlos en Costos y facturación, pero no generan cobros nuevos.</p></div>
+          </div>
+          <div class="card"><h3>Resumen</h3><p class="nota">…secciones sin cambio…</p></div>
+        </div>
+      </div>
+      <!-- Sin pie: un trámite muerto no tiene botones de acción. -->
+    </div>
+  </section>
+
+  <!-- ═══ S3 · Cola SOAT con aviso de retiros ═══ -->
+  <section data-vista="cola cola-muchos cola-error" class="pila">
+    <div class="page-header kit-header--sin-ilus" data-kit="cabecera"><div class="page-header__texto">
+      <h1 tabindex="-1">SOAT</h1><p>Cola de adquisición del SOAT: de Pendiente a Pagado.</p>
+    </div></div>
+
+    <div class="kit-alerta" data-tono="warn" role="alert" data-solo="cola cola-muchos">
+      <img src="../../../apps/web/public/kit/aviso-alerta.svg" alt="" aria-hidden="true" class="kit-alerta__icono">
+      <div style="flex:1;min-width:0">
+        <p class="m-0"><strong data-solo="cola">Se retiraron 3 SOAT que solicitaste</strong><strong data-solo="cola-muchos">Se retiraron 12 SOAT que solicitaste</strong></p>
+        <p>Sus trámites se anularon o se revocaron en FLIT: ya no se tramitan y salieron de la cola. No tienes que hacer nada más.</p>
+        <ul class="retiros" id="lista-retiros">
+          <li><span class="placa"><span class="placa__num">RTX 019</span></span><span class="tabular">2026-000815</span><span>Trámite anulado en FLIT</span><span>24 nov 2026</span></li>
+          <li><span class="placa"><span class="placa__num">JHU 773</span></span><span class="tabular">2026-000790</span><span>Trámite revocado en FLIT</span><span>24 nov 2026</span></li>
+          <li><span class="placa"><span class="placa__num">PQA 310</span></span><span class="tabular">2026-000801</span><span>Trámite anulado en FLIT</span><span>23 nov 2026</span></li>
+          <li data-solo="cola-muchos"><span class="placa"><span class="placa__num">WEB 554</span></span><span class="tabular">2026-000777</span><span>Trámite anulado en FLIT</span><span>22 nov 2026</span></li>
+          <li data-solo="cola-muchos"><span class="placa"><span class="placa__num">GHT 120</span></span><span class="tabular">2026-000769</span><span>Trámite anulado en FLIT</span><span>22 nov 2026</span></li>
+        </ul>
+        <div class="acciones-aviso">
+          <button class="btn ghost sm" aria-expanded="false" aria-controls="lista-retiros" data-solo="cola-muchos">Ver los 12</button>
+          <button class="btn secondary sm" aria-label="Entendido, ocultar el aviso de SOAT retirados">Entendido</button>
+        </div>
+      </div>
+    </div>
+
+    <p class="linea-error" role="status" data-solo="cola-error">No pudimos revisar si se retiró algún SOAT que solicitaste. <button class="enlace-btn">Reintentar</button></p>
+
+    <div class="card">
+      <div class="fila"><span class="nota">Filtros…</span></div>
+      <div class="tabla-wrap"><table class="kit-tabla-flit">
+        <thead><tr><th>Placa</th><th>Trámites FLIT</th><th>Estado</th><th>Compañía</th></tr></thead>
+        <tbody>
+          <tr><td><span class="placa"><span class="placa__num">KLM 482</span></span></td><td class="tabular">2026-000812</td><td><span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Pendiente</span></td><td>Concesionario Demo</td></tr>
+          <tr><td><span class="placa"><span class="placa__num">ZXC 901</span></span></td><td class="tabular">2026-000820</td><td><span class="kit-etiqueta" data-tono="info"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Solicitado</span></td><td>Concesionario Demo</td></tr>
+        </tbody>
+      </table></div>
+      <p class="nota">Los SOAT descartados ya no aparecen en la cola. Impuestos muestra el mismo aviso con «impuestos».</p>
+    </div>
+  </section>
+
+  <!-- ═══ S4 · Cola Impuestos con aviso de retiros ═══ -->
+  <section data-vista="cola-impuestos" class="pila">
+    <div class="page-header kit-header--sin-ilus" data-kit="cabecera"><div class="page-header__texto">
+      <h1 tabindex="-1">Impuestos</h1><p>Cola de impuestos vehiculares: de Pendiente a Pagado.</p>
+    </div></div>
+    <div class="kit-alerta" data-tono="warn" role="alert">
+      <img src="../../../apps/web/public/kit/aviso-alerta.svg" alt="" aria-hidden="true" class="kit-alerta__icono">
+      <div style="flex:1;min-width:0">
+        <p class="m-0"><strong>Se retiraron 2 impuestos que solicitaste</strong></p>
+        <p>Sus trámites se anularon o se revocaron en FLIT: ya no se tramitan y salieron de la cola. No tienes que hacer nada más.</p>
+        <ul class="retiros">
+          <li><span class="placa"><span class="placa__num">RTX 019</span></span><span class="tabular">2026-000815</span><span>Trámite anulado en FLIT</span><span>24 nov 2026</span></li>
+          <li><span class="placa"><span class="placa__num">JHU 773</span></span><span class="tabular">2026-000790</span><span>Trámite revocado en FLIT</span><span>24 nov 2026</span></li>
+        </ul>
+        <div class="acciones-aviso">
+          <button class="btn secondary sm" aria-label="Entendido, ocultar el aviso de impuestos retirados">Entendido</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="fila"><span class="nota">Filtros…</span></div>
+      <div class="tabla-wrap"><table class="kit-tabla-flit">
+        <thead><tr><th>Placa</th><th>Trámite FLIT</th><th>Estado</th><th>Organismo</th></tr></thead>
+        <tbody>
+          <tr><td><span class="placa"><span class="placa__num">KLM 482</span></span></td><td class="tabular">2026-000812</td><td><span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Pendiente</span></td><td>Tránsito Demo</td></tr>
+        </tbody>
+      </table></div>
+      <p class="nota">Solo los retiros de impuestos. Un «Solicitar ambos» retirado deja un aviso aquí y otro en la cola SOAT, y cada «Entendido» marca solo el suyo.</p>
+    </div>
+  </section>
+
+  <!-- ═══ S5 · Rechazo 409 ═══ -->
+  <section data-vista="toast" class="pila">
+    <p class="nota">Caso: la pantalla aún mostraba el trámite como vigente y FLIT lo anuló entre la carga y el clic.</p>
+    <div class="toast-demo">
+      <div role="alert" class="kit-aviso" data-tono="danger" data-kit="aviso">
+        <img src="../../../apps/web/public/kit/aviso-error.svg" alt="" aria-hidden="true" class="kit-aviso__icono">
+        <p class="kit-aviso__texto m-0">No se pudo solicitar el SOAT: el trámite 2026-000815 se anuló o se revocó en FLIT. La tabla ya se actualizó.</p>
+        <button type="button" aria-label="Cerrar aviso" title="Cerrar aviso" class="kit-aviso__cerrar">×</button>
+      </div>
+    </div>
+  </section>
+</main>
+<script>
+  const q = new URLSearchParams(location.search);
+  const vista = q.get('vista') || 'bandeja';
+  if (q.get('tema') === 'oscuro') document.documentElement.dataset.theme = 'dark';
+  document.querySelectorAll('[data-vista]').forEach(el => {
+    if (el.dataset.vista.split(' ').includes(vista)) el.classList.add('activa');
+  });
+  document.querySelectorAll('[data-solo]').forEach(el => {
+    if (!el.dataset.solo.split(' ').includes(vista)) el.style.display = 'none';
+  });
+  const t = document.getElementById('titulo-detalle');
+  if (vista === 'detalle-revocado') t.textContent = t.dataset.textoRevocado;
+</script>
+</body>
+</html>

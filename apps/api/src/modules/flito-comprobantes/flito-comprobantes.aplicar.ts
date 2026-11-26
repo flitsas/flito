@@ -57,7 +57,7 @@ import { getEntityDocumentStream, uploadEntityDocument } from '../../services/st
 import { nombrePagina, recortarPaginas } from '../../shared/pdf/separar-paginas.js';
 import { confirmar } from '../flito-revisiones/flito-revisiones.service.js';
 import {
-  asignacionPreviaDe, bloquearTramite, fijarDesdeComprobante, tipoActivoDe, TramiteNoEncontradoError, type Ejecutor, type TipoCatalogo, type Tx,
+  asignacionPreviaDe, bloquearTramite, bloquearTramiteVivo, fijarDesdeComprobante, tipoActivoDe, TramiteNoEncontradoError, type Ejecutor, type TipoCatalogo, type Tx,
 } from '../finanzas-servicios-adicionales/finanzas-servicios-adicionales.service.js';
 import { columnasDeLectura, ComprobanteError, detalle, type ComprobanteCtx } from './flito-comprobantes.service.js';
 import { comprobarDestinoPago, pagarEnTx, pagarTrasCommit, tieneDueno, type DestinoPago, type PagoArgs } from './flito-comprobantes.duenos.js';
@@ -337,7 +337,8 @@ export async function prepararAplicacion(id: string, cuerpo: unknown, ctx: Compr
     await bloquearComprobantePendiente(tx, id);
     let tramite: { id: string; idFlit: string };
     try {
-      tramite = await bloquearTramite(tx, body.tramiteId);
+      // Épica #14707 (T): no se aplica a un trámite muerto (409). `reemplazar` es acción de SALIDA (§6): sin el guard.
+      tramite = opciones.sinGuardaPrevia ? await bloquearTramite(tx, body.tramiteId) : await bloquearTramiteVivo(tx, body.tramiteId);
     } catch (e) {
       if (e instanceof TramiteNoEncontradoError) throw noEncontrado('El trámite no existe');
       throw e;

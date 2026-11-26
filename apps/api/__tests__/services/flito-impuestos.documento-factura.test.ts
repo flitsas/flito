@@ -11,6 +11,8 @@ import { getTableName, type SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 
 const selectMock = vi.fn();
+/** Épica #14707: la lectura del estado que hace `exigirImpuestoVigentePorId` (select → from → where → limit). */
+const estadoImpuesto = (filas: unknown[]) => ({ from: () => ({ where: () => ({ limit: async () => filas }) }) });
 const updateMock = vi.fn();
 vi.mock('../../src/db/client.js', () => ({
   db: { select: selectMock, update: updateMock, insert: vi.fn(), delete: vi.fn(), transaction: vi.fn(), execute: vi.fn() },
@@ -135,8 +137,16 @@ describe('corregirDatosDocumentoFactura — AC2: motivo obligatorio (validado en
 
   it('fila inexistente (RETURNING vacío) → null, sin reventar', async () => {
     updates([]);
+    selectMock.mockReturnValueOnce(estadoImpuesto([])); // Épica #14707: el UPDATE vacío pregunta si era un descartado
     const r = await corregirDatosDocumentoFactura(ID, { numeroFactura: 'FAC-1', motivo: 'motivo cualquiera' }, ACTOR);
     expect(r).toBeNull();
+  });
+
+  it('Épica #14707 (I): impuesto descartado → el UPDATE lo excluye y responde 409 TRAMITE_NO_VIGENTE', async () => {
+    updates([]);
+    selectMock.mockReturnValueOnce(estadoImpuesto([{ estado: 'descartado', motivoDescarte: 'anulado' }]));
+    await expect(corregirDatosDocumentoFactura(ID, { numeroFactura: 'FAC-1', motivo: 'motivo cualquiera' }, ACTOR))
+      .rejects.toMatchObject({ status: 409, code: 'TRAMITE_NO_VIGENTE' });
   });
 });
 
@@ -199,6 +209,7 @@ describe('reintentarLecturaDocumentoFactura — AC3: reemplaza SOLO los 3 campos
     descargarMock.mockResolvedValueOnce({ bytes: Buffer.from('x'), contentType: 'application/pdf' });
     extraerMock.mockResolvedValueOnce(extraccionFresca);
     updates([]);
+    selectMock.mockReturnValueOnce(estadoImpuesto([])); // Épica #14707: el UPDATE vacío pregunta si era un descartado
     const r = await reintentarLecturaDocumentoFactura(ID, 'reintento', ACTOR);
     expect(r).toEqual({ resultado: 'NO_ENCONTRADO' });
   });

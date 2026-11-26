@@ -30,6 +30,10 @@
 //   dueño lo rechaza entonces, el reemplazo vuelve a pendiente (compensación de `aplicar`) y el original
 //   queda descartado con el SOAT en adquisición.
 //
+// Épica #14707 (ADR-0049 §5, D11): el núcleo se exporta (`liberarAplicadoEnTx`) con el dueño `conservar` para liberar
+// los comprobantes de un trámite muerto: pasos 1-4 y 6 (destino `pendiente`), SIN el 5 (el dueño ya es `descartado`).
+// Con el dueño `descartado`, `revertirDueno` no hace nada (ya no responde 409 `dueno_no_reversible`).
+//
 // Ningún log lleva contenido leído (Habeas Data): ids y conceptos.
 
 import { and, eq } from 'drizzle-orm';
@@ -143,12 +147,18 @@ function exigirDuenoReversible(c: Pick<FilaAplicada, 'concepto' | 'esPago'>): vo
 interface Desaplicacion {
   destino: DestinoDesaplicacion;
   motivo: string;
-  /** El estado al que vuelve el dueño (SOAT / impuesto): `pendiente` al desaplicar, `solicitado` al reemplazar. */
-  duenoA: 'pendiente' | 'solicitado';
+  /**
+   * El estado al que vuelve el dueño (SOAT / impuesto): `pendiente` al desaplicar, `solicitado` al reemplazar;
+   * `conservar` (Épica #14707) = no se toca: el dueño ya es `descartado` y solo se libera el comprobante.
+   */
+  duenoA: 'pendiente' | 'solicitado' | 'conservar';
 }
 
+/** Quién desaplica. `userId` null solo con `duenoA: 'conservar'` (el sistema, desde el descarte del sync). */
+type CtxDesaplicacion = Omit<ComprobanteCtx, 'userId'> & { userId: number | null };
+
 /** Pasos 1-6 de la cabecera. Devuelve la fila tal como estaba (trámite y concepto: los hereda el reemplazo). */
-async function desaplicarEnTx(tx: Tx, id: string, d: Desaplicacion, ctx: ComprobanteCtx): Promise<FilaAplicada & { tramiteId: string; concepto: ConceptoCosto }> {
+async function desaplicarEnTx(tx: Tx, id: string, d: Desaplicacion, ctx: CtxDesaplicacion): Promise<FilaAplicada & { tramiteId: string; concepto: ConceptoCosto }> {
   const [c] = await tx.select(COLUMNAS).from(flitoComprobantes).where(eq(flitoComprobantes.id, id)).for('update').limit(1);
   if (!c) throw noEncontrado();
   if (c.estado !== EstadoComprobante.APLICADO || !c.tramiteId || !c.concepto) throw noAplicado();
@@ -176,7 +186,8 @@ async function desaplicarEnTx(tx: Tx, id: string, d: Desaplicacion, ctx: Comprob
       throw e;
     }
     await revertirDescuentoComprobante(tx, id, usuario, { motivo: `Desaplicación del comprobante: ${d.motivo}` });
-    await revertirDueno(tx, c.tramiteId, concepto, d, ctx);
+    // `conservar` (Épica #14707) llega solo desde el sistema; los caminos humanos traen su `ComprobanteCtx` completo.
+    if (d.duenoA !== 'conservar') await revertirDueno(tx, c.tramiteId, concepto, { ...d, duenoA: d.duenoA }, ctx as ComprobanteCtx);
     // AC11: la puente de servicios adicionales vuelve a como estaba antes de este pago.
     if (esPagoSa(c)) {
       await restaurarDesdeComprobante(tx, c.tramiteId, c.servicioTipoId!, { existia: c.saAsignacionPrevia === true, valor: c.saValorPrevio });
@@ -204,7 +215,9 @@ async function desaplicarEnTx(tx: Tx, id: string, d: Desaplicacion, ctx: Comprob
 }
 
 /** Paso 5: SOAT / impuesto vuelven al estado de `d.duenoA` con su reversa de siempre; cualquier rechazo es 409 legible. */
-async function revertirDueno(tx: Tx, tramiteId: string, concepto: ConceptoCosto, d: Desaplicacion, ctx: ComprobanteCtx): Promise<void> {
+async function revertirDueno(
+  tx: Tx, tramiteId: string, concepto: ConceptoCosto, d: Desaplicacion & { duenoA: 'pendiente' | 'solicitado' }, ctx: ComprobanteCtx,
+): Promise<void> {
   if (concepto !== ConceptoCosto.SOAT && concepto !== ConceptoCosto.IMPUESTO) return;
   const motivoDueno = `Comprobante desaplicado: ${d.motivo}`;
   try {
@@ -213,6 +226,7 @@ async function revertirDueno(tx: Tx, tramiteId: string, concepto: ConceptoCosto,
       const [soat] = t?.soatId
         ? await tx.select({ id: flitoSoat.id, estado: flitoSoat.estado }).from(flitoSoat).where(eq(flitoSoat.id, t.soatId)).for('update').limit(1)
         : [];
+      if (soat?.estado === EstadoSoat.DESCARTADO) return; // Épica #14707: su trámite murió; solo se libera el comprobante.
       if (!soat) throw duenoNoReversible('El trámite ya no tiene el SOAT que se pagó');
       if (soat.estado !== EstadoSoat.PAGADO) throw duenoNoReversible(`El SOAT no está pagado (${soat.estado}): no hay pago que reversar`);
       await reversarSoatEnTx(tx, soat, d.duenoA === 'pendiente' ? EstadoSoat.PENDIENTE : EstadoSoat.SOLICITADO, motivoDueno, ctx);
@@ -220,6 +234,7 @@ async function revertirDueno(tx: Tx, tramiteId: string, concepto: ConceptoCosto,
     }
     const [imp] = await tx.select({ id: flitoImpuestos.id, estado: flitoImpuestos.estado }).from(flitoImpuestos)
       .where(eq(flitoImpuestos.tramiteId, tramiteId)).for('update').limit(1);
+    if (imp?.estado === EstadoImpuesto.DESCARTADO) return; // Épica #14707: ídem.
     if (!imp) throw duenoNoReversible('El trámite ya no tiene el impuesto que se pagó');
     if (imp.estado !== EstadoImpuesto.PAGADO) throw duenoNoReversible(`El impuesto no está pagado (${imp.estado}): no hay pago que reversar`);
     await reversarImpuestoEnTx(tx, imp, d.duenoA === 'pendiente' ? EstadoImpuesto.PENDIENTE : EstadoImpuesto.SOLICITADO, motivoDueno, { ...ctx, organismos: [], alcance: { enlace: 'ninguno' } });
@@ -227,6 +242,17 @@ async function revertirDueno(tx: Tx, tramiteId: string, concepto: ConceptoCosto,
     if (e instanceof SoatError || e instanceof ImpuestoError) throw duenoNoReversible(e.message);
     throw e;
   }
+}
+
+/**
+ * Épica #14707 (D11): libera un comprobante aplicado a un dueño `descartado`, desde la tx del sync. Es el núcleo de
+ * `desaplicar` con destino `pendiente` y el dueño `conservar`: la bolsa se devuelve (pasos 3-4, libera la llave
+ * `salida:soat:<soatId>`) y el comprobante vuelve a la cola sin trámite. El periodo cerrado sale como
+ * `ComprobanteError` `periodo_cerrado` ANTES de escribir nada de este comprobante: quien llama lo cuenta y sigue.
+ */
+export async function liberarAplicadoEnTx(tx: Tx, id: string, motivoLiberacion: string): Promise<void> {
+  await desaplicarEnTx(tx, id, { destino: 'pendiente', motivo: motivoLiberacion, duenoA: 'conservar' },
+    { userId: null, username: 'sistema', role: 'sistema' });
 }
 
 // ─────────────────────────── Frontera por enlace (ADR-0024) ──────────────────

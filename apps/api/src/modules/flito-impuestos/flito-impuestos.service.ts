@@ -32,6 +32,7 @@ import { encolarAnalisis, marcarEnCursoEnTx } from './flito-impuestos.analisis.s
 import { bloqueDireccionDetalle, direccionFlitDe } from './flito-impuestos.direccion.js';
 import { bloqueDatosDocumentoFacturaDetalle } from './flito-impuestos.documento-factura.js';
 import { envioDeImpuesto, programarEnvioComprobante } from './flito-impuestos.envio-flit2.service.js';
+import { exigirImpuestoVigente } from '../../shared/tramite-vigente.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -840,6 +841,7 @@ export async function reversar(id: string, estadoDestino: EstadoImpuesto, motivo
   await exigirImpuestosPropios([id], ctx); // HU #13426 (P-3): acotado a su alcance
   const [imp] = await db.select().from(flitoImpuestos).where(eq(flitoImpuestos.id, id)).limit(1);
   if (!imp) throw new ImpuestoError(404, 'El impuesto no existe');
+  exigirImpuestoVigente(imp); // Épica #14707: nunca se reversa DESDE `descartado` (409; el trigger FL409 es la red).
   if (!motivo?.trim() || motivo.trim().length < 5) throw new ImpuestoError(400, 'La reversa exige un motivo que explique el porqué');
   if (imp.estado === estadoDestino) throw new ImpuestoError(400, 'El impuesto ya está en ese estado');
   return db.transaction(async (tx) => reversarEnTx(tx, imp, estadoDestino, motivo, ctx));

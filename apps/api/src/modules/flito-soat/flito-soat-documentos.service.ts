@@ -47,6 +47,7 @@ import { detectMime } from '../pesv/magic-number.js';
 import { buscarConAcceso, type SoatCtx } from './flito-soat.service.js';
 import { cerrarPendienteTrasBorrado, type ResultadoBorradoObjeto } from './flito-soat-borrados-pendientes.service.js';
 import { TAMANO_MAX_ARCHIVO, type ArchivoAdicionalRecibido } from './flito-soat-documentos.upload.js';
+import { exigirSoatVigente } from './flito-soat-vigente.js';
 
 const MB = 1024 * 1024;
 const log = loggerFor('flito-soat-documentos');
@@ -379,6 +380,7 @@ export async function cargarDocumentosAdicionales(
 ): Promise<{ guardados: AdicionalGuardado[]; resultado: ResultadoDocumentosAdicionales }> {
   const soat = await buscarConAcceso(id, ctx);
   if (!soat) throw new DocumentoAdicionalError(NO_ENCONTRADA, 404);
+  exigirSoatVigente(soat); // Épica #14707 (S): un SOAT `descartado` no recibe documentos (409).
   if (archivos.length === 0) throw new DocumentoAdicionalError(MENSAJE_SIN_ARCHIVOS, 400);
 
   const previos = await hashesPreviosDeSolicitud(soat.id);
