@@ -35,6 +35,7 @@ import {
 import { exigirClienteOperable } from '../clients/cliente-operable.js';
 import { loggerFor } from '../../shared/logger.js';
 import { soatActualDelVin } from '../flito-soat/flito-soat-actual.js';
+import { exigirTramiteVivo } from '../../shared/tramite-vigente.js';
 
 const log = loggerFor('flito-excepciones');
 
@@ -136,6 +137,7 @@ export async function desbloquear(
   if (yaHay) throw new ExcepcionError(409, 'Ese concepto ya está desbloqueado para este trámite');
 
   return db.transaction(async (tx) => {
+    await exigirTramiteVivo(tx, tramiteId); // Épica #14707: un trámite muerto no se desbloquea (409).
     let detalleRegistro = '';
 
     if (concepto === CONCEPTO_EXCEPCION.SOAT) {

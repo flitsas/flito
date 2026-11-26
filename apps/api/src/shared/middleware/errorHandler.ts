@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { loggerFor } from '../logger.js';
 import { AlcanceAjenoError } from '../alcance-filas.js';
 import { PiiDecryptError } from '../utils/crypto.js';
+import { TramiteNoVigenteError, esErrorDescartado, mensajeDescartado } from '../tramite-vigente.js';
+import { CODIGO_TRAMITE_NO_VIGENTE } from '@operaciones/shared-types';
 import { mensajeDeErrorParaLog, rutaSinDato, stackDeErrorParaLog, textoSinDatoDeUrl } from './ruta-segura.js';
 
 const log = loggerFor('http');
@@ -19,6 +21,18 @@ export function errorHandler(err: any, req: Request, res: Response, _next: NextF
   // HU #13426: escritura fuera del alcance del enlace → 403 con el cuerpo de la frontera.
   if (err instanceof AlcanceAjenoError) {
     if (!res.headersSent) res.status(403).json({ error: 'Sin permisos' });
+    return;
+  }
+
+  // Épica #14707 (ADR-0049 §4): acción de avance sobre un trámite muerto, o el trigger FL409 de la 0318 (salir de
+  // `descartado`). Mapeo global: un router que olvide traducirlo no responde 500.
+  if (err instanceof TramiteNoVigenteError) {
+    if (!res.headersSent) res.status(409).json(err.cuerpo());
+    return;
+  }
+  if (esErrorDescartado(err)) {
+    log.warn({ method: req.method, path: rutaSinDato(req) }, 'registro descartado (FL409) → 409');
+    if (!res.headersSent) res.status(409).json({ error: mensajeDescartado(/impuesto/i.test(req.path) ? 'impuesto' : 'soat'), code: CODIGO_TRAMITE_NO_VIGENTE });
     return;
   }
 

@@ -3,7 +3,7 @@
 //
 // Reglas que viven aquí:
 //   · RN-CLI-1 — Impacto (solo lectura): procesos ABIERTOS de la compañía en los módulos FLITO, por `compania_id`:
-//       SOAT con `estado <> 'pagado'`; impuestos con `estado <> 'pagado'`; trámites con `estado = 'asignado'` (NULL no
+//       SOAT e impuestos con `estado NOT IN ('pagado','descartado')` (Épica #14707); trámites con `estado = 'asignado'` (NULL no
 //       cuenta); liquidaciones con `estado = 'liquidado'` de trámites de la compañía. Las tablas legacy `tramites`/`soat`,
 //       comparendos, derechos y actas de logística NO cuentan. Saldo = el de la bolsa única de la compañía
 //       (`flito_bolsas_unicas` con `alcance = 'compania'`, 1:1 por `uq_flito_bolsas_unicas_compania`; sin bolsa → 0;
@@ -30,7 +30,8 @@
 //       `session_invalidated_at`, dentro de `conSeguroAntiBloqueo` y con su rastro en la bitácora de permisos) y
 //       además `active = false`. Un eliminado (o inexistente) responde 404; si otro administrador lo eliminó mientras
 //       esta petición esperaba el bloqueo → 409 `EstadoClienteCambiadoError`.
-import { and, count, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, count, eq, isNull, ne, notInArray, sql } from 'drizzle-orm';
+import { SOAT_ABIERTO } from '../flito-soat/flito-soat-actual.js';
 import { db } from '../../db/client.js';
 import {
   clients, flitoBolsasUnicas, flitoImpuestos, flitoLiquidaciones, flitoSoat, flitoTramites, users,
@@ -147,9 +148,9 @@ export async function impactoCliente(tx: Ejecutor, id: number): Promise<ImpactoC
 
   const [soat, impuestos, tramites, liquidaciones, bolsa, usuarios] = await Promise.all([
     tx.select({ total: count() }).from(flitoSoat)
-      .where(and(eq(flitoSoat.companiaId, id), ne(flitoSoat.estado, 'pagado'))),
+      .where(and(eq(flitoSoat.companiaId, id), SOAT_ABIERTO())), // Épica #14707: ni `pagado` ni `descartado`
     tx.select({ total: count() }).from(flitoImpuestos)
-      .where(and(eq(flitoImpuestos.companiaId, id), ne(flitoImpuestos.estado, 'pagado'))),
+      .where(and(eq(flitoImpuestos.companiaId, id), notInArray(flitoImpuestos.estado, ['pagado', 'descartado']))),
     tx.select({ total: count() }).from(flitoTramites)
       .where(and(eq(flitoTramites.companiaId, id), eq(flitoTramites.estado, 'asignado'))),
     tx.select({ total: count() }).from(flitoLiquidaciones)

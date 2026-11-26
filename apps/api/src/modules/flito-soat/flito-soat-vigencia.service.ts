@@ -206,7 +206,7 @@ export function condicionCenso(corte: Date): SQL {
     or(isNull(flitoSoat.verificadaEn), lt(flitoSoat.verificadaEn, corte)),
     // ADR-0031 (AC9): UNA consulta al RUNT por vehículo, sobre su fila ACTUAL (el abierto primero;
     // si no, el más reciente). Sin esto cada póliza histórica del mismo vehículo consultaría el RUNT.
-    sql`${flitoSoat.id} IN (SELECT DISTINCT ON (vehiculo_id) id FROM flito_soat ORDER BY vehiculo_id, (estado <> 'pagado') DESC, created_at DESC, id DESC)`,
+    sql`${flitoSoat.id} IN (SELECT DISTINCT ON (vehiculo_id) id FROM flito_soat WHERE estado <> 'descartado' ORDER BY vehiculo_id, (estado NOT IN ('pagado', 'descartado')) DESC, created_at DESC, id DESC)`, // Épica #14707
   )!;
 }
 

@@ -110,7 +110,9 @@ export async function impuestoBloqueantePorVehiculo(
     // dinero por él y su trámite ya no está vivo para llevarlo adelante. Si bloqueara, el vehículo
     // se quedaría sin poder tramitar su impuesto hasta que alguien tocara a mano ese registro
     // muerto — el falso positivo silencioso que esta regla existe para no provocar.
-    // Un `pagado`, en cambio, sigue bloqueando aunque su trámite esté anulado: el dinero salió.
+    // Un `pagado` de un trámite RECHAZADO sigue bloqueando: el dinero salió. Épica #14707 (D5) INVIERTE a propósito lo
+    // que aquí decía del anulado: el impuesto de un trámite muerto pasa a `descartado` en la misma tx en que muere
+    // (también si estaba pagado), así que el filtro por estado de arriba ya no lo ve y el trámite nuevo arranca de cero.
     const tramiteMuerto = f.estadoTramite !== null
       && (ESTADOS_TRAMITE_FLITO_TERMINADOS as readonly string[]).includes(f.estadoTramite);
     if (tramiteMuerto && f.estado !== EstadoImpuesto.PAGADO) continue;

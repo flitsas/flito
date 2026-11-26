@@ -120,23 +120,28 @@ function montarDb(): void {
         if (orden.length) {
           const porNombre = Object.fromEntries(Object.entries(columnas(t)).map(([k, col]) => [col.name, k]));
           // HU #14016: `("col" <> 'literal') desc` (abiertos primero en `soatActualDelVin`) → booleano 1/0.
-          const noIgual: Record<string, string> = {};
+          // Épica #14707: también `("col" NOT IN ('a', 'b')) desc` (SOAT_ABIERTO) y `("col" = 'literal') asc`
+          // (descartados al final). Cada clave lleva su propio evaluador: dos claves pueden mirar la misma columna.
+          const plano = (v: unknown): number | string | null => (v instanceof Date ? v.getTime() : (v as number | string | null));
           const claves = orden.map((o) => {
             const sqlTxt = dialecto.sqlToQuery(o).sql;
+            const dir = (d: string) => (d.toLowerCase() === 'desc' ? -1 : 1);
             const ne = /\((?:"\w+"\.)?"(\w+)" <> '([^']*)'\) (asc|desc)$/i.exec(sqlTxt);
-            if (ne && porNombre[ne[1]]) {
-              noIgual[porNombre[ne[1]]] = ne[2];
-              return { k: porNombre[ne[1]], dir: ne[3].toLowerCase() === 'desc' ? -1 : 1 };
+            if (ne && porNombre[ne[1]]) return { f: (r: Fila) => (r[porNombre[ne[1]]!] !== ne[2] ? 1 : 0), dir: dir(ne[3]) };
+            const eqL = /\((?:"\w+"\.)?"(\w+)" = '([^']*)'\) (asc|desc)$/i.exec(sqlTxt);
+            if (eqL && porNombre[eqL[1]]) return { f: (r: Fila) => (r[porNombre[eqL[1]]!] === eqL[2] ? 1 : 0), dir: dir(eqL[3]) };
+            const notIn = /\((?:"\w+"\.)?"(\w+)" NOT IN \(([^)]*)\)\) (asc|desc)$/i.exec(sqlTxt);
+            if (notIn && porNombre[notIn[1]]) {
+              const lista = notIn[2].split(',').map((x) => x.trim().replace(/^'|'$/g, ''));
+              return { f: (r: Fila) => (lista.includes(String(r[porNombre[notIn[1]]!])) ? 0 : 1), dir: dir(notIn[3]) };
             }
             const m = /"(\w+)" (asc|desc)$/i.exec(sqlTxt);
             if (!m || !porNombre[m[1]]) throw new Error('orderBy no soportado por el mock');
-            return { k: porNombre[m[1]], dir: m[2].toLowerCase() === 'desc' ? -1 : 1 };
+            return { f: (r: Fila) => plano(r[porNombre[m[1]]!]), dir: dir(m[2]) };
           });
-          const val = (v: unknown, k?: string): number | string | null =>
-            k && k in noIgual ? (v !== noIgual[k] ? 1 : 0) : v instanceof Date ? v.getTime() : (v as number | string | null);
           sel.sort((a, b) => {
-            for (const { k, dir } of claves) {
-              const x = val(a[k], k); const y = val(b[k], k);
+            for (const { f, dir } of claves) {
+              const x = f(a); const y = f(b);
               if (x === y) continue;
               if (x == null) return dir; if (y == null) return -dir;
               return (x < y ? -1 : 1) * dir;
@@ -247,6 +252,10 @@ vi.mock('../../src/modules/flito-impuestos/impuesto-por-vehiculo.js', async (ori
 });
 const logMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
 vi.mock('../../src/shared/logger.js', () => ({ logger: logMock, loggerFor: () => logMock }));
+// Épica #14707: el descarte de un trámite que muere tiene su propia prueba contra la base real
+// (`descarte-tramite-muerto.test.ts`); aquí solo se afirma que la transición lo dispara.
+const descarteMock = vi.hoisted(() => vi.fn(async () => ({})));
+vi.mock('../../src/modules/flito-sync/descarte-tramite-muerto.js', () => ({ descartarDeTramiteMuerto: descarteMock }));
 // HU #13092: candado en memoria con la misma semántica que el advisory lock (no espera; se suelta en
 // finally). El SQL real del candado se prueba en `flito-sync.flit2-candado.test.ts`.
 // HU #13188: `enCursoAlPedir` anota el `enCurso` del programa en el instante de pedir el candado (AC4:
@@ -374,6 +383,7 @@ const cuadra = (r: Record<string, unknown>) => {
 };
 
 beforeEach(() => {
+  descarteMock.mockClear();
   mem.tablas = new Map(); mem.secuencia = 1; mem.fallarInsertDe = new Set(); mem.escrituras = [];
   mem.errorInsertDe = new Map(); mem.fallarAudit = false;
   montarDb();
@@ -737,6 +747,9 @@ describe('AC7 · revocado', () => {
     expect(tramite(U1)?.soatId).toBe('0192b7c4-0000-7000-8000-00000000050a');
     const tocadas = new Set(mem.escrituras.map((w) => w.tabla));
     for (const t of ['flito_soat', 'flito_impuestos', 'flito_logistica']) expect(tocadas.has(t), t).toBe(false);
+    // Épica #14707: aprobado → revocado es la transición vivo → muerto: dispara el descarte, una vez, con avisos.
+    expect(descarteMock).toHaveBeenCalledTimes(1);
+    expect(descarteMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ estado: 'anulado', flitEstado: 'Revocado' }), expect.objectContaining({ avisar: true }));
   });
 });
 

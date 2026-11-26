@@ -52,8 +52,9 @@ const NULO_TEXTO = sql`NULL::text` as unknown as AnyColumn;
 const TRAMITE_DEL_SOAT = sql`LEFT JOIN LATERAL (SELECT ${T.id} AS id, ${T.idFlit} AS id_flit, ${T.plateComplete} AS placa FROM ${T}
   WHERE ${T.soatId} = ${S.id} ORDER BY ${T.createdAt} ASC LIMIT 1) torre_ts ON true`;
 
-const SOAT_ABIERTO = sql`${S.estado} <> 'pagado'`;
-const IMPUESTO_ABIERTO = sql`${I.estado} <> 'pagado'`;
+// Épica #14707: «abierto» excluye también `descartado` (terminal: su trámite murió en FLIT).
+const SOAT_ABIERTO = sql`${S.estado} NOT IN ('pagado', 'descartado')`;
+const IMPUESTO_ABIERTO = sql`${I.estado} NOT IN ('pagado', 'descartado')`;
 
 /**
  * RN-TOR-EQ1: las ramas del `UNION ALL`, todas con las mismas columnas y en el mismo orden:

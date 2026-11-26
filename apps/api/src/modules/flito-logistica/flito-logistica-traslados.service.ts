@@ -24,6 +24,7 @@ import {
   MotivoLlegadaRequeridoError, PrecioTrasladoNoConfiguradoError, ProveedorLogisticaRequeridoError,
   TrasladoCompaniaMixtaError, TrasladoOrigenMixtoError,
 } from './flito-logistica-traslados.errors.js';
+import { COLUMNAS_TRAMITE_DE_DOCUMENTO, exigirDocumentosVivos } from '../../shared/tramite-vigente.js';
 
 export interface LtEntradaTraslado { documentoId: string; motivoLlegadaId?: string; nota?: string }
 
@@ -143,6 +144,7 @@ export async function registrarTraslado(input: RegistrarTrasladoInput, ctx: Logi
         companiaId: flitoLogisticaDocumentos.companiaId,
         actaOrganismoPendiente: flitoLogisticaDocumentos.actaOrganismoPendiente,
         proveedorId: flitoLogisticaDocumentos.proveedorLogisticaId,
+        ...COLUMNAS_TRAMITE_DE_DOCUMENTO, // Épica #14707
       }).from(flitoLogisticaDocumentos)
         .where(inArray(flitoLogisticaDocumentos.id, ids))
         .orderBy(flitoLogisticaDocumentos.id)
@@ -151,6 +153,7 @@ export async function registrarTraslado(input: RegistrarTrasladoInput, ctx: Logi
       const hallados = new Set(docs.map((d) => d.id));
       const faltan = ids.filter((i) => !hallados.has(i));
       if (faltan.length) throw new LtNoEncontradaTrasladoError(faltan);
+      exigirDocumentosVivos(docs); // Épica #14707 (T): ninguna LT de un trámite muerto (409).
 
       await exigirTramiteResuelto(tx, ids);
 
@@ -295,6 +298,8 @@ export async function idsClasificadosDe(companiaId: number): Promise<string[]> {
     .where(and(
       eq(flitoLogisticaDocumentos.companiaId, companiaId),
       eq(flitoLogisticaDocumentos.estado, EstadoDocumentoLogistica.CLASIFICADO),
+      // Épica #14707 (TL): el lote omite las LT de un trámite muerto, sin 409.
+      sql`NOT EXISTS (SELECT 1 FROM flito_tramites t WHERE t.id = ${flitoLogisticaDocumentos.tramiteId} AND t.estado = 'anulado')`,
     ));
   return filas.map((f) => f.id);
 }

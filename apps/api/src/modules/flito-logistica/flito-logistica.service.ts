@@ -25,6 +25,7 @@ import { SinLtClasificadasError } from './flito-logistica-traslados.errors.js';
 import {
   anularLineaEntregadaSiHay, devolverTraslado, despacharTraslado, entregarTraslado, trasladoIdDeActaCliente, trasladoIdDeActaViaje,
 } from './flito-logistica-traslados-ciclo.service.js';
+import { COLUMNAS_TRAMITE_DE_DOCUMENTO, exigirDocumentosVivos } from '../../shared/tramite-vigente.js';
 
 // HU #14108 (ADR-0030 §11): barrel. Los importadores (rutas, soportes, tests) siguen importando este archivo.
 export * from './flito-logistica.base.js';
@@ -80,8 +81,9 @@ export async function cerrarLote(companiaId: number, ctx: LogisticaCtx): Promise
   return { actaId: r.actaId, documentos: r.documentos };
 }
 
-async function docsDeActa(exec: DbOrTx, actaId: string): Promise<Array<{ id: string; estado: string }>> {
-  return exec.select({ id: flitoLogisticaDocumentos.id, estado: flitoLogisticaDocumentos.estado })
+async function docsDeActa(exec: DbOrTx, actaId: string): Promise<Array<{ id: string; estado: string; tramiteEstado?: string | null }>> {
+  // Épica #14707: con el estado del trámite de cada LT (`exigirDocumentosVivos`), sin otra lectura.
+  return exec.select({ id: flitoLogisticaDocumentos.id, estado: flitoLogisticaDocumentos.estado, ...COLUMNAS_TRAMITE_DE_DOCUMENTO })
     .from(flitoLogisticaDocumentos).where(eq(flitoLogisticaDocumentos.actaId, actaId));
 }
 
@@ -127,6 +129,7 @@ export async function despachar(actaId: string, datos: DespachoInput, ctx: Logis
       updatedAt: new Date(),
     }).where(eq(flitoLogisticaActas.id, actaId));
     const docs = await docsDeActa(tx, actaId);
+    exigirDocumentosVivos(docs); // Épica #14707 (T): ninguna LT de un trámite muerto avanza (409)
     for (const d of docs) await transicionar(tx, d, EstadoDocumentoLogistica.DESPACHADO, ctx);
     return { documentos: docs.length };
   });
@@ -170,6 +173,7 @@ export async function entregar(actaId: string, datos: EntregaInput, ctx: Logisti
       entregadoLat: datos.lat ?? null, entregadoLng: datos.lng ?? null, entregadoEn: new Date(), updatedAt: new Date(),
     }).where(eq(flitoLogisticaActas.id, actaId));
     const docs = await docsDeActa(tx, actaId);
+    exigirDocumentosVivos(docs); // Épica #14707 (T): ninguna LT de un trámite muerto avanza (409)
     for (const d of docs) await transicionar(tx, d, EstadoDocumentoLogistica.ENTREGADO, ctx, { lat: datos.lat, lng: datos.lng });
     await pasarAlProveedorVigente(tx, docs.map((d) => d.id));
     return { documentos: docs.length };

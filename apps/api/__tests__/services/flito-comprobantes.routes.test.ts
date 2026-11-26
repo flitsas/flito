@@ -492,10 +492,15 @@ describe('AC6 — ninguna ruta del módulo escribe en los destinos ni en el repo
     expect(todo).not.toMatch(/\bflitoTarifas\b/);
     expect(todo).not.toMatch(/modules\/finanzas\//);
     expect(todo).not.toMatch(/requireRole\(/);
-    // Lo único que se escribe: el soporte y el comprobante (carga, aplicar) y el comprobante (releer, descartar).
+    // Lo único que se escribe: el soporte y el comprobante (carga, aplicar) y el comprobante (releer, descartar),
+    // más el rastro `audit_logs` de la liberación por trámite muerto (Épica #14707, D11: periodo cerrado o
+    // salida de bolsa no revertida), que no es un destino sino auditoría de sistema.
     // Solo los builders de drizzle (`db.`/`tx.`): `createHash().update(buf)` no es una escritura.
     const escrituras = [...todo.matchAll(/\b(?:db|tx)\.(insert|update|delete)\((\w+)\)/g)].map((m) => `${m[1]}(${m[2]})`).sort();
-    expect([...new Set(escrituras)]).toEqual(['insert(flitoComprobantes)', 'insert(flitoSoportes)', 'update(flitoComprobantes)', 'update(flitoSoportes)']);
+    expect([...new Set(escrituras)]).toEqual(['insert(auditLogs)', 'insert(flitoComprobantes)', 'insert(flitoSoportes)', 'update(flitoComprobantes)', 'update(flitoSoportes)']);
+    // El rastro de auditoría vive SOLO en la liberación del descarte, no en aplicar/desaplicar/carga.
+    const conAudit = readdirSync(dir).filter((f) => f.endsWith('.ts') && /\btx\.insert\(auditLogs\)/.test(readFileSync(join(dir, f), 'utf8')));
+    expect(conAudit).toEqual(['flito-comprobantes.liberar-descarte.ts']);
   });
 });
 

@@ -37,6 +37,8 @@ import {
   type ResumenElegibilidad,
   type ConceptoFacturable,
   type ValoresLiquidacion,
+  type VigenciaTramite,
+  vigenciaTramite,
 } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
 import { flitoLiquidaciones, flitoTramites } from '../../db/schema.js';
@@ -66,6 +68,8 @@ export interface FilaElegibilidad {
    * inactivo no admite facturas nuevas: sale como `cliente_no_facturable` con el mensaje del AC.
    */
   clienteInactivoNombre?: string | null;
+  /** Épica #14707 (D12): vigencia del trámite; ausente = vigente (filas armadas a mano en tests). */
+  vigencia?: VigenciaTramite;
   /**
    * Valores de la liquidación. `numeric` llega como CADENA, y `null` significa «el concepto no
    * aplica» mientras que `'0.00'` significa «aplica y vale cero». No comparar por veracidad: esa
@@ -100,6 +104,10 @@ export function motivosLocales(f: FilaElegibilidad): MotivoElegibilidad[] {
     motivos.push(motivo('liquidacion_no_facturada'));
   }
 
+  // Épica #14707 (D12): un trámite muerto no se factura (en lote: no elegible, sin 409).
+  if (f.vigencia !== undefined && f.vigencia !== 'vigente') {
+    motivos.push(motivo('tramite_no_vigente', `FLIT dejó este trámite ${f.vigencia}: en FLITO ya no existe y no se factura.`));
+  }
   if (f.companiaId === null) motivos.push(motivo('sin_compania'));
   else if (!f.terceroVinculado) motivos.push(motivo('tercero_sin_vincular'));
   if (f.companiaId !== null && f.clienteInactivoNombre != null) {
@@ -178,6 +186,7 @@ async function cargarFilas(tramiteIds: string[], ambiente: SiigoAmbiente): Promi
     db.select({
       tramiteId: flitoTramites.id,
       companiaId: flitoTramites.companiaId,
+      estadoTramite: flitoTramites.estado, flitEstado: flitoTramites.flitEstado, // Épica #14707
       estadoLiquidacion: flitoLiquidaciones.estado,
       // Un CHECK de la tabla garantiza que toda liquidación `facturado` tiene esta fecha, así que
       // la comparación contra el corte nunca se queda sin dato en las filas que sí hay que comparar.
@@ -226,6 +235,7 @@ async function cargarFilas(tramiteIds: string[], ambiente: SiigoAmbiente): Promi
     facturaViva: f.facturaViva === true,
     historicoDesde: (f.historicoDesde as string | null) ?? null,
     clienteInactivoNombre: (f.clienteInactivoNombre as string | null | undefined) ?? null,
+    vigencia: vigenciaTramite(f.estadoTramite as string | null, f.flitEstado as string | null),
     valores: {
       valorSoat: (f.valorSoat as string | null) ?? null,
       valorImpuesto: (f.valorImpuesto as string | null) ?? null,

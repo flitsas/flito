@@ -33,6 +33,15 @@
 // update de FLIT no lo toca (un retenido sigue retenido aunque llegue con la compañía ya activa: solo la activación
 // libera, en `liberar-retenidos.ts`). RN-RET-3: con la compañía inactiva tampoco arranca SOAT/impuesto un trámite
 // que ya existía sin retener (no nacen procesos para un cliente inactivo); el siguiente sync tras activarlo lo arranca.
+//
+// Épica #14707 (ADR-0049): un trámite anulado, abortado o revocado NO EXISTE en FLITO.
+//   - D1: FLIT 1 mapea `Abortado` y `Revocado` a `anulado`, como FLIT 2 (backfill de lo existente en la 0318).
+//   - `escribirTramite` (FLIT 1 y FLIT 2), en la misma tx y DESPUÉS del UPDATE: si el trámite pasó de vivo a muerto,
+//     `descartarDeTramiteMuerto` (D3, D5, D6, D9, D11). Ni en el alta ni con `soloSiCambia` sin cambios.
+//   - Muerto que FLIT vuelve a poner vivo (decisión cerrada 5): lo descartado no revive (trigger FL409); el SOAT
+//     arranca nuevo (`soatActualDelVin` ignora `descartado`) y el impuesto NO se recrea (`resolverImpuesto` encuentra
+//     el descartado del mismo trámite). La anomalía queda en `audit_logs`.
+//   - `resolverSoat` escribe `tramite_origen_id` al dar de alta: el originador que decide D3a.
 
 import { eq, sql, type SQL } from 'drizzle-orm';
 import { db } from '../../db/client.js';
@@ -43,7 +52,7 @@ import { registrarCambio } from '../../shared/historial/estado-historial.js';
 import { loggerFor } from '../../shared/logger.js';
 import {
   EstadoImpuesto, EstadoSoat, EstadoTramiteFlito, flitoGestionaImpuesto, resolverCodigoOrganismoFlit,
-  soatBloqueaReencolado,
+  soatBloqueaReencolado, tramiteMuerto,
 } from '@operaciones/shared-types';
 import {
   companiaPorNit, modalidadVigente, organismoPorCodigo,
@@ -55,6 +64,7 @@ import {
 import { getFlitAdapter } from './flit.adapter.js';
 import { mapearCompradores, type CompradorMapeado } from './mapeo-compradores.js';
 import { soatActualDelVin } from '../flito-soat/flito-soat-actual.js';
+import { descartarDeTramiteMuerto, type ResultadoDescarte } from './descarte-tramite-muerto.js';
 import {
   diferenciasCompradores, diferenciasTramite, registrarBitacoraSync, registrarFalloBitacoraSync, tipoDeError, vistaHistorial,
   vistaTramite, type Diferencia,
@@ -98,6 +108,8 @@ export function estadoEnumDesdeFlit(estadoFlit: string): EstadoTramiteFlito | nu
     asignado: EstadoTramiteFlito.ASIGNADO, entregado: EstadoTramiteFlito.ENTREGADO,
     aprobado: EstadoTramiteFlito.APROBADO, rechazado: EstadoTramiteFlito.RECHAZADO,
     anulado: EstadoTramiteFlito.ANULADO,
+    // Épica #14707 (D1): abortado y revocado también son muerte; la sub-vigencia queda en `flit_estado`.
+    abortado: EstadoTramiteFlito.ANULADO, revocado: EstadoTramiteFlito.ANULADO,
   };
   return mapa[n] ?? null;
 }
@@ -456,8 +468,13 @@ export type ValorTramite = Omit<typeof flitoTramites.$inferInsert, 'id' | 'creat
 export async function escribirTramite(
   tx: Tx, existente: typeof flitoTramites.$inferSelect | null, idFlit: string, valores: ValorTramite,
   opciones: { soloSiCambia?: boolean } = {},
-): Promise<{ row: typeof flitoTramites.$inferSelect; esNuevo: boolean; huboCambios: boolean; diferencias: Diferencia[] }> {
+): Promise<{
+  row: typeof flitoTramites.$inferSelect; esNuevo: boolean; huboCambios: boolean; diferencias: Diferencia[];
+  /** Épica #14707: el descarte, solo si el trámite pasó de vivo a muerto en esta escritura. */
+  descarte?: ResultadoDescarte;
+}> {
   if (!existente) {
+    // Un trámite que llega YA muerto no tiene nada ligado (solo se arranca en Asignado): no hay descarte.
     const [row] = await tx.insert(flitoTramites).values({ idFlit, ...valores }).returning();
     return { row, esNuevo: true, huboCambios: false, diferencias: [] };
   }
@@ -469,7 +486,36 @@ export async function escribirTramite(
   // Historial de campos observables antes de pisar (origen 'api'): las 7 claves de siempre (AC8).
   const cambios = await registrarDiferencias(tx, existente.id, vistaHistorial(antes), vistaHistorial(despues));
   const [row] = await tx.update(flitoTramites).set({ ...valores, updatedAt: new Date() }).where(eq(flitoTramites.id, existente.id)).returning();
-  return { row, esNuevo: false, huboCambios: cambios.length > 0, diferencias: diferenciasTramite(antes, despues) };
+  const resultado = { row, esNuevo: false, huboCambios: cambios.length > 0, diferencias: diferenciasTramite(antes, despues) };
+  // Épica #14707: transición vivo → muerto (D3/D5/D6/D9/D11), en esta misma tx.
+  if (!tramiteMuerto(existente.estado) && tramiteMuerto(row.estado)) {
+    return { ...resultado, descarte: await descartarDeTramiteMuerto(tx, row, { avisar: true, rearrancar: rearrancarSoatDeVivo }) };
+  }
+  // Decisión cerrada 5: muerto → vivo. Nada revive; el SOAT arranca nuevo y el impuesto no se recrea.
+  if (tramiteMuerto(existente.estado) && !tramiteMuerto(row.estado)) {
+    await auditSistema(tx, { action: 'update', resource: 'flito_tramite', resourceId: row.id, detail: `Épica 14707: FLIT volvió a poner vivo el trámite ${idFlit} (${row.flitEstado ?? 'sin estado'}). Lo descartado no revive: el SOAT arranca nuevo y el impuesto no se recrea.` });
+  }
+  return resultado;
+}
+
+/**
+ * Épica #14707 (D3a): ¿el trámite cumple las condiciones de arranque de SOAT/impuesto? Las mismas de `sincronizarUno`
+ * (Asignado, compañía y organismo emparejados, no retenido, compañía activa).
+ */
+export function puedeArrancar(estadoFlit: string | null, compania: CompaniaRow | null, organismoCodigo: string | null, retenido: boolean): boolean {
+  return estadoFlit !== null && esAsignado(estadoFlit) && compania !== null && organismoCodigo !== null && !retenido && !companiaRetiene(compania);
+}
+
+/**
+ * Épica #14707 (D3a): un vivo desligado de un SOAT pagado descartado arranca SOAT nuevo EN LA MISMA tx si cumple las
+ * condiciones (FLIT 2 es incremental y no volvería a leerlo). Solo el SOAT: su impuesto no cambia. `true` = arrancó.
+ */
+export async function rearrancarSoatDeVivo(tx: Tx, vivo: typeof flitoTramites.$inferSelect, vin: string): Promise<boolean> {
+  const compania = vivo.companiaNit ? await companiaPorNit(vivo.companiaNit) : null;
+  if (!compania || !vivo.organismoCodigo || !puedeArrancar(vivo.flitEstado, compania, vivo.organismoCodigo, vivo.retenido)) return false;
+  const contadores = { soatCreados: 0, soatBloqueadosPorVin: 0, impuestosCreados: 0, impuestosBloqueadosPorVehiculo: 0 };
+  await resolverSoat(tx, { vin, idFlit: vivo.idFlit, valorImpuestoLiquidado: null }, vivo.id, vivo.soatId, vivo.vehiculoId, compania, vivo.organismoCodigo, contadores);
+  return true;
 }
 
 async function upsertTramite(
@@ -566,6 +612,7 @@ async function resolverSoat(
   const [soat] = await tx.insert(flitoSoat).values({
     vin: tf.vin, vehiculoId, estado: EstadoSoat.PENDIENTE, companiaId: compania.id,
     organismoCodigo, proveedorSoatId: null, proveedorSobrescrito: false,
+    tramiteOrigenId: tramiteId, // Épica #14707: el originador que decide D3a.
   }).returning();
   await tx.update(flitoTramites).set({ soatId: soat.id, updatedAt: new Date() }).where(eq(flitoTramites.id, tramiteId));
   r.soatCreados += 1;
@@ -589,6 +636,9 @@ async function resolverImpuesto(
   r: ContadoresArranque,
 ): Promise<void> {
   const [existente] = await tx.select().from(flitoImpuestos).where(eq(flitoImpuestos.tramiteId, tramiteId)).limit(1);
+  // Épica #14707: un impuesto `descartado` del mismo trámite (murió y FLIT lo revivió) también llega aquí y NO se
+  // recrea (decisión cerrada 5; la anomalía la audita `escribirTramite` en la transición). Su UPDATE de valor tampoco
+  // toca `estado`, así que el trigger FL409 no salta.
   if (existente) {
     // El estado es del módulo, no del sync. Solo se completa el valor liquidado si llega.
     if (existente.valorLiquidado === null && tf.valorImpuestoLiquidado !== null) {

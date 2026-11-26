@@ -37,6 +37,7 @@ import { ImpuestoError, type ImpuestoCtx } from './flito-factura-venta.service.j
 import { buscarConAcceso, condicionesColaImpuestos, conJoinsColaImpuestos } from './flito-impuestos.service.js';
 import { exigirCompaniaPropia } from './flito-impuestos.alcance.js';
 import { limitadorRunt } from './runt-limitador.js';
+import { exigirImpuestoVigente, TramiteNoVigenteError } from '../../shared/tramite-vigente.js';
 
 const log = loggerFor('flito.impuestos.certificacion');
 
@@ -173,6 +174,7 @@ export async function certificarImpuesto(id: string, ctx: ImpuestoCtx): Promise<
   const imp = await buscarConAcceso(id, ctx);
   // 404 y no 403 a propósito: la frontera del gestor no debe revelar que el registro existe.
   if (!imp) throw new ImpuestoError(404, 'El impuesto no existe');
+  exigirImpuestoVigente(imp); // Épica #14707 (I): un impuesto `descartado` no admite acciones de avance (409).
 
   if (!ESTADOS_IMPUESTO_CERTIFICABLES.includes(imp.estado as EstadoImpuesto)) {
     return {
@@ -426,6 +428,10 @@ export async function certificarLote(ids: string[], ctx: ImpuestoCtx): Promise<R
     } catch (e) {
       // Un id que no existe o cae fuera de la frontera del gestor: en la ruta individual es un 404,
       // pero dentro de un lote es solo una fila que no se pudo procesar.
+      // Épica #14707: en el lote, un impuesto descartado es una fila no elegible por estado, sin 409.
+      if (e instanceof TramiteNoVigenteError) {
+        return { id, resultado: ResultadoCertificacion.NO_ELEGIBLE, motivo: MotivoNoElegible.ESTADO_NO_ELEGIBLE, mensaje: e.message };
+      }
       if (e instanceof ImpuestoError) {
         return {
           id,

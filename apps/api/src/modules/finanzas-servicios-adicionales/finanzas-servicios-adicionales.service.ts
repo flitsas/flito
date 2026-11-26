@@ -35,6 +35,7 @@ import { db } from '../../db/client.js';
 import {
   flitoComprobantes, flitoLiquidaciones, flitoServiciosAdicionalesTipos, flitoTramiteServiciosAdicionales, flitoTramites, users,
 } from '../../db/schema.js';
+import { exigirFilaTramiteViva } from '../../shared/tramite-vigente.js';
 
 /** Error de dominio de la asignación; las subclases fijan el código HTTP en la ruta. */
 export class ServicioAdicionalTramiteError extends Error {}
@@ -120,6 +121,19 @@ export async function bloquearTramite(tx: Tx, tramiteId: string): Promise<{ id: 
   return fila;
 }
 
+/**
+ * Épica #14707 (T): el MISMO `SELECT … FOR UPDATE` de `bloquearTramite`, que además lee el estado y exige el trámite
+ * vivo (409 `TRAMITE_NO_VIGENTE`). Para las acciones de AVANCE (asignar, liquidar, aplicar, viajes); las de salida
+ * (quitar, desaplicar) siguen con `bloquearTramite`. Una sola lectura: el bloqueo ya serializa con el sync.
+ */
+export async function bloquearTramiteVivo(tx: Tx, tramiteId: string): Promise<{ id: string; idFlit: string }> {
+  const [fila] = await tx.select({ ...PROYECCION_TRAMITE, estado: flitoTramites.estado, flitEstado: flitoTramites.flitEstado })
+    .from(flitoTramites).where(eq(flitoTramites.id, tramiteId)).for('update').limit(1);
+  if (!fila) throw new TramiteNoEncontradoError();
+  exigirFilaTramiteViva(fila);
+  return { id: fila.id, idFlit: fila.idFlit };
+}
+
 /** true si hay fila en `flito_liquidaciones` (cualquier estado): la reversa la borra (RN-02). */
 export async function tramiteLiquidado(ejecutor: Ejecutor, tramiteId: string): Promise<boolean> {
   const [fila] = await ejecutor.select({ id: flitoLiquidaciones.id }).from(flitoLiquidaciones)
@@ -159,7 +173,7 @@ export interface Quitada { tipoId: string; nombre: string; valor: number; idFlit
  */
 export async function asignar(tramiteId: string, tipoId: string, usuarioId: number | null): Promise<Asignada> {
   return db.transaction(async (tx) => {
-    const tramite = await bloquearTramite(tx, tramiteId);
+    const tramite = await bloquearTramiteVivo(tx, tramiteId);
     if (await tramiteLiquidado(tx, tramiteId)) throw new TramiteLiquidadoError();
     const tipo = await tipoActivoDe(tx, tipoId);
     if (!tipo) throw new TipoNoDisponibleError();

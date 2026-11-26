@@ -4,6 +4,7 @@
 // Los asertos del `UPDATE` van sobre lo que el servicio pasó a `.set()` (grabador), no sobre la fila
 // que devuelve el mock: el mock devuelve lo que se le diga.
 
+import 'express-async-errors'; // como en app.ts: el error async de la ruta llega al `errorHandler`
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
 import express from 'express';
@@ -39,12 +40,16 @@ async function buildApp() {
   const { default: router } = await import('../../src/modules/flito-impuestos/flito-impuestos.routes.js');
   const { conAlcance } = await import('../../src/shared/middleware/frontera-enlace.js');
   app.use('/api/flito/impuestos', conAlcance('impuestos', router)); // HU #13426: como en app.ts
+  const { errorHandler } = await import('../../src/shared/middleware/errorHandler.js');
+  app.use(errorHandler); // como en app.ts: traduce `TramiteNoVigenteError` a 409 (Épica #14707)
   return app;
 }
 const auth = async (role: TestRole) => `Bearer ${await testToken({ sub: 9, username: 'ops@flit.io', role })}`;
 const patch = async (role: TestRole, body: unknown = BODY, id = ID) =>
   request(await buildApp()).patch(`/api/flito/impuestos/${id}/direccion`).set('Authorization', await auth(role)).send(body as object);
 const dentro = () => chain([{ imp: { id: ID, organismoCodigo: '05001', estado: 'pagado' }, dentroDeFrontera: true }]);
+/** Segundo SELECT: el guard `exigirImpuestoVigentePorId` (Épica #14707, mecanismo I) lee el estado del impuesto. */
+const vigente = (estado = 'pagado', motivoDescarte: string | null = null) => chain([{ estado, motivoDescarte }]);
 
 /** Graba el `.set()` del UPDATE y devuelve `filas` desde `.returning()`. */
 function grabador(filas: unknown[], g: { set?: Record<string, unknown> }) {
@@ -70,7 +75,7 @@ beforeEach(() => {
 
 describe('PATCH /:id/direccion — AC5', () => {
   it('con la función: 200, guarda recortado y confirma (manual, pendiente=false, quién y cuándo), en CUALQUIER estado', async () => {
-    selectMock.mockReturnValueOnce(dentro());
+    selectMock.mockReturnValueOnce(dentro()).mockReturnValueOnce(vigente());
     const g: { set?: Record<string, unknown> } = {};
     updateMock.mockReturnValueOnce(grabador([filaCorregida()], g));
 
@@ -90,7 +95,7 @@ describe('PATCH /:id/direccion — AC5', () => {
   });
 
   it('auditado SIN la dirección: ni en audit, ni en el registro PII, ni en ningún log', async () => {
-    selectMock.mockReturnValueOnce(dentro());
+    selectMock.mockReturnValueOnce(dentro()).mockReturnValueOnce(vigente());
     updateMock.mockReturnValueOnce(grabador([filaCorregida()], {}));
     await patch('admin');
 
@@ -119,6 +124,16 @@ describe('PATCH /:id/direccion — AC6 y fronteras', () => {
   it('sin token → 401 (autenticación heredada del router padre)', async () => {
     const r = await request(await buildApp()).patch(`/api/flito/impuestos/${ID}/direccion`).send(BODY);
     expect(r.status).toBe(401);
+  });
+
+  it('impuesto `descartado` (trámite muerto) → 409 TRAMITE_NO_VIGENTE, sin UPDATE ni audit (Épica #14707)', async () => {
+    selectMock.mockReturnValueOnce(dentro()).mockReturnValueOnce(vigente('descartado', 'anulado'));
+    const r = await patch('admin');
+    expect(r.status).toBe(409);
+    expect(r.body.code).toBe('TRAMITE_NO_VIGENTE');
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(auditMock).not.toHaveBeenCalled();
+    expect(JSON.stringify(r.body)).not.toContain('CENTINELA');
   });
 
   it('fuera de la frontera o inexistente → 404 (no 403) y sin UPDATE', async () => {

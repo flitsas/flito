@@ -15,6 +15,7 @@ import { ESTADO_INCOMPLETA_LABEL } from './tipos';
 // tono «por si llega una fila antigua»: no puede llegar ninguna.
 export const TONO: Record<EstadoSoat, ChipTone> = {
   pendiente: 'draft', solicitado: 'active', con_novedad: 'danger', pagado: 'success',
+  descartado: 'neutral', // Épica #14707: su trámite murió en FLIT (la presentación final llega en el Bloque 3).
 };
 
 // Un glifo por estado (regla del kit). Claves con prefijo del módulo para no pisar las del kit.

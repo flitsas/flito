@@ -4,7 +4,7 @@
 // Las claves son las del catálogo de `apps/api/.../flito-vistas-columnas.catalogo.ts`.
 import type { ReactNode } from 'react';
 import {
-  ESTADO_IMPUESTO_LABEL, ESTADO_SOAT_LABEL, EstadoImpuesto, EstadoSoat,
+  ESTADO_IMPUESTO_LABEL, ESTADO_SOAT_LABEL, ESTADOS_IMPUESTO_OPERATIVOS, ESTADOS_SOAT_OPERATIVOS, type EstadoImpuesto, type EstadoSoat,
 } from '@operaciones/shared-types';
 import ThFiltroMulti, { type OpcionFiltro } from '../../flit/ThFiltroMulti';
 import { FlitTh, FlitTr } from '../../flit/flitPageKit';
@@ -13,8 +13,9 @@ import { FlitTh, FlitTr } from '../../flit/flitPageKit';
 // servidor. Reemplaza la antigua barra de filtros.
 type Opc = OpcionFiltro;
 const aOpc = (vs: string[]): Opc[] => vs.map((v) => ({ value: v, label: v }));
-const SOAT_OPC: Opc[] = Object.values(EstadoSoat).map((e) => ({ value: e, label: ESTADO_SOAT_LABEL[e] }));
-const IMP_OPC: Opc[] = Object.values(EstadoImpuesto).map((e) => ({ value: e, label: ESTADO_IMPUESTO_LABEL[e] }));
+// Épica #14707: los filtros ofrecen solo los estados OPERATIVOS (sin `descartado`).
+const SOAT_OPC: Opc[] = ESTADOS_SOAT_OPERATIVOS.map((e) => ({ value: e, label: ESTADO_SOAT_LABEL[e] }));
+const IMP_OPC: Opc[] = ESTADOS_IMPUESTO_OPERATIVOS.map((e) => ({ value: e, label: ESTADO_IMPUESTO_LABEL[e] }));
 
 type Filtro<T> = [T[], (v: T[]) => void];
 

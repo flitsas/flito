@@ -32,7 +32,7 @@ import { db } from '../../db/client.js';
 import { clients, flitoExcepcionesAutogestion, flitoTramiteViajesLogistica, flitoTramites, users, vehicles } from '../../db/schema.js';
 import { aprobadoSql, normPlaca } from './flito-logistica.aprobado.js';
 import {
-  bloquearTramite, tramiteLiquidado, TramiteNoEncontradoError, type Ejecutor, type Tx,
+  bloquearTramite, bloquearTramiteVivo, tramiteLiquidado, TramiteNoEncontradoError, type Ejecutor, type Tx,
 } from '../finanzas-servicios-adicionales/finanzas-servicios-adicionales.service.js';
 import { excepcionLogisticaViva, gestionaLogistica } from '../flito-liquidacion/gestiona-logistica.js';
 import { tarifaDe } from '../flito-parametrizacion/flito-tarifas.service.js';
@@ -169,7 +169,7 @@ export async function motivoNoElegible(
  */
 export async function registrar(tramiteId: string, entrada: EntradaViaje, usuarioId: number | null): Promise<Registrado> {
   return db.transaction(async (tx: Tx) => {
-    const tramite = await bloquearTramite(tx, tramiteId);
+    const tramite = await bloquearTramiteVivo(tx, tramiteId); // Épica #14707 (T): sin viajes para un trámite muerto (409).
     const { error, ctx } = await motivoNoElegible(tx, tramiteId);
     if (error || !ctx) throw error!;
     const tarifa = await tarifaLogisticaHoy(ctx.companiaId);

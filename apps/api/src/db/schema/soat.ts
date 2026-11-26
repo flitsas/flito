@@ -74,7 +74,8 @@ export const soatRefreshAttempts = pgTable('soat_refresh_attempts', {
 // del canal Cliente. La 0176 (Feature #12074, HU #12080) RECREA el tipo sin ellos —igual que hizo
 // la 0101 con este mismo enum—, así que a diferencia de los valores viejos de arriba estos no son
 // residuo deprecado: ya no existen en la base y escribirlos es un 22P02.
-export const flitoSoatEstadoEnum = pgEnum('flito_soat_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado']);
+// Épica #14707 (0317): `descartado` = su trámite murió en FLIT; terminal (trigger FL409 de la 0318).
+export const flitoSoatEstadoEnum = pgEnum('flito_soat_estado', ['pendiente', 'solicitado', 'con_novedad', 'pagado', 'descartado']);
 
 // Proveedor que adquiere el SOAT (RN-05: determina la estrategia de flujo). HU #13957 (0259): baja lógica (`deleted_at`/
 // `deleted_by`) y nombre único solo entre vigentes (exacto, como la constraint que reemplaza): un eliminado lo libera.
@@ -87,7 +88,7 @@ export const flitoProveedoresSoat = pgTable('flito_proveedores_soat', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), deletedAt: timestamp('deleted_at', { withTimezone: true }), deletedBy: integer('deleted_by').references(() => users.id, { onDelete: 'restrict' }),
 });
 
-// SOAT anclado al VIN. RN-01 (ADR-0031, migración 0267): a lo sumo UN SOAT ABIERTO (estado <> 'pagado')
+// SOAT anclado al VIN. RN-01 (ADR-0031, migración 0267): a lo sumo UN SOAT ABIERTO (estado NOT IN ('pagado','descartado'), 0318)
 // por VIN y por vehículo —índices únicos parciales—; los `pagado` son historial y pueden ser varios.
 export const flitoSoat = pgTable('flito_soat', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -209,13 +210,24 @@ export const flitoSoat = pgTable('flito_soat', {
    * cuasi-PII y colisionaría visualmente con la otra.
    */
   polizaRunt: varchar('poliza_runt', { length: 60 }),
+  /** Épica #14707 (0318): trámite que dio de alta este SOAT. NULL = canal Cliente/masivo. Sin FK: evita el ciclo con flito_tramites.soat_id. */
+  tramiteOrigenId: uuid('tramite_origen_id'),
+  /** Épica #14707: cuándo y por qué se descartó (CHECK `flito_soat_descarte_chk`: los dos o ninguno, con `estado='descartado'`). */
+  descartadoEn: timestamp('descartado_en', { withTimezone: true }),
+  motivoDescarte: varchar('motivo_descarte', { length: 10 }).$type<'anulado' | 'abortado' | 'revocado'>(),
+  /** Trámite muerto que provocó el descarte. Sin FK (mismo motivo que `tramite_origen_id`). */
+  descartadoPorTramiteId: uuid('descartado_por_tramite_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   // Migración 0267 (ADR-0031): los UNIQUE incondicionales de `vin`/`vehiculo_id` se reemplazan por
   // índices de lookup + índices únicos PARCIALES «abierto» (a lo sumo un SOAT no `pagado`).
   // (En una sola línea: `schema.ts` tiene techo de líneas congelado en ESLint.)
-  estadoIdx: index('idx_flito_soat_estado').on(t.estado), vinIdx: index('idx_flito_soat_vin').on(t.vin), vehiculoIdx: index('idx_flito_soat_vehiculo').on(t.vehiculoId), vinAbiertoUq: uniqueIndex('uq_flito_soat_vin_abierto').on(t.vin).where(sql`${t.estado} <> 'pagado'`), vehiculoAbiertoUq: uniqueIndex('uq_flito_soat_vehiculo_abierto').on(t.vehiculoId).where(sql`${t.estado} <> 'pagado'`),
+  estadoIdx: index('idx_flito_soat_estado').on(t.estado), vinIdx: index('idx_flito_soat_vin').on(t.vin), vehiculoIdx: index('idx_flito_soat_vehiculo').on(t.vehiculoId), vinAbiertoUq: uniqueIndex('uq_flito_soat_vin_abierto').on(t.vin).where(sql`${t.estado} NOT IN ('pagado','descartado')`), vehiculoAbiertoUq: uniqueIndex('uq_flito_soat_vehiculo_abierto').on(t.vehiculoId).where(sql`${t.estado} NOT IN ('pagado','descartado')`),
+  // Épica #14707 (0318): los índices «abierto» excluyen también `descartado`; originador y CHECK del descarte.
+  tramiteOrigenIdx: index('idx_flito_soat_tramite_origen').on(t.tramiteOrigenId).where(sql`${t.tramiteOrigenId} IS NOT NULL`),
+  motivoDescarteChk: check('flito_soat_motivo_descarte_chk', sql`${t.motivoDescarte} IS NULL OR ${t.motivoDescarte} IN ('anulado','abortado','revocado')`),
+  descarteChk: check('flito_soat_descarte_chk', sql`(${t.estado} = 'descartado') = (${t.descartadoEn} IS NOT NULL AND ${t.motivoDescarte} IS NOT NULL)`),
   proveedorIdx: index('idx_flito_soat_proveedor').on(t.proveedorSoatId),
   // Migración 0169 (HU #11914), por la auditoría de esquema. Desde la HU #11913 `compania_id` es el
   // PREDICADO OBLIGATORIO del aislamiento del rol `cliente` —lo aplican `condicionesCola()`, que

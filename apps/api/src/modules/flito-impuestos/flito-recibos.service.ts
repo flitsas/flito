@@ -85,6 +85,7 @@ import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import { completarComprobanteFlit2, programarEnvioComprobante } from './flito-impuestos.envio-flit2.service.js';
 import { esGestorDeOrganismo, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { condicionPorCompania } from '../../shared/alcance-filas.js';
+import { exigirImpuestoVigente } from '../../shared/tramite-vigente.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -792,6 +793,7 @@ export async function cargarReciboCaja(impuestoId: string, archivo: ArchivoSubid
   await exigirCompaniaPropia([impuestoId], ctx); // HU #13426 (AC3)
   const imp = await buscarConAcceso(impuestoId, ctx);
   if (!imp) throw new ReciboCajaError(404, CodigoErrorReciboCaja.NO_ENCONTRADO, 'El impuesto no existe');
+  exigirImpuestoVigente(imp); // Épica #14707 (I): un impuesto `descartado` no admite acciones de avance (409).
   if (imp.liquidadoEn === null) {
     throw new ReciboCajaError(409, CodigoErrorReciboCaja.SIN_LIQUIDACION, 'Este impuesto no tiene liquidación cargada; el recibo de caja se carga sobre una liquidación');
   }
@@ -898,6 +900,7 @@ export async function cargarReciboPorFase(impuestoId: string, fase: FaseRecibo, 
   await exigirCompaniaPropia([impuestoId], ctx); // HU #13426 (AC3)
   const imp = await buscarConAcceso(impuestoId, ctx);
   if (!imp) throw new CargaPorFaseError(404, CodigoErrorCargaPorFase.NO_ENCONTRADO, 'El impuesto no existe');
+  exigirImpuestoVigente(imp); // Épica #14707 (I): un impuesto `descartado` no admite acciones de avance (409).
   const estado = imp.estado as EstadoImpuesto;
   if (estado !== EstadoImpuesto.SOLICITADO && estado !== EstadoImpuesto.PAGADO) {
     throw new CargaPorFaseError(409, CodigoErrorCargaPorFase.ESTADO_NO_PERMITIDO,

@@ -19,6 +19,7 @@ import { auditLogs, flitoImpuestos, flitoRevisiones, flitoSoat, flitoSoportes } 
 import { marcarPagado } from '../flito-soat/flito-soat.service.js';
 import { registrarDesdeRevision } from '../flito-derechos/flito-derechos.service.js';
 import { programarEnvioComprobante } from '../flito-impuestos/flito-impuestos.envio-flit2.service.js';
+import { exigirTramiteVivo } from '../../shared/tramite-vigente.js';
 
 export interface RevisionCtx { userId: number; username: string; role: string }
 
@@ -277,6 +278,7 @@ async function resolverFacturaVenta(revisionId: string, soporteId: string, motiv
  * es decidir a cuál corresponde el pago. El registro del derecho nace de esa decisión.
  */
 async function resolverDerecho(revisionId: string, soporteId: string, motivoOriginal: string, tramiteId: string, extraccion: ExtraccionDerechoTramite, motivo: string, ctx: RevisionCtx): Promise<void> {
+  await exigirTramiteVivo(db, tramiteId); // Épica #14707 (T): un derecho no se ata a un trámite muerto (409).
   const derechoId = await registrarDesdeRevision(tramiteId, extraccion, soporteId, ctx);
 
   // La placa ya quedó asociada: sus pendientes dejan de reintentarse contra un trámite que ya pagó.

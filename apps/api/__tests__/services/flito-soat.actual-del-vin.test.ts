@@ -33,10 +33,11 @@ const { db } = await import('../../src/db/client.js');
 let espia: ReturnType<typeof crearEspia>;
 beforeEach(() => { kdb.reset(); espia = crearEspia(kdb); });
 
-describe('shared-types — terminal = SOLO `pagado`', () => {
-  it('`pagado` es el único terminal; pendiente, solicitado y con_novedad están abiertos', () => {
-    expect(ESTADOS_SOAT_TERMINALES).toEqual(['pagado']);
+describe('shared-types — terminal = `pagado` y (Épica #14707) `descartado`', () => {
+  it('`pagado` y `descartado` son terminales; pendiente, solicitado y con_novedad están abiertos', () => {
+    expect(ESTADOS_SOAT_TERMINALES).toEqual(['pagado', 'descartado']);
     expect(soatEstaAbierto('pagado')).toBe(false);
+    expect(soatEstaAbierto('descartado')).toBe(false);
     for (const e of ['pendiente', 'solicitado', 'con_novedad'] as const) expect(soatEstaAbierto(e)).toBe(true);
   });
 });
@@ -81,10 +82,16 @@ describe('soatActualDelVin', () => {
     expect(await soatActualDelVin(db, 'VIN')).toBeNull();
   });
 
-  it('el orden prefiere el ABIERTO y luego el más reciente', () => {
-    const [abierto, creado, id] = ORDEN_SOAT_ACTUAL.map((o) => renderizar(o).sql);
-    expect(abierto).toContain(`<> 'pagado'`);
+  it('Épica #14707: si lo primero que queda es un descartado, el VIN no tiene SOAT actual', async () => {
+    kdb.when.select('flito_soat', [{ id: 'd', estado: 'descartado', companiaId: 1, venceEl: null, createdAt: new Date() }]);
+    expect(await soatActualDelVin(db, 'VIN')).toBeNull();
+  });
+
+  it('el orden prefiere el ABIERTO, luego el no descartado y luego el más reciente', () => {
+    const [abierto, descartadoAlFinal, creado, id] = ORDEN_SOAT_ACTUAL.map((o) => renderizar(o).sql);
+    expect(abierto).toContain(`NOT IN ('pagado', 'descartado')`);
     expect(abierto.toLowerCase()).toContain('desc');
+    expect(descartadoAlFinal).toMatch(/= 'descartado'\) asc$/i);
     expect(creado).toContain('created_at');
     expect(id).toContain('"id"');
   });
@@ -126,7 +133,7 @@ describe('AC9 — el censo consulta UNA vez por vehículo (fila actual)', () => 
   it('el predicado lleva DISTINCT ON (vehiculo_id) con el abierto primero, sin dejar de exigir comprobante', () => {
     const q = renderizar(condicionCenso(corteDelDia('2026-09-09'))).sql;
     expect(q).toContain('DISTINCT ON (vehiculo_id)');
-    expect(q).toContain(`ORDER BY vehiculo_id, (estado <> 'pagado') DESC, created_at DESC, id DESC`);
+    expect(q).toContain(`WHERE estado <> 'descartado' ORDER BY vehiculo_id, (estado NOT IN ('pagado', 'descartado')) DESC, created_at DESC, id DESC`);
     expect(q.toLowerCase()).toContain('exists');
   });
 });

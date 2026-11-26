@@ -57,7 +57,7 @@ import { viaDeCorreccionDeTramite } from '../siigo/correcciones.service.js';
 // Duplicar cualquiera de las dos abriría la puerta a que el sellado leyera un orden o una instantánea
 // distintos de los que ve la pantalla que asigna.
 import {
-  bloquearTramite, type Ejecutor, type FilaAsignacion, serviciosAsignadosDe, TramiteNoEncontradoError,
+  bloquearTramiteVivo, type Ejecutor, type FilaAsignacion, serviciosAsignadosDe, TramiteNoEncontradoError,
 } from '../finanzas-servicios-adicionales/finanzas-servicios-adicionales.service.js';
 // HU #12626 — los viajes ADICIONALES de logística se leen de su módulo con el mismo criterio que los
 // servicios: `viajesDe` fija el orden (`numero ASC`) y la proyección, y dentro de `liquidar()` se
@@ -887,7 +887,8 @@ export async function liquidar(tramiteId: string, usuarioId: number | null): Pro
     // El MISMO bloqueo que toman asignar y quitar (ADR-0017, RN-03 de la HU #12545): a partir de
     // aquí nadie mete ni saca un servicio de este trámite hasta el COMMIT. Se toma ANTES de leer la
     // puente, que es lo único que hace que lo sellado sea lo que estaba asignado.
-    await bloquearTramite(tx, tramiteId).catch(traducirTramiteNoEncontrado);
+    // Épica #14707 (D12): el mismo bloqueo, exigiendo el trámite vivo (muerto → 409; en lote, fallido).
+    await bloquearTramiteVivo(tx, tramiteId).catch(traducirTramiteNoEncontrado);
     await exigirClienteOperable(tx, ids?.companiaId, 'liquidaciones'); // HU #13947: cliente inactivo → 409
     // Las filas documentales, con el MISMO `tx` y bajo el mismo bloqueo (HU #12654, AC5): `aplicar`
     // toma este `FOR UPDATE` antes de escribirlas, así que lo que se lee aquí es lo aplicado al COMMIT.

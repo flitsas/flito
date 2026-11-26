@@ -35,3 +35,4 @@ export * from './schema/flito-vistas-columnas.js'; // ADR-0045: vistas de column
 // `./schema/flito-drflit.ts` (HU #13803, Dr. Flit, Ley 1581) NO se re-exporta: se importa de ahí directo.
 export * from './schema/flito-torre.js'; // Épica #14590: umbrales de la Torre de Control
 export * from './schema/ia-consumo.js'; // Contrato ia-consumo v1 (ADR-0047): registro de consumo de IA
+export * from './schema/flito-avisos.js'; // Épica #14707 (ADR-0049 §7): avisos por usuario

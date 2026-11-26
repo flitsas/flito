@@ -52,6 +52,8 @@ import { uploadEntityDocument } from '../../services/storage.js';
 import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import { EXISTS_COMPROBANTE_SOAT, TIPO_FACTURA_SOAT } from './flito-soat-censo.js';
 import { hayOtroAbiertoAlReabrir } from './flito-soat-actual.js';
+import { SoatError, ESTADOS_TRASPASO_GESTION, exigirCambioProveedorAdmitido, exigirMotivo, exigirReversable, noAdmiteTraspaso } from './flito-soat-vigente.js';
+export { SoatError };
 import { abrirEnLote, abrirFacturaCifrada, expandir } from './flito-soat-factura-cifrada.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
 import { resolverPermisos, type PermisosResueltos } from '../../shared/permisos-efectivos.js';
@@ -1590,10 +1592,6 @@ export async function enviarAlGestor(
 
 // ───────────────────────────── Rechazo / reactivación / reversa / proveedor ──
 
-export class SoatError extends Error {
-  constructor(public status: number, message: string, public codigo?: string) { super(message); }
-}
-
 /** Rechazo del proveedor (CA-08). Solo desde En adquisición; motivo obligatorio. */
 export async function rechazar(id: string, motivo: string, ctx: SoatCtx): Promise<typeof flitoSoat.$inferSelect> {
   const soat = await buscarConAcceso(id, ctx);
@@ -1644,7 +1642,7 @@ export async function reactivar(id: string, motivo: string, ctx: SoatCtx): Promi
 export async function reversar(id: string, estadoDestino: EstadoSoat, motivo: string, ctx: SoatCtx): Promise<typeof flitoSoat.$inferSelect> {
   const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, id)).limit(1);
   if (!soat || !dentroDeAlcance(soat, ctx)) throw new SoatError(404, 'El SOAT no existe');
-  if (!motivo?.trim() || motivo.trim().length < 5) throw new SoatError(400, 'La reversa exige un motivo que explique el porqué');
+  exigirReversable(soat, motivo); // Épica #14707: nunca desde `descartado` (409); motivo ≥ 5 (400).
   if (soat.estado === estadoDestino) throw new SoatError(400, 'El SOAT ya está en ese estado');
 
   // ── Aquí vivían las dos guardas del canal Cliente, y se van con sus estados (HU #12080) ─────────
@@ -1698,9 +1696,7 @@ export async function reversarEnTx(
 export async function cambiarProveedor(id: string, proveedorSoatId: string, motivo: string, ctx: SoatCtx): Promise<{ soat: typeof flitoSoat.$inferSelect; anterior: string | null }> {
   const [soat] = await db.select().from(flitoSoat).where(eq(flitoSoat.id, id)).limit(1);
   if (!soat || !dentroDeAlcance(soat, ctx)) throw new SoatError(404, 'El SOAT no existe'); // Bug #12869
-  if (soat.estado === EstadoSoat.SOLICITADO) {
-    throw new SoatError(400, 'RN-05: para cambiar el proveedor de un SOAT en adquisición, primero hay que reversarlo a Pendiente con justificación.');
-  }
+  exigirCambioProveedorAdmitido(soat); // RN-05 (400) + Épica #14707 (409 si está `descartado`).
   if (!motivo?.trim()) throw new SoatError(400, 'El motivo del cambio de proveedor es obligatorio');
 
   const anterior = soat.proveedorSoatId;
@@ -1716,28 +1712,7 @@ export async function cambiarProveedor(id: string, proveedorSoatId: string, moti
 
 // ─────────────────── Traspaso de gestión: Operaciones ↔ proveedor (HU #11153) ─
 
-/**
- * Estados en los que el traspaso tiene sentido: el registro ya salió a gestión y todavía no se
- * pagó. `pendiente` no ha salido —para eso está el destino del envío (HU #11152)— y `pagado` ya
- * consumió el dinero, así que cambiarle el gestor no describe nada real.
- */
-const ESTADOS_TRASPASO_GESTION: readonly EstadoSoat[] = [EstadoSoat.SOLICITADO, EstadoSoat.CON_NOVEDAD];
-
-const MOTIVO_MINIMO = 5;
-
-/** Mensaje según por qué el estado no admite traspaso: el usuario necesita saber cuál de los dos es. */
-function noAdmiteTraspaso(estado: EstadoSoat): SoatError {
-  if (estado === EstadoSoat.PAGADO) {
-    return new SoatError(400, 'Este SOAT ya está pagado: su gestión no se traspasa. Si hay que rehacerlo, primero reversarlo con justificación.');
-  }
-  return new SoatError(400, `Este SOAT aún no se ha enviado a gestión (está en "${ESTADO_SOAT_LABEL[estado]}"). Elige el destino al enviarlo.`);
-}
-
-function exigirMotivo(motivo: string, accion: string): string {
-  const limpio = motivo?.trim() ?? '';
-  if (limpio.length < MOTIVO_MINIMO) throw new SoatError(400, `${accion} exige un motivo que explique el porqué`);
-  return limpio;
-}
+// `ESTADOS_TRASPASO_GESTION`, `noAdmiteTraspaso` y `exigirMotivo` viven en `flito-soat-vigente.ts` (Épica #14707).
 
 /**
  * Operaciones asume la gestión de un SOAT que ya está con un proveedor (contingencia).

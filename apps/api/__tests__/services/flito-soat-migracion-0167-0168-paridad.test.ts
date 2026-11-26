@@ -206,8 +206,10 @@ describe('paridad `.sql` ↔ `schema.ts` — que las dos verdades sean la misma'
     // valor que PostgreSQL rechaza con 22P02.
     expect(flitoSoatEstadoEnum.enumValues).not.toContain('pendiente_revision');
     expect(flitoSoatEstadoEnum.enumValues).not.toContain('rechazada');
+    // `descartado` lo añade después la 0317 (Épica #14707, estado terminal); no es de esta cadena,
+    // pero el literal de Drizzle es uno solo y tiene que coincidir con el tipo de Postgres al tip.
     expect([...flitoSoatEstadoEnum.enumValues].sort())
-      .toEqual(['con_novedad', 'pagado', 'pendiente', 'solicitado']);
+      .toEqual(['con_novedad', 'descartado', 'pagado', 'pendiente', 'solicitado']);
     // `operaciones` sigue en el enum de Postgres (quitarlo obligaría a recrear el tipo) y se omite
     // del literal a propósito: no es un incumplimiento del AC4, es deuda declarada.
     expect(roleEnum.enumValues).not.toContain('operaciones');
