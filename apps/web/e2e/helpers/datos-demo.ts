@@ -852,7 +852,7 @@ function tramite(i: number, p: Record<string, unknown>) {
   const k = (i - 1) % 3;
   return {
     fechaCreacion: '2026-10-20T15:00:00Z', tramiteId: `tra-demo-${i}`, idFlit: `FLIT-DEMO-${100 + i}`, estado: 'Asignado', asignado: true,
-    tipoTramite: 'Matricula', ciudad: 'Manizales', empresaExiste: true, empresaNit: N[k], secretariaEmparejada: true,
+    tipoTramite: 'Matricula', ciudad: 'Manizales', nombreGestor: 'Laura Gestora', correoGestor: 'laura.gestora@demo.test', empresaExiste: true, empresaNit: N[k], secretariaEmparejada: true,
     transitoNombre: ORGANISMOS_REALES[0], facturaVentaFlitId: null, companiaNombre: EMPRESAS_DEMO[k], organismoNombre: ORGANISMOS_REALES[0],
     fuente: 'flit', vehiculo: { vin: V[k], placa: P[k], marca: 'Chevrolet', linea: 'Onix' },
     compradorPrincipal: { nombreCompleto: NOMBRES_DEMO[k], numeroDocumento: C[k], tipoDocumento: 'CC', correo: null },
@@ -917,7 +917,7 @@ export const DETALLE_TRAMITE_DEMO = {
     nombreCompleto: NOMBRES_DEMO[0], tipoDocumento: 'CC', numeroDocumento: C[0], correo: DATOS_DEMO.correos[3],
     celular: DATOS_DEMO.telefonos[0], direccion: null, orden: 1, porcentajeParticipacion: null,
   }],
-  gestora: { nombre: EMPRESAS_DEMO[0], nit: N[0], existe: true },
+  gestora: { nombre: EMPRESAS_DEMO[0], nit: N[0], existe: true, nombrePersona: 'Laura Gestora', correoPersona: 'laura.gestora@demo.test' },
   costos: {
     conceptos: [
       { concepto: 'soat', quienCobra: ASEGURADORAS_DEMO[0], autogestionado: false, estado: 'pendiente', valor: null, valorLiquidado: null },

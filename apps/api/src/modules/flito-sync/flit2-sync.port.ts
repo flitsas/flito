@@ -58,6 +58,9 @@ export interface ItemFlit2 {
   vehiculo: VehiculoFlit2 | null;
   organismo: OrganismoFlit2 | null;
   companiaNit: string | null;
+  /** Persona que gestiona el trámite (PII; por confirmar con FLIT 2). null = no vino. Nunca va en `raw`. */
+  nombreGestor: string | null;
+  correoGestor: string | null;
   /** Adjunto de la factura (#13095). */
   facturaAdjuntoId: string | null;
   compradores: CompradorFlit2[];

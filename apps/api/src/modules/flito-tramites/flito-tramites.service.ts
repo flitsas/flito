@@ -109,6 +109,8 @@ export interface TramiteFila {
   companiaNombre: string | null; empresaExiste: boolean; empresaNit: string | null;
   organismoNombre: string | null; secretariaEmparejada: boolean; transitoNombre: string | null;
   facturaVentaFlitId: string | null;
+  /** Persona que gestiona el trámite (PII; null = la fuente no lo trajo). */
+  nombreGestor: string | null; correoGestor: string | null;
   vehiculo: { vin: string | null; placa: string | null; marca: string | null; linea: string | null; tipoVehiculo: string | null };
   compradorPrincipal: Comprador | null; compradores: Comprador[];
   soat: FilaSoat | null; soatAutogestionado: boolean; impuesto: FilaImpuesto | null; impuestosAutogestionado: boolean;
@@ -335,6 +337,8 @@ export function proyeccion() {
     companiaNit: flitoTramites.companiaNit,
     transitoNombreFlit: flitoTramites.transitoNombreFlit,
     facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
+    nombreGestor: flitoTramites.nombreGestor,
+    correoGestor: flitoTramites.correoGestor,
     fechaAprobacion: flitoTramites.fechaAprobacion,
     fechaCreacionFlit: flitoTramites.fechaCreacionFlit,
     creadoEn: flitoTramites.createdAt,
@@ -455,6 +459,8 @@ export function aFila(f: FilaCruda, compradores: Omit<Comprador, 'tipoDocumento'
     secretariaEmparejada: f.organismoCodigo !== null,
     transitoNombre: f.transitoNombreFlit,
     facturaVentaFlitId: f.facturaVentaFlitId,
+    nombreGestor: f.nombreGestor,
+    correoGestor: f.correoGestor,
     vehiculo: { vin: f.vin, placa: f.placa, marca: f.marca, linea: f.linea, tipoVehiculo: f.tipoVehiculo },
     compradorPrincipal: principal,
     compradores: orden,

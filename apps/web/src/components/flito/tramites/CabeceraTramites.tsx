@@ -60,6 +60,8 @@ export default function CabeceraTramites({
         {th('vehiculo', 'Vehículo')}
         {th('comprador', 'Propietario')}
         {th('correo', 'Correo')}
+        {th('nombre_gestor', 'Gestor')}
+        {th('correo_gestor', 'Correo del gestor')}
         {th('empresa_gestora', <>
           Empresa gestora
           {empresas && (

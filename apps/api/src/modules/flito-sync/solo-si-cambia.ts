@@ -11,6 +11,28 @@
 //     por valor (`'1000.00'` = `1000`), el jsonb por igualdad profunda sin importar el orden de claves.
 //   - Compradores: mismos `orden` y, en cada uno, mismos campos exactos y mismo porcentaje.
 
+/**
+ * Formato simple de correo del gestor: una sola `@`, sin espacios ni `? & , ; < > "`, con dominio con punto.
+ * Es lo que va a una columna que la UI puede volver `mailto:`: un valor como `x@y.co?bcc=a@b.co` no entra.
+ */
+const CORREO_GESTOR = /^[^@\s?&,;<>"]+@[^@\s?&,;<>"]+\.[^@\s?&,;<>".][^@\s?&,;<>"]*$/;
+export const correoGestorValido = (v: string): boolean => CORREO_GESTOR.test(v);
+
+/**
+ * Gestor del trámite para `valores` del upsert: solo las claves que la fuente SÍ trae. Una clave ausente
+ * no se escribe en el UPDATE ni cuenta como cambio (`tramiteCambia` solo mira las claves de `valores`),
+ * así que un reporte que aún no trae el dato no borra el que ya está guardado; en el alta queda null.
+ * Un correo con formato inválido se trata como ausente (punto único de FLIT 1 y FLIT 2; sin loguear el valor).
+ */
+export function gestorSiViene(
+  nombre: string | null | undefined, correo: string | null | undefined,
+): { nombreGestor?: string; correoGestor?: string } {
+  return {
+    ...(nombre ? { nombreGestor: nombre } : {}),
+    ...(correo && correoGestorValido(correo) ? { correoGestor: correo } : {}),
+  };
+}
+
 /** Columnas que NO cuentan como cambio del trámite. */
 const IGNORADAS_TRAMITE = new Set(['sincronizadoEn', 'updatedAt']);
 

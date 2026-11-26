@@ -14,9 +14,9 @@ const SIN_PII = new Set<string>();
 const CON_PII = new Set<string>(['tramites.cola.ver']);
 
 describe('catálogo flito-tramites', () => {
-  it('lista las 15 columnas en el orden acordado, con tramite como única fija', () => {
+  it('lista las 17 columnas en el orden acordado, con tramite como única fija', () => {
     expect(tabla.columnas.map((c) => c.clave)).toEqual([
-      'tramite', 'fuente', 'creado', 'aprobado', 'vehiculo', 'comprador', 'correo', 'empresa_gestora',
+      'tramite', 'fuente', 'creado', 'aprobado', 'vehiculo', 'comprador', 'correo', 'nombre_gestor', 'correo_gestor', 'empresa_gestora',
       'transito', 'ciudad', 'soat', 'impuestos', 'logistica', 'derechos_transito', 'soportes',
     ]);
     expect(tabla.columnas.filter((c) => c.fija).map((c) => c.clave)).toEqual(['tramite']);
@@ -24,7 +24,9 @@ describe('catálogo flito-tramites', () => {
 
   it('marca como PII comprador (etiqueta «Propietario») y correo, ambos con la función de la tabla', () => {
     const pii = tabla.columnas.filter((c) => c.pii).map((c) => c.clave);
-    expect(pii).toEqual(['comprador', 'correo']);
+    expect(pii).toEqual(['comprador', 'correo', 'nombre_gestor', 'correo_gestor']);
+    expect(tabla.columnas.find((c) => c.clave === 'nombre_gestor')?.etiqueta).toBe('Gestor');
+    expect(tabla.columnas.find((c) => c.clave === 'correo_gestor')?.etiqueta).toBe('Correo del gestor');
     expect(tabla.columnas.find((c) => c.clave === 'comprador')?.etiqueta).toBe('Propietario');
     expect(funcionesDeColumnas(tabla)).toEqual(['tramites.cola.ver']);
   });
