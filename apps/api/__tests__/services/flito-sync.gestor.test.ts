@@ -88,7 +88,11 @@ describe('gestorSiViene · formato del correo', () => {
     expect(gestorSiViene(null, 'marta@gestora.co')).toEqual({ correoGestor: 'marta@gestora.co' });
   });
 
-  it.each([['x@y.co?bcc=a@b.co'], ['marta @gestora.co'], ['marta.gestora.co'], ['a@b'], ['a@b.co,c@d.co'], ['<a@b.co>']])(
+  // Un solo carácter prohibido por caso (una sola @): así cada exclusión de la regex se prueba por separado.
+  it.each([
+    ['x@y.co?bcc=a@b.co'], ['marta @gestora.co'], ['marta.gestora.co'], ['a@b'], ['a@b.co,c@d.co'], ['<a@b.co>'],
+    ['x@y.co?subject=hola'], ['x@y.co&bcc=z'], ['x@y.co,z'], ['x@y.co;z'], ['x@y.co<z'], ['x@y.co>z'], ['x@y.co"z'], ['a@@y.co'],
+  ])(
     'se omite %s (como si no viniera: no pisa lo guardado)', (malo) => {
       expect(gestorSiViene('Marta', malo)).toEqual({ nombreGestor: 'Marta' });
     },
