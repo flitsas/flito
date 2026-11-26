@@ -52,7 +52,7 @@ import { uploadEntityDocument } from '../../services/storage.js';
 import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import { EXISTS_COMPROBANTE_SOAT, TIPO_FACTURA_SOAT } from './flito-soat-censo.js';
 import { hayOtroAbiertoAlReabrir } from './flito-soat-actual.js';
-import { SoatError, ESTADOS_TRASPASO_GESTION, exigirCambioProveedorAdmitido, exigirMotivo, exigirReversable, noAdmiteTraspaso } from './flito-soat-vigente.js';
+import { SoatError, ESTADOS_TRASPASO_GESTION, SOAT_NO_DESCARTADO, exigirCambioProveedorAdmitido, exigirMotivo, exigirReversable, noAdmiteTraspaso } from './flito-soat-vigente.js';
 export { SoatError };
 import { abrirEnLote, abrirFacturaCifrada, expandir } from './flito-soat-factura-cifrada.js';
 import type { RegistroZip } from '../../shared/soportes/soportes-zip.js';
@@ -496,7 +496,7 @@ function filtrosPermitidos(ctx: SoatCtx, f: FiltrosCola): FiltrosCola {
  */
 export function condicionesCola(ctx: SoatCtx, filtros: FiltrosCola): SQL[] | null {
   const f = filtrosPermitidos(ctx, filtros);
-  const conds = [FRONTERA_AUTOGESTION_SOAT];
+  const conds = [FRONTERA_AUTOGESTION_SOAT, SOAT_NO_DESCARTADO()]; // Épica #14707: un descartado no existe en la cola
 
   if (ctx.alcance === 'nada') return null; // fallo cerrado (Bug #12869): nunca «sin frontera»
   if (esGestor(ctx)) {
@@ -2088,7 +2088,7 @@ async function buscarEnAdquisicion(placa: string | null, vin: string | null, ctx
     .innerJoin(vehicles, eq(flitoSoat.vehiculoId, vehicles.id))
     .innerJoin(clients, eq(flitoSoat.companiaId, clients.id))
     .leftJoin(flitoProveedoresSoat, eq(flitoSoat.proveedorSoatId, flitoProveedoresSoat.id))
-    .where(and(...conds)).limit(1);
+    .where(and(...conds)).orderBy(desc(flitoSoat.createdAt), desc(flitoSoat.id)).limit(1); // determinista (D10)
   return r ? { ...r, estado: r.estado as EstadoSoat } : null;
 }
 

@@ -19,6 +19,7 @@ import type { SiigoColaEstado } from './siigo-cola.js';
 import { SIIGO_ENVIO_RESULTADOS } from './siigo-envio.js';
 import type { SiigoEnvioResultado } from './siigo-envio.js';
 import type { SiigoEstadoDian } from './siigo-estado-dian.js';
+import type { VigenciaTramite } from './flito-tramite-vigencia.js';
 
 // ── La guía de un error, que es literalmente lo que pide el AC1 ─────────────
 //
@@ -240,6 +241,11 @@ export interface SiigoBandejaEstadoNativo {
 export interface SiigoBandejaTramite {
   tramiteId: string;
   idFlit: string | null;
+  /**
+   * Épica #14707 (D8): un trámite revocado (o anulado/abortado) ya no existe en FLITO. Su factura sigue a la vista
+   * como histórico, con chip; la elegibilidad ya le niega toda acción nueva (`tramite_no_vigente`).
+   */
+  vigenciaTramite: VigenciaTramite;
 }
 
 /**

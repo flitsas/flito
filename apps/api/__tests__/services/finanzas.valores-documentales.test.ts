@@ -308,8 +308,12 @@ describe('AC5 — conDiferencias: EXISTS sin parámetros, compuesto con los dem�
   });
 
   it('condiciones({ conDiferencias: true }) lo añade y se compone con etapa, fechas y empresas; ausente o false no lo añade', () => {
+    // Épica #14707 (decisión cerrada 6): la primera condición es SIEMPRE la base de finanzas (anulado/abortado fuera).
+    const base = condiciones({}).map((c) => renderizar(c).sql);
+    expect(base).toHaveLength(1);
+    expect(base[0]).toContain(`"flito_tramites"."estado" IS DISTINCT FROM 'anulado'`);
     const solo = condiciones({ conDiferencias: true });
-    expect(solo.map((c) => renderizar(c).sql)).toEqual([EXISTS]);
+    expect(solo.map((c) => renderizar(c).sql)).toEqual([...base, EXISTS]);
 
     const compuesto = renderizar(and(...condiciones({
       conDiferencias: true, etapa: 'listo', empresas: ['811011779'], aprobadoDesde: '2026-07-01',
@@ -319,8 +323,7 @@ describe('AC5 — conDiferencias: EXISTS sin parámetros, compuesto con los dem�
     expect(compuesto.sql).toContain('"flito_tramites"."fecha_aprobacion" >= $2::date');
     expect(compuesto.params).toEqual(['811011779', '2026-07-01']);
 
-    expect(condiciones({})).toEqual([]);
-    expect(condiciones({ conDiferencias: false })).toEqual([]);
+    expect(condiciones({ conDiferencias: false }).map((c) => renderizar(c).sql)).toEqual(base);
   });
 
   it('el consolidado con conDiferencias: mismo WHERE que el detalle, sin parámetro nuevo y sin GROUP BY huérfano (Bug #12058)', () => {

@@ -55,11 +55,12 @@ beforeEach(() => {
 });
 
 describe('HU #13091 · TC-37 (AC7) — «Anulado» en el filtro de estado incluye los revocados', () => {
-  it('TC-37a: estados=[Anulado] filtra el conteo Y la página por Anulado + Revocado', async () => {
+  // Épica #14707 (D7): «Anulado» trae también los abortados (los tres son el mismo trámite muerto en FLITO).
+  it('TC-37a: estados=[Anulado] filtra el conteo Y la página por Anulado + Revocado + Abortado', async () => {
     await listar({ estados: ['Anulado'] });
     for (const q of condicionesLeidas()) {
       expect(q.sql).toContain(COND_ESTADO);
-      expect(estadosDelIn(q)).toEqual(['Anulado', 'Revocado']);
+      expect(estadosDelIn(q)).toEqual(['Anulado', 'Revocado', 'Abortado']);
     }
   });
 
@@ -75,6 +76,6 @@ describe('HU #13091 · TC-37 (AC7) — «Anulado» en el filtro de estado incluy
 
   it('TC-37d: estados=[Anulado, Revocado] no duplica Revocado', async () => {
     await listar({ estados: ['Anulado', 'Revocado'] });
-    for (const q of condicionesLeidas()) expect(estadosDelIn(q)).toEqual(['Anulado', 'Revocado']);
+    for (const q of condicionesLeidas()) expect(estadosDelIn(q)).toEqual(['Anulado', 'Revocado', 'Abortado']);
   });
 });

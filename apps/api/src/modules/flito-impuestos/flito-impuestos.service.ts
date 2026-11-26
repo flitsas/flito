@@ -18,7 +18,7 @@ import { aIso } from '../../shared/utils/fecha-rango.js';
 import { registrarCambio, registrarCambios } from '../../shared/historial/estado-historial.js';
 import { clasificacionDeTipoFlit, expresionesFlitRaw } from '../../shared/export/cola-flito-derivados.js';
 import {
-  ANS_OPERATIVO, EstadoImpuesto, ESTADO_IMPUESTO_LABEL, NOMBRE_CERTIFICADOR_AUTOMATICO, SemaforoImpuesto,
+  ANS_OPERATIVO, EstadoImpuesto, ESTADO_IMPUESTO_LABEL, ESTADOS_IMPUESTO_OPERATIVOS, NOMBRE_CERTIFICADOR_AUTOMATICO, SemaforoImpuesto,
   TipoSoporte, esMotivoSemaforoRojo, type AnalisisEstadoImpuesto, type ComparacionFacturaRunt,
   type DatosDocumentoFacturaImpuesto, type DireccionCompradorImpuesto, type DocumentosImpuesto,
   type EnvioComprobante, type EnvioComprobanteFlit2, type MotivoSemaforoRojo,
@@ -32,7 +32,7 @@ import { encolarAnalisis, marcarEnCursoEnTx } from './flito-impuestos.analisis.s
 import { bloqueDireccionDetalle, direccionFlitDe } from './flito-impuestos.direccion.js';
 import { bloqueDatosDocumentoFacturaDetalle } from './flito-impuestos.documento-factura.js';
 import { envioDeImpuesto, programarEnvioComprobante } from './flito-impuestos.envio-flit2.service.js';
-import { exigirImpuestoVigente } from '../../shared/tramite-vigente.js';
+import { exigirImpuestoVigente, TRAMITE_VIVO } from '../../shared/tramite-vigente.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -138,7 +138,7 @@ const SELECT_COLA = {
   fechaAprobacion: flitoTramites.fechaAprobacion,
   // La fecha de FLIT y no `created_at`, que es cuándo el sync ingirió la fila.
   fechaCreacion: sql<Date | null>`COALESCE(${flitoTramites.fechaCreacionFlit}, ${flitoTramites.createdAt})`,
-  marca: vehicles.brand, linea: vehicles.model,
+  marca: vehicles.brand, linea: vehicles.model, tipoServicio: vehicles.tipoServicio,
   estado: flitoImpuestos.estado, organismoCodigo: flitoImpuestos.organismoCodigo,
   valorLiquidado: flitoImpuestos.valorLiquidado, valorPagado: flitoImpuestos.valorPagado,
   marcadoPorDiferencia: flitoImpuestos.marcadoPorDiferencia, facturaVentaFlitId: flitoTramites.facturaVentaFlitId,
@@ -256,7 +256,9 @@ const EXPR_ESTANCADO_IMP = sql`(${flitoImpuestos.estado} = ${EstadoImpuesto.SOLI
  * reimplementarlas fuera es la vía por la que un gestor acaba descargando lo de otro organismo.
  */
 export function condicionesColaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuestos): SQL[] | null {
-  const conds = [FRONTERA_AUTOGESTION_IMP];
+  // Épica #14707 (diseño §7): un impuesto `descartado` o de un trámite muerto no existe en la cola, ni en su conteo,
+  // facetas, export o ZIP (todos comparten estas condiciones).
+  const conds = [FRONTERA_AUTOGESTION_IMP, sql`${flitoImpuestos.estado} <> 'descartado'`, TRAMITE_VIVO()];
   // HU #13426: enlace que Impuestos no contempla → nada. Compañía → solo la suya (AC2).
   if (fueraDelAlcanceImpuestos(ctx)) return null;
   if (ctx.alcance.enlace === 'compania') conds.push(condicionAlcanceImpuesto(ctx)!);
@@ -324,10 +326,9 @@ export function condicionesColaImpuestos(ctx: ImpuestoCtx, f: FiltrosColaImpuest
 }
 
 /**
- * TODOS los estados del enum, derivados y no escritos a mano (HU #11910). Un estado nuevo entra aquí
- * solo; una lista literal se quedaría corta en silencio.
+ * TODOS los estados OPERATIVOS (HU #11910; Épica #14707: sin `descartado`, que no existe en FLITO).
  */
-const ESTADOS_IMPUESTO_TODOS: readonly EstadoImpuesto[] = Object.values(EstadoImpuesto);
+const ESTADOS_IMPUESTO_TODOS: readonly EstadoImpuesto[] = ESTADOS_IMPUESTO_OPERATIVOS;
 
 /**
  * Los impuestos del lote que ESTE actor puede ver, para el ZIP de soportes (HU #11910).
@@ -654,6 +655,8 @@ export interface ImpuestoDetalle extends ImpuestoColaItem {
   envioFlit2: EnvioComprobanteFlit2 | null;
   /** HU #13310 (AC10): el envío del comprobante con su destino (FLIT 1 o FLIT 2); null si la fuente no envía o no hay fila. */
   envioComprobante: EnvioComprobante | null;
+  /** Épica #14707 (rediseño): `vehicles.tipo_servicio` (p. ej. «Público»), para la placa blanca. Sin PII. */
+  tipoServicio: string | null;
 }
 
 export async function detalleImpuesto(id: string, ctx: ImpuestoCtx): Promise<ImpuestoDetalle | null> {
@@ -674,6 +677,7 @@ export async function detalleImpuesto(id: string, ctx: ImpuestoCtx): Promise<Imp
     soportes: soportes.map((s) => ({ ...s, subidoEn: s.subidoEn.toISOString() })),
     envioFlit2: envio.envioFlit2,
     envioComprobante: envio.envioComprobante,
+    tipoServicio: rows[0]?.tipoServicio ?? null,
   };
 }
 

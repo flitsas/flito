@@ -12,7 +12,7 @@
 //     sus trámites, D3b). `exigirRegistroVigente` + el trigger FL409 de la 0318.
 //   · `errorHandler` mapea el error y el FL409 de la base de forma global (un router que lo olvide no da 500).
 //   · El mensaje lleva el radicado FLIT (no es PII): nunca placa, VIN ni datos del titular.
-import { eq, sql, type SQL } from 'drizzle-orm';
+import { eq, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { flitoImpuestos, flitoLogisticaDocumentos, flitoTramites } from '../db/schema.js';
 import { CODIGO_TRAMITE_NO_VIGENTE, vigenciaTramite, type MotivoDescarte } from '@operaciones/shared-types';
@@ -26,6 +26,24 @@ export const TRAMITE_MUERTO = (): SQL => sql`${flitoTramites.estado} = 'anulado'
 export const TRAMITE_VIVO = (): SQL => sql`${flitoTramites.estado} IS DISTINCT FROM 'anulado'`;
 /** Mismo predicado para SQL crudo con alias (`alias.estado`), p. ej. en subconsultas de lote. */
 export const tramiteVivoEn = (columnaEstado: SQL): SQL => sql`${columnaEstado} IS DISTINCT FROM 'anulado'`;
+
+/**
+ * Finanzas (decisión cerrada 6 del ADR-0049): en los totales el REVOCADO suma (y se marca con su `vigenciaTramite`);
+ * anulado y abortado no. Mismo criterio que `vigenciaTramite` (shared-types): muerto ⇔ `estado = 'anulado'`, y la
+ * sub-vigencia sale de `flit_estado` sin espacios ni mayúsculas.
+ */
+export const TRAMITE_SUMA_EN_FINANZAS = (): SQL =>
+  sql`(${flitoTramites.estado} IS DISTINCT FROM 'anulado' OR lower(trim(COALESCE(${flitoTramites.flitEstado}, ''))) = 'revocado')`;
+
+/** Lo mismo con alias crudo (`alias.estado`, `alias.flit_estado`), para subconsultas. */
+export const sumaEnFinanzasEn = (alias: string): SQL => {
+  const a = sql.identifier(alias);
+  return sql`(${a}.estado IS DISTINCT FROM 'anulado' OR lower(trim(COALESCE(${a}.flit_estado, ''))) = 'revocado')`;
+};
+
+/** Para una fuente que cuelga de un trámite por `tramite_id` (derecho, servicio adicional): sin trámite, suma. */
+export const sumaEnFinanzasPorTramite = (tramiteId: SQL | AnyColumn): SQL =>
+  sql`NOT EXISTS (SELECT 1 FROM flito_tramites ft_fin WHERE ft_fin.id = ${tramiteId} AND NOT ${sumaEnFinanzasEn('ft_fin')})`;
 
 const QUE_DE: Record<'tramite' | 'soat' | 'impuesto', string> = { tramite: 'El trámite', soat: 'Este SOAT', impuesto: 'Este impuesto' };
 

@@ -44,7 +44,8 @@ import {
   selectCostosProveedorConsolidado, sinJit, type CostosProveedorConsolidado, type CostosProveedorDeFila,
 } from './finanzas.costos-proveedor.js';
 import { EXPR_DOC_LG, EXPR_DOC_TD } from '../flito-comprobantes/flito-comprobantes.expr.js';
-import type { SiigoEstadoReporte, SiigoResumenReporte } from '@operaciones/shared-types';
+import { vigenciaTramite, type SiigoEstadoReporte, type SiigoResumenReporte, type VigenciaTramite } from '@operaciones/shared-types';
+import { TRAMITE_SUMA_EN_FINANZAS } from '../../shared/tramite-vigente.js';
 
 /**
  * En qué punto del ciclo de cobro está el trámite. Son cuatro cajones EXCLUYENTES, y entre los
@@ -95,6 +96,8 @@ export interface FiltrosReporte {
 export interface FilaReporte extends FacturacionDeFila, ConciliacionSoatDeFila, ColumnasDeFila, ValoresDocumentalesDeFila,
   CostosProveedorDeFila {
   tramiteId: string; idFlit: string; placa: string | null; estado: string | null; empresa: string | null;
+  /** Épica #14707: solo `vigente` o `revocado` (anulado/abortado no salen); el revocado suma y lleva chip. */
+  vigenciaTramite: VigenciaTramite;
   /** Vehículo, homologado con las demás tablas. */
   vin: string | null; marca: string | null; linea: string | null;
   tipoTramite: string | null;
@@ -442,7 +445,9 @@ export const EXPR_DOC_COMPLETA = sql`(
 )`;
 
 export function condiciones(f: FiltrosReporte): SQL[] {
-  const conds: SQL[] = [];
+  // Épica #14707 (decisión cerrada 6): anulado y abortado no existen en el reporte, ni en sus totales, export ni
+  // consolidado (todos parten de aquí); el revocado SÍ suma y se marca con `vigenciaTramite`.
+  const conds: SQL[] = [TRAMITE_SUMA_EN_FINANZAS()];
   const t = f.buscar?.trim();
   if (t) {
     const patron = `%${t.toUpperCase().replace(/[\s-]/g, '')}%`;
@@ -527,7 +532,7 @@ export function conJoins<Q extends PgSelect>(q: Q) {
 /** Exportada para que el test contra base ejecute la proyección REAL del reporte, no una copia. */
 export const SELECT_FILA = {
   tramiteId: flitoTramites.id, idFlit: flitoTramites.idFlit,
-  placa: vehicles.plate, estado: flitoTramites.flitEstado, empresa: clients.name,
+  placa: vehicles.plate, estado: flitoTramites.flitEstado, empresa: clients.name, estadoTramite: flitoTramites.estado,
   // Homologación con las demás tablas: al vehículo le faltaban VIN, marca y línea; al trámite, la
   // fecha de creación.
   vin: vehicles.vin, marca: vehicles.brand, linea: vehicles.model,
@@ -641,6 +646,7 @@ function aFila(r: Record<string, unknown>): FilaReporte {
   return {
     tramiteId: r.tramiteId as string, idFlit: r.idFlit as string,
     placa: r.placa as string | null, estado: r.estado as string | null,
+    vigenciaTramite: vigenciaTramite(r.estadoTramite as string | null, r.estado as string | null),
     empresa: r.empresa as string | null, tipoTramite: r.tipoTramite as string | null,
     vin: r.vin as string | null, marca: r.marca as string | null, linea: r.linea as string | null,
     fechaAprobacion,

@@ -124,11 +124,11 @@ El sync solo marca al trámite. Un cron aparte aplica el descarte por lotes, con
 ### 7. Avisos
 
 - Tabla mínima `flito_avisos_usuario`. Guarda **solo referencias** (`usuario_id`, `tipo`, `concepto`, `registro_id`, `tramite_id`, `motivo`, `creado_en`, `visto_en`) y tiene un único `(usuario_id, tipo, concepto, registro_id)` para que sea idempotente.
-- Endpoints:
-  - `GET /api/flito/avisos` (`?soloNoVistos=true|false`, booleano y sin PII).
-  - `POST /api/flito/avisos/:id/visto` (uuid opaco en el path).
-  - Los dos llevan `authMiddleware`, sin `requireRole`, y filtran **siempre** por `usuario_id = req.user.sub`. Un aviso ajeno responde 404, para no dar pistas de que existe.
-- **Retención:** un aviso visto se borra a los 90 días y uno sin ver a los 180, con un cron diario (`flito-avisos.cron.ts`).
+- Endpoints (contrato implementado en el Bloque 2; los tipos están en `packages/shared-types/src/flito-avisos.ts`):
+  - `GET /api/flito/avisos`, **sin query string**. Devuelve los avisos **no vistos** del usuario, del más reciente al más antiguo y como mucho 50, con el conteo total: `{ avisos, noVistos }`.
+  - `POST /api/flito/avisos/visto` con body `{ ids: uuid[] }` (de 1 a 200). Recibe la lista **exacta** que la pantalla mostró, nunca «todos», para no ocultar un retiro que llegó después. Responde `200 { marcados }`: los avisos propios que pasaron de no vistos a vistos. Es idempotente. Un id ajeno o inexistente se **ignora** y da la misma respuesta que uno ya visto, así que no hay 404 ni pistas de que exista.
+  - Los dos llevan `authMiddleware`, sin `requireRole`, y filtran **siempre** por `usuario_id = req.user.sub`. Son rutas de sesión: están en `RUTAS_TRANSVERSALES` (`shared/middleware/frontera-enlace.ts`). Así los alcanza también un usuario **con enlace** (compañía cliente, proveedor u organismo), que ve solo sus avisos. Lo decidió el humano el 2026-11-26.
+- **Retención:** un aviso visto se borra a los 90 días y uno sin ver a los 180, con un cron diario (`flito-avisos.cron.ts`, a las 04:00 hora de Colombia, con candado `flito-avisos-purga`). No tiene puerta por variable de entorno porque el aviso solo guarda referencias.
 
 ### 8. PII y Ley 1581
 

@@ -17,6 +17,7 @@ import {
   CONCURRENCIA_CERTIFICACION,
   ESTADOS_IMPUESTO_CERTIFICABLES,
   EstadoImpuesto,
+  ESTADOS_IMPUESTO_OPERATIVOS,
   MotivoNoElegible,
   ResultadoCertificacion,
   TOPE_LOTE_CERTIFICACION,
@@ -524,7 +525,7 @@ export interface CertificacionLoteItem {
 export async function certificacionesVigentesLoteConAcceso(ids: readonly string[], ctx: ImpuestoCtx): Promise<CertificacionLoteItem[]> {
   const idsUnicos = [...new Set(ids)];
   if (idsUnicos.length === 0) return [];
-  const conds = condicionesColaImpuestos(ctx, { estados: [...Object.values(EstadoImpuesto)] });
+  const conds = condicionesColaImpuestos(ctx, { estados: [...ESTADOS_IMPUESTO_OPERATIVOS] }); // Épica #14707
   if (conds === null) return []; // gestor sin organismo → nada, nunca la tabla entera
 
   const autorizados = await conJoinsColaImpuestos(db.select({

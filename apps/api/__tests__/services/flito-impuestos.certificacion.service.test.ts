@@ -675,14 +675,15 @@ describe('HU #13205 — certificacionesVigentesLoteConAcceso', () => {
     expect(kdb.select).not.toHaveBeenCalled();
   });
 
-  it('la frontera se pide con TODOS los estados (no el defecto de la pantalla)', async () => {
+  // Épica #14707: «todos» = los estados OPERATIVOS (un `descartado` no existe en FLITO).
+  it('la frontera se pide con TODOS los estados operativos (no el defecto de la pantalla)', async () => {
     condicionesColaMock.mockReturnValue([]);
     kdb.when.select(T_IMPUESTOS, []);
 
     await certificacionesVigentesLoteConAcceso([I1], CTX);
 
-    const { EstadoImpuesto } = await import('@operaciones/shared-types');
-    expect(condicionesColaMock).toHaveBeenCalledWith(CTX, { estados: Object.values(EstadoImpuesto) });
+    const { ESTADOS_IMPUESTO_OPERATIVOS } = await import('@operaciones/shared-types');
+    expect(condicionesColaMock).toHaveBeenCalledWith(CTX, { estados: [...ESTADOS_IMPUESTO_OPERATIVOS] });
   });
 
   it('sin autorizados no lanza la segunda consulta (certificaciones)', async () => {

@@ -254,7 +254,7 @@ describe('AC5 — catálogos y configuración cerrados; la sesión, abierta', ()
     }
   });
 
-  it('TC-05c: las transversales son un array congelado de nueve, cada una con su porqué; su forma es exacta', () => {
+  it('TC-05c: las transversales son un array congelado de once, cada una con su porqué; su forma es exacta', () => {
     // HU #13428 (P-22): «Ver mis datos» (`GET /api/auth/perfil`, solo datos propios) se suma a las de sesión.
     expect(RUTAS_TRANSVERSALES.map((r) => `${r.metodo} ${r.patron}`)).toEqual([
       'GET /api/auth/me', 'GET /api/permisos/mios', 'POST /api/auth/logout', 'PATCH /api/users/:id/password',
@@ -265,7 +265,13 @@ describe('AC5 — catálogos y configuración cerrados; la sesión, abierta', ()
       'POST /api/flito/dr-flit/casos-soporte',
       // HU #13856 (IA-4): chat con IA del propio usuario (mismas guardas + limitador + autorización `ia`).
       'POST /api/flito/dr-flit/chat',
+      // Épica #14707 (ADR-0049 §7): avisos personales; solo filas del propio usuario (`sub`).
+      'GET /api/flito/avisos', 'POST /api/flito/avisos/visto',
     ]);
+    expect(esRutaTransversal('GET', '/api/flito/avisos')).toBe(true);
+    expect(esRutaTransversal('POST', '/api/flito/avisos/visto')).toBe(true);
+    expect(esRutaTransversal('GET', '/api/flito/avisos/visto')).toBe(false);
+    expect(esRutaTransversal('POST', '/api/flito/avisos/otra')).toBe(false);
     expect(esRutaTransversal('POST', '/api/flito/dr-flit/chat')).toBe(true);
     expect(esRutaTransversal('GET', '/api/flito/dr-flit/chat')).toBe(false);
     expect(esRutaTransversal('GET', '/api/flito/dr-flit/autorizacion')).toBe(true);

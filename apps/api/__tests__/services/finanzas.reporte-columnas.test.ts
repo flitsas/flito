@@ -314,8 +314,12 @@ describe('AC5 — filtro por organismos, combinable', () => {
     expect(q.sql).not.toContain('organismo_codigo');
   });
 
+  // Épica #14707: la única condición que queda es la base de finanzas (anulado/abortado fuera), la misma que sin filtro.
   it('una lista vacía tampoco filtra', () => {
-    expect(condiciones({ organismos: [] })).toHaveLength(0);
+    const conds = condiciones({ organismos: [] }).map((c) => renderizar(c).sql);
+    expect(conds).toEqual(condiciones({}).map((c) => renderizar(c).sql));
+    expect(conds).toHaveLength(1);
+    expect(conds.join(' ')).not.toContain(ORG);
   });
 
   it('filtrosDe() lo entrega a /reporte-costos y /facturacion-electronica; el POST /export lo recibe del cuerpo (espías)', async () => {

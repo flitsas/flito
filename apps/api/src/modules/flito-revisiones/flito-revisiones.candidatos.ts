@@ -24,6 +24,7 @@ import { condicionesCola, conJoinsCola, contextoSoat } from '../flito-soat/flito
 import { condicionesColaImpuestos, conJoinsColaImpuestos } from '../flito-impuestos/flito-impuestos.service.js';
 import { buscarCandidatosRevision as candidatosDerecho } from '../flito-derechos/flito-derechos.candidatos-revision.js';
 import { ESTADO_CANDIDATO, RevisionError } from './flito-revisiones.service.js';
+import { TRAMITE_VIVO } from '../../shared/tramite-vigente.js';
 
 type Usuario = { sub: number; username: string; role: string };
 
@@ -110,12 +111,14 @@ type Fuente = (ll: Llaves, limite: number, user: Usuario) => Promise<Resultado>;
 // ─────────────────────────── SOAT ────────────────────────────────────────────
 
 /** N.º FLIT de un SOAT: los trámites que lo referencian (null en el canal Cliente, que no tiene trámite). */
-const ID_FLIT_SOAT = sql<string | null>`(SELECT string_agg(ft.id_flit, ', ' ORDER BY ft.created_at) FROM ${flitoTramites} ft WHERE ft.soat_id = ${flitoSoat.id})`;
+// Épica #14707: solo los trámites VIVOS del SOAT (un SOAT compartido sobrevive a uno muerto; el muerto no es candidato).
+const FT_VIVO = sql`ft.estado IS DISTINCT FROM 'anulado'`;
+const ID_FLIT_SOAT = sql<string | null>`(SELECT string_agg(ft.id_flit, ', ' ORDER BY ft.created_at) FROM ${flitoTramites} ft WHERE ft.soat_id = ${flitoSoat.id} AND ${FT_VIVO})`;
 const COLUMNAS_LLAVE_SOAT: ColumnasLlave = {
   placa: vehicles.plate,
   vin: vehicles.vin,
-  idFlitLike: (p) => sql`EXISTS (SELECT 1 FROM ${flitoTramites} ft WHERE ft.soat_id = ${flitoSoat.id} AND UPPER(REPLACE(REPLACE(ft.id_flit, '-', ''), ' ', '')) LIKE ${p})`,
-  idFlitIgual: (v) => sql`EXISTS (SELECT 1 FROM ${flitoTramites} ft WHERE ft.soat_id = ${flitoSoat.id} AND UPPER(REPLACE(REPLACE(ft.id_flit, '-', ''), ' ', '')) = ${v})`,
+  idFlitLike: (p) => sql`EXISTS (SELECT 1 FROM ${flitoTramites} ft WHERE ft.soat_id = ${flitoSoat.id} AND ${FT_VIVO} AND UPPER(REPLACE(REPLACE(ft.id_flit, '-', ''), ' ', '')) LIKE ${p})`,
+  idFlitIgual: (v) => sql`EXISTS (SELECT 1 FROM ${flitoTramites} ft WHERE ft.soat_id = ${flitoSoat.id} AND ${FT_VIVO} AND UPPER(REPLACE(REPLACE(ft.id_flit, '-', ''), ' ', '')) = ${v})`,
 };
 const selectSoat = () => db.select({
   id: flitoSoat.id, idFlit: ID_FLIT_SOAT, placa: vehicles.plate, vin: vehicles.vin, marca: vehicles.brand, linea: vehicles.model,
@@ -190,7 +193,8 @@ const filaDer = (r: Awaited<ReturnType<typeof candidatosDerecho>>['filas'][numbe
 
 const fuenteDerechos: Fuente = async (ll, limite) => {
   const { where, exacta } = predicadoLlaves(ll, COLUMNAS_LLAVE_DER);
-  const r = await candidatosDerecho({ where, exacta, limite });
+  // Épica #14707: un trámite muerto no es candidato a recibir un derecho.
+  const r = await candidatosDerecho({ where: and(where, TRAMITE_VIVO())!, exacta, limite });
   return { filas: r.filas.map(filaDer), total: r.total };
 };
 

@@ -37,6 +37,8 @@ tags:
     description: Módulo firma de apps/api.
   - name: fleet
     description: Módulo fleet de apps/api.
+  - name: flito-avisos
+    description: Módulo flito-avisos de apps/api.
   - name: flito-bitacora
     description: Módulo flito-bitacora de apps/api.
   - name: flito-bolsas
@@ -10177,6 +10179,13 @@ paths:
                               type:
                                 - string
                                 - "null"
+                            vigenciaTramite:
+                              type: string
+                              enum:
+                                - vigente
+                                - anulado
+                                - abortado
+                                - revocado
                             vin:
                               type:
                                 - string
@@ -10544,6 +10553,7 @@ paths:
                             - placa
                             - estado
                             - empresa
+                            - vigenciaTramite
                             - vin
                             - marca
                             - linea
@@ -14752,6 +14762,166 @@ paths:
                     type: string
                 required:
                   - error
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  /api/flito/avisos:
+    get:
+      operationId: get-api-flito-avisos
+      tags:
+        - flito-avisos
+      summary: GET /api/flito/avisos
+      description: "Fuente: apps/api/src/modules/flito-avisos/flito-avisos.routes.ts."
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  avisos:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        tipo:
+                          type: string
+                          enum:
+                            - solicitud_retirada
+                        concepto:
+                          type: string
+                          enum:
+                            - soat
+                            - impuesto
+                        motivo:
+                          type: string
+                          enum:
+                            - anulado
+                            - abortado
+                            - revocado
+                        idFlit:
+                          type:
+                            - string
+                            - "null"
+                        placa:
+                          type:
+                            - string
+                            - "null"
+                        creadoEn:
+                          type: string
+                        vistoEn:
+                          type:
+                            - string
+                            - "null"
+                      required:
+                        - id
+                        - tipo
+                        - concepto
+                        - motivo
+                        - idFlit
+                        - placa
+                        - creadoEn
+                        - vistoEn
+                  noVistos:
+                    type: number
+                required:
+                  - avisos
+                  - noVistos
+        "401":
+          description: "Token ausente, inválido o revocado."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  /api/flito/avisos/visto:
+    post:
+      operationId: post-api-flito-avisos-visto
+      tags:
+        - flito-avisos
+      summary: POST /api/flito/avisos/visto
+      description: "Fuente: apps/api/src/modules/flito-avisos/flito-avisos.routes.ts."
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  minItems: 1
+              required:
+                - ids
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  marcados:
+                    type: number
+                required:
+                  - marcados
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "401":
+          description: "Token ausente, inválido o revocado."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
         "429":
           description: Límite de peticiones superado.
           headers:
@@ -26773,6 +26943,7 @@ paths:
                             - solicitado
                             - con_novedad
                             - pagado
+                            - descartado
                         compradorNombre:
                           type:
                             - string
@@ -27017,7 +27188,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-cf830021ef"
+                "$ref": "#/components/schemas/Forma-ef968346d8"
         "401":
           description: No autenticado.
           content:
@@ -27116,7 +27287,7 @@ paths:
             application/json:
               schema:
                 anyOf:
-                  - "$ref": "#/components/schemas/Forma-cf830021ef"
+                  - "$ref": "#/components/schemas/Forma-ef968346d8"
                   - type: object
                     properties:
                       id:
@@ -27577,7 +27748,7 @@ paths:
             application/json:
               schema:
                 anyOf:
-                  - "$ref": "#/components/schemas/Forma-cf830021ef"
+                  - "$ref": "#/components/schemas/Forma-ef968346d8"
                   - type: object
                     properties:
                       id:
@@ -28269,7 +28440,7 @@ paths:
             application/json:
               schema:
                 anyOf:
-                  - "$ref": "#/components/schemas/Forma-cf830021ef"
+                  - "$ref": "#/components/schemas/Forma-ef968346d8"
                   - type: object
                     properties:
                       id:
@@ -28524,7 +28695,7 @@ paths:
             application/json:
               schema:
                 anyOf:
-                  - "$ref": "#/components/schemas/Forma-cf830021ef"
+                  - "$ref": "#/components/schemas/Forma-ef968346d8"
                   - type: object
                     properties:
                       id:
@@ -29296,7 +29467,7 @@ paths:
             application/json:
               schema:
                 anyOf:
-                  - "$ref": "#/components/schemas/Forma-cf830021ef"
+                  - "$ref": "#/components/schemas/Forma-ef968346d8"
                   - type: object
                     properties:
                       id:
@@ -32894,7 +33065,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-261a83a7a0"
+                "$ref": "#/components/schemas/Forma-0d5c46d401"
         "400":
           description: Petición inválida.
           content:
@@ -33047,6 +33218,13 @@ paths:
                     type: string
                   idFlit:
                     type: string
+                  vigenciaTramite:
+                    type: string
+                    enum:
+                      - vigente
+                      - anulado
+                      - abortado
+                      - revocado
                   placa:
                     type:
                       - string
@@ -33123,6 +33301,7 @@ paths:
                   - eventos
                   - tramiteId
                   - idFlit
+                  - vigenciaTramite
                   - placa
                   - vin
                   - companiaId
@@ -34116,7 +34295,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-261a83a7a0"
+                "$ref": "#/components/schemas/Forma-0d5c46d401"
         "400":
           description: Petición inválida.
           content:
@@ -38020,8 +38199,8 @@ paths:
                 estado:
                   type: string
                   enum:
-                    - entregado
                     - anulado
+                    - entregado
                     - devuelto
                     - registrado
                     - en_ruta
@@ -38063,8 +38242,8 @@ paths:
                         estado:
                           type: string
                           enum:
-                            - entregado
                             - anulado
+                            - entregado
                             - devuelto
                             - registrado
                             - en_ruta
@@ -44916,8 +45095,8 @@ paths:
                     type: array
                     items:
                       anyOf:
-                        - "$ref": "#/components/schemas/Forma-d97f376d3e"
-                        - "$ref": "#/components/schemas/Forma-01ca295bb7"
+                        - "$ref": "#/components/schemas/Forma-9e86da3c95"
+                        - "$ref": "#/components/schemas/Forma-443a4e60c3"
                   total:
                     type: number
                   page:
@@ -45005,10 +45184,10 @@ paths:
               schema:
                 anyOf:
                   - allOf:
-                      - "$ref": "#/components/schemas/Forma-d97f376d3e"
+                      - "$ref": "#/components/schemas/Forma-9e86da3c95"
                       - "$ref": "#/components/schemas/Forma-d89e19b589"
                   - allOf:
-                      - "$ref": "#/components/schemas/Forma-01ca295bb7"
+                      - "$ref": "#/components/schemas/Forma-443a4e60c3"
                       - "$ref": "#/components/schemas/Forma-d89e19b589"
         "401":
           description: No autenticado.
@@ -45109,7 +45288,7 @@ paths:
               schema:
                 anyOf:
                   - allOf:
-                      - "$ref": "#/components/schemas/Forma-01ca295bb7"
+                      - "$ref": "#/components/schemas/Forma-443a4e60c3"
                       - "$ref": "#/components/schemas/Forma-d89e19b589"
                   - type: object
                     properties:
@@ -45276,7 +45455,7 @@ paths:
               schema:
                 anyOf:
                   - allOf:
-                      - "$ref": "#/components/schemas/Forma-01ca295bb7"
+                      - "$ref": "#/components/schemas/Forma-443a4e60c3"
                       - "$ref": "#/components/schemas/Forma-d89e19b589"
                   - type: object
                     properties:
@@ -45826,7 +46005,7 @@ paths:
               schema:
                 anyOf:
                   - allOf:
-                      - "$ref": "#/components/schemas/Forma-01ca295bb7"
+                      - "$ref": "#/components/schemas/Forma-443a4e60c3"
                       - "$ref": "#/components/schemas/Forma-d89e19b589"
                   - type: object
                     properties:
@@ -46056,7 +46235,7 @@ paths:
               schema:
                 anyOf:
                   - allOf:
-                      - "$ref": "#/components/schemas/Forma-01ca295bb7"
+                      - "$ref": "#/components/schemas/Forma-443a4e60c3"
                       - "$ref": "#/components/schemas/Forma-d89e19b589"
                   - type: object
                     properties:
@@ -46224,7 +46403,7 @@ paths:
               schema:
                 anyOf:
                   - allOf:
-                      - "$ref": "#/components/schemas/Forma-01ca295bb7"
+                      - "$ref": "#/components/schemas/Forma-443a4e60c3"
                       - "$ref": "#/components/schemas/Forma-d89e19b589"
                   - type: object
                     properties:
@@ -46370,7 +46549,7 @@ paths:
               schema:
                 anyOf:
                   - allOf:
-                      - "$ref": "#/components/schemas/Forma-01ca295bb7"
+                      - "$ref": "#/components/schemas/Forma-443a4e60c3"
                       - "$ref": "#/components/schemas/Forma-d89e19b589"
                   - type: object
                     properties:
@@ -46524,7 +46703,7 @@ paths:
               schema:
                 anyOf:
                   - allOf:
-                      - "$ref": "#/components/schemas/Forma-01ca295bb7"
+                      - "$ref": "#/components/schemas/Forma-443a4e60c3"
                       - "$ref": "#/components/schemas/Forma-d89e19b589"
                   - type: object
                     properties:
@@ -47010,6 +47189,7 @@ paths:
                           - solicitado
                           - con_novedad
                           - pagado
+                          - descartado
                     required:
                       - documentosAdicionales
                       - desenlace
@@ -47031,6 +47211,7 @@ paths:
                           - solicitado
                           - con_novedad
                           - pagado
+                          - descartado
                     required:
                       - desenlace
                       - id
@@ -49734,6 +49915,7 @@ paths:
                           - solicitado
                           - con_novedad
                           - pagado
+                          - descartado
                           - null
                       soatId:
                         type:
@@ -57702,6 +57884,13 @@ paths:
                             - amarillo
                         estado:
                           type: string
+                        vigenciaTramite:
+                          type: string
+                          enum:
+                            - vigente
+                            - anulado
+                            - abortado
+                            - revocado
                         asignado:
                           type: boolean
                         tipoTramite:
@@ -57779,12 +57968,17 @@ paths:
                               type:
                                 - string
                                 - "null"
+                            tipoServicio:
+                              type:
+                                - string
+                                - "null"
                           required:
                             - vin
                             - placa
                             - marca
                             - linea
                             - tipoVehiculo
+                            - tipoServicio
                         compradorPrincipal:
                           type:
                             - object
@@ -58000,6 +58194,7 @@ paths:
                         - fuente
                         - semaforo
                         - estado
+                        - vigenciaTramite
                         - asignado
                         - tipoTramite
                         - ciudad
@@ -58265,6 +58460,13 @@ paths:
                     type: string
                   idFlit:
                     type: string
+                  vigenciaTramite:
+                    type: string
+                    enum:
+                      - vigente
+                      - anulado
+                      - abortado
+                      - revocado
                   resumen:
                     type: object
                     properties:
@@ -58351,12 +58553,17 @@ paths:
                         type:
                           - string
                           - "null"
+                      tipoServicio:
+                        type:
+                          - string
+                          - "null"
                     required:
                       - placa
                       - vin
                       - marca
                       - linea
                       - clase
+                      - tipoServicio
                   propietarios:
                     type: array
                     items:
@@ -58478,6 +58685,7 @@ paths:
                 required:
                   - id
                   - idFlit
+                  - vigenciaTramite
                   - resumen
                   - vehiculo
                   - propietarios
@@ -59309,6 +59517,8 @@ paths:
                 properties:
                   entregados:
                     type: number
+                  noVigentes:
+                    type: number
                   noHabilitados:
                     type: array
                     items:
@@ -59329,6 +59539,7 @@ paths:
                         - motivo
                 required:
                   - entregados
+                  - noVigentes
                   - noHabilitados
         "400":
           description: Petición inválida.
@@ -59627,20 +59838,9 @@ paths:
                 type: object
                 properties:
                   soat:
-                    "$ref": "#/components/schemas/Forma-059d20f8e9"
+                    "$ref": "#/components/schemas/Forma-3c6241d7c0"
                   impuestos:
-                    type: object
-                    properties:
-                      enviados:
-                        type: number
-                      yaEnviados:
-                        type: number
-                      noEnviables:
-                        type: number
-                    required:
-                      - enviados
-                      - yaEnviados
-                      - noEnviables
+                    "$ref": "#/components/schemas/Forma-65ea12cbaa"
                 required:
                   - soat
                   - impuestos
@@ -59748,18 +59948,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  enviados:
-                    type: number
-                  yaEnviados:
-                    type: number
-                  noEnviables:
-                    type: number
-                required:
-                  - enviados
-                  - yaEnviados
-                  - noEnviables
+                "$ref": "#/components/schemas/Forma-65ea12cbaa"
         "400":
           description: Petición inválida.
           content:
@@ -59856,7 +60045,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-059d20f8e9"
+                "$ref": "#/components/schemas/Forma-3c6241d7c0"
         "400":
           description: Petición inválida.
           content:
@@ -100757,9 +100946,17 @@ paths:
                                 type:
                                   - string
                                   - "null"
+                              vigenciaTramite:
+                                type: string
+                                enum:
+                                  - vigente
+                                  - anulado
+                                  - abortado
+                                  - revocado
                             required:
                               - tramiteId
                               - idFlit
+                              - vigenciaTramite
                         clienteId:
                           type:
                             - number
@@ -105044,6 +105241,7 @@ paths:
                                   - cliente_no_facturable
                                   - compuerta_cerrada
                                   - ya_facturado
+                                  - tramite_no_vigente
                               detalle:
                                 type: string
                             required:
@@ -105088,6 +105286,8 @@ paths:
                             type: number
                           ya_facturado:
                             type: number
+                          tramite_no_vigente:
+                            type: number
                         required:
                           - sin_compania
                           - liquidacion_no_facturada
@@ -105098,6 +105298,7 @@ paths:
                           - cliente_no_facturable
                           - compuerta_cerrada
                           - ya_facturado
+                          - tramite_no_vigente
                       anterioresAlCorte:
                         type: number
                     required:
@@ -105825,6 +106026,7 @@ paths:
                                   - cliente_no_facturable
                                   - compuerta_cerrada
                                   - ya_facturado
+                                  - tramite_no_vigente
                               detalle:
                                 type: string
                             required:
@@ -111382,7 +111584,7 @@ paths:
                   items:
                     type: array
                     items:
-                      "$ref": "#/components/schemas/Forma-77e3088bd6"
+                      "$ref": "#/components/schemas/Forma-43d7094a47"
                   total:
                     type: number
                   limit:
@@ -111481,7 +111683,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-77e3088bd6"
+                "$ref": "#/components/schemas/Forma-43d7094a47"
         "400":
           description: Petición inválida.
           content:
@@ -111637,7 +111839,7 @@ paths:
             application/json:
               schema:
                 allOf:
-                  - "$ref": "#/components/schemas/Forma-77e3088bd6"
+                  - "$ref": "#/components/schemas/Forma-43d7094a47"
                   - type: object
                     properties:
                       archivos:
@@ -111826,7 +112028,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-77e3088bd6"
+                "$ref": "#/components/schemas/Forma-43d7094a47"
         "400":
           description: Petición inválida.
           content:
@@ -114245,7 +114447,7 @@ paths:
                   ok:
                     type: boolean
                   tramite:
-                    "$ref": "#/components/schemas/Forma-77e3088bd6"
+                    "$ref": "#/components/schemas/Forma-43d7094a47"
                   checklistSugeridos:
                     type: array
                     items:
@@ -117622,7 +117824,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-66bdacd008"
+                "$ref": "#/components/schemas/Forma-c064d59685"
         "400":
           description: Petición inválida.
           content:
@@ -117756,9 +117958,9 @@ paths:
                     enum:
                       - soat_comprado
                       - soat_verificado
+                      - anulado
                       - entregado
                       - aprobado
-                      - anulado
                       - rechazado
                       - completado
                       - radicado
@@ -118004,7 +118206,7 @@ paths:
               schema:
                 type: array
                 items:
-                  "$ref": "#/components/schemas/Forma-66bdacd008"
+                  "$ref": "#/components/schemas/Forma-c064d59685"
         "401":
           description: No autenticado.
           content:
@@ -119155,7 +119357,7 @@ paths:
               schema:
                 type: array
                 items:
-                  "$ref": "#/components/schemas/Forma-66bdacd008"
+                  "$ref": "#/components/schemas/Forma-c064d59685"
         "401":
           description: No autenticado.
           content:
@@ -119252,7 +119454,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Forma-66bdacd008"
+                "$ref": "#/components/schemas/Forma-c064d59685"
         "400":
           description: Petición inválida.
           content:
@@ -119397,9 +119599,9 @@ paths:
                       enum:
                         - soat_comprado
                         - soat_verificado
+                        - anulado
                         - entregado
                         - aprobado
-                        - anulado
                         - rechazado
                         - completado
                         - radicado
@@ -119555,9 +119757,9 @@ paths:
                     enum:
                       - soat_comprado
                       - soat_verificado
+                      - anulado
                       - entregado
                       - aprobado
-                      - anulado
                       - rechazado
                       - completado
                       - radicado
@@ -125589,127 +125791,6 @@ components:
         - registroId
         - valor
         - detalle
-    Forma-01ca295bb7:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        id:
-          type: string
-        vin:
-          type: string
-        cilindraje:
-          type:
-            - string
-            - "null"
-        carroceria:
-          type:
-            - string
-            - "null"
-        tipoServicio:
-          type:
-            - string
-            - "null"
-        estado:
-          type: string
-          enum:
-            - pendiente
-            - solicitado
-            - con_novedad
-            - pagado
-        enviadoEn:
-          type:
-            - string
-            - "null"
-        pagadoEn:
-          type:
-            - string
-            - "null"
-        motivoRechazo:
-          type:
-            - string
-            - "null"
-        placa:
-          type:
-            - string
-            - "null"
-        tipoTramite:
-          type:
-            - string
-            - "null"
-        tipoPropiedad:
-          type: string
-          enum:
-            - unico_propietario
-            - multiple_propietario
-        fechaAprobacion:
-          type:
-            - string
-            - "null"
-        marca:
-          type:
-            - string
-            - "null"
-        linea:
-          type:
-            - string
-            - "null"
-        tipoSoat:
-          type:
-            - string
-            - "null"
-          enum:
-            - INICIAL
-            - RENOVACION
-            - null
-        creadoEn:
-          type: string
-        fechaCreacion:
-          type:
-            - string
-            - "null"
-        estancado:
-          type: boolean
-        esMultiplePropietario:
-          type: boolean
-        companiaNombre:
-          type: string
-        organismoNombre:
-          type:
-            - string
-            - "null"
-        compradores:
-          type: array
-          items:
-            "$ref": "#/components/schemas/Forma-3f0cbe80ea"
-        tramitesFlit:
-          type: array
-          items:
-            type: string
-      required:
-        - id
-        - vin
-        - cilindraje
-        - carroceria
-        - tipoServicio
-        - estado
-        - enviadoEn
-        - pagadoEn
-        - motivoRechazo
-        - placa
-        - tipoTramite
-        - tipoPropiedad
-        - fechaAprobacion
-        - marca
-        - linea
-        - tipoSoat
-        - creadoEn
-        - fechaCreacion
-        - estancado
-        - esMultiplePropietario
-        - companiaNombre
-        - organismoNombre
-        - compradores
-        - tramitesFlit
     Forma-01d4914e89:
       description: Forma que comparten varias operaciones.
       type: object
@@ -125856,23 +125937,6 @@ components:
         - entradas
         - salidas
         - movimientos
-    Forma-059d20f8e9:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        enviados:
-          type: number
-        yaEnviados:
-          type: number
-        autogestionados:
-          type: number
-        sinRegistro:
-          type: number
-      required:
-        - enviados
-        - yaEnviados
-        - autogestionados
-        - sinRegistro
     Forma-06229809c2:
       description: Forma que comparten varias operaciones.
       type: object
@@ -126053,6 +126117,25 @@ components:
         - anuladoPor
         - anuladoMotivo
         - createdAt
+    Forma-0d5c46d401:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Forma-c9711add1c"
+        total:
+          type: number
+        page:
+          type: number
+        pageSize:
+          type: number
+      required:
+        - items
+        - total
+        - page
+        - pageSize
     Forma-0fbdd10002:
       description: Forma que comparten varias operaciones.
       type: object
@@ -126987,25 +127070,6 @@ components:
         - companiaCobroNombre
         - yaDescontadoEnLiquidacion
         - conciliadaEn
-    Forma-261a83a7a0:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        items:
-          type: array
-          items:
-            "$ref": "#/components/schemas/Forma-d442f72838"
-        total:
-          type: number
-        page:
-          type: number
-        pageSize:
-          type: number
-      required:
-        - items
-        - total
-        - page
-        - pageSize
     Forma-2645c01e0d:
       description: Forma que comparten varias operaciones.
       type: object
@@ -127779,6 +127843,26 @@ components:
         - totalReintegro
         - totalServicio
         - filasIncompletas
+    Forma-3c6241d7c0:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        enviados:
+          type: number
+        yaEnviados:
+          type: number
+        autogestionados:
+          type: number
+        sinRegistro:
+          type: number
+        noVigentes:
+          type: number
+      required:
+        - enviados
+        - yaEnviados
+        - autogestionados
+        - sinRegistro
+        - noVigentes
     Forma-3ca67e61eb:
       description: Forma que comparten varias operaciones.
       type: object
@@ -127927,6 +128011,273 @@ components:
         - otra_compania
         - ya_conciliada
         - cobrado_otro_cliente
+    Forma-43d7094a47:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        tipo:
+          type: string
+        id:
+          type: number
+        vin:
+          type:
+            - string
+            - "null"
+        estado:
+          type: string
+          enum:
+            - soat_comprado
+            - soat_verificado
+            - anulado
+            - entregado
+            - aprobado
+            - rechazado
+            - completado
+            - radicado
+            - borrador
+            - en_validacion
+            - documentos
+            - identidad
+            - enviado_transito
+            - recibido_transito
+            - placa_preasignada
+            - solicitud_soat
+            - subsanacion
+            - en_tramite
+        organismoCodigo:
+          type:
+            - string
+            - "null"
+        placa:
+          type:
+            - string
+            - "null"
+        numeroRadicado:
+          type:
+            - string
+            - "null"
+        creadoPor:
+          type: number
+        notas:
+          type:
+            - string
+            - "null"
+        documentos:
+          description: "[por verificar] el código la tipa como `unknown`."
+        paso:
+          type: number
+        modalidadEntrada:
+          type: string
+        workflow:
+          description: "[por verificar] el código la tipa como `unknown`."
+        tipologiaCodigo:
+          type:
+            - string
+            - "null"
+        checklistEstado:
+          description: "[por verificar] el código la tipa como `unknown`."
+        verifyToken:
+          type:
+            - string
+            - "null"
+        verifyTokenExpires:
+          type:
+            - string
+            - "null"
+          format: date-time
+        vehiculo:
+          description: "[por verificar] el código la tipa como `unknown`."
+        comprador:
+          description: "[por verificar] el código la tipa como `unknown`."
+        validacionIdentidad:
+          description: "[por verificar] el código la tipa como `unknown`."
+        furGenerado:
+          type: boolean
+        furError:
+          type:
+            - string
+            - "null"
+        furErrorAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        motivoRechazoCodigo:
+          type:
+            - string
+            - "null"
+        recibidoPor:
+          type:
+            - number
+            - "null"
+        recibidoAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        placaAsignadaAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+      required:
+        - createdAt
+        - updatedAt
+        - tipo
+        - id
+        - vin
+        - estado
+        - organismoCodigo
+        - placa
+        - numeroRadicado
+        - creadoPor
+        - notas
+        - documentos
+        - paso
+        - modalidadEntrada
+        - workflow
+        - tipologiaCodigo
+        - checklistEstado
+        - verifyToken
+        - verifyTokenExpires
+        - vehiculo
+        - comprador
+        - validacionIdentidad
+        - furGenerado
+        - furError
+        - furErrorAt
+        - motivoRechazoCodigo
+        - recibidoPor
+        - recibidoAt
+        - placaAsignadaAt
+    Forma-443a4e60c3:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        id:
+          type: string
+        vin:
+          type: string
+        cilindraje:
+          type:
+            - string
+            - "null"
+        carroceria:
+          type:
+            - string
+            - "null"
+        tipoServicio:
+          type:
+            - string
+            - "null"
+        estado:
+          type: string
+          enum:
+            - pendiente
+            - solicitado
+            - con_novedad
+            - pagado
+            - descartado
+        enviadoEn:
+          type:
+            - string
+            - "null"
+        pagadoEn:
+          type:
+            - string
+            - "null"
+        motivoRechazo:
+          type:
+            - string
+            - "null"
+        placa:
+          type:
+            - string
+            - "null"
+        tipoTramite:
+          type:
+            - string
+            - "null"
+        tipoPropiedad:
+          type: string
+          enum:
+            - unico_propietario
+            - multiple_propietario
+        fechaAprobacion:
+          type:
+            - string
+            - "null"
+        marca:
+          type:
+            - string
+            - "null"
+        linea:
+          type:
+            - string
+            - "null"
+        tipoSoat:
+          type:
+            - string
+            - "null"
+          enum:
+            - INICIAL
+            - RENOVACION
+            - null
+        creadoEn:
+          type: string
+        fechaCreacion:
+          type:
+            - string
+            - "null"
+        estancado:
+          type: boolean
+        esMultiplePropietario:
+          type: boolean
+        companiaNombre:
+          type: string
+        organismoNombre:
+          type:
+            - string
+            - "null"
+        compradores:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Forma-3f0cbe80ea"
+        tramitesFlit:
+          type: array
+          items:
+            type: string
+      required:
+        - id
+        - vin
+        - cilindraje
+        - carroceria
+        - tipoServicio
+        - estado
+        - enviadoEn
+        - pagadoEn
+        - motivoRechazo
+        - placa
+        - tipoTramite
+        - tipoPropiedad
+        - fechaAprobacion
+        - marca
+        - linea
+        - tipoSoat
+        - creadoEn
+        - fechaCreacion
+        - estancado
+        - esMultiplePropietario
+        - companiaNombre
+        - organismoNombre
+        - compradores
+        - tramitesFlit
     Forma-45e9dc9384:
       description: Forma que comparten varias operaciones.
       type: object
@@ -129659,151 +130010,23 @@ components:
           type: array
           items:
             type: string
-    Forma-66bdacd008:
+    Forma-65ea12cbaa:
       description: Forma que comparten varias operaciones.
       type: object
       properties:
-        id:
+        enviados:
           type: number
-        tipo:
-          type: string
-        estado:
-          type: string
-          enum:
-            - soat_comprado
-            - soat_verificado
-            - entregado
-            - aprobado
-            - anulado
-            - rechazado
-            - completado
-            - radicado
-            - borrador
-            - en_validacion
-            - documentos
-            - identidad
-            - enviado_transito
-            - recibido_transito
-            - placa_preasignada
-            - solicitud_soat
-            - subsanacion
-            - en_tramite
-        paso:
+        yaEnviados:
           type: number
-        modalidadEntrada:
-          type: string
-        numeroRadicado:
-          type:
-            - string
-            - "null"
-        workflow:
-          description: "[por verificar] el código la tipa como `unknown`."
-        tipologiaCodigo:
-          type:
-            - string
-            - "null"
-        checklistEstado:
-          description: "[por verificar] el código la tipa como `unknown`."
-        verifyToken:
-          type:
-            - string
-            - "null"
-        verifyTokenExpires:
-          type:
-            - string
-            - "null"
-          format: date-time
-        vin:
-          type:
-            - string
-            - "null"
-        placa:
-          type:
-            - string
-            - "null"
-        vehiculo:
-          description: "[por verificar] el código la tipa como `unknown`."
-        comprador:
-          description: "[por verificar] el código la tipa como `unknown`."
-        documentos:
-          description: "[por verificar] el código la tipa como `unknown`."
-        validacionIdentidad:
-          description: "[por verificar] el código la tipa como `unknown`."
-        furGenerado:
-          type: boolean
-        furError:
-          type:
-            - string
-            - "null"
-        furErrorAt:
-          type:
-            - string
-            - "null"
-          format: date-time
-        notas:
-          type:
-            - string
-            - "null"
-        motivoRechazoCodigo:
-          type:
-            - string
-            - "null"
-        organismoCodigo:
-          type:
-            - string
-            - "null"
-        creadoPor:
+        noEnviables:
           type: number
-        recibidoPor:
-          type:
-            - number
-            - "null"
-        recibidoAt:
-          type:
-            - string
-            - "null"
-          format: date-time
-        placaAsignadaAt:
-          type:
-            - string
-            - "null"
-          format: date-time
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
+        noVigentes:
+          type: number
       required:
-        - id
-        - tipo
-        - estado
-        - paso
-        - modalidadEntrada
-        - numeroRadicado
-        - workflow
-        - tipologiaCodigo
-        - checklistEstado
-        - verifyToken
-        - verifyTokenExpires
-        - vin
-        - placa
-        - vehiculo
-        - comprador
-        - documentos
-        - validacionIdentidad
-        - furGenerado
-        - furError
-        - furErrorAt
-        - notas
-        - motivoRechazoCodigo
-        - organismoCodigo
-        - creadoPor
-        - recibidoPor
-        - recibidoAt
-        - placaAsignadaAt
-        - createdAt
-        - updatedAt
+        - enviados
+        - yaEnviados
+        - noEnviables
+        - noVigentes
     Forma-6cb54c2c7f:
       description: Forma que comparten varias operaciones.
       type: object
@@ -130099,151 +130322,6 @@ components:
         - status
         - source
         - message
-    Forma-77e3088bd6:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-        tipo:
-          type: string
-        id:
-          type: number
-        vin:
-          type:
-            - string
-            - "null"
-        estado:
-          type: string
-          enum:
-            - soat_comprado
-            - soat_verificado
-            - entregado
-            - aprobado
-            - anulado
-            - rechazado
-            - completado
-            - radicado
-            - borrador
-            - en_validacion
-            - documentos
-            - identidad
-            - enviado_transito
-            - recibido_transito
-            - placa_preasignada
-            - solicitud_soat
-            - subsanacion
-            - en_tramite
-        organismoCodigo:
-          type:
-            - string
-            - "null"
-        placa:
-          type:
-            - string
-            - "null"
-        numeroRadicado:
-          type:
-            - string
-            - "null"
-        creadoPor:
-          type: number
-        notas:
-          type:
-            - string
-            - "null"
-        documentos:
-          description: "[por verificar] el código la tipa como `unknown`."
-        paso:
-          type: number
-        modalidadEntrada:
-          type: string
-        workflow:
-          description: "[por verificar] el código la tipa como `unknown`."
-        tipologiaCodigo:
-          type:
-            - string
-            - "null"
-        checklistEstado:
-          description: "[por verificar] el código la tipa como `unknown`."
-        verifyToken:
-          type:
-            - string
-            - "null"
-        verifyTokenExpires:
-          type:
-            - string
-            - "null"
-          format: date-time
-        vehiculo:
-          description: "[por verificar] el código la tipa como `unknown`."
-        comprador:
-          description: "[por verificar] el código la tipa como `unknown`."
-        validacionIdentidad:
-          description: "[por verificar] el código la tipa como `unknown`."
-        furGenerado:
-          type: boolean
-        furError:
-          type:
-            - string
-            - "null"
-        furErrorAt:
-          type:
-            - string
-            - "null"
-          format: date-time
-        motivoRechazoCodigo:
-          type:
-            - string
-            - "null"
-        recibidoPor:
-          type:
-            - number
-            - "null"
-        recibidoAt:
-          type:
-            - string
-            - "null"
-          format: date-time
-        placaAsignadaAt:
-          type:
-            - string
-            - "null"
-          format: date-time
-      required:
-        - createdAt
-        - updatedAt
-        - tipo
-        - id
-        - vin
-        - estado
-        - organismoCodigo
-        - placa
-        - numeroRadicado
-        - creadoPor
-        - notas
-        - documentos
-        - paso
-        - modalidadEntrada
-        - workflow
-        - tipologiaCodigo
-        - checklistEstado
-        - verifyToken
-        - verifyTokenExpires
-        - vehiculo
-        - comprador
-        - validacionIdentidad
-        - furGenerado
-        - furError
-        - furErrorAt
-        - motivoRechazoCodigo
-        - recibidoPor
-        - recibidoAt
-        - placaAsignadaAt
     Forma-7852ae0c10:
       description: Forma que comparten varias operaciones.
       type: object
@@ -132112,6 +132190,176 @@ components:
         - organismoCodigo
         - fechaAprobacion
         - tipoTramite
+    Forma-9e86da3c95:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        id:
+          type: string
+        vin:
+          type: string
+        placa:
+          type:
+            - string
+            - "null"
+        marca:
+          type:
+            - string
+            - "null"
+        linea:
+          type:
+            - string
+            - "null"
+        cilindraje:
+          type:
+            - string
+            - "null"
+        carroceria:
+          type:
+            - string
+            - "null"
+        tipoServicio:
+          type:
+            - string
+            - "null"
+        estado:
+          type: string
+          enum:
+            - pendiente
+            - solicitado
+            - con_novedad
+            - pagado
+            - descartado
+        tipoPropiedad:
+          type: string
+          enum:
+            - unico_propietario
+            - multiple_propietario
+        esMultiplePropietario:
+          type: boolean
+        companiaNombre:
+          type: string
+        organismoNombre:
+          type:
+            - string
+            - "null"
+        proveedorSoatId:
+          type:
+            - string
+            - "null"
+        proveedorSoatNombre:
+          type:
+            - string
+            - "null"
+        gestionOperaciones:
+          type: boolean
+        compradores:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Forma-3f0cbe80ea"
+        tramitesFlit:
+          type: array
+          items:
+            type: string
+        tipoTramite:
+          type:
+            - string
+            - "null"
+        fechaAprobacion:
+          type:
+            - string
+            - "null"
+        fechaCreacion:
+          type:
+            - string
+            - "null"
+        enviadoPorNombre:
+          type:
+            - string
+            - "null"
+        enviadoEn:
+          type:
+            - string
+            - "null"
+        pagadoEn:
+          type:
+            - string
+            - "null"
+        valorPagado:
+          type:
+            - number
+            - "null"
+        estancado:
+          type: boolean
+        motivoRechazo:
+          type:
+            - string
+            - "null"
+        creadoEn:
+          type: string
+        vigencia:
+          type:
+            - object
+            - "null"
+          properties:
+            estado:
+              type: string
+              enum:
+                - vigente
+                - vencido
+                - no_verificado
+                - sin_registro
+            verificadaEn:
+              type:
+                - string
+                - "null"
+            venceEl:
+              type:
+                - string
+                - "null"
+          required:
+            - estado
+            - verificadaEn
+            - venceEl
+        tipoSoat:
+          type:
+            - string
+            - "null"
+          enum:
+            - INICIAL
+            - RENOVACION
+            - null
+      required:
+        - id
+        - vin
+        - placa
+        - marca
+        - linea
+        - cilindraje
+        - carroceria
+        - tipoServicio
+        - estado
+        - tipoPropiedad
+        - esMultiplePropietario
+        - companiaNombre
+        - organismoNombre
+        - proveedorSoatId
+        - proveedorSoatNombre
+        - gestionOperaciones
+        - compradores
+        - tramitesFlit
+        - tipoTramite
+        - fechaAprobacion
+        - fechaCreacion
+        - enviadoPorNombre
+        - enviadoEn
+        - pagadoEn
+        - valorPagado
+        - estancado
+        - motivoRechazo
+        - creadoEn
+        - vigencia
+        - tipoSoat
     Forma-9e9eca7824:
       description: Forma que comparten varias operaciones.
       type: object
@@ -133414,6 +133662,151 @@ components:
         - createdBy
         - createdAt
         - updatedAt
+    Forma-c064d59685:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        id:
+          type: number
+        tipo:
+          type: string
+        estado:
+          type: string
+          enum:
+            - soat_comprado
+            - soat_verificado
+            - anulado
+            - entregado
+            - aprobado
+            - rechazado
+            - completado
+            - radicado
+            - borrador
+            - en_validacion
+            - documentos
+            - identidad
+            - enviado_transito
+            - recibido_transito
+            - placa_preasignada
+            - solicitud_soat
+            - subsanacion
+            - en_tramite
+        paso:
+          type: number
+        modalidadEntrada:
+          type: string
+        numeroRadicado:
+          type:
+            - string
+            - "null"
+        workflow:
+          description: "[por verificar] el código la tipa como `unknown`."
+        tipologiaCodigo:
+          type:
+            - string
+            - "null"
+        checklistEstado:
+          description: "[por verificar] el código la tipa como `unknown`."
+        verifyToken:
+          type:
+            - string
+            - "null"
+        verifyTokenExpires:
+          type:
+            - string
+            - "null"
+          format: date-time
+        vin:
+          type:
+            - string
+            - "null"
+        placa:
+          type:
+            - string
+            - "null"
+        vehiculo:
+          description: "[por verificar] el código la tipa como `unknown`."
+        comprador:
+          description: "[por verificar] el código la tipa como `unknown`."
+        documentos:
+          description: "[por verificar] el código la tipa como `unknown`."
+        validacionIdentidad:
+          description: "[por verificar] el código la tipa como `unknown`."
+        furGenerado:
+          type: boolean
+        furError:
+          type:
+            - string
+            - "null"
+        furErrorAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        notas:
+          type:
+            - string
+            - "null"
+        motivoRechazoCodigo:
+          type:
+            - string
+            - "null"
+        organismoCodigo:
+          type:
+            - string
+            - "null"
+        creadoPor:
+          type: number
+        recibidoPor:
+          type:
+            - number
+            - "null"
+        recibidoAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        placaAsignadaAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - tipo
+        - estado
+        - paso
+        - modalidadEntrada
+        - numeroRadicado
+        - workflow
+        - tipologiaCodigo
+        - checklistEstado
+        - verifyToken
+        - verifyTokenExpires
+        - vin
+        - placa
+        - vehiculo
+        - comprador
+        - documentos
+        - validacionIdentidad
+        - furGenerado
+        - furError
+        - furErrorAt
+        - notas
+        - motivoRechazoCodigo
+        - organismoCodigo
+        - creadoPor
+        - recibidoPor
+        - recibidoAt
+        - placaAsignadaAt
+        - createdAt
+        - updatedAt
     Forma-c2b84fe8c7:
       description: Forma que comparten varias operaciones.
       type: object
@@ -134031,6 +134424,113 @@ components:
         - derecho
         - tramite_digital
         - servicios_adicionales
+    Forma-c9711add1c:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        tramiteId:
+          type: string
+        idFlit:
+          type: string
+        vigenciaTramite:
+          type: string
+          enum:
+            - vigente
+            - anulado
+            - abortado
+            - revocado
+        placa:
+          type:
+            - string
+            - "null"
+        vin:
+          type:
+            - string
+            - "null"
+        propietario:
+          type:
+            - string
+            - "null"
+        companiaId:
+          type:
+            - number
+            - "null"
+        companiaNombre:
+          type:
+            - string
+            - "null"
+        companiaNit:
+          type:
+            - string
+            - "null"
+        organismoCodigo:
+          type:
+            - string
+            - "null"
+        organismoNombre:
+          type:
+            - string
+            - "null"
+        docId:
+          type:
+            - string
+            - "null"
+        estado:
+          type: string
+        estadoLabel:
+          type: string
+        estadoSimple:
+          type: string
+          enum:
+            - pendiente
+            - novedad
+            - en_flit
+            - despachada
+            - entregada
+            - registrada
+        estadoSimpleLabel:
+          type: string
+        numeroLicencia:
+          type:
+            - string
+            - "null"
+        numeroLt:
+          type:
+            - string
+            - "null"
+        actaId:
+          type:
+            - string
+            - "null"
+        motivo:
+          type:
+            - string
+            - "null"
+        actualizadoEn:
+          type:
+            - string
+            - "null"
+      required:
+        - tramiteId
+        - idFlit
+        - vigenciaTramite
+        - placa
+        - vin
+        - companiaId
+        - companiaNombre
+        - companiaNit
+        - organismoCodigo
+        - organismoNombre
+        - docId
+        - estado
+        - estadoLabel
+        - estadoSimple
+        - estadoSimpleLabel
+        - numeroLicencia
+        - numeroLt
+        - actaId
+        - motivo
+        - actualizadoEn
     Forma-cc0e851bdd:
       description: Forma que comparten varias operaciones.
       type: object
@@ -134328,320 +134828,6 @@ components:
         - propuesta
         - confirmadaPor
         - confirmadaEn
-    Forma-cf830021ef:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        extraccion:
-          description: "[por verificar] el código la tipa como `unknown`."
-        extraccionFacturaVenta:
-          description: "[por verificar] el código la tipa como `unknown`."
-        pagadoEn:
-          type:
-            - string
-            - "null"
-        direccionComprador:
-          "$ref": "#/components/schemas/Forma-ce25026149"
-        datosDocumentoFactura:
-          "$ref": "#/components/schemas/Forma-cc0e851bdd"
-        comparacion:
-          type:
-            - object
-            - "null"
-          properties:
-            version:
-              type: number
-              enum:
-                - 1
-            motivo:
-              type:
-                - string
-                - "null"
-              enum:
-                - runt_sin_respuesta
-                - error_lectura_factura
-                - null
-            detalleRunt:
-              type: string
-              enum:
-                - sin_respuesta
-                - sin_registro
-                - traspaso
-                - sin_identificador
-            campos:
-              type: array
-              items:
-                "$ref": "#/components/schemas/Forma-6d65949e76"
-            resumen:
-              type: object
-              properties:
-                coinciden:
-                  type: number
-                difieren:
-                  type: number
-                noVerificables:
-                  type: number
-              required:
-                - coinciden
-                - difieren
-                - noVerificables
-            calculadoEn:
-              type: string
-          required:
-            - version
-            - motivo
-            - campos
-            - resumen
-            - calculadoEn
-        soportes:
-          type: array
-          items:
-            "$ref": "#/components/schemas/Forma-d2a9ba8398"
-        envioFlit2:
-          type:
-            - object
-            - "null"
-          properties:
-            estado:
-              type: string
-              enum:
-                - error
-                - pendiente
-                - en_espera
-                - enviado
-                - ya_cargado_gestor
-                - sin_comprobante
-            intentos:
-              type: number
-            ultimoIntentoEn:
-              type:
-                - string
-                - "null"
-          required:
-            - estado
-            - intentos
-            - ultimoIntentoEn
-        envioComprobante:
-          type:
-            - object
-            - "null"
-          properties:
-            destino:
-              type: string
-              enum:
-                - flit2
-                - flit1
-            estado:
-              type: string
-              enum:
-                - error
-                - pendiente
-                - en_espera
-                - enviado
-                - ya_cargado_gestor
-                - sin_comprobante
-            intentos:
-              type: number
-            ultimoIntentoEn:
-              type:
-                - string
-                - "null"
-          required:
-            - destino
-            - estado
-            - intentos
-            - ultimoIntentoEn
-        id:
-          type: string
-        tramiteId:
-          type: string
-        idFlit:
-          type: string
-        placa:
-          type:
-            - string
-            - "null"
-        vin:
-          type: string
-        marca:
-          type:
-            - string
-            - "null"
-        linea:
-          type:
-            - string
-            - "null"
-        tipoTramite:
-          type:
-            - string
-            - "null"
-        fechaAprobacion:
-          type:
-            - string
-            - "null"
-        fechaCreacion:
-          type:
-            - string
-            - "null"
-        estado:
-          type: string
-          enum:
-            - pendiente
-            - solicitado
-            - con_novedad
-            - pagado
-        compradorNombre:
-          type:
-            - string
-            - "null"
-        compradorDocumento:
-          type:
-            - string
-            - "null"
-        compradorTipoDocumento:
-          type:
-            - string
-            - "null"
-        companiaNombre:
-          type: string
-        organismoCodigo:
-          type: string
-        organismoNombre:
-          type:
-            - string
-            - "null"
-        valorLiquidado:
-          type:
-            - number
-            - "null"
-        valorPagado:
-          type:
-            - number
-            - "null"
-        marcadoPorDiferencia:
-          type: boolean
-        tieneFacturaVenta:
-          type: boolean
-        enviadoPorNombre:
-          type:
-            - string
-            - "null"
-        enviadoEn:
-          type:
-            - string
-            - "null"
-        liquidadoEn:
-          type:
-            - string
-            - "null"
-        documentos:
-          type:
-            - string
-            - "null"
-          enum:
-            - ambos
-            - liquidacion
-            - pago
-            - null
-        estancado:
-          type: boolean
-        motivoRechazo:
-          type:
-            - string
-            - "null"
-        creadoEn:
-          type: string
-        gestionOperaciones:
-          type: boolean
-        certificacion:
-          type:
-            - object
-            - "null"
-          properties:
-            id:
-              type: string
-            certificadoEn:
-              type: string
-            certificadoPorNombre:
-              type:
-                - string
-                - "null"
-            automatica:
-              type: boolean
-          required:
-            - id
-            - certificadoEn
-            - certificadoPorNombre
-            - automatica
-        analisisEstado:
-          type:
-            - string
-            - "null"
-          enum:
-            - en_curso
-            - completado
-            - error_analisis
-            - null
-        semaforo:
-          type:
-            - string
-            - "null"
-          enum:
-            - verde
-            - naranja
-            - rojo
-            - null
-        motivoSemaforo:
-          type:
-            - string
-            - "null"
-          enum:
-            - runt_sin_respuesta
-            - error_lectura_factura
-            - null
-      required:
-        - extraccion
-        - extraccionFacturaVenta
-        - pagadoEn
-        - direccionComprador
-        - datosDocumentoFactura
-        - comparacion
-        - soportes
-        - envioFlit2
-        - envioComprobante
-        - id
-        - tramiteId
-        - idFlit
-        - placa
-        - vin
-        - marca
-        - linea
-        - tipoTramite
-        - fechaAprobacion
-        - fechaCreacion
-        - estado
-        - compradorNombre
-        - compradorDocumento
-        - compradorTipoDocumento
-        - companiaNombre
-        - organismoCodigo
-        - organismoNombre
-        - valorLiquidado
-        - valorPagado
-        - marcadoPorDiferencia
-        - tieneFacturaVenta
-        - enviadoPorNombre
-        - enviadoEn
-        - liquidadoEn
-        - documentos
-        - estancado
-        - motivoRechazo
-        - creadoEn
-        - gestionOperaciones
-        - certificacion
-        - analisisEstado
-        - semaforo
-        - motivoSemaforo
     Forma-d19b76c86e:
       description: Forma que comparten varias operaciones.
       type: object
@@ -134759,105 +134945,6 @@ components:
       required:
         - error
         - codigo
-    Forma-d442f72838:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        tramiteId:
-          type: string
-        idFlit:
-          type: string
-        placa:
-          type:
-            - string
-            - "null"
-        vin:
-          type:
-            - string
-            - "null"
-        propietario:
-          type:
-            - string
-            - "null"
-        companiaId:
-          type:
-            - number
-            - "null"
-        companiaNombre:
-          type:
-            - string
-            - "null"
-        companiaNit:
-          type:
-            - string
-            - "null"
-        organismoCodigo:
-          type:
-            - string
-            - "null"
-        organismoNombre:
-          type:
-            - string
-            - "null"
-        docId:
-          type:
-            - string
-            - "null"
-        estado:
-          type: string
-        estadoLabel:
-          type: string
-        estadoSimple:
-          type: string
-          enum:
-            - pendiente
-            - novedad
-            - en_flit
-            - despachada
-            - entregada
-            - registrada
-        estadoSimpleLabel:
-          type: string
-        numeroLicencia:
-          type:
-            - string
-            - "null"
-        numeroLt:
-          type:
-            - string
-            - "null"
-        actaId:
-          type:
-            - string
-            - "null"
-        motivo:
-          type:
-            - string
-            - "null"
-        actualizadoEn:
-          type:
-            - string
-            - "null"
-      required:
-        - tramiteId
-        - idFlit
-        - placa
-        - vin
-        - companiaId
-        - companiaNombre
-        - companiaNit
-        - organismoCodigo
-        - organismoNombre
-        - docId
-        - estado
-        - estadoLabel
-        - estadoSimple
-        - estadoSimpleLabel
-        - numeroLicencia
-        - numeroLt
-        - actaId
-        - motivo
-        - actualizadoEn
     Forma-d4944c1823:
       description: Forma que comparten varias operaciones.
       type: object
@@ -135211,175 +135298,6 @@ components:
             - departamento
       required:
         - pagadoEn
-    Forma-d97f376d3e:
-      description: Forma que comparten varias operaciones.
-      type: object
-      properties:
-        id:
-          type: string
-        vin:
-          type: string
-        placa:
-          type:
-            - string
-            - "null"
-        marca:
-          type:
-            - string
-            - "null"
-        linea:
-          type:
-            - string
-            - "null"
-        cilindraje:
-          type:
-            - string
-            - "null"
-        carroceria:
-          type:
-            - string
-            - "null"
-        tipoServicio:
-          type:
-            - string
-            - "null"
-        estado:
-          type: string
-          enum:
-            - pendiente
-            - solicitado
-            - con_novedad
-            - pagado
-        tipoPropiedad:
-          type: string
-          enum:
-            - unico_propietario
-            - multiple_propietario
-        esMultiplePropietario:
-          type: boolean
-        companiaNombre:
-          type: string
-        organismoNombre:
-          type:
-            - string
-            - "null"
-        proveedorSoatId:
-          type:
-            - string
-            - "null"
-        proveedorSoatNombre:
-          type:
-            - string
-            - "null"
-        gestionOperaciones:
-          type: boolean
-        compradores:
-          type: array
-          items:
-            "$ref": "#/components/schemas/Forma-3f0cbe80ea"
-        tramitesFlit:
-          type: array
-          items:
-            type: string
-        tipoTramite:
-          type:
-            - string
-            - "null"
-        fechaAprobacion:
-          type:
-            - string
-            - "null"
-        fechaCreacion:
-          type:
-            - string
-            - "null"
-        enviadoPorNombre:
-          type:
-            - string
-            - "null"
-        enviadoEn:
-          type:
-            - string
-            - "null"
-        pagadoEn:
-          type:
-            - string
-            - "null"
-        valorPagado:
-          type:
-            - number
-            - "null"
-        estancado:
-          type: boolean
-        motivoRechazo:
-          type:
-            - string
-            - "null"
-        creadoEn:
-          type: string
-        vigencia:
-          type:
-            - object
-            - "null"
-          properties:
-            estado:
-              type: string
-              enum:
-                - vigente
-                - vencido
-                - no_verificado
-                - sin_registro
-            verificadaEn:
-              type:
-                - string
-                - "null"
-            venceEl:
-              type:
-                - string
-                - "null"
-          required:
-            - estado
-            - verificadaEn
-            - venceEl
-        tipoSoat:
-          type:
-            - string
-            - "null"
-          enum:
-            - INICIAL
-            - RENOVACION
-            - null
-      required:
-        - id
-        - vin
-        - placa
-        - marca
-        - linea
-        - cilindraje
-        - carroceria
-        - tipoServicio
-        - estado
-        - tipoPropiedad
-        - esMultiplePropietario
-        - companiaNombre
-        - organismoNombre
-        - proveedorSoatId
-        - proveedorSoatNombre
-        - gestionOperaciones
-        - compradores
-        - tramitesFlit
-        - tipoTramite
-        - fechaAprobacion
-        - fechaCreacion
-        - enviadoPorNombre
-        - enviadoEn
-        - pagadoEn
-        - valorPagado
-        - estancado
-        - motivoRechazo
-        - creadoEn
-        - vigencia
-        - tipoSoat
     Forma-da2daa06d2:
       description: Forma que comparten varias operaciones.
       type: object
@@ -136645,6 +136563,326 @@ components:
         - createdBy
         - createdAt
         - updatedAt
+    Forma-ef968346d8:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        extraccion:
+          description: "[por verificar] el código la tipa como `unknown`."
+        extraccionFacturaVenta:
+          description: "[por verificar] el código la tipa como `unknown`."
+        pagadoEn:
+          type:
+            - string
+            - "null"
+        direccionComprador:
+          "$ref": "#/components/schemas/Forma-ce25026149"
+        datosDocumentoFactura:
+          "$ref": "#/components/schemas/Forma-cc0e851bdd"
+        comparacion:
+          type:
+            - object
+            - "null"
+          properties:
+            version:
+              type: number
+              enum:
+                - 1
+            motivo:
+              type:
+                - string
+                - "null"
+              enum:
+                - runt_sin_respuesta
+                - error_lectura_factura
+                - null
+            detalleRunt:
+              type: string
+              enum:
+                - sin_respuesta
+                - sin_registro
+                - traspaso
+                - sin_identificador
+            campos:
+              type: array
+              items:
+                "$ref": "#/components/schemas/Forma-6d65949e76"
+            resumen:
+              type: object
+              properties:
+                coinciden:
+                  type: number
+                difieren:
+                  type: number
+                noVerificables:
+                  type: number
+              required:
+                - coinciden
+                - difieren
+                - noVerificables
+            calculadoEn:
+              type: string
+          required:
+            - version
+            - motivo
+            - campos
+            - resumen
+            - calculadoEn
+        soportes:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Forma-d2a9ba8398"
+        envioFlit2:
+          type:
+            - object
+            - "null"
+          properties:
+            estado:
+              type: string
+              enum:
+                - error
+                - pendiente
+                - en_espera
+                - enviado
+                - ya_cargado_gestor
+                - sin_comprobante
+            intentos:
+              type: number
+            ultimoIntentoEn:
+              type:
+                - string
+                - "null"
+          required:
+            - estado
+            - intentos
+            - ultimoIntentoEn
+        envioComprobante:
+          type:
+            - object
+            - "null"
+          properties:
+            destino:
+              type: string
+              enum:
+                - flit2
+                - flit1
+            estado:
+              type: string
+              enum:
+                - error
+                - pendiente
+                - en_espera
+                - enviado
+                - ya_cargado_gestor
+                - sin_comprobante
+            intentos:
+              type: number
+            ultimoIntentoEn:
+              type:
+                - string
+                - "null"
+          required:
+            - destino
+            - estado
+            - intentos
+            - ultimoIntentoEn
+        tipoServicio:
+          type:
+            - string
+            - "null"
+        id:
+          type: string
+        tramiteId:
+          type: string
+        idFlit:
+          type: string
+        placa:
+          type:
+            - string
+            - "null"
+        vin:
+          type: string
+        marca:
+          type:
+            - string
+            - "null"
+        linea:
+          type:
+            - string
+            - "null"
+        tipoTramite:
+          type:
+            - string
+            - "null"
+        fechaAprobacion:
+          type:
+            - string
+            - "null"
+        fechaCreacion:
+          type:
+            - string
+            - "null"
+        estado:
+          type: string
+          enum:
+            - pendiente
+            - solicitado
+            - con_novedad
+            - pagado
+            - descartado
+        compradorNombre:
+          type:
+            - string
+            - "null"
+        compradorDocumento:
+          type:
+            - string
+            - "null"
+        compradorTipoDocumento:
+          type:
+            - string
+            - "null"
+        companiaNombre:
+          type: string
+        organismoCodigo:
+          type: string
+        organismoNombre:
+          type:
+            - string
+            - "null"
+        valorLiquidado:
+          type:
+            - number
+            - "null"
+        valorPagado:
+          type:
+            - number
+            - "null"
+        marcadoPorDiferencia:
+          type: boolean
+        tieneFacturaVenta:
+          type: boolean
+        enviadoPorNombre:
+          type:
+            - string
+            - "null"
+        enviadoEn:
+          type:
+            - string
+            - "null"
+        liquidadoEn:
+          type:
+            - string
+            - "null"
+        documentos:
+          type:
+            - string
+            - "null"
+          enum:
+            - ambos
+            - liquidacion
+            - pago
+            - null
+        estancado:
+          type: boolean
+        motivoRechazo:
+          type:
+            - string
+            - "null"
+        creadoEn:
+          type: string
+        gestionOperaciones:
+          type: boolean
+        certificacion:
+          type:
+            - object
+            - "null"
+          properties:
+            id:
+              type: string
+            certificadoEn:
+              type: string
+            certificadoPorNombre:
+              type:
+                - string
+                - "null"
+            automatica:
+              type: boolean
+          required:
+            - id
+            - certificadoEn
+            - certificadoPorNombre
+            - automatica
+        analisisEstado:
+          type:
+            - string
+            - "null"
+          enum:
+            - en_curso
+            - completado
+            - error_analisis
+            - null
+        semaforo:
+          type:
+            - string
+            - "null"
+          enum:
+            - verde
+            - naranja
+            - rojo
+            - null
+        motivoSemaforo:
+          type:
+            - string
+            - "null"
+          enum:
+            - runt_sin_respuesta
+            - error_lectura_factura
+            - null
+      required:
+        - extraccion
+        - extraccionFacturaVenta
+        - pagadoEn
+        - direccionComprador
+        - datosDocumentoFactura
+        - comparacion
+        - soportes
+        - envioFlit2
+        - envioComprobante
+        - tipoServicio
+        - id
+        - tramiteId
+        - idFlit
+        - placa
+        - vin
+        - marca
+        - linea
+        - tipoTramite
+        - fechaAprobacion
+        - fechaCreacion
+        - estado
+        - compradorNombre
+        - compradorDocumento
+        - compradorTipoDocumento
+        - companiaNombre
+        - organismoCodigo
+        - organismoNombre
+        - valorLiquidado
+        - valorPagado
+        - marcadoPorDiferencia
+        - tieneFacturaVenta
+        - enviadoPorNombre
+        - enviadoEn
+        - liquidadoEn
+        - documentos
+        - estancado
+        - motivoRechazo
+        - creadoEn
+        - gestionOperaciones
+        - certificacion
+        - analisisEstado
+        - semaforo
+        - motivoSemaforo
     Forma-f03f0710d6:
       description: Forma que comparten varias operaciones.
       type: object

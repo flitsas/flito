@@ -11,6 +11,7 @@
 // y `clase` es el tipo de vehículo (`vehicles.tipo_vehiculo`).
 
 import type { FuenteTramite } from './flito-tramite-fuente.js';
+import type { VigenciaTramite } from './flito-tramite-vigencia.js';
 
 /** Resumen del trámite (cabecera de la modal). Fechas en ISO 8601. */
 export interface TramiteDetalleResumen {
@@ -43,6 +44,8 @@ export interface TramiteDetalleVehiculo {
   linea: string | null;
   /** Clase / tipo de vehículo (`vehicles.tipo_vehiculo`). */
   clase: string | null;
+  /** Tipo de servicio (`vehicles.tipo_servicio`, p. ej. «Público»; Épica #14707, rediseño). */
+  tipoServicio: string | null;
 }
 
 /** Un comprador / propietario del trámite. Datos personales: solo en pantalla, nunca en URL ni log. */
@@ -100,6 +103,11 @@ export interface TramiteDetalle {
   id: string;
   /** ID visible del trámite (p. ej. `FLIT-0132456`); es el que nombra el ZIP por trámite. */
   idFlit: string;
+  /**
+   * Épica #14707 (ADR-0049, D7): un trámite que FLIT anuló, abortó o revocó NO EXISTE en FLITO; el detalle se sigue
+   * viendo, sin acciones. Su SOAT/impuesto puede venir `descartado` en `costos.conceptos[].estado`.
+   */
+  vigenciaTramite: VigenciaTramite;
   resumen: TramiteDetalleResumen;
   vehiculo: TramiteDetalleVehiculo;
   /** Ordenados por `orden`; el primero es el principal. Vacío si FLIT no trajo compradores. */

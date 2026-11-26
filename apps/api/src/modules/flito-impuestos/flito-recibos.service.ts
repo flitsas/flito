@@ -85,7 +85,7 @@ import { conConcurrencia } from '../../shared/utils/con-concurrencia.js';
 import { completarComprobanteFlit2, programarEnvioComprobante } from './flito-impuestos.envio-flit2.service.js';
 import { esGestorDeOrganismo, type ArchivoSubido, type ImpuestoCtx } from './flito-factura-venta.service.js';
 import { condicionPorCompania } from '../../shared/alcance-filas.js';
-import { exigirImpuestoVigente } from '../../shared/tramite-vigente.js';
+import { exigirImpuestoVigente, TRAMITE_VIVO } from '../../shared/tramite-vigente.js';
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -314,7 +314,7 @@ function consolidarMismoLote(res: ResultadoRecibos): void {
  * Lo que vale para TODO el lote: la frontera del actor y los umbrales de sus organismos. El mapa se
  * carga con UNA consulta, no una por archivo.
  */
-interface LoteRecibos {
+export interface LoteRecibos {
   esGestor: boolean;
   organismos: string[];
   /** HU #13426: compañía → solo sus impuestos; otro enlace no gestor → `false`. `undefined` = sin acotar. */
@@ -495,13 +495,16 @@ async function escribirPorFase(
   });
 }
 
-async function buscarCandidato(placa: string, estado: EstadoImpuesto, lote: LoteRecibos): Promise<Candidato | null> {
+/** Exportada para el test (Épica #14707, D10: la carrera con un trámite muerto cuyo impuesto aún no se descartó). */
+export async function buscarCandidato(placa: string, estado: EstadoImpuesto, lote: LoteRecibos): Promise<Candidato | null> {
   const conds = [
     eq(flitoImpuestos.estado, estado),
     // Misma frontera que la cola: la autogestión deja fuera, salvo el desbloqueo excepcional
     // (HU #10980). Si no, un recibo de un trámite desbloqueado no cruzaría con su impuesto.
     sql`(NOT COALESCE(${clients.impuestosAutogestionable}, false) OR ${flitoImpuestos.excepcionAutogestion})`,
     sql`UPPER(REPLACE(${vehicles.plate}, '-', '')) = ${normalizarLlave(placa)}`,
+    // Épica #14707 (D10): un trámite muerto no cruza por placa (su impuesto ya es `descartado`; esto cubre la carrera).
+    TRAMITE_VIVO(),
   ];
   // La frontera solo la tiene el gestor; para Operaciones no se acota nada, igual que hoy. Añadir
   // aquí la bandera cubre de una vez los dos usos de esta función: la conciliación de un recibo
@@ -517,7 +520,8 @@ async function buscarCandidato(placa: string, estado: EstadoImpuesto, lote: Lote
     conds.push(inArray(flitoImpuestos.organismoCodigo, lote.organismos));
     conds.push(eq(flitoImpuestos.gestionOperaciones, false));
   }
-  const [r] = await fromCandidatos().where(and(...conds)).orderBy(desc(flitoImpuestos.pagadoEn)).limit(1);
+  const [r] = await fromCandidatos().where(and(...conds))
+    .orderBy(desc(flitoImpuestos.pagadoEn), desc(flitoImpuestos.createdAt), desc(flitoImpuestos.id)).limit(1); // determinista
   return r ?? null;
 }
 

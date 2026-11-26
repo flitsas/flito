@@ -4,7 +4,7 @@ import { and, desc, eq, inArray, ne, or, sql, type SQL } from 'drizzle-orm';
 import {
   EstadoActaLogistica, EstadoDocumentoLogistica, ESTADO_ACTA_LOGISTICA_LABEL,
   ESTADO_DOCUMENTO_LOGISTICA_LABEL, ESTADO_LOGISTICA_SIMPLE_LABEL, EstadoLogisticaSimple,
-  simplificarEstadoLogistica, tipoEventoEfectivo,
+  simplificarEstadoLogistica, tipoEventoEfectivo, vigenciaTramite,
   type ActaFilaLogistica, type CompaniaCerrableLogistica, type EstadoDocumentoLogistica as TEstadoDoc,
   type EstadoLogisticaSimple as TEstadoSimple,
   type HitoLineaTiempoLogistica, type LineaTiempoLogistica, type ListadoTramitesLogistica, type MensajeroDeActa, type TramiteFilaLogistica,
@@ -19,6 +19,7 @@ import type { AlcanceResuelto } from '../../shared/middleware/frontera-enlace.js
 import { condicionActasLogistica, condicionDocumentosLogistica, condicionTramitesLogistica } from './flito-logistica.alcance.js';
 import { LT, LogisticaError, aprobadoSql, type LogisticaCtx } from './flito-logistica.base.js';
 import { mensajerosAsignables, mensajerosParaActa, type MensajeroAsignable } from './flito-logistica.mensajeros.js';
+import { TRAMITE_VIVO } from '../../shared/tramite-vigente.js';
 
 const SIN_ENLACE: AlcanceResuelto = { enlace: 'ninguno' };
 
@@ -53,6 +54,7 @@ export type ListadoLogistica = ListadoTramitesLogistica;
 function proyeccionTramites() {
   return db.select({
     tramiteId: flitoTramites.id, idFlit: flitoTramites.idFlit,
+    estadoTramite: flitoTramites.estado, flitEstado: flitoTramites.flitEstado,
     placa: vehicles.plate, vin: vehicles.vin,
     propietarioTramite: flitoCompradores.nombreCompleto,
     companiaId: flitoTramites.companiaId, companiaNombre: clients.name, companiaNit: flitoTramites.companiaNit,
@@ -102,6 +104,8 @@ function construirCondiciones(f: FiltrosLogistica): SQL[] {
   if (f.empresas?.length) conds.push(inArray(flitoTramites.companiaNit, f.empresas));
   if (f.organismos?.length) conds.push(inArray(flitoTramites.organismoCodigo, f.organismos));
   if (f.actas?.length) conds.push(inArray(flitoLogisticaDocumentos.actaId, f.actas));
+  // Épica #14707 (D8): un trámite muerto sin LT no es trabajo pendiente (no existe); con LT queda como histórico.
+  conds.push(or(TRAMITE_VIVO(), sql`${flitoLogisticaDocumentos.id} IS NOT NULL`)!);
   return conds;
 }
 
@@ -109,7 +113,7 @@ function aFila(f: FilaCruda): TramiteFila {
   const estado = f.estadoDoc ?? ESTADO_PENDIENTE;
   const estadoSimple = simplificarEstadoLogistica(f.estadoDoc);
   return {
-    tramiteId: f.tramiteId, idFlit: f.idFlit,
+    tramiteId: f.tramiteId, idFlit: f.idFlit, vigenciaTramite: vigenciaTramite(f.estadoTramite, f.flitEstado),
     placa: f.placa, vin: f.vin, propietario: f.propietarioLt ?? f.propietarioTramite,
     companiaId: f.companiaId, companiaNombre: f.companiaNombre, companiaNit: f.companiaNit,
     organismoCodigo: f.organismoCodigo, organismoNombre: f.organismoNombre,
@@ -288,6 +292,7 @@ export async function facetas(alcance: AlcanceResuelto = SIN_ENLACE): Promise<Fa
         // Candidatos de «Enviar a cliente»: clasificadas (salida directa) y en_flit (salida de FLIT).
         inArray(flitoLogisticaDocumentos.estado, [EstadoDocumentoLogistica.CLASIFICADO, 'en_flit']),
         gestionableDocs,
+        TRAMITE_VIVO(), // Épica #14707: la LT de un trámite muerto no se envía (sin trámite: vivo)
         sql`${flitoLogisticaDocumentos.companiaId} is not null`,
       )),
     // HU #13425: asignable = quien entrega actas y NO opera las ajenas (hoy: el rol mensajero), leído

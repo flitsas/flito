@@ -15,7 +15,8 @@
 import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import {
   EstadoImpuesto, EstadoTramiteFlito, ESTADOS_TRAMITE_FLITO_TERMINADOS,
-  ANS_OPERATIVO, CampoDocumentoFacturaImpuesto, tramiteMuerto, type AlertaOperativa,
+  ANS_OPERATIVO, CampoDocumentoFacturaImpuesto, tramiteMuerto, vigenciaTramite, type AlertaOperativa,
+  type VigenciaTramite,
 } from '@operaciones/shared-types';
 import type { FuenteTramite } from '@operaciones/shared-types';
 import { db } from '../../db/client.js';
@@ -35,6 +36,7 @@ import type { ImpuestoCtx } from '../flito-impuestos/flito-factura-venta.service
 import { condicionAlcanceTramites } from './flito-tramites.alcance.js';
 import { BORRADOR_ABANDONADO, diasBorradorAbandonado } from './flito-tramites.borrador.js';
 import { arrancarTramiteGuardado, COLUMNAS_TRAMITE_GUARDADO } from '../flito-sync/arrancar-tramite-guardado.js';
+import { TRAMITE_VIVO } from '../../shared/tramite-vigente.js';
 
 export interface TramitesCtx { userId: number; username: string; role: string; alcance: AlcanceResuelto }
 
@@ -96,6 +98,11 @@ export interface TramiteFila {
   semaforo: SemaforoTramite;
   /** Estado crudo de FLIT (todos los estados se muestran). */
   estado: string;
+  /**
+   * Épica #14707 (D7): anulado, abortado o revocado = NO EXISTE en FLITO. La fila sigue visible (sin acciones); su
+   * SOAT/impuesto puede venir `descartado`.
+   */
+  vigenciaTramite: VigenciaTramite;
   /** true solo si el estado FLIT es 'Asignado' → habilita SOAT/impuestos. */
   asignado: boolean;
   tipoTramite: string | null; ciudad: string | null; fechaAprobacion: string | null;
@@ -111,7 +118,11 @@ export interface TramiteFila {
   facturaVentaFlitId: string | null;
   /** Persona que gestiona el trámite (PII; null = la fuente no lo trajo). */
   nombreGestor: string | null; correoGestor: string | null;
-  vehiculo: { vin: string | null; placa: string | null; marca: string | null; linea: string | null; tipoVehiculo: string | null };
+  vehiculo: {
+    vin: string | null; placa: string | null; marca: string | null; linea: string | null; tipoVehiculo: string | null;
+    /** `vehicles.tipo_servicio` (p. ej. «Público»): placa blanca del rediseño. */
+    tipoServicio: string | null;
+  };
   compradorPrincipal: Comprador | null; compradores: Comprador[];
   soat: FilaSoat | null; soatAutogestionado: boolean; impuesto: FilaImpuesto | null; impuestosAutogestionado: boolean;
   soatResuelto: boolean; impuestosResueltos: boolean; listoParaEntregar: boolean;
@@ -266,10 +277,11 @@ export async function crearEmpresaDesdeTramite(
 }
 
 export interface TramiteReferencia { tramiteId: string; idFlit: string; placa: string | null }
-export interface ResultadoSolicitudSoat { enviados: number; yaEnviados: number; autogestionados: number; sinRegistro: number }
-export interface ResultadoSolicitudImpuestos { enviados: number; yaEnviados: number; noEnviables: number }
+// Épica #14707 (UX §11.5): `noVigentes` = trámites muertos del lote (subconjunto de `sinRegistro`/`noEnviables`/`noHabilitados`).
+export interface ResultadoSolicitudSoat { enviados: number; yaEnviados: number; autogestionados: number; sinRegistro: number; noVigentes: number }
+export interface ResultadoSolicitudImpuestos { enviados: number; yaEnviados: number; noEnviables: number; noVigentes: number }
 export interface ResultadoSolicitudAmbos { soat: ResultadoSolicitudSoat; impuestos: ResultadoSolicitudImpuestos }
-export interface ResultadoEntrega { entregados: number; noHabilitados: Array<{ tramiteId: string; idFlit: string; placa: string; motivo: string }> }
+export interface ResultadoEntrega { entregados: number; noVigentes: number; noHabilitados: Array<{ tramiteId: string; idFlit: string; placa: string; motivo: string }> }
 
 // Filtros y paginación del listado (todo se resuelve en SQL: el cliente ya no trae todo a memoria).
 export interface FiltrosListado {
@@ -356,6 +368,7 @@ export function proyeccion() {
     marca: vehicles.brand,
     linea: vehicles.model,
     tipoVehiculo: vehicles.tipoVehiculo,
+    tipoServicio: vehicles.tipoServicio,
     soatId: flitoSoat.id,
     soatProveedorId: flitoSoat.proveedorSoatId,
     // HU #14354 (R21): el nombre sale del padre; el SLA, del perfil SOAT.
@@ -443,6 +456,7 @@ export function aFila(f: FilaCruda, compradores: Omit<Comprador, 'tipoDocumento'
     excepcionesAutogestion: [],
     semaforo,
     estado: f.flitEstado ?? f.estadoTramite ?? '—',
+    vigenciaTramite: vigenciaTramite(f.estadoTramite, f.flitEstado),
     asignado,
     tipoTramite: f.tipoTramite,
     ciudad: f.ciudad,
@@ -461,7 +475,7 @@ export function aFila(f: FilaCruda, compradores: Omit<Comprador, 'tipoDocumento'
     facturaVentaFlitId: f.facturaVentaFlitId,
     nombreGestor: f.nombreGestor,
     correoGestor: f.correoGestor,
-    vehiculo: { vin: f.vin, placa: f.placa, marca: f.marca, linea: f.linea, tipoVehiculo: f.tipoVehiculo },
+    vehiculo: { vin: f.vin, placa: f.placa, marca: f.marca, linea: f.linea, tipoVehiculo: f.tipoVehiculo, tipoServicio: f.tipoServicio },
     compradorPrincipal: principal,
     compradores: orden,
     soat: f.soatId ? {
@@ -552,10 +566,11 @@ export function condicionAlerta(alerta: AlertaOperativa, diasBorrador: number = 
       return sql`LOWER(TRIM(COALESCE(${flitoTramites.flitEstado}, ''))) IN (${sqlEstadosEsperandoAprobacion()})
         AND ${nacimiento} < NOW() - make_interval(days => ${ANS_OPERATIVO.SIN_APROBAR_DIAS})`;
     case 'soat_sin_gestion':
-      return sql`${flitoSoat.estado} = 'solicitado' AND ${flitoSoat.enviadoEn} IS NOT NULL
+      // Épica #14707: el SOAT que sigue abierto por un vivo no se alerta desde el trámite muerto que lo compartía.
+      return sql`${flitoSoat.estado} = 'solicitado' AND ${flitoSoat.enviadoEn} IS NOT NULL AND ${TRAMITE_VIVO()}
         AND ${flitoSoat.enviadoEn} < NOW() - make_interval(hours => ${horasSinGestion})`;
     case 'impuesto_sin_gestion':
-      return sql`${flitoImpuestos.estado} = 'solicitado' AND ${flitoImpuestos.enviadoEn} IS NOT NULL
+      return sql`${flitoImpuestos.estado} = 'solicitado' AND ${flitoImpuestos.enviadoEn} IS NOT NULL AND ${TRAMITE_VIVO()}
         AND ${flitoImpuestos.enviadoEn} < NOW() - make_interval(hours => ${horasSinGestion})`;
   }
 }
@@ -597,9 +612,10 @@ export function construirCondiciones(f: FiltrosListado, diasBorrador?: number): 
   // «Revocado» como estado de origen, así que filtrar por «Anulado» también trae los revocados.
   // Expansión de un solo sentido: elegir solo «Revocado» trae solo los revocados (la opción sigue
   // en las facetas), ningún otro estado cambia, y si vienen los dos no se duplica.
+  // Épica #14707 (D7): «Anulado» trae también los abortados (los tres son el mismo trámite muerto en FLITO).
   if (f.estados?.length) {
-    const estados = f.estados.includes('Anulado') && !f.estados.includes('Revocado')
-      ? [...f.estados, 'Revocado'] : f.estados;
+    const estados = f.estados.includes('Anulado')
+      ? [...new Set([...f.estados, 'Revocado', 'Abortado'])] : f.estados;
     conds.push(inArray(flitoTramites.flitEstado, estados));
   }
   if (f.ciudades?.length) conds.push(inArray(flitoTramites.ciudad, f.ciudades));
@@ -827,10 +843,11 @@ export async function solicitarSoat(tramiteIds: string[], proveedorSoatId: strin
 
   let autogestionados = 0;
   let sinRegistro = 0;
+  let noVigentes = 0;
   const soatIds = new Set<string>();
   for (const t of tramites) {
     // Épica #14707 (TL): un trámite muerto se OMITE del lote (no habilitado: cuenta como sin registro), sin 409.
-    if (tramiteMuerto(t.estado)) { sinRegistro += 1; continue; }
+    if (tramiteMuerto(t.estado)) { sinRegistro += 1; noVigentes += 1; continue; }
     if (t.soatAutogestionable) { autogestionados += 1; continue; }
     if (!t.soatId) { sinRegistro += 1; continue; }
     soatIds.add(t.soatId);
@@ -840,7 +857,7 @@ export async function solicitarSoat(tramiteIds: string[], proveedorSoatId: strin
   // opera desde el módulo SOAT, que es donde se ve de quién se retoma cada registro. Aquí solo se
   // adapta la forma de la llamada, sin cambiar el comportamiento.
   const { enviados, yaEnviados } = await enviarSoat([...soatIds], soatCtx(ctx), { proveedorSoatId });
-  return { enviados: enviados.length, yaEnviados: yaEnviados.length, autogestionados, sinRegistro };
+  return { enviados: enviados.length, yaEnviados: yaEnviados.length, autogestionados, sinRegistro, noVigentes };
 }
 
 /**
@@ -858,16 +875,17 @@ export async function solicitarImpuestos(tramiteIds: string[], ctx: TramitesCtx)
 
   const enviables: string[] = [];
   let noEnviables = 0;
+  let noVigentes = 0;
   for (const t of tramites) {
     // Épica #14707 (TL): un trámite muerto se OMITE (no enviable), sin 409. Su impuesto ya es `descartado`.
-    if (tramiteMuerto(t.estado)) { noEnviables += 1; continue; }
+    if (tramiteMuerto(t.estado)) { noEnviables += 1; noVigentes += 1; continue; }
     // Sin registro de impuesto = autogestionado (exento); solo 'pendiente' es enviable al gestor.
     if (t.impuestoId && t.impuestoEstado === EstadoImpuesto.PENDIENTE) enviables.push(t.impuestoId);
     else noEnviables += 1;
   }
 
   const { enviados, yaEnviados } = await enviarImpuestos(enviables, impuestoCtx(ctx));
-  return { enviados: enviados.length, yaEnviados: yaEnviados.length, noEnviables };
+  return { enviados: enviados.length, yaEnviados: yaEnviados.length, noEnviables, noVigentes };
 }
 
 export async function solicitarAmbos(tramiteIds: string[], proveedorSoatId: string, ctx: TramitesCtx): Promise<ResultadoSolicitudAmbos> {
@@ -883,20 +901,22 @@ export async function solicitarAmbos(tramiteIds: string[], proveedorSoatId: stri
  */
 export async function entregar(tramiteIds: string[], ctx: TramitesCtx): Promise<ResultadoEntrega> {
   let entregados = 0;
+  let noVigentes = 0;
   const noHabilitados: ResultadoEntrega['noHabilitados'] = [];
   for (const tramiteId of tramiteIds) {
     try {
       await entregarCompuerta(tramiteId, { userId: ctx.userId, username: ctx.username, role: ctx.role });
       entregados += 1;
     } catch (error) {
-      const [t] = await db.select({ idFlit: flitoTramites.idFlit, placa: vehicles.plate })
+      const [t] = await db.select({ idFlit: flitoTramites.idFlit, placa: vehicles.plate, estado: flitoTramites.estado })
         .from(flitoTramites).innerJoin(vehicles, eq(flitoTramites.vehiculoId, vehicles.id))
         .where(eq(flitoTramites.id, tramiteId)).limit(1);
+      if (tramiteMuerto(t?.estado)) noVigentes += 1;
       noHabilitados.push({
         tramiteId, idFlit: t?.idFlit ?? tramiteId, placa: t?.placa ?? '—',
         motivo: error instanceof Error ? error.message : 'No habilitado',
       });
     }
   }
-  return { entregados, noHabilitados };
+  return { entregados, noVigentes, noHabilitados };
 }
