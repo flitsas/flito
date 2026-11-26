@@ -369,8 +369,8 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date, mo
     facturaVentaFlitId: facturaAdjuntoId,
     fechaAprobacion: fechaValida(it.fechaAprobacion),
     fechaCreacionFlit: fechaValida(it.fechaCreacion),
-    // Gestor: ausente/vacío no pisa con null lo guardado. Anchos de la columna: 200 / 254.
-    ...gestorSiViene(acotado(it.nombreGestor, 200), acotado(it.correoGestor, 254)),
+    // Gestor: ausente/vacío no pisa con null lo guardado; enmascarado (RN-19, sin el scope PII) no se escribe. Anchos 200 / 254.
+    ...(modo.conPii ? gestorSiViene(acotado(it.nombreGestor, 200), acotado(it.correoGestor, 254)) : {}),
     flitRaw: it.raw,
     processStatus: porId?.processStatus ?? null,
     plateComplete,
