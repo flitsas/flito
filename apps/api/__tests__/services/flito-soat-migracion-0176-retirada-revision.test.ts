@@ -222,8 +222,11 @@ describe('paridad `.sql` ↔ `schema.ts` — que las dos verdades sean la misma'
   it('el enum de Drizzle ya no declara los dos estados del canal', () => {
     // El mutante que mata: revertir `schema.ts` sin revertir la migración. Drizzle construiría el
     // WHERE con un literal que el tipo de Postgres ya no acepta → 22P02 en cada llamada.
+    // `descartado` lo añade la 0317 (Épica #14707) después de la 0176: los dos estados del canal siguen fuera.
+    expect(flitoSoatEstadoEnum.enumValues).not.toContain('pendiente_revision');
+    expect(flitoSoatEstadoEnum.enumValues).not.toContain('rechazada');
     expect([...flitoSoatEstadoEnum.enumValues].sort())
-      .toEqual(['con_novedad', 'pagado', 'pendiente', 'solicitado']);
+      .toEqual(['con_novedad', 'descartado', 'pagado', 'pendiente', 'solicitado']);
   });
 
   it('`flito_soat_causales_rechazo` no existe en `schema.ts`', () => {
