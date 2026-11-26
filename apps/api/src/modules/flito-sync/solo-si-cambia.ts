@@ -11,6 +11,17 @@
 //     por valor (`'1000.00'` = `1000`), el jsonb por igualdad profunda sin importar el orden de claves.
 //   - Compradores: mismos `orden` y, en cada uno, mismos campos exactos y mismo porcentaje.
 
+/**
+ * Gestor del trámite para `valores` del upsert: solo las claves que la fuente SÍ trae. Una clave ausente
+ * no se escribe en el UPDATE ni cuenta como cambio (`tramiteCambia` solo mira las claves de `valores`),
+ * así que un reporte que aún no trae el dato no borra el que ya está guardado; en el alta queda null.
+ */
+export function gestorSiViene(
+  nombre: string | null | undefined, correo: string | null | undefined,
+): { nombreGestor?: string; correoGestor?: string } {
+  return { ...(nombre ? { nombreGestor: nombre } : {}), ...(correo ? { correoGestor: correo } : {}) };
+}
+
 /** Columnas que NO cuentan como cambio del trámite. */
 const IGNORADAS_TRAMITE = new Set(['sincronizadoEn', 'updatedAt']);
 

@@ -44,6 +44,7 @@ function itemFicticio(n: number, estado: string, familia: string): Record<string
     organismo: { codigoTransito: '11001000', nombre: 'SECRETARIA DE EJEMPLO', codigoSecretaria: '11001', ciudad: 'BOGOTA', departamento: 'BOGOTA' },
     compradores: [],
     factura: null,
+    nombreGestor: 'GESTOR EJEMPLO', correoGestor: 'gestor.ejemplo@example.com',
     companiaGestora: { tenantId: uuidFicticio(900), nit: '900000000', nombre: 'TRAMITADORA EJEMPLO SAS' },
   };
 }

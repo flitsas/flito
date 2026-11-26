@@ -60,7 +60,7 @@ import {
   vistaTramite, type Diferencia,
 } from './bitacora-sync.js';
 import type { FlitPort, RangoSync, ResultadoSync, TramiteFlit } from './flit.port.js';
-import { compradoresIguales, parcheVehiculo, tramiteCambia } from './solo-si-cambia.js';
+import { compradoresIguales, gestorSiViene, parcheVehiculo, tramiteCambia } from './solo-si-cambia.js';
 
 const log = loggerFor('flito-sync');
 
@@ -465,7 +465,8 @@ export async function escribirTramite(
     return { row: existente, esNuevo: false, huboCambios: false, diferencias: [] };
   }
   const antes = vistaTramite(existente);
-  const despues = vistaTramite(valores);
+  // Lo que la fuente no trae (p. ej. el gestor ausente) conserva lo guardado: no es un cambio.
+  const despues = vistaTramite({ ...existente, ...valores });
   // Historial de campos observables antes de pisar (origen 'api'): las 7 claves de siempre (AC8).
   const cambios = await registrarDiferencias(tx, existente.id, vistaHistorial(antes), vistaHistorial(despues));
   const [row] = await tx.update(flitoTramites).set({ ...valores, updatedAt: new Date() }).where(eq(flitoTramites.id, existente.id)).returning();
@@ -493,6 +494,8 @@ async function upsertTramite(
     facturaVentaFlitId: tf.facturaVentaFlitId,
     fechaAprobacion: tf.fechaAprobacion ? new Date(tf.fechaAprobacion) : null,
     fechaCreacionFlit: fechaValida(tf.fechaCreacionFlit),
+    // Gestor: solo si la fuente lo trae; ausente/vacío no pisa con null lo ya guardado (ni cuenta como cambio).
+    ...gestorSiViene(tf.nombreGestor, tf.correoGestor),
     flitRaw: tf.raw,
     processStatus: tf.processStatus ?? null,
     plateComplete: tf.placa,

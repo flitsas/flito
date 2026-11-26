@@ -24,7 +24,7 @@ const detalle = (fuente: FuenteBitacora, diferencias: Diferencia[], esNuevo = fa
 
 describe('HU #13626 · clasificación PII', () => {
   it('la placa y los datos de persona del comprador son PII; estado, ciudad, participación y conteo no', () => {
-    expect([...CAMPOS_PII].sort()).toEqual(['celular', 'correo', 'direccion', 'nombre_completo', 'numero_documento', 'plate_complete']);
+    expect([...CAMPOS_PII].sort()).toEqual(['celular', 'correo', 'correo_gestor', 'direccion', 'nombre_completo', 'nombre_gestor', 'numero_documento', 'plate_complete']);
   });
 });
 
@@ -149,5 +149,17 @@ describe('HU #13627 · detalle de fallo', () => {
     expect(tipoDeError(e)).toBe('Error');
     const txt = detalleFalloBitacora({ fuente: 'FLIT 1', radicado: 'R-5512', error: e });
     for (const x of [DOC, CORREO, 'fallo con']) expect(txt).not.toContain(x);
+  });
+});
+
+describe('gestor del trámite (PII en la Bitácora)', () => {
+  it('el cambio se detecta pero no se escribe en claro; no entra al historial', () => {
+    const d = diferenciasTramite(
+      vistaTramite(tramite({ nombreGestor: 'Marta Gómez', correoGestor: 'a@x.co' })),
+      vistaTramite(tramite({ nombreGestor: 'Pedro Ruiz', correoGestor: 'a@x.co' })),
+    );
+    expect(d).toEqual([{ campo: 'nombre_gestor' }]);
+    expect(JSON.stringify(d)).not.toContain('Marta');
+    expect(Object.keys(vistaHistorial(vistaTramite(tramite({ nombreGestor: 'Marta' }))))).not.toContain('nombre_gestor');
   });
 });
