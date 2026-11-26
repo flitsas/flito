@@ -86,6 +86,9 @@ export function rawSinPii(item: Record<string, unknown>): Record<string, unknown
     for (const k of COMPRADOR_SIN_PII) limpio[k] = origen[k] ?? null;
     return limpio;
   });
+  // Gestor del trámite (PII; campos por confirmar con FLIT 2): va a su columna, nunca a `flit_raw`.
+  delete copia.nombreGestor;
+  delete copia.correoGestor;
   return copia;
 }
 

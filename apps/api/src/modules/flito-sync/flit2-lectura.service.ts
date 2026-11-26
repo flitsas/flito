@@ -145,6 +145,7 @@ import {
   arrancarSoatEImpuesto, companiaRetiene, escribirTramite, esAsignado, fechaValida, leerCompradores, reemplazarCompradores, registrarDiferencias,
   resolverOrganismoDeFlit, upsertVehiculo, type ContadoresArranque, type ValorTramite, type VehiculoFlit,
 } from './flito-sync.service.js';
+import { gestorSiViene } from './solo-si-cambia.js';
 import {
   compradoresDesdeFlit2, ESTADOS_SIN_ESTADO_FLITO, estadoDesdeFlit2, familiaATipoTramite, tipoPropiedadPorConteo,
 } from './flit2-mapeo.js';
@@ -368,6 +369,8 @@ async function aplicarItem(tx: Tx, it: ItemFlit2, r: Contadores, ahora: Date, mo
     facturaVentaFlitId: facturaAdjuntoId,
     fechaAprobacion: fechaValida(it.fechaAprobacion),
     fechaCreacionFlit: fechaValida(it.fechaCreacion),
+    // Gestor: ausente/vacío no pisa con null lo guardado. Anchos de la columna: 200 / 254.
+    ...gestorSiViene(acotado(it.nombreGestor, 200), acotado(it.correoGestor, 254)),
     flitRaw: it.raw,
     processStatus: porId?.processStatus ?? null,
     plateComplete,

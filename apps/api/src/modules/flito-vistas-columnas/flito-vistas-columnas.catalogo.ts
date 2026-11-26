@@ -38,6 +38,8 @@ const COLUMNAS_TRAMITES: readonly ColumnaVista[] = [
   { clave: 'vehiculo', etiqueta: 'Vehículo', pii: false, fija: false },
   { clave: 'comprador', etiqueta: 'Propietario', pii: true, funcion: FUNCION_TRAMITES, fija: false },
   { clave: 'correo', etiqueta: 'Correo', pii: true, funcion: FUNCION_TRAMITES, fija: false },
+  { clave: 'nombre_gestor', etiqueta: 'Gestor', pii: true, funcion: FUNCION_TRAMITES, fija: false },
+  { clave: 'correo_gestor', etiqueta: 'Correo del gestor', pii: true, funcion: FUNCION_TRAMITES, fija: false },
   { clave: 'empresa_gestora', etiqueta: 'Empresa gestora', pii: false, fija: false },
   { clave: 'transito', etiqueta: 'Tránsito', pii: false, fija: false },
   { clave: 'ciudad', etiqueta: 'Ciudad', pii: false, fija: false },

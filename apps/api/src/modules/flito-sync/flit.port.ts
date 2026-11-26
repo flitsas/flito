@@ -68,6 +68,13 @@ export interface TramiteFlit {
    */
   numMotor: string | null;
   numSerie: string | null;
+  /**
+   * Persona que gestiona el trámite (`nombreGestor`/`correoGestor` del reporte). PII. Opcionales y
+   * `null` = el reporte no los trajo (pueden faltar hasta que se corrija el SP de FLIT): el sync NO
+   * pisa con null un valor ya guardado.
+   */
+  nombreGestor?: string | null;
+  correoGestor?: string | null;
   tipoPropiedad: string;
   compradores: CompradorFlit[];
   valorImpuestoLiquidado: number | null;

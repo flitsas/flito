@@ -147,6 +147,15 @@ describe('HU #13091 · aItemFlit2 (normalización del ítem)', () => {
     expect(aItemFlit2(item({ vehiculo: { ...item().vehiculo, vin: '9FKTEST00000000000001' } }))?.vehiculo).toBeNull();
   });
 
+  it('gestor: nombreGestor/correoGestor planos se mapean; sin ellos van null; nunca en raw (PII)', () => {
+    const con = aItemFlit2(item({ nombreGestor: '  Marta Gómez ', correoGestor: 'marta@gestora.co' }))!;
+    expect(con).toMatchObject({ nombreGestor: 'Marta Gómez', correoGestor: 'marta@gestora.co' });
+    expect(JSON.stringify(con.raw)).not.toContain('Marta');
+    expect(JSON.stringify(con.raw)).not.toContain('marta@gestora.co');
+    expect(aItemFlit2(item())).toMatchObject({ nombreGestor: null, correoGestor: null });
+    expect(aItemFlit2(item({ nombreGestor: '  ', correoGestor: null }))).toMatchObject({ nombreGestor: null, correoGestor: null });
+  });
+
   it('tombstone con payload mínimo es válido', () => {
     const t = aItemFlit2({ id: U1, radicado: 'FT1-0001234', syncVersion: 11, eliminado: true, estado: 'anulado', vehiculo: null, organismo: null, factura: null, compradores: [] });
     expect(t).toMatchObject({ eliminado: true, vehiculo: null, organismo: null, compradores: [] });

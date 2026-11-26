@@ -57,10 +57,13 @@ export const CAMPOS_TRAMITE_BITACORA = [
   { clave: 'tipo_tramite', etiqueta: 'tipo de trámite' },
   { clave: 'ciudad', etiqueta: 'ciudad' },
   { clave: 'plate_complete', etiqueta: 'placa' },
+  { clave: 'nombre_gestor', etiqueta: 'gestor' },
+  { clave: 'correo_gestor', etiqueta: 'correo del gestor' },
 ] as const;
 
-/** Claves de `registrarDiferencias` (historial): las de siempre, sin la placa (AC8). */
-const CLAVES_HISTORIAL = CAMPOS_TRAMITE_BITACORA.map((c) => c.clave).filter((c) => c !== 'plate_complete');
+/** Claves de `registrarDiferencias` (historial): las de siempre, sin la placa ni el gestor (PII, AC8). */
+const CLAVES_HISTORIAL = CAMPOS_TRAMITE_BITACORA.map((c) => c.clave)
+  .filter((c) => c !== 'plate_complete' && c !== 'nombre_gestor' && c !== 'correo_gestor');
 
 const CAMPOS_COMPRADOR = [
   { clave: 'numero_documento', etiqueta: 'documento', prop: 'numeroDocumento' },
@@ -72,7 +75,7 @@ const CAMPOS_COMPRADOR = [
 
 /** Campos cuyo valor nunca se escribe en la Bitácora (RN-B3). */
 export const CAMPOS_PII: ReadonlySet<string> = new Set([
-  'plate_complete', 'numero_documento', 'nombre_completo', 'correo', 'celular', 'direccion',
+  'plate_complete', 'nombre_gestor', 'correo_gestor', 'numero_documento', 'nombre_completo', 'correo', 'celular', 'direccion',
 ]);
 
 const ETIQUETAS: Record<string, string> = {
@@ -92,6 +95,8 @@ export interface TramiteComparable {
   tipoTramite?: string | null;
   ciudad?: string | null;
   plateComplete?: string | null;
+  nombreGestor?: string | null;
+  correoGestor?: string | null;
 }
 
 export type VistaTramite = Record<string, string | null>;
@@ -107,6 +112,8 @@ export function vistaTramite(t: TramiteComparable): VistaTramite {
     tipo_tramite: t.tipoTramite ?? null,
     ciudad: t.ciudad ?? null,
     plate_complete: t.plateComplete ?? null,
+    nombre_gestor: t.nombreGestor ?? null,
+    correo_gestor: t.correoGestor ?? null,
   };
 }
 

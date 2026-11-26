@@ -83,7 +83,15 @@ function filtrosDesdeQuery(q: Record<string, unknown>): FiltrosListado {
 }
 
 router.get('/', exigirFuncion('tramites.cola.ver'), async (req: Request, res: Response) => {
-  res.json(await listar(filtrosDesdeQuery(req.query), await alcanceDe(req)));
+  const resultado = await listar(filtrosDesdeQuery(req.query), await alcanceDe(req));
+  // Regla 16: el listado proyecta datos del titular y del gestor. Nombres de campos, nunca valores; falla abierto.
+  if (resultado.items.length > 0) {
+    await logPiiAccess(req, {
+      resourceTipo: 'flito_tramites', accion: 'read',
+      camposAccedidos: ['nombre_completo', 'correo', 'nombre_gestor', 'correo_gestor'], motivo: 'Lectura del listado de trámites',
+    });
+  }
+  res.json(resultado);
 });
 
 // POST /novedades/buscar (HU #13684; lectura por POST: los filtros pueden llevar PII, AGENTS.md §14) — ¿hay trámites nuevos o visibles actualizados desde `marca` (la del GET)?

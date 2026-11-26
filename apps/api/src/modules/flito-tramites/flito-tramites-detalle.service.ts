@@ -24,6 +24,7 @@ import { aFila, proyeccion, type TramiteFila } from './flito-tramites.service.js
 /** Nombres (nunca valores) de las columnas del titular que proyecta el detalle, para `pii_access_log`. */
 export const CAMPOS_PII_DETALLE_TRAMITE = [
   'nombre_completo', 'tipo_documento', 'numero_documento', 'correo', 'celular', 'direccion',
+  'nombre_gestor', 'correo_gestor',
 ] as const;
 
 function condiciones(id: string, alcance: AlcanceResuelto): SQL {
@@ -80,7 +81,10 @@ export function aDetalle(f: TramiteFila): TramiteDetalle {
       correo: c.correo, celular: c.celular, direccion: c.direccion, orden: c.orden,
       porcentajeParticipacion: num(c.porcentajeParticipacion),
     })),
-    gestora: { nombre: f.companiaNombre, nit: f.empresaNit, existe: f.empresaExiste },
+    gestora: {
+      nombre: f.companiaNombre, nit: f.empresaNit, existe: f.empresaExiste,
+      nombrePersona: f.nombreGestor, correoPersona: f.correoGestor,
+    },
     costos: costos(f),
   };
 }
