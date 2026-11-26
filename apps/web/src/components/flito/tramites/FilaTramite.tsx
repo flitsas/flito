@@ -115,6 +115,19 @@ export default function FilaTramite({
             : <span className={`text-xs italic ${tenue}`}>Sin correo</span>}
         </td>
       )}
+      {ver('nombre_gestor') && (
+        <td className="px-3 py-2 text-sm align-top">{f.nombreGestor ?? '—'}</td>
+      )}
+      {ver('correo_gestor') && (
+        <td className="px-3 py-2 text-sm align-top">
+          {f.correoGestor
+            ? (
+              <a href={`mailto:${f.correoGestor}`}
+                className="flit-focus rounded text-xs break-all text-[color:var(--color-action)] transition-colors hover:underline">{f.correoGestor}</a>
+            )
+            : '—'}
+        </td>
+      )}
       {/* Empresa gestora (CompaniaGestora de FLIT ↔ cliente FLITO): nombre arriba, NIT abajo. */}
       {ver('empresa_gestora') && (
         <td className="px-3 py-2 text-sm align-top">
