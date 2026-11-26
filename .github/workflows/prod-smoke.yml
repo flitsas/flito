@@ -15,10 +15,11 @@ concurrency:
   group: prod-smoke
   cancel-in-progress: true
 
+# runs-on: vars.RUNNER mueve el smoke a runners propios; sin ella sigue en GitHub. Ver .github/RUNNERS.md
 jobs:
   smoke:
     name: smoke prod (HTTP)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
