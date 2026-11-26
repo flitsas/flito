@@ -1284,6 +1284,25 @@ describe('HU #13094 · PII enmascarada', () => {
     expect(JSON.stringify(mem.tablas.get('vehicles'))).not.toContain('****');
   });
 
+  it('gestor: enmascarado (sin el scope) no escribe nombreGestor/correoGestor y conserva los guardados; el alta nace sin ellos', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    const t = sembrarMarcado({ syncVersion: 10, flit2PiiEnmascarada: false, nombreGestor: 'Marta Gómez', correoGestor: 'marta@gestora.co' });
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([crudo({
+      syncVersion: 11, estado: 'aprobado', compradores: enmascarados(), nombreGestor: 'G*** E***', correoGestor: 'g***@ejemplo.test',
+    })], 'c1')], sinPii).port);
+    expect(tramite(U1)).toMatchObject({ syncVersion: 11, nombreGestor: 'Marta Gómez', correoGestor: 'marta@gestora.co' });
+    expect(JSON.stringify(mem.tablas.get('flito_tramites'))).not.toContain('***');
+    expect(t.id).toBeDefined();
+  });
+
+  it('gestor: con el scope (no enmascarado) se escribe el gestor completo', async () => {
+    sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
+    await leerIncremental({ ahora: reloj() }, puerto([pagina([crudo({
+      nombreGestor: 'Gloria Estrada', correoGestor: 'gloria@ejemplo.test',
+    })], 'c1')], conPii).port);
+    expect(tramite(U1)).toMatchObject({ nombreGestor: 'Gloria Estrada', correoGestor: 'gloria@ejemplo.test' });
+  });
+
   it('AC3: asignado y enmascarado con comprador principal guardado → SOAT e impuesto no arrancan, la lectura no falla', async () => {
     sembrarLectura({ sinceArranque: ARRANQUE, cursor: 'c0' });
     sembrarMarcado({ syncVersion: 10, flit2PiiEnmascarada: false });
