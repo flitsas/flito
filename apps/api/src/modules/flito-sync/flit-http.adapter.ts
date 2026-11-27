@@ -118,6 +118,17 @@ function motorYSerie(it: ItemFlit): Pick<TramiteFlit, 'numMotor' | 'numSerie'> {
   return { numMotor: ms.numMotor ?? null, numSerie: ms.numSerie ?? null };
 }
 
+/**
+ * Copia del ítem para `flit_raw` sin el gestor (Habeas Data, AGENTS.md §14/§16): `nombreGestor` y
+ * `correoGestor` son PII y van solo a sus columnas tipadas. Mismo criterio que `rawSinPii` de FLIT 2.
+ */
+function rawSinGestor(it: ItemFlit): ItemFlit {
+  const copia: ItemFlit = { ...it };
+  delete copia.nombreGestor;
+  delete copia.correoGestor;
+  return copia;
+}
+
 export function aTramite(it: ItemFlit): TramiteFlit {
   const nombre = `${it.nombres ?? ''} ${it.apellidos ?? ''}`.trim();
   return {
@@ -155,7 +166,7 @@ export function aTramite(it: ItemFlit): TramiteFlit {
       direccion: s(it.direccion),
     }],
     valorImpuestoLiquidado: null, // el reporte no lo trae.
-    raw: it,
+    raw: rawSinGestor(it),
   };
 }
 

@@ -28,7 +28,10 @@ describe('aTramite — mapea el item del reporte real a TramiteFlit', () => {
     expect(t.companiaNit).toBe('901789698');
     expect(t.transitoNombre).toBe('STRIA TTOyTTE PALMIRA');
     expect(t.fechaAprobacion).toBeNull();
-    expect(t.raw).toBe(item);
+    // raw es copia por valor sin las claves del gestor (Bug #14722): no es la misma referencia.
+    expect(t.raw).toStrictEqual(item);
+    expect(t.raw).not.toHaveProperty('nombreGestor');
+    expect(t.raw).not.toHaveProperty('correoGestor');
   });
 
   it('campos vacíos → null (placa y factura del ejemplo vienen vacías)', () => {
