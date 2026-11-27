@@ -80,6 +80,7 @@ const DRF = 'flito-dr-flit/dr-flit.funciones.ts'; // HU #13941
 const TOR = 'flito-torre/flito-torre.routes.ts'; // Épica #14590
 const TTB = 'flito-torre/flito-torre.tableros.routes.ts'; // Épica #14590
 const TDT = 'flito-torre/flito-torre.detalle.routes.ts'; // ADR-0047 (Épica #14590, B1)
+const IAC = 'ia-consumo/ia-consumo.routes.ts'; // Épica #14548 (ADR-0051): visor de solo lectura de consumo de IA
 const VCOL = 'flito-vistas-columnas/flito-vistas-columnas.routes.ts'; // Épica #14560 (ADR-0045)
 
 const OPERACIONES_FLITO: OperacionDeclarada[] = [
@@ -595,6 +596,11 @@ const OPERACIONES_FLITO: OperacionDeclarada[] = [
   op(`${TOR} POST /metricas/exportar [dinero]`, 'torre.metricas.dinero', 'Ver las métricas de dinero de la Torre', 'Ver costos, impuestos, derechos, ingreso liquidado y lo pendiente de facturar en la Torre; sin ella, esas cifras salen vacías.'),
   op(`${TTB} POST * [dinero_tablero]`, 'torre.metricas.dinero', 'Ver las métricas de dinero de la Torre', 'Ver costos, impuestos, derechos, ingreso liquidado y lo pendiente de facturar en la Torre; sin ella, esas cifras salen vacías.'),
   op(`${TTB} POST * [dinero_exportar]`, 'torre.metricas.dinero', 'Ver las métricas de dinero de la Torre', 'Ver costos, impuestos, derechos, ingreso liquidado y lo pendiente de facturar en la Torre; sin ella, esas cifras salen vacías.'),
+  // Épica #14548 (ADR-0051): el visor de consumo de IA (solo lectura, bloque A). Nacen en el árbol
+  // (`arbol/acciones-ia-consumo.ts`); la 0321 siembra ítem y acciones. Sin `exigirFuncion` de exportar ni de contenido aquí.
+  op(`${IAC} GET /catalogos`, 'ia_consumo.registros.ver', 'Ver los registros de consumo de IA', 'Consultar la lista y el detalle de los registros de consumo de IA, sin su contenido.'),
+  op(`${IAC} POST /registros/buscar`, 'ia_consumo.registros.ver', 'Ver los registros de consumo de IA', 'Consultar la lista y el detalle de los registros de consumo de IA, sin su contenido.'),
+  op(`${IAC} GET /registros/:id`, 'ia_consumo.registros.ver', 'Ver los registros de consumo de IA', 'Consultar la lista y el detalle de los registros de consumo de IA, sin su contenido.'),
   // ADR-0047 (B1): el detalle universal. Nacen en el árbol (`arbol/acciones-torre.ts`); su migración siembra ítem y acciones.
   // En línea: el dinero y la función de origen de la cifra (sin ninguna de las del conjunto, 403 SIN_ORIGEN).
   op(`${TDT} POST /consultar`, 'torre.detalle.ver', 'Ver los registros de una cifra de la Torre', 'Abrir la lista de registros (placa, compañía y estado) detrás de una cifra de la Torre.'),

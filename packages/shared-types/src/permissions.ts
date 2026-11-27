@@ -304,6 +304,8 @@ export const PAGES = {
   // La clave `siigo_credenciales` de su catálogo de ayuda se lista solo si `user.role === 'admin'`;
   // el PageSlug lo añadió la HU #11890, justo encima.
   flito_ayuda: 'Ayuda FLITO',
+  // Épica #14548 (ADR-0051): visor de solo lectura de los registros de consumo de IA (Administración, orden 70).
+  ia_consumo: 'Consumo de IA',
 } as const satisfies Record<string, string>;
 
 export type PageSlug = keyof typeof PAGES;
@@ -343,7 +345,7 @@ export const PAGE_GROUPS: { label: string; pages: PageSlug[] }[] = [
   { label: 'FLITO (SOAT e Impuestos)', pages: ['flito_tramites', 'flito_soat', 'flito_impuestos', 'flito_derechos', 'flito_revisiones', 'flito_compuerta', 'clients', 'flito_tablero', 'flito_bitacora', 'flito_logistica', 'flito_logistica_ruta', 'flito_bolsas', 'flito_comparendos', 'flito_conciliacion'] },
   { label: 'Finanzas', pages: ['finanzas_reporte_costos', 'finanzas_gastos_diarios', 'siigo_parametrizacion', 'siigo_operacion', 'flito_tarifas', 'flito_servicios_adicionales', 'flito_comprobantes'] },
   { label: 'Torre de Control', pages: ['torre_360', 'torre_comercial', 'torre_operativa', 'torre_financiera', 'torre_explorador', 'torre_detalle', 'torre_productos', 'torre_logistica'] },
-  { label: 'Administración', pages: ['users', 'privacy', 'siigo_credenciales', 'roles_permisos', 'admin_rendimiento', 'torre_umbrales'] },
+  { label: 'Administración', pages: ['users', 'privacy', 'siigo_credenciales', 'roles_permisos', 'admin_rendimiento', 'torre_umbrales', 'ia_consumo'] },
 ];
 
 // ============================================================================

@@ -9,6 +9,8 @@ import { z } from 'zod';
 // (no exporta ningún `userRoleSchema`: este módulo es puro y no tiene zod; el comentario
 // que lo anunciaba llevaba años sin definición detrás.)
 export * from './permissions.js';
+// Épica #14548 (ADR-0051): contrato del visor de solo lectura de consumo de IA (`/api/ia-consumo`).
+export * from './ia-consumo.js';
 
 // EPIC TRAM-INNOV · A5 — catálogo de tipologías de trámite + checklist dinámico.
 export * from './tramite-tipologias.js';

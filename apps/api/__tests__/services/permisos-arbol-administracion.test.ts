@@ -38,7 +38,9 @@ Perfil → Perfil: Ver mis datos · Cambiar mi contraseña
 `.trim().split('\n');
 
 // «Rendimiento» (HU #13588) no es del catálogo aprobado de la #13428: lo cubre `permisos-arbol-sueltos.test.ts`.
-const FUERA = new Set(['pagina.siigo_credenciales', 'pagina.admin_rendimiento']);
+// «Consumo de IA» (Épica #14548, ADR-0051) tampoco: nace en el árbol con su migración (0321) y sus acciones quedan fuera
+// de `ACCIONES_POR_AREA` a propósito (V1); lo cubre `services/ia-consumo/ia-consumo-permisos.test.ts`.
+const FUERA = new Set(['pagina.siigo_credenciales', 'pagina.admin_rendimiento', 'pagina.ia_consumo']);
 const ARBOL = [
   ...ARBOL_ADMINISTRACION.filter((n) => !FUERA.has(n.codigo) && !FUERA.has(n.padre ?? '')),
   ...ARBOL_CLIENTES_Y_BITACORA, ...ARBOL_GENERAL, ...ARBOL_PERFIL,

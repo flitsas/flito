@@ -36,6 +36,8 @@ export const NACIDOS_DESPUES_DE_0239: ReadonlySet<string> = new Set([
   ITEM_DR_FLIT,
   // Épica #14590: los ítems de la Torre de Control, sembrados por la 0303.
   ...ITEMS_TORRE_ARBOL,
+  // Épica #14548 (ADR-0051): el ítem del visor de consumo de IA, sembrado por la 0321 (sus acciones ya están arriba).
+  'pagina.ia_consumo',
   // HU #14110: opcional de `accion.logistica.ver_actas`; su `padre_codigo` lo siembra la 0281 (la 0238 ya está aplicada).
   'logistica.actas.ver_documento_firmante',
   // HU #14110: opcional de `accion.mi_ruta.escanear`; su `padre_codigo` lo siembra también la 0281.
