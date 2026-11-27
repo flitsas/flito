@@ -47,8 +47,22 @@ const conFunciones = (extra: string[], quitar: string[] = []): UsuarioFixture =>
 });
 const BASE = ['tramites.solicitud.pedir_soat', 'tramites.tramite.ver_historial', 'tramites.tramite.ver_soportes'];
 
-async function montar(page: Page, opts: { usuario?: UsuarioFixture; fallaHistorial?: boolean; vigencia?: 'anulado' | 'revocado' } = {}) {
+// `soat`: cómo responde «Solicitar SOAT» — `conflicto` = 409 TRAMITE_NO_VIGENTE (el trámite se anuló en FLIT
+// entre la carga y el clic: desde ahí la lista y el detalle lo devuelven anulado); `falla` = 500.
+const CRUDO = 'Trámite FLIT-401 no vigente: detalle interno del servidor';
+async function montar(page: Page, opts: { usuario?: UsuarioFixture; fallaHistorial?: boolean; vigencia?: 'anulado' | 'revocado'; soat?: 'conflicto' | 'falla' } = {}) {
   const zips: unknown[] = [];
+  const solicitudes: unknown[] = [];
+  let vigencia1 = opts.vigencia;
+  await page.route(/\/api\/flito\/parametrizacion\/proveedores\/selector/, (route) => json(route, 200, [{ id: 'prov-1', nombre: 'Aseguradora Sur' }]));
+  await page.route(/\/api\/flito\/tramites\/solicitar-soat/, (route) => {
+    solicitudes.push(route.request().postDataJSON());
+    if (opts.soat === 'conflicto') {
+      vigencia1 = 'anulado';
+      return json(route, 409, { error: CRUDO, code: 'TRAMITE_NO_VIGENTE', vigencia: 'anulado' });
+    }
+    return json(route, 500, { error: CRUDO });
+  });
   await page.route(/\/api\/flito\/tramites\/facetas/, (route) => json(route, 200,
     { estados: ['Asignado'], tramites: ['Matricula'], ciudades: ['Manizales'], transitos: ['STT Manizales'] }));
   await page.route(/\/api\/flito\/vistas-columnas\//, (route) => json(route, 500, { error: 'sin vistas' }));
@@ -56,11 +70,11 @@ async function montar(page: Page, opts: { usuario?: UsuarioFixture; fallaHistori
     const p = Number(new URL(route.request().url()).searchParams.get('page') ?? '1');
     return json(route, 200, p === 2
       ? { items: [filaDe(3)], total: 51, page: 2, pageSize: 50, marca: 'm' }
-      : { items: [filaDe(1, opts.vigencia), filaDe(2)], total: 51, page: 1, pageSize: 50, marca: 'm' });
+      : { items: [filaDe(1, vigencia1), filaDe(2)], total: 51, page: 1, pageSize: 50, marca: 'm' });
   });
   await page.route(/\/api\/flito\/tramites\/[^/]+\/detalle/, (route) => {
     const n = Number(route.request().url().match(/0000000(\d)\/detalle/)?.[1]);
-    return json(route, 200, detalleDe(n, n === 1 ? opts.vigencia : undefined));
+    return json(route, 200, detalleDe(n, n === 1 ? vigencia1 : undefined));
   });
   await page.route(/\/api\/flito\/tramites\/[^/]+\/historial/, (route) => (opts.fallaHistorial
     ? json(route, 500, { error: 'detalle interno' })
@@ -76,7 +90,7 @@ async function montar(page: Page, opts: { usuario?: UsuarioFixture; fallaHistori
   await loginAs(page, opts.usuario ?? conFunciones(BASE, ['tramites.soportes.descargar']));
   await page.goto('/flito/tramites');
   await expect(page.getByText('FLIT-401').first()).toBeVisible({ timeout: 20_000 });
-  return { zips };
+  return { zips, solicitudes };
 }
 
 const modal = (page: Page) => page.getByRole('dialog', { name: /FLIT-40/ });
@@ -169,6 +183,53 @@ test.describe('FLITO — Gestión Trámites: detalle en modal (ADR-0046)', () =>
     const costos = m.getByRole('region', { name: 'Costos y facturación', exact: true });
     await expect(costos.getByText('Revocado', { exact: true }).first()).toBeVisible();
     await expect(costos.getByText(/500\.000/).first()).toBeVisible();
+  });
+
+  // Pide el SOAT del trámite abierto desde el bloque Vehículo: abre el diálogo de aseguradora y confirma.
+  const solicitarSoatDesdeModal = async (page: Page) => {
+    await modal(page).getByRole('region', { name: 'Vehículo', exact: true }).getByRole('button', { name: 'Solicitar SOAT', exact: true }).click();
+    const prov = page.getByRole('dialog', { name: 'Solicitar SOAT' });
+    await prov.getByLabel('Aseguradora').selectOption('prov-1');
+    await prov.getByRole('button', { name: 'Solicitar SOAT', exact: true }).click();
+    await expect(prov).toHaveCount(0);
+  };
+
+  test('409 TRAMITE_NO_VIGENTE desde la modal (14707 §6): sin error crudo, refresca y el foco va al aviso de anulado', async ({ page }) => {
+    const { solicitudes } = await montar(page, { soat: 'conflicto' });
+    await abrir(page, 1);
+    const m = modal(page);
+    await solicitarSoatDesdeModal(page);
+    expect(solicitudes).toEqual([{ tramiteIds: [ID(1)], proveedorSoatId: 'prov-1' }]);
+    // El refresco trae el trámite anulado: chip en la cabecera, aviso warn y fuera la fila de acciones.
+    await expect(m.locator('.kit-modal__cabeza').getByText('Anulado', { exact: true })).toBeVisible();
+    const aviso = m.getByRole('alert').filter({ hasText: 'Trámite anulado en FLIT' });
+    await expect(aviso).toBeVisible();
+    for (const b of ['Solicitar SOAT', 'Solicitar Impuestos', 'Solicitar ambos', 'Entregar']) {
+      await expect(m.getByRole('button', { name: b, exact: true })).toHaveCount(0);
+    }
+    // El foco salta al aviso, que anuncia por qué ya no hay acciones.
+    await expect(m.locator(':focus')).toContainText('Trámite anulado en FLIT');
+    // Nunca el texto ni el código crudo del API, ni el copy de fallo genérico: el aviso es el único alert.
+    await expect(page.getByText(CRUDO)).toHaveCount(0);
+    await expect(page.getByText('TRAMITE_NO_VIGENTE')).toHaveCount(0);
+    await expect(page.getByText(/No se pudo solicitar/)).toHaveCount(0);
+    await expect(page.getByRole('alert')).toHaveCount(1);
+  });
+
+  test('error no-409 desde la modal (D4): «No se pudo … Intenta de nuevo.» dentro del bloque Vehículo, no en la página', async ({ page }) => {
+    const { solicitudes } = await montar(page, { soat: 'falla' });
+    await abrir(page, 1);
+    const m = modal(page);
+    await solicitarSoatDesdeModal(page);
+    expect(solicitudes).toHaveLength(1);
+    const COPY = 'No se pudo solicitar el SOAT. Intenta de nuevo.';
+    const vehiculo = m.getByRole('region', { name: 'Vehículo', exact: true });
+    await expect(vehiculo.getByRole('alert')).toHaveText(COPY);
+    // Solo dentro del diálogo: la página de fondo no pinta ese error, y el crudo del API no aparece en ningún lado.
+    await expect(page.getByText(COPY)).toHaveCount(1);
+    await expect(page.getByText(CRUDO)).toHaveCount(0);
+    // El trámite sigue vigente: las acciones siguen ahí para reintentar.
+    await expect(vehiculo.getByRole('button', { name: 'Solicitar SOAT', exact: true })).toBeVisible();
   });
 
   test('placa por tipo: servicio público blanca, dicho también en texto', async ({ page }) => {
