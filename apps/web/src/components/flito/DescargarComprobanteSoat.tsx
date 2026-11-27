@@ -161,10 +161,26 @@ export function BotonComprobanteFila({ soat, descarga }: { soat: SoatDescargable
   );
 }
 
-/** Secundaria del detalle, con rótulo. En no pagado el motivo SE VE bajo el botón. */
-export function BotonComprobanteDetalle({ soat, descarga }: { soat: SoatDescargable; descarga: EstadoDescargaComprobante }) {
+/**
+ * Secundaria del detalle, con rótulo. En no pagado el motivo SE VE bajo el botón. `enlace` (lateral del detalle
+ * apaisado, Épica #14707): enlace-botón de consulta con el MISMO nombre accesible y el mismo `aria-disabled`.
+ */
+export function BotonComprobanteDetalle({ soat, descarga, enlace = false }: {
+  soat: SoatDescargable; descarga: EstadoDescargaComprobante; enlace?: boolean;
+}) {
   const { pagado, idMotivo, clase, style, props } = useEstadoBoton(soat, descarga);
   const ocupado = descarga.ocupados.has(soat.id);
+  if (enlace) {
+    return (
+      <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <span>Comprobante para descargar</span>
+        <button {...props} aria-label={undefined} className="enlace-btn" title={pagado ? undefined : MOTIVO_NO_PAGADO}>
+          <Icono nombre="nube-bajar" size={14} className="shrink-0" />{ocupado ? 'Descargando…' : 'Descargar comprobante'}
+        </button>
+        {!pagado && <p id={idMotivo} className="m-0 w-full text-xs" style={{ color: 'var(--color-text-secondary)' }}>{MOTIVO_NO_PAGADO}</p>}
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col items-start gap-1">
       <button {...props} aria-label={undefined} className={`${clase} gap-2`} style={style}

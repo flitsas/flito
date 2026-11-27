@@ -1,5 +1,6 @@
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, OPERACIONES_USER } from '../helpers/auth';
+import { elegirUnica } from '../helpers/filtrosTramites';
 
 // FLITO — Gestión Trámites a ancho de móvil (HU #13071, AC5): la columna Fuente cabe en el primer
 // ancho visible, el filtro se puede usar y la página no se desborda en horizontal.
@@ -10,7 +11,7 @@ const FILAS = ['flit', 'flit2'].map((fuente, i) => ({
   empresaExiste: true, empresaNit: null, secretariaEmparejada: true, transitoNombre: null, facturaVentaFlitId: null,
   companiaNombre: null, organismoNombre: null, vehiculo: { vin: null, placa: `MOV00${i}`, marca: null, linea: null, tipoVehiculo: null },
   compradorPrincipal: null, compradores: [], soat: null, soatAutogestionado: false, impuesto: null,
-  impuestosAutogestionado: false, excepcionesAutogestion: [], listoParaEntregar: false,
+  impuestosAutogestionado: false, excepcionesAutogestion: [], vigenciaTramite: 'vigente', listoParaEntregar: false,
 }));
 
 test('AC5: en móvil la fuente se ve sin desplazarse y el filtro se usa', async ({ page }) => {
@@ -27,11 +28,15 @@ test('AC5: en móvil la fuente se ve sin desplazarse y el filtro se usa', async 
   await expect(page.getByText('FLIT-3000')).toBeVisible();
 
   const ancho = page.viewportSize()!.width;
-  const cab = await page.getByRole('columnheader', { name: 'Fuente' }).boundingBox();
+  // < lg la tabla va en tarjetas (V12): la fuente se lee en la celda rotulada de cada tarjeta, no en la cabecera
+  // (fuera de la vista porque ya no lleva filtros, R11). Lo que importa es que cabe sin desplazarse.
+  const cab = await page.getByRole('row').filter({ hasText: 'FLIT-3000' }).getByRole('cell', { name: /^Fuente/ }).boundingBox();
   expect(cab!.x + cab!.width).toBeLessThanOrEqual(ancho);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
-  await page.getByRole('group', { name: 'Filtrar por fuente' }).getByRole('button', { name: 'FLIT 2' }).click();
+  // Épica #14707, bloque 4: la fuente es un desplegable de elección única dentro del panel de Filtros.
+  await elegirUnica(page, 'fuente', 'FLIT 2');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await expect.poll(() => fuentePedida).toBe('flit2');
   await expect(page.getByText('FLIT-3000')).toHaveCount(0);
   await expect(page.getByText('FLIT-3001')).toBeVisible();

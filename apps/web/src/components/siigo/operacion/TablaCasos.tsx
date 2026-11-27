@@ -17,6 +17,7 @@ import {
   FlitTable, FlitTh, FlitTr, flitBtnSecondarySm, flitBtnSecondaryStyle,
 } from '../../flit/flitPageKit';
 import StatusChip from '../../flit/StatusChip';
+import ChipVigenciaTramite from '../../flit/ChipVigenciaTramite';
 import AntiguedadPill from '../../flit/AntiguedadPill';
 import EstadoNativoChip from './EstadoNativoChip';
 import GuiaCaso, { MarcaNoCatalogado } from './GuiaCaso';
@@ -89,7 +90,9 @@ export default function TablaCasos(p: Props) {
           {p.items.map((item) => {
             const clave = claveCaso(item);
             const etiqueta = etiquetaCaso(item);
-            const marcable = admiteLote(casoDe(item));
+            // Épica #14707 (D8): factura de un trámite revocado/anulado = histórico con chip, fuera del lote.
+            const vigencia = item.tramites.find((t) => t.vigenciaTramite !== 'vigente')?.vigenciaTramite ?? 'vigente';
+            const marcable = admiteLote(casoDe(item)) && vigencia === 'vigente';
             return (
               <FlitTr key={clave}>
                 {p.puedeSeleccionar && (
@@ -109,6 +112,7 @@ export default function TablaCasos(p: Props) {
                   <span className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                     {etiqueta}
                   </span>
+                  {vigencia !== 'vigente' && <span className="mt-1 block"><ChipVigenciaTramite vigencia={vigencia} /></span>}
                   {p.tocados.has(clave) && (
                     <span className="mt-1 block text-xs" style={{ color: 'var(--color-text-secondary)' }}>
                       Cambiado ahora mismo. Puede que ya no encaje con el filtro.

@@ -14,7 +14,24 @@
 // El mensaje separa a propósito las dos causas de fallo (AC2): esto es un fallo de ENTORNO —no se
 // pudo cargar la herramienta— y no nombra ninguna regla, porque ninguna regla llegó a evaluarse.
 // Los incumplimientos reales los reporta `esperarSinViolacionesGraves`, con su regla y su selector.
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { expect, type Page } from '@playwright/test';
+
+/**
+ * Waiver de contraste de ADR-0050 (azul de marca #557eff). La MISMA lista que lee `npm run check:contraste`
+ * (`scripts/contraste-waivers.json`). Aquí solo importan `color` y `piso`: un nodo de `color-contrast` se
+ * descarta si su texto es el azul (`fgColor === color`) o es blanco sobre el relleno azul (`bgColor === color`),
+ * y además su ratio llega al piso (3,0). Cualquier otro nodo, o uno azul por debajo del piso (texto azul sobre
+ * un tinte azul, 2,56–2,84:1), sigue fallando. No se apaga la regla ni se excluyen selectores.
+ */
+interface WaiverContraste { color: string; piso: number }
+const WAIVER_CONTRASTE: WaiverContraste = (() => {
+  const ruta = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', 'scripts', 'contraste-waivers.json');
+  const j = JSON.parse(readFileSync(ruta, 'utf8')) as WaiverContraste;
+  return { color: j.color.toLowerCase(), piso: j.piso };
+})();
 
 export interface ViolacionAxe {
   id: string;
@@ -117,7 +134,7 @@ export async function cargarAxe(page: Page): Promise<void> {
  */
 export async function correrAxe(page: Page, incluir?: string): Promise<ViolacionAxe[]> {
   await cargarAxe(page);
-  const { violaciones, incompletos } = await page.evaluate(async (incluir) => {
+  const { violaciones, incompletos, waiver } = await page.evaluate(async ({ incluir, w }) => {
     // @ts-expect-error axe se inyecta en tiempo de ejecución
     const r = await window.axe.run(incluir ? { include: [incluir] } : document, {
       runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag22aa'] },
@@ -169,8 +186,27 @@ export async function correrAxe(page: Page, incluir?: string): Promise<Violacion
       help: v.help ?? '',
       selectores: v.nodes.slice(0, 5).map((n) => JSON.stringify(redactarTarget(n.target))),
     });
-    return { violaciones: r.violations.map(resumir), incompletos: r.incomplete.map(resumir) };
-  }, incluir ?? null);
+    // ── Waiver ADR-0050: se filtra por NODO y antes de `resumir` (ver `WAIVER_CONTRASTE`). ──
+    type NodoAxe = { target: unknown[]; any?: { data?: { fgColor?: string; bgColor?: string; contrastRatio?: number } }[] };
+    const enWaiver = (n: NodoAxe) => {
+      const d = n.any?.[0]?.data;
+      if (!d || typeof d.contrastRatio !== 'number') return false;
+      const fg = (d.fgColor ?? '').toLowerCase();
+      const bg = (d.bgColor ?? '').toLowerCase();
+      return (fg === w.color || (fg === '#ffffff' && bg === w.color)) && d.contrastRatio >= w.piso;
+    };
+    let descartados = 0;
+    const violaciones = (r.violations as { id: string; nodes: NodoAxe[] }[])
+      .map((v) => {
+        if (v.id !== 'color-contrast') return v;
+        const quedan = v.nodes.filter((n) => !enWaiver(n));
+        descartados += v.nodes.length - quedan.length;
+        return { ...v, nodes: quedan };
+      })
+      .filter((v) => v.nodes.length > 0);
+    return { violaciones: violaciones.map(resumir), incompletos: r.incomplete.map(resumir), waiver: descartados };
+  }, { incluir: incluir ?? null, w: WAIVER_CONTRASTE });
+  if (waiver > 0) console.log(`[a11y · waiver ADR-0050] ${waiver} nodos`);
   if (incompletos.length > 0) {
     console.log(
       `[a11y · axe NO PUDO MEDIR] ${incompletos.length} regla(s) incompletas — no son un`

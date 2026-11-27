@@ -860,7 +860,7 @@ function tramite(i: number, p: Record<string, unknown>) {
     soat: { id: `soat-demo-${i}`, estado: 'pendiente', proveedorSoatNombre: null, valorPagado: null },
     excepcionesAutogestion: [], soatAutogestionado: false,
     impuesto: { id: `imp-demo-${i}`, estado: 'pendiente', tieneFacturaVenta: false, valorPagado: null },
-    listoParaEntregar: false, ...p,
+    vigenciaTramite: 'vigente', listoParaEntregar: false, ...p,
   };
 }
 export const TRAMITES_DEMO = {
@@ -870,7 +870,7 @@ export const TRAMITES_DEMO = {
       tipoTramite: 'Traspaso', ciudad: 'Pereira', fuente: 'flit2', facturaVentaFlitId: 'fac-demo-2',
       vehiculo: { vin: V[1], placa: P[1], marca: 'Renault', linea: 'Duster' },
       soat: { id: 'soat-demo-2', estado: 'pagado', proveedorSoatNombre: ASEGURADORAS_DEMO[0], valorPagado: 740800 },
-      impuesto: { id: 'imp-demo-2', estado: 'pagado', tieneFacturaVenta: true, valorPagado: 120000 }, listoParaEntregar: true,
+      impuesto: { id: 'imp-demo-2', estado: 'pagado', tieneFacturaVenta: true, valorPagado: 120000 }, vigenciaTramite: 'vigente', listoParaEntregar: true,
     }),
     tramite(3, {
       fechaCreacion: '2026-10-19T15:00:00Z', vehiculo: { vin: V[2], placa: P[2], marca: 'Mazda', linea: 'CX-30' },
@@ -906,7 +906,7 @@ export const VISTAS_COLUMNAS_TRAMITES_DEMO = {
 };
 // ADR-0046: detalle del trámite FLIT-DEMO-101 (ventana), sus soportes e historial.
 export const DETALLE_TRAMITE_DEMO = {
-  id: 'tra-demo-1', idFlit: 'FLIT-DEMO-101',
+  id: 'tra-demo-1', idFlit: 'FLIT-DEMO-101', vigenciaTramite: 'vigente',
   resumen: {
     estado: 'Asignado', asignado: true, tipoTramite: 'Matricula', fuente: 'flit',
     creado: '2026-10-20T15:00:00Z', aprobado: null, ciudad: 'Manizales', pendientes: ['soat', 'impuestos'],

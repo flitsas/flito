@@ -1,10 +1,13 @@
-// FLITO — Gestión Trámites: detalle del trámite en modal ancha (ADR-0046, Épica #14560).
+// FLITO — Gestión Trámites: detalle del trámite en modal APAISADO (ADR-0046; rediseño Épica #14707, bloque 4,
+// UX `docs/ux/flito-tramites-rediseno.md` §9 y maqueta aprobada).
 //
-// Se abre con el botón «Ver» de cada fila. Cabecera con la posición («n de N»), el id del trámite,
-// su fuente y su estado, y «‹ Anterior» / «Siguiente ›» / «Cerrar». A la izquierda un índice que
-// desplaza a cada sección (bajo `lg` pasa arriba como tira deslizable). Pie con las acciones reales
-// del trámite, que son las MISMAS llamadas y diálogos de la tabla: la página las pasa ya resueltas
-// por permiso y aquí solo se pintan si el trámite es accionable (misma regla que la barra).
+// `FlitModalHorizontal`: cabecera con la posición («n de N»), el id del trámite, su fuente y su estado (o el chip
+// Anulado/Revocado de 14707), «‹ Anterior» / «Siguiente ›» y la ✕; SIN placa. Lateral «Estado de la gestión»
+// (desde la fila, sin botones) con el índice debajo. El contenido abre con el bloque Vehículo, que lleva en su
+// encabezado la fila de acciones reales del trámite —las MISMAS llamadas y diálogos de la tabla, resueltas por
+// permiso en la página—, solo si el trámite es accionable. Un trámite muerto (14707) no tiene acciones: aviso
+// `warn` primero, desde la fila. Tras un 409 `TRAMITE_NO_VIGENTE` la página refresca, la fila llega muerta y el
+// foco pasa al aviso (el botón pulsado deja de existir).
 //
 // Cada sección tiene sus cuatro estados; historial y soportes van por su propio endpoint, así que un
 // fallo en uno no tumba el resto. El trámite abierto vive en memoria, nunca en la URL (§14).
@@ -13,19 +16,20 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { TramiteDetalle as DetalleTramite } from '@operaciones/shared-types';
 import { ApiError, api, errorMessage } from '../../../../lib/api';
 import { useAuth } from '../../../../lib/auth';
-import { useEscape, useFocusTrap } from '../../../../lib/hooks';
-import ModalPortal from '../../../flit/ModalPortal';
+import FlitModalHorizontal from '../../../flit/FlitModalHorizontal';
+import InlineAlert from '../../../flit/InlineAlert';
 import StatusChip from '../../../flit/StatusChip';
 import { claseBoton } from '../../../flit/GradientButton';
 import { esAccionable } from '../tiposTramites';
 import type { NavDetalleTramite } from './useDetalleTramite';
 import {
-  Cargando, ContenidoCostos, ContenidoPropietario, ContenidoResumen, ContenidoVehiculo, ErrorSeccion,
+  BloqueVehiculo, Cargando, ChipVigenciaTramite, ContenidoCostos, ContenidoPropietario, ContenidoResumen, ErrorSeccion,
   EtiquetaFuente, Seccion, SeccionHistorial,
 } from './SeccionesDetalle';
 import SeccionSoportes from './SeccionSoportes';
+import PanelEstadoTramite from './PanelEstadoTramite';
 
-/** Acciones del pie, ya filtradas por permiso en la página. Ausente = el usuario no tiene la función. */
+/** Acciones del bloque Vehículo, ya filtradas por permiso en la página. Ausente = el usuario no tiene la función. */
 export interface AccionesDetalle {
   soat?: (tramiteId: string) => void;
   impuestos?: (tramiteId: string) => void;
@@ -34,12 +38,24 @@ export interface AccionesDetalle {
 }
 
 const SECCIONES = [
-  ['resumen', 'Resumen'], ['vehiculo', 'Vehículo'], ['propietario', 'Propietario y gestora'],
+  ['vehiculo', 'Vehículo'], ['resumen', 'Resumen'], ['propietario', 'Propietario y gestora'],
   ['soportes', 'Soportes'], ['costos', 'Costos y facturación'], ['historial', 'Historial'],
 ] as const;
 type ClaveSeccion = typeof SECCIONES[number][0];
 
-export default function ModalDetalleTramite({ nav, recarga, suspendido, enProceso, acciones }: {
+/** Copy del aviso de un trámite muerto (`docs/ux/epica-14707-tramite-muerto.md` §4). Abortado = Anulado. */
+const AVISO_MUERTO = {
+  anulado: {
+    titulo: 'Trámite anulado en FLIT',
+    texto: 'Este trámite se anuló en FLIT, por eso en FLITO ya no tiene acciones: no se puede solicitar SOAT ni impuestos, ni entregar. Si tenía un SOAT o un impuesto en curso, se descartó y salió de su cola.',
+  },
+  revocado: {
+    titulo: 'Trámite revocado en FLIT',
+    texto: 'Este trámite se completó, pero FLIT lo revocó y dejó de valer. En FLITO ya no tiene acciones. Su cobro y su liquidación se conservan como histórico: puedes consultarlos en Costos y facturación, pero no generan cobros nuevos.',
+  },
+} as const;
+
+export default function ModalDetalleTramite({ nav, recarga, suspendido, enProceso, acciones, errorAccion }: {
   nav: NavDetalleTramite;
   /** Cambia tras una acción de la tabla o de la modal: el detalle se vuelve a pedir. */
   recarga: number;
@@ -47,27 +63,23 @@ export default function ModalDetalleTramite({ nav, recarga, suspendido, enProces
   suspendido: boolean;
   enProceso: boolean;
   acciones: AccionesDetalle;
+  /** Fallo de la última acción lanzada desde aquí, ya con copy pulido (nunca el error crudo del API). */
+  errorAccion?: string | null;
 }) {
   const fila = nav.actual!;
   const { hasFuncion } = useAuth();
   const uid = useId();
   const tituloId = `${uid}-titulo`;
   const sid = (k: ClaveSeccion) => `${uid}-${k}`;
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const overlayRef = useRef<HTMLDivElement>(null);
-  const cuerpoRef = useRef<HTMLDivElement>(null);
+  const contenidoRef = useRef<HTMLElement>(null);
+  const avisoRef = useRef<HTMLDivElement>(null);
   const [detalle, setDetalle] = useState<DetalleTramite | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
   const [conteoSoportes, setConteoSoportes] = useState<number | null>(null);
-  const [activa, setActiva] = useState<ClaveSeccion>('resumen');
-
-  // Escape cierra solo el diálogo de más arriba (los modales se apilan en <body> por orden de montaje).
-  useEscape(() => {
-    const abiertos = document.querySelectorAll('[data-flit-modal]');
-    if (abiertos.length === 0 || abiertos[abiertos.length - 1] === overlayRef.current) nav.cerrar();
-  });
-  useFocusTrap(dialogRef, !suspendido);
+  const [activa, setActiva] = useState<ClaveSeccion>('vehiculo');
+  const vigencia = fila.vigenciaTramite;
+  const muerto = vigencia !== 'vigente';
 
   useEffect(() => {
     let vivo = true;
@@ -84,24 +96,37 @@ export default function ModalDetalleTramite({ nav, recarga, suspendido, enProces
     return () => { vivo = false; };
   }, [fila.tramiteId, recarga, nonce]);
 
-  // Al cambiar de trámite: el cuerpo vuelve arriba y el detalle anterior no se queda pintado.
+  // Al cambiar de trámite: el contenido vuelve arriba y el detalle anterior no se queda pintado. Por debajo de
+  // `lg` quien desplaza es `.kit-modal__columnas`.
   useEffect(() => {
-    setDetalle(null); setActiva('resumen');
-    cuerpoRef.current?.scrollTo?.({ top: 0 });
+    setDetalle(null); setActiva('vehiculo');
+    const c = contenidoRef.current;
+    c?.scrollTo?.({ top: 0 });
+    c?.closest('.kit-modal__columnas')?.scrollTo?.({ top: 0 });
+    // Abierta desde el chip de estado de la fila: va directo a Historial (bloque 4, UX §5.3).
+    if (nav.seccion) { const k = nav.seccion; requestAnimationFrame(() => irA(k)); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fila.tramiteId]);
+
+  // 14707 §6: el mismo trámite pasa de vivo a muerto (409 + refresco) → el foco va al aviso, que lo anuncia.
+  const previo = useRef<{ id: string; muerto: boolean } | null>(null);
+  useEffect(() => {
+    const antes = previo.current;
+    if (antes && antes.id === fila.tramiteId && !antes.muerto && muerto) avisoRef.current?.focus();
+    previo.current = { id: fila.tramiteId, muerto };
+  }, [fila.tramiteId, muerto]);
 
   const irA = (k: ClaveSeccion) => {
     setActiva(k);
     document.getElementById(sid(k))?.scrollIntoView({ block: 'start' });
   };
-  // El índice sigue a la sección visible: la última cuyo borde superior ya pasó el tope del cuerpo
+  // El índice sigue a la sección visible: la última cuyo borde superior ya pasó el tope del que desplaza
   // (al final del desplazamiento, la última sección, aunque sea corta).
-  const alDesplazar = () => {
-    const c = cuerpoRef.current;
-    if (!c) return;
-    const tope = c.getBoundingClientRect().top + 24;
+  const alDesplazar = (c: HTMLElement) => {
+    const indice = c.querySelector<HTMLElement>('.kit-modal__indice');
+    const tope = c.getBoundingClientRect().top + (indice && getComputedStyle(indice).position === 'sticky' ? indice.offsetHeight : 0) + 24;
     const alFinal = c.scrollTop + c.clientHeight >= c.scrollHeight - 2 && c.scrollTop > 0;
-    let visible: ClaveSeccion = 'resumen';
+    let visible: ClaveSeccion = 'vehiculo';
     for (const [k] of SECCIONES) {
       const el = document.getElementById(sid(k));
       if (el && el.getBoundingClientRect().top <= tope) visible = k;
@@ -118,75 +143,79 @@ export default function ModalDetalleTramite({ nav, recarga, suspendido, enProces
   );
 
   const accionable = esAccionable(fila);
-  const botonesPie = accionable ? ([
+  const botones = accionable ? ([
     ['soat', 'Solicitar SOAT', acciones.soat],
     ['impuestos', 'Solicitar Impuestos', acciones.impuestos],
     ['ambos', 'Solicitar ambos', acciones.ambos],
     ['entregar', 'Entregar', acciones.entregar],
   ] as const).filter(([, , fn]) => !!fn) : [];
-  const navBtn = claseBoton('secondary', 'sm');
+  const navBtn = claseBoton('ghost', 'sm');
+  const aviso = muerto ? AVISO_MUERTO[vigencia === 'revocado' ? 'revocado' : 'anulado'] : null;
 
   return (
-    <ModalPortal>
-      <div ref={overlayRef} data-flit-modal="" className="flit-modal kit-velo items-center justify-center p-3 sm:p-6">
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={tituloId} tabIndex={-1}
-          onClick={(e) => e.stopPropagation()}
-          className="kit-modal my-auto h-[calc(100dvh-3rem)] max-w-[min(80rem,96vw)] overflow-hidden outline-none">
-          <header className="flex flex-none flex-wrap items-start justify-between gap-3 border-b border-[color:var(--color-border)] px-4 py-3 sm:px-6">
-            <div className="min-w-0">
-              <small className="kit-modal__ante" aria-live="polite">
-                Gestión Trámites · {nav.posicion !== null ? `${nav.posicion} de ${nav.total.toLocaleString('es-CO')}` : 'cargando…'}
-              </small>
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                <h2 id={tituloId} className="kit-modal__titulo tabular-nums">{fila.idFlit}</h2>
-                <EtiquetaFuente fuente={detalle?.resumen.fuente ?? fila.fuente} />
-                <StatusChip tone={fila.asignado ? 'active' : 'neutral'}>{detalle?.resumen.estado ?? fila.estado}</StatusChip>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button type="button" className={navBtn} disabled={!nav.hayAnterior || nav.cargandoPagina} onClick={nav.anterior}>‹ Anterior</button>
-              <button type="button" className={navBtn} disabled={!nav.haySiguiente || nav.cargandoPagina} onClick={nav.siguiente}>Siguiente ›</button>
-              <button type="button" className={claseBoton('ghost', 'sm')} onClick={nav.cerrar}>Cerrar</button>
-            </div>
-          </header>
-
-          <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-            <nav aria-label="Secciones del trámite"
-              className="flex flex-none gap-1 overflow-x-auto border-b border-[color:var(--color-border)] px-3 py-2 lg:w-56 lg:flex-col lg:overflow-x-visible lg:border-b-0 lg:border-r lg:py-4">
-              {SECCIONES.map(([k, rotulo]) => (
-                <button key={k} type="button" onClick={() => irA(k)} aria-current={activa === k ? 'true' : undefined}
-                  className={'flit-focus shrink-0 whitespace-nowrap rounded-[9px] px-3 py-2 text-left text-sm transition-colors hover:bg-[var(--kit-hover)] '
-                    + (activa === k ? 'bg-[var(--kit-hover)] font-semibold text-[color:var(--color-action)]' : 'text-[color:var(--color-text-secondary)]')}>
+    <FlitModalHorizontal
+      tituloId={tituloId}
+      titulo={fila.idFlit}
+      antetitulo={`Gestión Trámites · ${nav.posicion !== null ? `${nav.posicion} de ${nav.total.toLocaleString('es-CO')}` : 'cargando…'}`}
+      chips={(
+        <>
+          <EtiquetaFuente fuente={detalle?.resumen.fuente ?? fila.fuente} />
+          {muerto
+            ? <ChipVigenciaTramite vigencia={vigencia} />
+            : <StatusChip tone={fila.asignado ? 'active' : 'neutral'}>{detalle?.resumen.estado ?? fila.estado}</StatusChip>}
+        </>
+      )}
+      navegacion={(
+        <>
+          <button type="button" className={navBtn} disabled={!nav.hayAnterior || nav.cargandoPagina} onClick={nav.anterior}>‹ Anterior</button>
+          <button type="button" className={navBtn} disabled={!nav.haySiguiente || nav.cargandoPagina} onClick={nav.siguiente}>Siguiente ›</button>
+        </>
+      )}
+      lateral={<PanelEstadoTramite fila={fila} detalle={detalle} errorDetalle={!!error} />}
+      etiquetaLateral="Estado de la gestión"
+      indice={(
+        <nav className="kit-modal__indice" aria-label="Secciones del trámite">
+          <ul className="indice-lista">
+            {SECCIONES.map(([k, rotulo]) => (
+              <li key={k}>
+                <button type="button" onClick={() => irA(k)} aria-current={activa === k ? 'true' : undefined}>
                   {rotulo}{k === 'soportes' && conteoSoportes !== null ? ` (${conteoSoportes})` : ''}
                 </button>
-              ))}
-            </nav>
-            <div ref={cuerpoRef} onScroll={alDesplazar} tabIndex={0} role="region" aria-label={`Detalle del trámite ${fila.idFlit}`}
-              className="flit-focus-inset min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
-              {bloqueDetalle('resumen', 'Resumen', (d) => <ContenidoResumen d={d} />)}
-              {bloqueDetalle('vehiculo', 'Vehículo', (d) => <ContenidoVehiculo d={d} />)}
-              {bloqueDetalle('propietario', 'Propietario y gestora', (d) => <ContenidoPropietario d={d} />)}
-              <SeccionSoportes key={fila.tramiteId} id={sid('soportes')} tramiteId={fila.tramiteId} idFlit={fila.idFlit}
-                tieneFacturaVenta={detalle?.costos.tieneFacturaVenta ?? false}
-                puedeVer={hasFuncion('tramites.tramite.ver_soportes')}
-                puedeDescargar={hasFuncion('tramites.soportes.descargar')}
-                onConteo={setConteoSoportes} />
-              {bloqueDetalle('costos', 'Costos y facturación', (d) => <ContenidoCostos d={d} />)}
-              <SeccionHistorial key={`h-${fila.tramiteId}`} id={sid('historial')} tramiteId={fila.tramiteId}
-                puedeVer={hasFuncion('tramites.tramite.ver_historial')} />
-            </div>
-          </div>
-
-          {botonesPie.length > 0 && (
-            <footer className="grid flex-none grid-cols-2 gap-2 border-t sm:flex sm:flex-wrap sm:items-center sm:justify-end border-[color:var(--color-border)] px-4 py-3 sm:px-6">
-              {botonesPie.map(([k, rotulo, fn]) => (
-                <button key={k} type="button" disabled={enProceso} onClick={() => fn!(fila.tramiteId)}
-                  className={claseBoton(k === 'entregar' ? 'primary' : 'secondary', 'sm')}>{rotulo}</button>
-              ))}
-            </footer>
-          )}
+              </li>
+            ))}
+          </ul>
+        </nav>
+      )}
+      etiquetaContenido={`Detalle del trámite ${fila.idFlit}`}
+      contenidoRef={contenidoRef}
+      onScrollContenido={alDesplazar}
+      onClose={nav.cerrar}
+      trampaActiva={!suspendido}
+    >
+      {aviso && (
+        <div ref={avisoRef} tabIndex={-1} className="rounded-[9px] outline-none focus-visible:outline-2 focus-visible:outline-[color:var(--kit-azul)]">
+          <InlineAlert tono="warn" titulo={aviso.titulo}><p className="m-0 mt-1">{aviso.texto}</p></InlineAlert>
         </div>
-      </div>
-    </ModalPortal>
+      )}
+      <BloqueVehiculo id={sid('vehiculo')} fila={fila} detalle={detalle} errorAccion={muerto ? null : errorAccion}
+        acciones={botones.length > 0 ? (
+          <div className="acciones-fila">
+            {botones.map(([k, rotulo, fn]) => (
+              <button key={k} type="button" disabled={enProceso} onClick={() => fn!(fila.tramiteId)}
+                className={claseBoton(k === 'entregar' ? 'primary' : 'secondary', 'sm')}>{rotulo}</button>
+            ))}
+          </div>
+        ) : undefined} />
+      {bloqueDetalle('resumen', 'Resumen', (d) => <ContenidoResumen d={d} />)}
+      {bloqueDetalle('propietario', 'Propietario y gestora', (d) => <ContenidoPropietario d={d} />)}
+      <SeccionSoportes key={fila.tramiteId} id={sid('soportes')} tramiteId={fila.tramiteId} idFlit={fila.idFlit}
+        tieneFacturaVenta={detalle?.costos.tieneFacturaVenta ?? false}
+        puedeVer={hasFuncion('tramites.tramite.ver_soportes')}
+        puedeDescargar={hasFuncion('tramites.soportes.descargar')}
+        onConteo={setConteoSoportes} />
+      {bloqueDetalle('costos', 'Costos y facturación', (d) => <ContenidoCostos d={d} />)}
+      <SeccionHistorial key={`h-${fila.tramiteId}`} id={sid('historial')} tramiteId={fila.tramiteId}
+        puedeVer={hasFuncion('tramites.tramite.ver_historial')} />
+    </FlitModalHorizontal>
   );
 }

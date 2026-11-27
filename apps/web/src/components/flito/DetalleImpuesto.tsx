@@ -4,14 +4,22 @@
 // comprobante» (liquidación o pago por fase, `ModalCargaReciboFase`). La HU #13270 suma la celda
 // «Comprobante en FLIT 2» (solo lectura) y «Reemplazar comprobante» (`ModalReemplazoComprobante`); la
 // HU #13312 la generaliza a FLIT 1 (`EnvioComprobante`).
+//
+// Apaisado desde la Épica #14707, bloque 4 (`FlitModalHorizontal`; UX `docs/ux/flito-tramites-rediseno.md` §10.2):
+// título visible «Impuesto» con el nombre accesible «Impuesto · {placa}» de siempre. Lateral: aviso (2) y
+// comprobante en consulta (4: «Ver soporte», destino de `verSoporteRef`, y «Comprobante en FLIT 1/2»). Contenido:
+// bloque «Datos» con la fila de acciones (3 y las cargas de 4, sin primaria, como antes), el vehículo y las
+// fichas (5); después la particularidad (6), «Corregir el caso» en ghost (7) e historial (8). Solo se movió JSX.
 
-import { useRef, useState, type ReactNode } from 'react';
+import { useId, useRef, useState, type ReactNode } from 'react';
 import {
   ESTADO_IMPUESTO_LABEL, EstadoImpuesto, TipoSoporte,
   type DatosDocumentoFacturaImpuesto, type DireccionCompradorImpuesto, type FaseRecibo, type ReprogramacionEnvioComprobante,
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../../lib/api';
-import FlitModal from '../flit/FlitModal';
+import FlitModalHorizontal from '../flit/FlitModalHorizontal';
+import { claseBoton } from '../flit/GradientButton';
+import { Vehiculo, textoServicioVehiculo } from '../flit/Placa';
 import HistorialEstados from '../flit/HistorialEstados';
 import StatusChip from '../flit/StatusChip';
 import ChipSinGestion from '../flit/ChipSinGestion';
@@ -215,8 +223,8 @@ export default function DetalleImpuesto({
   const hayAccionDelEstado = !soloLectura && ((enGestion && (esOperaciones || esGestor)) || (rechazado && esOperaciones));
   const hayCorreccion = !soloLectura && esOperaciones;
   const formCorreccion = accion === 'asumir' || accion === 'devolver' || accion === 'reversar';
+  // VIN, marca y línea van en el bloque del vehículo, encima de las fichas.
   const datos: Array<{ etiqueta: string; valor: ReactNode }> = [
-    { etiqueta: 'VIN', valor: imp.vin },
     { etiqueta: 'Trámite FLIT', valor: imp.tipoTramite ? `${imp.idFlit} · ${imp.tipoTramite}` : imp.idFlit },
     { etiqueta: 'Compañía', valor: imp.companiaNombre },
     { etiqueta: 'Organismo', valor: imp.organismoNombre ?? imp.organismoCodigo },
@@ -246,113 +254,129 @@ export default function DetalleImpuesto({
     },
   ];
 
-  // Orden de arriba abajo (Épica #14560, `docs/ux/flito-soat-impuestos-patron-unificado.md` §4.1), el
-  // mismo de `DetalleSoat`: 1 · estado  2 · aviso contextual  3 · acción del estado  4 · comprobante
-  // 5 · datos  6 · particularidad (validación RUNT, documento de factura, dirección)  7 · «Corregir el
-  // caso» (Operaciones)  8 · historial. Solo cambia el orden y el color de los avisos: qué botón se
-  // ofrece, cuándo y con qué permiso sigue igual.
+  const idDatos = useId();
+  const btnSm = (v: 'secondary' | 'ghost') => claseBoton(v, 'sm');
+  const nombreVehiculo = `${imp.marca ?? ''} ${imp.linea ?? ''}`.trim();
+  const metaVehiculo = [textoServicioVehiculo(imp.tipoServicio), imp.vin ? `VIN ${imp.vin}` : null].filter(Boolean).join(' · ');
+  const hayCargas = ofreceComprobante || ofreceCaja || ofreceReemplazo;
+  const filaAcciones = (hayAccionDelEstado && accion === 'idle') || (hayCargas && !formAbierto);
+
+  // Orden (Épica #14560, `docs/ux/flito-soat-impuestos-patron-unificado.md` §4.1), repartido en el apaisado:
+  // lateral = 2 · aviso contextual y 4 · comprobante en consulta; contenido = 3 · acción del estado + cargas,
+  // 5 · datos, 6 · particularidad, 7 · «Corregir el caso», 8 · historial. Qué botón se ofrece, cuándo y con qué
+  // permiso sigue igual.
+  const lateral = (
+    <>
+      {/* 2 · aviso contextual: todo lo persistente. */}
+      {(imp.motivoRechazo || soloLectura) && (
+        <div className="lateral-bloque space-y-3">
+          {imp.motivoRechazo && (
+            <div role="alert" className="aviso-motivo">
+              <p><Icono nombre="alerta" size={18} className="shrink-0" />Motivo de rechazo</p>
+              <p style={{ color: 'var(--color-text-primary)' }}>{imp.motivoRechazo}</p>
+            </div>
+          )}
+          {soloLectura && (
+            <div role="status" className="flex items-center gap-2 rounded-lg p-3 text-xs"
+              style={{ background: 'var(--color-surface)', color: 'var(--color-text-primary)' }}>
+              <Icono nombre="candado" size={16} className="shrink-0" />
+              Solo lectura · Auditoría observa, no ejecuta acciones.
+            </div>
+          )}
+        </div>
+      )}
+      {/* 4 · comprobante (consulta): el recibo del organismo se mira desde donde se gestiona (el gestor del
+          organismo no entra al reporte de costos). «Comprobante en FLIT 1/2» (HU #13270/#13312): solo lectura. */}
+      <div className="lateral-bloque">
+        <h3 className="lateral-titulo">Comprobante</h3>
+        <ul className="lista-simple">
+          <li>
+            <span>Recibos del impuesto</span>
+            <button ref={verSoporteRef} type="button" className="enlace-btn" onClick={() => setVerSoportes(true)}>
+              <Icono nombre="ojo" size={14} className="shrink-0" />Ver soporte
+            </button>
+          </li>
+        </ul>
+        <dl className="dl mt-3">
+          <CeldaEnvioComprobante impId={imp.id} carga={carga} recargar={recargar} hayCargarComprobante={ofreceComprobante} />
+        </dl>
+      </div>
+    </>
+  );
+
   return (
-    <FlitModal title={`Impuesto · ${imp.placa ?? imp.vin}`} onClose={onClose} wide>
-      <div className="space-y-4 text-sm">
-        {/* 1 · estado */}
-        <div className="flex flex-wrap items-center gap-2">
+    <FlitModalHorizontal nombreAccesible={`Impuesto · ${imp.placa ?? imp.vin}`} titulo="Impuesto"
+      chips={(
+        <>
           <ChipEstadoImpuesto estado={imp.estado} />
           {imp.estancado && <ChipSinGestion desde={imp.enviadoEn} />}
           {imp.marcadoPorDiferencia && <StatusChip tone="warning">Diferencia de valor</StatusChip>}
           <ChipDocumentos imp={imp} />
-        </div>
-
-        {/* 2 · aviso contextual: todo lo persistente, arriba. Antes el motivo y el solo lectura iban al
-            final con colores sin par oscuro; ahora con los tokens de `DetalleSoat` para el mismo aviso. */}
-        {imp.motivoRechazo && (
-          <div role="alert" className="rounded-lg border p-3" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
-            <p className="flex items-center gap-2 font-semibold" style={{ color: 'var(--kit-rojo-texto)' }}>
-              <Icono nombre="alerta" size={18} className="shrink-0" />
-              Motivo de rechazo
-            </p>
-            <p className="mt-1" style={{ color: 'var(--color-text-primary)' }}>{imp.motivoRechazo}</p>
-          </div>
-        )}
-        {soloLectura && (
-          <div role="status" className="flex items-center gap-2 rounded-lg p-3"
-            style={{ background: 'var(--color-surface)', color: 'var(--color-action)' }}>
-            <Icono nombre="candado" size={16} className="shrink-0" />
-            Solo lectura · Auditoría observa, no ejecuta acciones.
-          </div>
-        )}
-        {/* HU #12834 (AC1, AC3): aviso persistente de la dirección. */}
+        </>
+      )}
+      lateral={lateral} etiquetaLateral="Estado del impuesto"
+      etiquetaContenido={`Datos del impuesto ${imp.placa ?? imp.vin}`}
+      onClose={onClose}>
+      <div className="text-sm">
+        {/* HU #12834 (AC1, AC3): aviso persistente de la dirección, primero en el contenido (su «Revisar» lleva al campo). */}
         <AvisoDireccion direccion={direccion} puedeCorregir={puedeCorregirDireccion && !soloLectura} onRevisar={revisarDireccion} />
-        {error && !formAbierto && <p role="alert" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>}
 
-        {/* 3 · la acción del estado: Rechazar (en gestión) / Reactivar (con novedad). */}
-        {hayAccionDelEstado && accion === 'idle' && (
-          <div className="flex flex-wrap gap-2">
-            {enGestion && (esOperaciones || esGestor) && (
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('rechazar')}>Rechazar</button>
-            )}
-            {rechazado && esOperaciones && (
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('reactivar')}>Reactivar</button>
-            )}
-          </div>
-        )}
-        {(accion === 'rechazar' || accion === 'reactivar') && (
-          <FormMotivo etiqueta={accion === 'rechazar' ? 'Motivo del rechazo' : 'Motivo de la corrección'}
-            motivo={motivo} setMotivo={setMotivo} enviando={enviando} error={error} onCancelar={cancelar}
-            onConfirmar={() => ejecutar(() => api.post(`/flito/impuestos/${imp.id}/${accion}`, { motivo }))} />
-        )}
-
-        {/* 4 · comprobante: ver y cargar la evidencia del pago, fuera de la ficha de datos. El recibo del
-            organismo se carga desde esta pantalla y se mira desde donde se gestiona (el gestor del
-            organismo no entra al reporte de costos). */}
-        <Seccion titulo="Comprobante">
-          <div role="group" aria-label="Acciones del comprobante" className="flex flex-wrap items-center gap-2">
-            <button ref={verSoporteRef} type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-              onClick={() => setVerSoportes(true)}>
-              <Icono nombre="ojo" size={16} className="shrink-0" />
-              Ver soporte
-            </button>
-            {ofreceComprobante && (
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-                onClick={() => setComprobante(true)}>
-                Cargar comprobante
-              </button>
-            )}
-            {ofreceCaja && (
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-                aria-disabled={sinLiquidacion || undefined}
-                aria-describedby={sinLiquidacion ? 'recibo-caja-motivo' : undefined}
-                onClick={() => { if (!sinLiquidacion) setReciboCaja(true); }}>
-                Cargar recibo de caja
-              </button>
-            )}
-            {ofreceReemplazo && (
-              <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
-                onClick={() => setReemplazo(true)}>
-                Reemplazar comprobante
-              </button>
+        <section className="card mt-4 first:mt-0" aria-labelledby={idDatos}>
+          <div className="bloque-cabeza">
+            <h3 id={idDatos} className="seccion__titulo">Datos</h3>
+            {/* 3 · la acción del estado (Rechazar en gestión / Reactivar con novedad) y las cargas de la zona 4. */}
+            {filaAcciones && (
+              <div role="group" aria-label="Acciones del impuesto" className="acciones-fila">
+                {hayAccionDelEstado && accion === 'idle' && enGestion && (esOperaciones || esGestor) && (
+                  <button type="button" className={btnSm('secondary')} onClick={() => setAccion('rechazar')}>Rechazar</button>
+                )}
+                {hayAccionDelEstado && accion === 'idle' && rechazado && esOperaciones && (
+                  <button type="button" className={btnSm('secondary')} onClick={() => setAccion('reactivar')}>Reactivar</button>
+                )}
+                {ofreceComprobante && (
+                  <button type="button" className={btnSm('secondary')} onClick={() => setComprobante(true)}>Cargar comprobante</button>
+                )}
+                {ofreceCaja && (
+                  <button type="button" className={btnSm('secondary')}
+                    aria-disabled={sinLiquidacion || undefined}
+                    aria-describedby={sinLiquidacion ? 'recibo-caja-motivo' : undefined}
+                    onClick={() => { if (!sinLiquidacion) setReciboCaja(true); }}>
+                    Cargar recibo de caja
+                  </button>
+                )}
+                {ofreceReemplazo && (
+                  <button type="button" className={btnSm('secondary')} onClick={() => setReemplazo(true)}>Reemplazar comprobante</button>
+                )}
+              </div>
             )}
           </div>
           {ofreceCaja && sinLiquidacion && (
-            <p id="recibo-caja-motivo" className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+            <p id="recibo-caja-motivo" className="mb-3 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
               {ofreceComprobante
                 ? 'Este impuesto no tiene liquidación cargada. Cárgala primero con «Cargar comprobante».'
                 : 'Este impuesto no tiene liquidación cargada; el recibo de caja se carga sobre una liquidación'}
             </p>
           )}
-          {/* «Comprobante en FLIT 1/2» (HU #13270/#13312): solo lectura, la misma intención. */}
-          <dl className="dl">
-            <CeldaEnvioComprobante impId={imp.id} carga={carga} recargar={recargar} hayCargarComprobante={ofreceComprobante} />
-          </dl>
-        </Seccion>
+          {error && !formAbierto && <p role="alert" className="mb-3" style={{ color: 'var(--kit-rojo-texto)' }}>{error}</p>}
+          {(accion === 'rechazar' || accion === 'reactivar') && (
+            <div className="mb-4">
+              <FormMotivo etiqueta={accion === 'rechazar' ? 'Motivo del rechazo' : 'Motivo de la corrección'}
+                motivo={motivo} setMotivo={setMotivo} enviando={enviando} error={error} onCancelar={cancelar}
+                onConfirmar={() => ejecutar(() => api.post(`/flito/impuestos/${imp.id}/${accion}`, { motivo }))} />
+            </div>
+          )}
 
-        {/* 5 · datos */}
-        <Seccion titulo="Datos">
-          <Fichas items={datos} />
-        </Seccion>
+          {imp.placa
+            ? <Vehiculo icono={null} placa={imp.placa} tipoServicio={imp.tipoServicio} anunciarServicio={false}
+              nombre={nombreVehiculo || '—'} meta={metaVehiculo || undefined} />
+            : <p className="vehiculo__nombre m-0 font-semibold">{nombreVehiculo || '—'} <span className="font-normal">{metaVehiculo}</span></p>}
+          {/* 5 · datos */}
+          <div className="mt-4"><Fichas items={datos} /></div>
+        </section>
 
         {/* 6 · particularidad de Impuestos: validación RUNT (HU #12831), documento de factura (HU #14664)
             y dirección del comprador (HU #12834), al mismo nivel. */}
-        <div className="space-y-4 border-t pt-4" style={{ borderColor: 'var(--color-border)' }}>
+        <div className="mt-4 space-y-4 border-t pt-4" style={{ borderColor: 'var(--color-divider)' }}>
         <SeccionValidacion imp={imp} accionReintento={accionReintento} sinPermiso={sinPermisoReintento} detalle={{ carga, recargar }} />
 
         {/* Mismo fetch compartido; cargando/error solo si la validación de arriba todavía no los cubre. */}
@@ -377,7 +401,7 @@ export default function DetalleImpuesto({
           : !analisisTerminado && <EstadoCargaDireccion fase={carga.fase} onRecargar={recargar} />}
         </div>
 
-        {/* 7 · correcciones de Operaciones: acciones de excepción, aparte de la del estado. */}
+        {/* 7 · correcciones de Operaciones: acciones de excepción, aparte de la del estado y en ghost. */}
         {/* Con un formulario de otra zona abierto (Rechazar/Reactivar, factura) no se pinta: quedaba
             el título sin ningún botón debajo. */}
         {hayCorreccion && (accion === 'idle' || formCorreccion) && (
@@ -408,12 +432,12 @@ export default function DetalleImpuesto({
             ) : (
               <div className="flex flex-wrap gap-2">
                 {traspasable && !imp.gestionOperaciones && (
-                  <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('asumir')}>Asumir en Operaciones</button>
+                  <button type="button" className={btnSm('ghost')} onClick={() => setAccion('asumir')}>Asumir en Operaciones</button>
                 )}
                 {traspasable && imp.gestionOperaciones && (
-                  <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('devolver')}>Devolver al gestor</button>
+                  <button type="button" className={btnSm('ghost')} onClick={() => setAccion('devolver')}>Devolver al gestor</button>
                 )}
-                <button type="button" className={flitBtnSecondary} style={flitBtnSecondaryStyle} onClick={() => setAccion('reversar')}>Reversar</button>
+                <button type="button" className={btnSm('ghost')} onClick={() => setAccion('reversar')}>Reversar</button>
               </div>
             )}
           </Seccion>
@@ -444,16 +468,17 @@ export default function DetalleImpuesto({
         )}
 
         {/* 8 · historial (sin canal Cliente en Impuestos: siempre visible). */}
-        <HistorialEstados concepto="impuesto" registroId={imp.id} />
+        <div className="mt-4"><HistorialEstados concepto="impuesto" registroId={imp.id} /></div>
       </div>
-    </FlitModal>
+    </FlitModalHorizontal>
   );
 }
 
+/** Sección de consulta tras el bloque principal (`zona` del kit apaisado). */
 function Seccion({ titulo, children }: { titulo: string; children: ReactNode }) {
   return (
-    <div className="space-y-2 border-t pt-4" style={{ borderColor: 'var(--color-border)' }}>
-      <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-tertiary)' }}>{titulo}</p>
+    <div className="mt-4 border-t pt-4" style={{ borderColor: 'var(--color-divider)' }}>
+      <h3 className="seccion__titulo">{titulo}</h3>
       {children}
     </div>
   );

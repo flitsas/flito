@@ -1,97 +1,108 @@
 // FLITO — Trámites: celdas de la bandeja (SOAT, impuestos, factura de venta y tracking logístico).
-// Movidas desde `pages/FlitoTramites.tsx` al partirla (rediseño UI Kit 2026, Épica #14560): misma
-// lógica, piel del kit (etiquetas con punta, botón píldora, tokens con par oscuro).
+// Movidas desde `pages/FlitoTramites.tsx` al partirla (rediseño UI Kit 2026, Épica #14560).
+//
+// Épica #14707, bloque 4 (UX §5.3, R5): cada celda SOAT/Impuestos responde UNA pregunta: un chip de estado
+// y, como mucho, una cosa más, por prioridad: «Solicitar» (secundario `sm`, nombra la placa) · el motivo de
+// la novedad en una línea · «Sin gestión n d» · el valor pagado. Enviado, liquidado, Desbloqueado y Diferencia
+// de valor pasan al detalle. Trámite muerto (14707 §3): «Descartado» en tenue y sin botón; un revocado que
+// llegó a Pagado conserva su chip como histórico, de solo lectura.
 
 import {
   ESTADO_IMPUESTO_LABEL, ESTADO_SOAT_LABEL, EstadoImpuesto, EstadoSoat,
   ESTADO_LOGISTICA_SIMPLE_LABEL, ESTADOS_LOGISTICA_SIMPLE_ORDEN, simplificarEstadoLogistica,
   type EstadoLogisticaSimple,
 } from '@operaciones/shared-types';
+import type { ReactNode } from 'react';
 import StatusChip, { type ChipTone } from '../../flit/StatusChip';
-import ChipSinGestion from '../../flit/ChipSinGestion';
 import GradientButton from '../../flit/GradientButton';
-import { esAccionable, fecha, pesos, type TramiteFila } from './tiposTramites';
+import { esAccionable, pesos, type TramiteFila } from './tiposTramites';
 
 // Semáforo de estados (SOAT e impuestos): pendiente naranja, solicitado azul, con novedad rojo,
-// pagado verde. La autogestión (sin registro) se pinta aparte en gris.
-// `pendiente_revision` y `rechazada` (canal Cliente) no nacían de un trámite, así que nunca asomaron
-// por esta pantalla; se completaban solo porque el `Record` es exhaustivo. La HU #12080 los quita de
-// `EstadoSoat` y del enum de Postgres, así que las dos entradas se van con ellos.
+// pagado verde. `descartado` (Épica #14707) no se pinta como chip: es «Descartado» en tenue.
 const TONO_SOAT: Record<EstadoSoat, ChipTone> = {
-  pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success', descartado: 'neutral', // Épica #14707
+  pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success', descartado: 'neutral',
 };
 const TONO_IMP: Record<EstadoImpuesto, ChipTone> = { pendiente: 'warning', solicitado: 'active', con_novedad: 'danger', pagado: 'success', descartado: 'neutral' };
 
 const tenue = 'text-[color:var(--color-text-tertiary)]';
 const peligro = 'text-[color:var(--kit-rojo-texto)]';
+const enlace = 'flit-focus rounded text-xs font-semibold text-[color:var(--color-action)] underline transition-colors hover:text-[color:var(--color-text-primary)]';
 
-// Botón "Solicitar" por fila (SOAT/impuestos): píldora pequeña del kit (avanza = azul).
-function BotonSolicitar({ onClick }: { onClick: () => void }) {
-  return (
-    <GradientButton type="button" size="sm" className="mt-1.5" onClick={onClick}>
-      Solicitar
-    </GradientButton>
-  );
+/** «Descartado»: misma clase tenue que «Sin aprobar» / «Sin recibo» (14707 §3). */
+const Descartado = () => <span className={`text-xs italic ${tenue}`}>Descartado</span>;
+
+const diasDesde = (iso: string | null) => (iso ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)) : null);
+
+interface Concepto {
+  estado: EstadoSoat | EstadoImpuesto; tono: ChipTone; etiqueta: string; estancado: boolean; enviadoEn: string | null;
+  motivoRechazo: string | null; valorPagado: number | null;
 }
 
-export function CeldaSoat({ fila, onSolicitar }: { fila: TramiteFila; onSolicitar?: () => void }) {
-  // Un concepto desbloqueado deja de estar autogestionado PARA ESTE TRÁMITE: seguir rotulándolo así
-  // contradiría al registro que sí existe unas líneas más abajo.
-  const desbloqueado = fila.excepcionesAutogestion.includes('soat');
-  if (fila.soatAutogestionado && !desbloqueado) return <StatusChip tone="neutral">SOAT autogestionado</StatusChip>;
-  if (!fila.soat) return <span className={`text-xs ${tenue}`}>Sin registro</span>;
-  const s = fila.soat;
-  const v = pesos(s.valorPagado);
-  // Solicitud directa desde la columna (sin marcar el check): SOAT en Pendiente y trámite accionable.
-  const puedeSolicitar = onSolicitar && esAccionable(fila) && s.estado === EstadoSoat.PENDIENTE;
+/** Chip + la única cosa más que admite la celda (R5). */
+function CeldaConcepto({ c, solicitar }: { c: Concepto; solicitar: ReactNode }) {
+  const dias = c.estancado ? diasDesde(c.enviadoEn) : null;
+  const pagado = pesos(c.valorPagado);
+  const extra = solicitar
+    ?? (c.motivoRechazo ? <p className={`m-0 max-w-[12rem] truncate text-xs ${peligro}`} title={c.motivoRechazo}>{c.motivoRechazo}</p>
+      : c.estancado ? <p className={`m-0 text-xs font-semibold ${peligro}`}>{dias !== null ? `Sin gestión ${dias} d` : 'Sin gestión'}</p>
+        : pagado ? <p className="m-0 text-xs font-semibold tabular-nums">{pagado}</p> : null);
   return (
-    <div className="space-y-0.5">
-      <StatusChip tone={TONO_SOAT[s.estado]}>{ESTADO_SOAT_LABEL[s.estado]}</StatusChip>
-      {desbloqueado && <div><StatusChip tone="warning">Desbloqueado</StatusChip></div>}
-      {s.estancado && <div><ChipSinGestion desde={s.enviadoEn} tone="danger" /></div>}
-      {s.enviadoEn && <p className={`text-xs ${tenue}`}>Enviado {fecha(s.enviadoEn)}</p>}
-      {v && <p className="text-xs font-semibold tabular-nums">{v}</p>}
-      {s.motivoRechazo && <p className={`text-xs ${peligro}`} title={s.motivoRechazo}>{s.motivoRechazo.slice(0, 40)}</p>}
-      {puedeSolicitar && <div><BotonSolicitar onClick={onSolicitar} /></div>}
+    <div className="space-y-1">
+      <StatusChip tone={c.tono}>{c.etiqueta}</StatusChip>
+      {extra && <div>{extra}</div>}
     </div>
   );
 }
 
-// Factura de venta (viene de FLIT, id S3). Con factura → botón para verla; sin factura → aviso.
-export function CeldaFacturaVenta({ fila, onVer }: { fila: TramiteFila; onVer: (fila: TramiteFila) => void }) {
-  if (fila.facturaVentaFlitId) {
-    // El visor va por el impuesto (la factura vive en FLIT). Sin impuesto no hay a qué apuntar.
-    return fila.impuesto
-      ? <button className="flit-focus rounded text-xs font-semibold text-[color:var(--color-action)] underline transition-colors hover:text-[color:var(--color-text-primary)]"
-          onClick={() => onVer(fila)}>Ver factura de venta</button>
-      : <span className={`text-xs ${tenue}`}>Factura en FLIT</span>;
-  }
-  return <span className={`text-xs ${tenue}`}>Sin factura de venta</span>;
+/** Fila muerta: nada que solicitar. Un revocado conserva su Pagado como histórico; lo demás, «Descartado». */
+function celdaMuerta(fila: TramiteFila, estado: EstadoSoat | EstadoImpuesto | undefined, tono: ChipTone, etiqueta: string) {
+  if (fila.vigenciaTramite === 'revocado' && estado === 'pagado') return <StatusChip tone={tono}>{etiqueta}</StatusChip>;
+  return <Descartado />;
+}
+
+export function CeldaSoat({ fila, onSolicitar }: { fila: TramiteFila; onSolicitar?: () => void }) {
+  // Un concepto desbloqueado deja de estar autogestionado PARA ESTE TRÁMITE.
+  const desbloqueado = fila.excepcionesAutogestion.includes('soat');
+  const s = fila.soat;
+  if (fila.vigenciaTramite !== 'vigente') return celdaMuerta(fila, s?.estado, s ? TONO_SOAT[s.estado] : 'neutral', s ? ESTADO_SOAT_LABEL[s.estado] : '');
+  if (fila.soatAutogestionado && !desbloqueado) return <StatusChip tone="neutral">SOAT autogestionado</StatusChip>;
+  if (!s) return <span className={`text-xs italic ${tenue}`}>Sin registro</span>;
+  if (s.estado === EstadoSoat.DESCARTADO) return <Descartado />;
+  const puede = onSolicitar && esAccionable(fila) && s.estado === EstadoSoat.PENDIENTE;
+  return (
+    <CeldaConcepto c={{ ...s, tono: TONO_SOAT[s.estado], etiqueta: ESTADO_SOAT_LABEL[s.estado] }}
+      solicitar={puede ? (
+        <GradientButton type="button" variant="secondary" size="sm" onClick={onSolicitar}
+          aria-label={`Solicitar SOAT de ${fila.vehiculo.placa ?? fila.idFlit}`}>Solicitar</GradientButton>
+      ) : null} />
+  );
 }
 
 export function CeldaImpuesto({ fila, onSolicitar }: { fila: TramiteFila; onSolicitar?: () => void }) {
   // La autogestión la decide la bandera de la empresa (no la ausencia de registro): igual que SOAT.
   const desbloqueado = fila.excepcionesAutogestion.includes('impuesto');
-  if (fila.impuestosAutogestionado && !desbloqueado) return <StatusChip tone="neutral">Impuestos autogestionado</StatusChip>;
-  // Sin bandera y sin registro (p.ej. trámite no Asignado): sin registro, mismo criterio que SOAT.
-  if (!fila.impuesto) return <span className={`text-xs ${tenue}`}>Sin registro</span>;
   const imp = fila.impuesto;
-  const liq = pesos(imp.valorLiquidado);
-  const pag = pesos(imp.valorPagado);
-  const puedeSolicitar = onSolicitar && esAccionable(fila) && imp.estado === EstadoImpuesto.PENDIENTE;
+  if (fila.vigenciaTramite !== 'vigente') return celdaMuerta(fila, imp?.estado, imp ? TONO_IMP[imp.estado] : 'neutral', imp ? ESTADO_IMPUESTO_LABEL[imp.estado] : '');
+  if (fila.impuestosAutogestionado && !desbloqueado) return <StatusChip tone="neutral">Impuestos autogestionado</StatusChip>;
+  if (!imp) return <span className={`text-xs italic ${tenue}`}>Sin registro</span>;
+  if (imp.estado === EstadoImpuesto.DESCARTADO) return <Descartado />;
+  const puede = onSolicitar && esAccionable(fila) && imp.estado === EstadoImpuesto.PENDIENTE;
   return (
-    <div className="space-y-0.5">
-      <StatusChip tone={TONO_IMP[imp.estado]}>{ESTADO_IMPUESTO_LABEL[imp.estado]}</StatusChip>
-      {desbloqueado && <div><StatusChip tone="warning">Desbloqueado</StatusChip></div>}
-      {imp.estancado && <div><ChipSinGestion desde={imp.enviadoEn} tone="danger" /></div>}
-      {imp.marcadoPorDiferencia && <div><StatusChip tone="warning">Diferencia de valor</StatusChip></div>}
-      {imp.enviadoEn && <p className={`text-xs ${tenue}`}>Enviado {fecha(imp.enviadoEn)}</p>}
-      {liq && <p className={`text-xs ${tenue}`}>Liquidado {liq}</p>}
-      {pag && <p className="text-xs font-semibold tabular-nums">{pag}</p>}
-      {imp.motivoRechazo && <p className={`text-xs ${peligro}`} title={imp.motivoRechazo}>{imp.motivoRechazo.slice(0, 40)}</p>}
-      {puedeSolicitar && <div><BotonSolicitar onClick={onSolicitar} /></div>}
-    </div>
+    <CeldaConcepto c={{ ...imp, tono: TONO_IMP[imp.estado], etiqueta: ESTADO_IMPUESTO_LABEL[imp.estado] }}
+      solicitar={puede ? (
+        <GradientButton type="button" variant="secondary" size="sm" onClick={onSolicitar}
+          aria-label={`Solicitar impuesto de ${fila.vehiculo.placa ?? fila.idFlit}`}>Solicitar</GradientButton>
+      ) : null} />
   );
+}
+
+// Factura de venta (viene de FLIT): en la celda Soportes, como enlace. El visor va por el impuesto (la factura
+// vive en FLIT); sin impuesto no hay a qué apuntar y se dice en tenue.
+export function CeldaFacturaVenta({ fila, onVer }: { fila: TramiteFila; onVer: (fila: TramiteFila) => void }) {
+  if (!fila.facturaVentaFlitId) return null;
+  return fila.impuesto
+    ? <button type="button" className={enlace} onClick={() => onVer(fila)}>Factura de venta</button>
+    : <span className={`text-xs ${tenue}`}>Factura en FLIT</span>;
 }
 
 // Tracking logístico de la LT: línea horizontal con un punto por paso y, arriba, el estado actual

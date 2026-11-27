@@ -158,7 +158,7 @@ const FILA_SIN_EMPRESA = {
   transitoNombre: 'STT Manizales', facturaVentaFlitId: null, companiaNombre: 'Empresa Nueva',
   organismoNombre: 'STT Manizales', vehiculo: { vin: 'VIN000000000301', placa: 'PLC301', marca: 'Mazda', linea: '2', tipoVehiculo: null },
   compradorPrincipal: null, compradores: [], soat: null, soatAutogestionado: false, impuesto: null,
-  impuestosAutogestionado: false, excepcionesAutogestion: [], listoParaEntregar: false,
+  impuestosAutogestionado: false, excepcionesAutogestion: [], vigenciaTramite: 'vigente', listoParaEntregar: false,
 };
 
 async function abrirCrearEmpresa(page: import('@playwright/test').Page) {

@@ -177,3 +177,5 @@ export * from './flito-torre-logistica.js';
 export * from './flito-torre-equipo.js';
 // Detalle de trámite en modal de Gestión Trámites (ADR-0046).
 export * from './flito-tramites-detalle.js';
+// Placa del vehículo por tipo: moto y servicio público (Épica #14707, bloque 4).
+export * from './vehiculo-placa.js';

@@ -1,0 +1,935 @@
+<!doctype html>
+<!--
+  Maqueta DESCARTABLE — Rediseño de Gestión Trámites y detalles apaisados (trámite, SOAT, impuesto).
+  Spec: docs/ux/flito-tramites-rediseno.md (§5–§11 y «Brief de mockup»). Integra la Épica #14707
+  (docs/ux/epica-14707-tramite-muerto.md y su maqueta aprobada).
+  No se importa a apps/web. Clases reales del kit + torre-maqueta.css. Vistas: ?vista=… · Tema: &tema=oscuro.
+  Datos 100 % ficticios.
+-->
+<html lang="es" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FLITO · Gestión Trámites rediseño (maqueta)</title>
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-variables.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/tokens.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-propuesta.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-ui.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-react.css">
+  <link rel="stylesheet" href="../../../apps/web/src/styles/kit/kit-responsive.css">
+  <link rel="stylesheet" href="torre-maqueta.css">
+  <style>
+    /* ═════════ PROPUESTA → kit-react.css (junto a .kit-modal--lateral) · spec §6.1 · solo tokens ═════════ */
+    .kit-modal--horizontal { width: 100%; height: 100dvh; border-radius: 0; border: 0; overflow: hidden; }
+    .kit-modal--horizontal .kit-modal__cabeza { flex-direction: row; flex-wrap: wrap; align-items: flex-start; justify-content: space-between;
+      gap: var(--space-8) var(--space-16); text-align: left; padding: var(--space-16) var(--space-24); border-bottom: 1px solid var(--color-border); }
+    .kit-modal--horizontal .kit-modal__cerrar { position: static; flex: none; }
+    /* < lg en BLOQUE y no en grid (desvío de la spec §6.1): en un grid el bloque contenedor del índice sticky es su
+       propia celda y el índice no se pega; en bloque, su contenedor es todo el scroll del cuerpo y sí se pega. */
+    .kit-modal__columnas { flex: 1; min-height: 0; overflow-y: auto; display: block; }
+    .kit-modal__lateral { padding: var(--space-16); border-bottom: 1px solid var(--color-border); }
+    .kit-modal__indice { position: sticky; top: 0; z-index: 1; background: var(--color-surface-elevated); overflow-x: auto;
+      border-bottom: 1px solid var(--color-border); padding: var(--space-4) var(--space-16); }
+    .kit-modal__contenido { padding: var(--space-16); min-width: 0; }
+    @media (min-width: 1024px) {
+      .kit-modal--horizontal { width: min(88rem, 94vw); height: min(44rem, 86dvh); border-radius: 9px; border: 1px solid var(--color-border); }
+      .kit-modal__columnas { display: grid; grid-template-columns: 21rem minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); overflow: hidden; align-content: stretch; }
+      .kit-modal__lateral { grid-column: 1; grid-row: 1; overflow-y: auto; overflow-x: hidden; min-height: 0; border-bottom: 0; border-right: 1px solid var(--color-border); padding: var(--space-16) var(--space-20); }
+      .kit-modal__columnas:not(:has(.kit-modal__indice)) .kit-modal__lateral { grid-row: 1 / span 2; }
+      .kit-modal__indice { position: static; grid-column: 1; grid-row: 2; overflow-x: visible; overflow-y: auto; min-height: 0;
+        border-bottom: 0; border-right: 1px solid var(--color-border); border-top: 1px solid var(--color-divider); padding: var(--space-12) var(--space-20); }
+      .kit-modal__contenido { grid-column: 2; grid-row: 1 / span 2; overflow-y: auto; min-height: 0; padding: var(--space-16) var(--space-24) var(--space-24); }
+    }
+
+    /* ═════════ Lo que en la app da Tailwind (composición; sin colores propios) ═════════ */
+    td, th { vertical-align: top; }
+    .tenue { font-size: var(--text-caption); font-style: italic; color: var(--color-text-tertiary); }
+    .img-ico { width: 14px; height: 14px; }
+    .celda { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font-size: var(--text-caption); }
+    .celda .enlace { min-height: 28px; justify-self: start; padding: 0; font-size: var(--text-caption); }
+    .celda .btn.sm { margin-top: 2px; }
+    .id-tramite { border: 0; background: transparent; padding: 0; font: inherit; font-size: 0.875rem; font-weight: 600; font-variant-numeric: tabular-nums;
+      color: var(--color-action); cursor: pointer; border-radius: 4px; }
+    .id-tramite:hover { text-decoration: underline; text-underline-offset: 3px; color: var(--color-text-primary); }
+    .id-tramite:focus-visible, .chip-historial:focus-visible, .indice-lista button:focus-visible { outline: 2px solid var(--kit-azul); outline-offset: 2px; }
+    .chip-historial { border: 0; background: transparent; padding: 0; cursor: pointer; border-radius: 4px; transition: opacity var(--motion-fast) var(--ease); }
+    .chip-historial:hover { opacity: 0.8; }
+    input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--kit-azul); }
+    input[type="checkbox"]:disabled { cursor: not-allowed; }
+
+    .acordeon-cabeza { display: flex; align-items: center; gap: var(--space-12); min-height: 56px; padding: var(--space-8) var(--space-16); width: 100%;
+      border: 0; background: transparent; font: inherit; text-align: left; color: var(--color-text-primary); cursor: pointer; transition: background-color var(--motion-fast) var(--ease); }
+    .acordeon-cabeza:hover { background: var(--kit-hover); }
+    .acordeon-cabeza strong { font-size: 1rem; }
+    .acordeon-resumen { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 0.8125rem; color: var(--color-text-tertiary); }
+    .acordeon-resumen b { color: var(--color-text-secondary); }
+    .requiere { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: var(--kit-rojo-texto); }
+
+    .barra-tabla { position: sticky; top: var(--space-8); /* en la app: calc(var(--kit-alto-barra) + 0.5rem) */ z-index: 20;
+      background: var(--color-surface); /* fondo de la página: la tabla ya no va en tarjeta */ margin: 0 0 var(--space-8); padding: var(--space-8) 0; }
+    .barra-tabla__fila { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8) var(--space-10); }
+    .barra-tabla__fila .der { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8) var(--space-10); }
+    .barra-tabla__cuenta { font-size: var(--text-caption); font-weight: 600; color: var(--color-text-secondary); }
+    .barra-tabla__cuenta--sel { color: var(--color-action); }
+    .barra-tabla__desajuste { margin: var(--space-8) 0 0; font-size: 0.875rem; color: var(--color-text-secondary); }
+    .barra-tabla label { display: inline-flex; align-items: center; gap: var(--space-8); font-size: var(--text-caption); font-weight: 600; color: var(--color-text-secondary); }
+    .barra-tabla select.control { width: auto; min-height: 36px; padding-block: 4px; font-size: var(--text-caption); }
+    .avisos-tabla > * + * { margin-top: var(--space-8); }
+    .avisos-tabla:not(:empty) { margin-bottom: var(--space-12); }
+    .kit-alerta .acciones-aviso { margin-left: auto; align-self: center; }
+    .paginacion-centro { justify-content: center; gap: var(--space-12); padding-top: var(--space-16); font-size: var(--text-caption); }
+    .paginacion-centro span { font-weight: 600; color: var(--color-text-secondary); }
+    .vistas-rapidas { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); }
+    .vistas-rapidas > span { font-size: var(--text-micro); font-weight: 600; color: var(--color-text-secondary); }
+    .esq-barra { height: 36px; width: 14rem; }
+    .esq-fila { height: 56px; }
+
+    .velo-centrado { align-items: center; justify-content: center; padding: 0; }
+    @media (min-width: 1024px) { .velo-centrado { padding: var(--space-24); } }
+    .cabeza__texto { display: grid; gap: 4px; min-width: 0; flex: 1 1 24rem; }
+    .cabeza__linea { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8) var(--space-10); }
+    .cabeza__nav { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); }
+    @media (max-width: 1023.98px) { .cabeza__nav { order: 3; flex-basis: 100%; } .kit-modal--horizontal .kit-modal__cerrar { order: 2; } .cabeza__texto { flex-basis: 0; } }
+    .lateral-bloque + .lateral-bloque { margin-top: var(--space-16); padding-top: var(--space-16); border-top: 1px solid var(--color-divider); }
+    .lateral-titulo, .seccion__titulo { margin-bottom: var(--space-10); font-size: var(--text-micro); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--color-text-secondary); }
+    .dl-lateral { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-8) var(--space-12); align-items: center; font-size: var(--text-caption); }
+    .dl-lateral dt { color: var(--color-text-tertiary); }
+    .dl-lateral dd { font-weight: 600; color: var(--color-text-primary); }
+    .acciones-lateral { display: grid; gap: var(--space-8); }
+    .acciones-lateral .btn { width: 100%; max-width: 100%; box-sizing: border-box; min-width: 0; white-space: normal; justify-content: center; }
+    .error-accion { margin-top: var(--space-10); font-size: 0.875rem; color: var(--flit-danger-ink); }
+    .nota-boton { margin-top: 4px; font-size: var(--text-caption); color: var(--color-text-secondary); }
+    .indice-lista { display: flex; gap: 2px; white-space: nowrap; }
+    .indice-lista button { border: 0; background: transparent; font: inherit; font-size: var(--text-caption); color: var(--color-text-secondary); text-align: left;
+      padding: 8px 10px; border-radius: 7px; cursor: pointer; transition: background-color var(--motion-fast) var(--ease); }
+    .indice-lista button:hover { background: var(--kit-hover); }
+    .indice-lista button[aria-current="true"] { color: var(--color-action); font-weight: 600; background: var(--kit-hover); }
+    @media (min-width: 1024px) { .indice-lista { flex-direction: column; } .indice-lista button { width: 100%; } }
+    .kit-modal__contenido > * + * { margin-top: var(--space-16); }
+    .kit-modal__contenido .card { padding: var(--space-16) var(--space-20); }
+    .zona + .zona { margin-top: var(--space-16); padding-top: var(--space-16); border-top: 1px solid var(--color-divider); }
+    .detalle__fichas.tres { grid-template-columns: repeat(auto-fill, minmax(min(12rem, 100%), 1fr)); }
+    .historial li { display: flex; flex-wrap: wrap; gap: 4px var(--space-10); padding: 6px 0; font-size: var(--text-caption); color: var(--color-text-secondary); }
+    .historial li strong { color: var(--color-text-primary); font-weight: 500; }
+    .lista-simple li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px var(--space-12); padding: 6px 0; font-size: var(--text-caption); border-top: 1px solid var(--color-divider); }
+    .lista-simple li:first-child { border-top: 0; }
+    .aviso-motivo { padding: var(--space-12); border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); }
+    .aviso-motivo > p:first-child { display: flex; align-items: center; gap: var(--space-8); font-weight: 600; color: var(--kit-rojo-texto); }
+    .aviso-motivo p + p { margin-top: 4px; }
+    .aviso-motivo .secundario { color: var(--color-text-secondary); }
+    .toast-pila { position: fixed; top: var(--space-16); right: var(--space-16); z-index: 70; display: grid; gap: var(--space-8); }
+    .demo-nota { font-size: var(--text-caption); color: var(--color-text-tertiary); border-left: 2px dashed var(--color-border-strong); padding-left: var(--space-8); }
+
+    /* ═════════ Filtros plegables: el mismo acordeón de Sincronización (FlitAcordeon) ═════════ */
+    .acordeon-fila { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8) var(--space-12); padding: var(--space-8) var(--space-16); }
+    .acordeon-fila .acordeon-cabeza--compacta { width: auto; flex: none; min-height: 44px; padding: var(--space-4) var(--space-8); margin-left: calc(var(--space-8) * -1); border-radius: 9px; gap: var(--space-8); }
+    /* Fila del encabezado: [› Filtros (n)] [buscador 1fr] [Vistas rápidas]; < 1024 px las vistas bajan a todo el ancho. */
+    .acordeon-fila.acordeon-fila { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
+    .acordeon-fila .filtros__buscar { min-width: 0; }
+    .acordeon-fila .filtros__buscar .control { height: 40px; min-height: 0; }
+    .acordeon-fila .acordeon-cabeza--compacta { min-height: 40px; height: 40px; }
+    .vistas-cabecera { grid-column: 1 / -1; flex-wrap: nowrap; overflow-x: auto; min-width: 0; }
+    .vistas-cabecera .chip--sm { white-space: nowrap; }
+    @media (min-width: 1024px) {
+      .acordeon-fila.acordeon-fila { grid-template-columns: auto minmax(0, 1fr) auto; }
+      .vistas-cabecera { grid-column: auto; }
+    }
+    .acordeon-cabeza[aria-expanded="true"] .chev { transform: rotate(90deg); color: var(--color-action); }
+    .acordeon__cuenta--sm { min-width: 24px; height: 24px; padding: 0 6px; font-size: var(--text-micro); font-weight: 700; }
+    .acordeon-filtros .acordeon__cuenta { display: inline-grid; } /* el kit la oculta ≤480 px; aquí es la única pista de que hay filtros puestos */
+    .acordeon__cuerpo { padding: var(--space-12) var(--space-16) var(--space-16); border-top: 1px solid var(--color-divider); }
+    .acordeon__cuerpo.filtros-orden { padding: var(--space-16); } /* mismo relleno en las cuatro caras */
+    .bloque-cabeza { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-8) var(--space-16); margin-bottom: var(--space-12); }
+    .bloque-cabeza .seccion__titulo { margin: 0; }
+    .acciones-fila { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); }
+    .vehiculo .placa--grande { flex: none; }
+
+    /* ═════════ PROPUESTA GLOBAL aprobada por el humano: azul principal #557eff en el tema claro ═════════
+       Pisa la regla :root:not([data-theme="dark"]) de kit-variables.css (que fija el azul oscuro). Decisión de David
+       (2026-11-26): TODO el azul del tema claro pasa a #557eff, títulos y enlaces incluidos, sabiendo que el texto
+       pequeño queda por debajo de 4,5:1 (waiver humano de AGENTS.md §12). */
+    :root:not([data-theme="dark"]) {
+      --kit-azul: #557eff;
+      --kit-azul-hover: color-mix(in srgb, var(--kit-azul) 86%, var(--kit-tinta));
+      --kit-azul-relleno: var(--kit-azul);
+      --gradient-action: linear-gradient(var(--kit-azul), var(--kit-azul));
+      --gradient-action-hover: linear-gradient(var(--kit-azul-hover), var(--kit-azul-hover));
+      --color-action: var(--kit-azul); --color-heading: var(--kit-azul); --color-highlight: var(--kit-azul);
+      --color-highlight-display: var(--kit-azul); --color-info: var(--kit-azul);
+    }
+
+    /* ═════════ PROPUESTA → kit-propuesta.css (junto a .placa--grande): placas por tipo ═════════
+       Moto: amarillo más naranjado. Servicio público: placa blanca, borde y texto oscuros (≈18:1). */
+    .placa.placa--moto { background-image: none; background-color: color-mix(in srgb, var(--placa-fondo) 72%, var(--kit-naranja)); box-shadow: inset 0 0 0 2px var(--placa-texto); }
+    .placa.placa--publico { background-image: none; background-color: white; box-shadow: inset 0 0 0 2px var(--placa-texto); }
+    .placa.placa--moto.placa--publico { box-shadow: inset 0 0 0 2px var(--placa-texto), inset 0 0 0 5px color-mix(in srgb, var(--placa-fondo) 72%, var(--kit-naranja)); }
+    /* ═════════ Contenido del desplegable de filtros: 3 filas (vistas · rejilla por grupos · aplicados) ═════════ */
+    .filtros-orden { display: grid; gap: var(--space-16); }
+    .filtros-rotulo { padding: 0; font-size: var(--text-micro); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--color-text-tertiary); }
+    .filtros-fila { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8) var(--space-12); }
+    .filtros-fila .chip--sm { height: 40px; min-height: 0; }
+    .filtros-rejilla { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-16); }
+    @media (min-width: 640px) { .filtros-rejilla { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (min-width: 1280px) { .filtros-rejilla { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+    .campo-filtro { display: grid; grid-template-rows: auto 40px; gap: 6px; min-width: 0; }
+    .campo-filtro--ancla { position: relative; }
+    .campo-filtro__rotulo { font-size: var(--text-caption); font-weight: 600; line-height: 1.3; color: var(--color-text-secondary); }
+    .control.control-filtro { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); width: 100%; height: 40px; min-height: 0;
+      padding: 0 var(--space-12); font-size: 0.875rem; text-align: left; cursor: pointer; background-color: var(--color-surface-elevated); color: var(--color-text-primary);
+      transition: background-color var(--motion-fast) var(--ease), border-color var(--motion-fast) var(--ease); }
+    .control.control-filtro:hover { background-color: var(--kit-hover); }
+    .control.control-filtro:focus-visible { outline: 2px solid var(--kit-azul); outline-offset: 2px; }
+    .control.control-filtro[data-puesto] { border-color: var(--kit-azul); color: var(--color-action); font-weight: 600; }
+    .control.control-filtro > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .control.control-filtro svg { flex: none; color: var(--color-text-tertiary); }
+    .menu-filtro { position: absolute; left: 0; right: 0; top: calc(100% + 4px); min-width: 0; display: grid; gap: 2px; }
+    .opcion-filtro { display: flex; align-items: center; gap: var(--space-8); padding: 6px 8px; border-radius: 7px; font-size: var(--text-caption); cursor: pointer; transition: background-color var(--motion-fast) var(--ease); }
+    .opcion-filtro:hover { background: var(--kit-hover); }
+    .filtros-pie { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8) var(--space-12); padding-top: var(--space-12); border-top: 1px solid var(--color-divider); }
+    .filtros-pie .filtros__activos { flex: 1 1 20rem; min-width: 0; }
+    .filtros-pie .filtro-activo { min-height: 32px; }
+    .filtros-pie__limpiar { margin-left: auto; }
+  </style>
+</head>
+<body class="kit-cuerpo">
+<main class="kit-main pila">
+  <nav class="maqueta-nav" aria-label="Vistas de la maqueta">Maqueta · Gestión Trámites ·
+    <a href="?vista=bandeja">1 bandeja</a> · <a href="?vista=bandeja-seleccion">2 con selección</a> ·
+    <a href="?vista=bandeja-filtros-desplegados">3a filtros desplegados</a> · <a href="?vista=bandeja-filtros">3b lista de SOAT abierta</a> · <a href="?vista=bandeja-cargando">4 cargando</a> ·
+    <a href="?vista=bandeja-error">5 error</a> · <a href="?vista=bandeja-vacio">6 vacío</a> ·
+    <a href="?vista=detalle-tramite">7 detalle trámite</a> · <a href="?vista=detalle-tramite-anulado">8 detalle anulado</a> ·
+    <a href="?vista=detalle-tramite-error">9 error en el lateral</a> · <a href="?vista=detalle-soat">10 detalle SOAT</a> ·
+    <a href="?vista=detalle-soat-cliente">11 SOAT Cliente</a> · <a href="?vista=detalle-impuesto">12 detalle impuesto</a> ·
+    <a href="?vista=toast">13 toast</a> ·
+    oscuro: <a href="?vista=bandeja&amp;tema=oscuro">1</a> · <a href="?vista=detalle-tramite&amp;tema=oscuro">7</a> · <a href="?vista=detalle-impuesto&amp;tema=oscuro">12</a>
+    · móvil = mismas vistas a 375 px
+  </nav>
+  <p class="demo-nota">Propuesta global aprobada: el azul principal del tema claro pasa a <strong>#557eff</strong> (<code>--kit-azul</code> y su hover) en toda la app. Incluye títulos y enlaces (decisión de David, con waiver de contraste).</p>
+
+  <!-- ═══════════════ BANDEJA (vistas 1–6, y fondo de 7–9 y 13) ═══════════════ -->
+  <div class="pila" data-vista="bandeja bandeja-seleccion bandeja-filtros bandeja-filtros-desplegados bandeja-cargando bandeja-error bandeja-vacio detalle-tramite detalle-tramite-anulado detalle-tramite-error toast">
+
+    <div class="page-header kit-header--sin-ilus" data-kit="cabecera">
+      <div class="page-header__texto">
+        <h1>Gestión Trámites</h1>
+        <p>Solicita SOAT e impuestos de los trámites Asignados y entrégalos cuando estén listos.</p>
+      </div>
+      <div class="page-header__acciones">
+        <button type="button" class="btn secondary" title="Crea un trámite aprobado de prueba para Logística">+ Trámite demo</button>
+      </div>
+    </div>
+
+    <!-- Sincronización plegada (sin cambio, HU #13238) -->
+    <section class="acordeon" data-kit="acordeon">
+      <button type="button" class="acordeon-cabeza" aria-expanded="false">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+        <span><strong>Sincronización</strong>
+          <span class="acordeon-resumen"><span>FLIT 1: <b>Encendida</b></span><span>FLIT 2: <b>Encendida</b>
+            <span class="requiere"><img class="img-ico" src="../../../apps/web/public/kit/aviso-alerta.svg" alt="" aria-hidden="true">Requiere atención</span></span></span>
+        </span>
+      </button>
+    </section>
+
+    <!-- Filtros: el MISMO acordeón que Sincronización. Plegado = solo la búsqueda (+ «Filtros» con la cuenta de lo aplicado). -->
+    <section class="acordeon acordeon-filtros" data-kit="acordeon" aria-label="Búsqueda y filtros">
+      <div class="acordeon-fila">
+        <button type="button" class="acordeon-cabeza acordeon-cabeza--compacta" aria-expanded="false" aria-controls="cuerpo-filtros" id="cabeza-filtros">
+          <svg class="chev" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+          <strong>Filtros</strong><span class="acordeon__cuenta acordeon__cuenta--sm" aria-label="4 filtros activos">4</span>
+        </button>
+        <div class="control-icono filtros__buscar">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input class="control" type="search" placeholder="Buscar placa, VIN, id o propietario…" aria-label="Buscar placa, VIN, id o propietario…">
+        </div>
+        <!-- Vistas rápidas: segunda columna de la fila del encabezado (visibles también con el panel plegado) -->
+        <div class="filtros-fila vistas-cabecera" role="group" aria-label="Vistas rápidas">
+          <span class="filtros-rotulo">Vistas rápidas</span>
+          <button type="button" class="chip chip--sm" aria-pressed="false" title="Trámites recién leídos de FLIT que nadie ha gestionado">Recién llegados sin gestionar</button>
+        </div>
+      </div>
+      <div class="acordeon__cuerpo filtros-orden" id="cuerpo-filtros" data-solo="bandeja-filtros bandeja-filtros-desplegados">
+        <!-- Fila 2 · rejilla simétrica de 10 celdas iguales (5×2 ≥1280 px · 2×5 en 640–1279 · 1 columna <640) -->
+        <div class="filtros-rejilla">
+          <div class="campo-filtro"><span class="campo-filtro__rotulo" id="r-creado">Creado</span>
+            <button type="button" class="control control-filtro" data-puesto aria-haspopup="dialog" aria-labelledby="r-creado v-creado"><span id="v-creado" class="tabular">1 nov – 15 nov 2026</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+          </div>
+          <div class="campo-filtro"><span class="campo-filtro__rotulo" id="r-aprobado">Aprobado</span>
+            <button type="button" class="control control-filtro" aria-haspopup="dialog" aria-labelledby="r-aprobado v-aprobado"><span id="v-aprobado">Cualquier fecha</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+          </div>
+          <div class="campo-filtro"><span class="campo-filtro__rotulo" id="r-estado">Trámite</span>
+            <button type="button" class="control control-filtro" aria-haspopup="listbox" aria-labelledby="r-estado v-estado"><span id="v-estado">Todos</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+          </div>
+          <div class="campo-filtro campo-filtro--ancla"><span class="campo-filtro__rotulo" id="r-soat">SOAT</span>
+            <button type="button" class="control control-filtro" data-puesto aria-haspopup="listbox" aria-expanded="false" aria-controls="menu-soat" id="b-soat" aria-labelledby="r-soat v-soat"><span id="v-soat">Pendiente</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+            <!-- Vista bandeja-filtros: la lista de SOAT abierta -->
+            <div class="menu-flotante menu-filtro" id="menu-soat" role="group" aria-label="Estados de SOAT" data-solo="bandeja-filtros">
+              <label class="opcion-filtro"><input type="checkbox" checked> Pendiente</label>
+              <label class="opcion-filtro"><input type="checkbox"> Solicitado</label>
+              <label class="opcion-filtro"><input type="checkbox"> En adquisición</label>
+              <label class="opcion-filtro"><input type="checkbox"> Con novedad</label>
+              <label class="opcion-filtro"><input type="checkbox"> Pagado</label>
+              <label class="opcion-filtro"><input type="checkbox"> Autogestionado</label>
+            </div>
+          </div>
+          <div class="campo-filtro"><span class="campo-filtro__rotulo" id="r-imp">Impuestos</span>
+            <button type="button" class="control control-filtro" aria-haspopup="listbox" aria-labelledby="r-imp v-imp"><span id="v-imp">Todos</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+          </div>
+          <div class="campo-filtro"><span class="campo-filtro__rotulo" id="r-fuente">Fuente</span>
+            <button type="button" class="control control-filtro" data-puesto aria-haspopup="listbox" aria-label="Filtrar por fuente: FLIT 2"><span id="v-fuente">FLIT 2</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+          </div>
+          <div class="campo-filtro"><span class="campo-filtro__rotulo" id="r-autog">Autogestión</span>
+            <button type="button" class="control control-filtro" aria-haspopup="listbox" aria-label="Filtrar por autogestión: Todas"><span id="v-autog">Todas</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+          </div>
+          <div class="campo-filtro"><span class="campo-filtro__rotulo" id="r-empresa">Empresa gestora</span>
+            <button type="button" class="control control-filtro" aria-haspopup="listbox" aria-labelledby="r-empresa v-empresa"><span id="v-empresa">Todas</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+          </div>
+          <div class="campo-filtro"><span class="campo-filtro__rotulo" id="r-transito">Tránsito</span>
+            <button type="button" class="control control-filtro" aria-haspopup="listbox" aria-labelledby="r-transito v-transito"><span id="v-transito">Todos</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+          </div>
+          <div class="campo-filtro"><span class="campo-filtro__rotulo" id="r-ciudad">Ciudad</span>
+            <button type="button" class="control control-filtro" aria-haspopup="listbox" aria-labelledby="r-ciudad v-ciudad"><span id="v-ciudad">Todas</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+          </div>
+        </div>
+
+        <!-- Fila 3 · lo aplicado + Limpiar, separado por un filete -->
+        <div class="filtros-pie">
+          <span class="filtros-rotulo">Aplicados</span>
+          <div class="filtros__activos" aria-label="Filtros aplicados">
+            <button class="filtro-activo" type="button" aria-label="Quitar filtro Creado: 1 nov – 15 nov"><span>Creado: 1 nov – 15 nov</span>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+            <button class="filtro-activo" type="button" aria-label="Quitar filtro SOAT: Pendiente"><span>SOAT: Pendiente</span>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+            <button class="filtro-activo" type="button" aria-label="Quitar filtro Fuente: FLIT 2"><span>Fuente: FLIT 2</span>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+            <button class="filtro-activo" type="button" aria-label="Quitar filtro Alerta: SOAT sin gestión"><span>Alerta: SOAT sin gestión</span>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+          </div>
+          <button type="button" class="btn ghost sm filtros-pie__limpiar">Limpiar filtros</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tabla a todo el ancho, sin tarjeta (como las colas SOAT e Impuestos) -->
+    <div id="tarjeta-tabla">
+
+      <!-- Barra de la tabla: modo SIN selección -->
+      <div class="barra-tabla" data-solo="bandeja bandeja-filtros bandeja-filtros-desplegados bandeja-error detalle-tramite detalle-tramite-anulado detalle-tramite-error toast bandeja-cargando">
+        <div class="barra-tabla__fila" data-solo="bandeja bandeja-filtros bandeja-filtros-desplegados bandeja-error detalle-tramite detalle-tramite-anulado detalle-tramite-error toast">
+          <span class="barra-tabla__cuenta" role="status">1.284 trámites</span>
+          <div class="der">
+            <button type="button" class="btn secondary sm" aria-haspopup="dialog">Columnas (2 ocultas)</button>
+            <label>Orden
+              <select class="control"><option>Más recientes primero</option><option>Más antiguos primero</option></select>
+            </label>
+          </div>
+        </div>
+        <div class="barra-tabla__fila" data-solo="bandeja-cargando" aria-hidden="true">
+          <div class="kit-esqueleto esq-barra"></div>
+          <div class="der"><div class="kit-esqueleto esq-barra" style="width:9rem"></div><div class="kit-esqueleto esq-barra" style="width:12rem"></div></div>
+        </div>
+      </div>
+
+      <!-- Barra de la tabla: modo CON selección (mismo sitio, sticky) -->
+      <div class="barra-tabla" data-solo="bandeja-seleccion">
+        <div class="barra-tabla__fila">
+          <span class="barra-tabla__cuenta barra-tabla__cuenta--sel" role="status">4 seleccionados</span>
+          <button type="button" class="btn secondary sm" aria-label="Solicitar SOAT de 3 de los 4 trámites marcados">Solicitar SOAT (3 de 4)</button>
+          <button type="button" class="btn secondary sm" aria-label="Solicitar Impuestos de 3 de los 4 trámites marcados">Solicitar Impuestos (3 de 4)</button>
+          <button type="button" class="btn secondary sm" aria-label="Solicitar ambos de 3 de los 4 trámites marcados">Solicitar ambos (3 de 4)</button>
+          <button type="button" class="btn sm" aria-label="Entregar 3 de los 4 trámites marcados">Entregar (3 de 4)</button>
+          <button type="button" class="btn secondary sm" aria-label="Descargar soportes de los 4 trámites marcados">Descargar soportes (4)</button>
+          <div class="der"><button type="button" class="btn ghost sm">Limpiar selección</button></div>
+        </div>
+        <p class="barra-tabla__desajuste">De las 4 filas marcadas, 3 están Asignadas con empresa y secretaría emparejadas y son las únicas sobre las que actúan Solicitar y Entregar. Descargar soportes usa las 4.</p>
+      </div>
+
+      <!-- Zona de avisos (orden fijo) -->
+      <div class="avisos-tabla">
+        <div class="kit-alerta" data-tono="danger" data-kit="alerta" role="alert" data-solo="bandeja-error">
+          <img src="../../../apps/web/public/kit/aviso-error.svg" alt="" aria-hidden="true" class="kit-alerta__icono">
+          <p class="m-0" style="flex:1;min-width:0;font-size:0.875rem">No pudimos cargar los trámites. Revisa tu conexión y vuelve a intentarlo.</p>
+          <div class="acciones-aviso"><button type="button" class="btn secondary sm">Reintentar</button></div>
+        </div>
+        <div class="kit-alerta" data-kit="alerta" role="status" data-solo="bandeja bandeja-seleccion bandeja-filtros bandeja-filtros-desplegados detalle-tramite detalle-tramite-anulado detalle-tramite-error toast bandeja-vacio">
+          <img src="../../../apps/web/public/kit/aviso-info.svg" alt="" aria-hidden="true" class="kit-alerta__icono">
+          <p class="m-0" style="flex:1;min-width:0;font-size:0.875rem">Hay 3 trámites nuevos que cumplen tus filtros.</p>
+          <div class="acciones-aviso"><button type="button" class="btn ghost sm">Ver</button></div>
+        </div>
+      </div>
+
+      <!-- Cargando (primera vez): esqueleto con la forma de la tabla -->
+      <div class="pila" role="status" aria-busy="true" aria-label="Cargando los trámites" data-solo="bandeja-cargando">
+        <div class="kit-esqueleto esq-fila" style="height:40px"></div>
+        <div class="kit-esqueleto esq-fila"></div><div class="kit-esqueleto esq-fila"></div><div class="kit-esqueleto esq-fila"></div><div class="kit-esqueleto esq-fila"></div>
+        <div class="kit-esqueleto esq-fila"></div><div class="kit-esqueleto esq-fila"></div><div class="kit-esqueleto esq-fila"></div><div class="kit-esqueleto esq-fila"></div>
+      </div>
+
+      <!-- Vacío: sin trámites en el sistema -->
+      <div class="card kit-vacio" data-kit="vacio" data-solo="bandeja-vacio">
+        <p class="demo-nota" style="font-weight:400">Bloque A · sin trámites en el sistema (sin filtros puestos)</p>
+        <p>Todavía no hay trámites. FLITO los trae solo de FLIT 1 y FLIT 2; aparecen aquí en cuanto lleguen. Si esperabas trámites, revisa el estado en Sincronización.</p>
+      </div>
+
+      <!-- Tabla (lleno) -->
+      <div class="tabla-wrap kit-matriz" data-kit="tabla" aria-label="Trámites" data-solo="bandeja bandeja-seleccion bandeja-filtros bandeja-filtros-desplegados bandeja-error detalle-tramite detalle-tramite-anulado detalle-tramite-error toast">
+        <table class="kit-tabla-flit matriz" aria-label="Trámites">
+          <thead><tr>
+            <th scope="col"><input type="checkbox" aria-label="Seleccionar los trámites con acciones de esta página"></th>
+            <th scope="col">Trámite</th>
+            <th scope="col">Creado</th>
+            <th scope="col">Vehículo</th>
+            <th scope="col">Empresa gestora</th>
+            <th scope="col">Tránsito</th>
+            <th scope="col">SOAT</th>
+            <th scope="col">Impuestos</th>
+            <th scope="col">Soportes</th>
+          </tr></thead>
+          <tbody>
+            <!-- 1 · accionable, falta SOAT e impuesto -->
+            <tr>
+              <td><input type="checkbox" data-marcar aria-label="Seleccionar KLM 482"></td>
+              <td><div class="celda">
+                <button type="button" class="id-tramite" aria-label="Ver el detalle del trámite 2026-000812">2026-000812</button>
+                <span>Traspaso</span>
+                <button type="button" class="chip-historial" aria-label="Ver el historial del trámite 2026-000812: Asignado"><span class="kit-etiqueta" data-tono="info"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Asignado</span></button>
+              </div></td>
+              <td><div class="celda"><span class="tabular">12 nov 2026</span><span class="nota">hace 14 días</span></div></td>
+              <td><div class="celda"><span class="placa"><span class="placa__num">KLM 482</span></span><span class="nota">Mazda 3 · Automóvil</span></div></td>
+              <td><div class="celda"><span>Concesionario Norte</span><span class="nota tabular">NIT 900111</span></div></td>
+              <td><div class="celda"><span>STT Pereira</span></div></td>
+              <td><div class="celda">
+                <span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Pendiente</span>
+                <button type="button" class="btn secondary sm" aria-label="Solicitar SOAT de KLM 482">Solicitar</button>
+              </div></td>
+              <td><div class="celda">
+                <span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Pendiente</span>
+                <button type="button" class="btn secondary sm" aria-label="Solicitar impuesto de KLM 482">Solicitar</button>
+              </div></td>
+              <td><div class="celda"><a href="#" class="enlace">Ver soportes</a><a href="#" class="enlace">Factura de venta</a></div></td>
+            </tr>
+            <!-- 2 · listo para entregar -->
+            <tr>
+              <td><input type="checkbox" data-marcar aria-label="Seleccionar PQA 310"></td>
+              <td><div class="celda">
+                <button type="button" class="id-tramite" aria-label="Ver el detalle del trámite 2026-000820">2026-000820</button>
+                <span>Matrícula inicial</span>
+                <button type="button" class="chip-historial" aria-label="Ver el historial del trámite 2026-000820: Asignado"><span class="kit-etiqueta" data-tono="info"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Asignado</span></button>
+                <span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Listo para entregar</span>
+              </div></td>
+              <td><div class="celda"><span class="tabular">13 nov 2026</span><span class="nota">hace 13 días</span></div></td>
+              <td><div class="celda"><span class="placa"><span class="placa__num">PQA 310</span></span><span class="nota">Kia Picanto · Automóvil</span></div></td>
+              <td><div class="celda"><span>Concesionario Sur</span><span class="nota tabular">NIT 900222</span></div></td>
+              <td><div class="celda"><span>STT Manizales</span></div></td>
+              <td><div class="celda"><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Pagado</span><span class="tabular">$ 512.400</span></div></td>
+              <td><div class="celda"><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Pagado</span><span class="tabular">$ 1.230.000</span></div></td>
+              <td><div class="celda"><a href="#" class="enlace">Ver soportes</a></div></td>
+            </tr>
+            <!-- 2b · SOAT con novedad (solo para la selección: 3ª accionable) -->
+            <tr data-solo="bandeja-seleccion">
+              <td><input type="checkbox" data-marcar aria-label="Seleccionar ZZB 105"></td>
+              <td><div class="celda">
+                <button type="button" class="id-tramite" aria-label="Ver el detalle del trámite 2026-000826">2026-000826</button>
+                <span>Traspaso</span>
+                <button type="button" class="chip-historial" aria-label="Ver el historial del trámite 2026-000826: Asignado"><span class="kit-etiqueta" data-tono="info"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Asignado</span></button>
+              </div></td>
+              <td><div class="celda"><span class="tabular">16 nov 2026</span><span class="nota">hace 10 días</span></div></td>
+              <td><div class="celda"><span class="placa"><span class="placa__num">ZZB 105</span></span><span class="nota">Renault Duster · Campero</span></div></td>
+              <td><div class="celda"><span>Concesionario Norte</span><span class="nota tabular">NIT 900111</span></div></td>
+              <td><div class="celda"><span>STT Pereira</span></div></td>
+              <td><div class="celda">
+                <span class="kit-etiqueta" data-tono="danger"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Con novedad</span>
+              </div></td>
+              <td><div class="celda"><span class="kit-etiqueta" data-tono="info"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Solicitado</span></div></td>
+              <td><div class="celda"><a href="#" class="enlace">Ver soportes</a><a href="#" class="enlace">Factura de venta</a></div></td>
+            </tr>
+            <!-- 3 · bloqueos: empresa no existe + secretaría sin emparejar + sin placa (VIN) -->
+            <tr>
+              <td><input type="checkbox" data-marcar aria-label="Seleccionar el vehículo con VIN 9BW…7781"></td>
+              <td><div class="celda">
+                <button type="button" class="id-tramite" aria-label="Ver el detalle del trámite 2026-000833">2026-000833</button>
+                <span>Matrícula inicial</span>
+                <button type="button" class="chip-historial" aria-label="Ver el historial del trámite 2026-000833: Recibido"><span class="kit-etiqueta" data-tono="neutro"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Recibido</span></button>
+              </div></td>
+              <td><div class="celda"><span class="tabular">20 nov 2026</span><span class="nota">hace 6 días</span></div></td>
+              <td><div class="celda"><span class="tabular" style="font-weight:600">VIN 9BW…7781</span><span class="nota">Renault Logan · Automóvil</span></div></td>
+              <td><div class="celda"><span class="nota tabular">NIT 900999</span>
+                <span class="kit-etiqueta" data-tono="danger"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Empresa no existe</span>
+                <a href="#" class="enlace">Crear empresa</a></div></td>
+              <td><div class="celda"><span>—</span><span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Secretaría sin emparejar</span></div></td>
+              <td><div class="celda"><span class="tenue">Sin registro</span></div></td>
+              <td><div class="celda"><span class="tenue">Sin registro</span></div></td>
+              <td><div class="celda"><a href="#" class="enlace">Ver soportes</a></div></td>
+            </tr>
+            <!-- 4 · anulado (Épica 14707) -->
+            <tr>
+              <td><input type="checkbox" disabled aria-label="No se puede seleccionar RTX 019: el trámite está anulado en FLIT" title="No se puede seleccionar RTX 019: el trámite está anulado en FLIT"></td>
+              <td><div class="celda">
+                <button type="button" class="id-tramite" aria-label="Ver el detalle del trámite 2026-000815">2026-000815</button>
+                <span>Traspaso</span>
+                <button type="button" class="chip-historial" aria-label="Ver el historial del trámite 2026-000815: Anulado"><span class="kit-etiqueta kit-etiqueta--icono" data-tono="anulado"><img class="img-ico" src="../../../apps/web/public/kit/estado-anulado.svg" alt="" aria-hidden="true">Anulado</span></button>
+              </div></td>
+              <td><div class="celda"><span class="tabular">13 nov 2026</span><span class="nota">hace 13 días</span></div></td>
+              <td><div class="celda"><span class="placa"><span class="placa__num">RTX 019</span></span><span class="nota">Renault Logan · Automóvil</span></div></td>
+              <td><div class="celda"><span>Concesionario Norte</span><span class="nota tabular">NIT 900111</span></div></td>
+              <td><div class="celda"><span>STT Pereira</span></div></td>
+              <td><div class="celda"><span class="tenue">Descartado</span></div></td>
+              <td><div class="celda"><span class="tenue">Descartado</span></div></td>
+              <td><div class="celda"><a href="#" class="enlace">Ver soportes</a></div></td>
+            </tr>
+            <!-- 5 · revocado (Épica 14707) -->
+            <tr>
+              <td><input type="checkbox" disabled aria-label="No se puede seleccionar JHU 773: el trámite está revocado en FLIT" title="No se puede seleccionar JHU 773: el trámite está revocado en FLIT"></td>
+              <td><div class="celda">
+                <button type="button" class="id-tramite" aria-label="Ver el detalle del trámite 2026-000790">2026-000790</button>
+                <span>Matrícula inicial</span>
+                <button type="button" class="chip-historial" aria-label="Ver el historial del trámite 2026-000790: Revocado"><span class="kit-etiqueta kit-etiqueta--icono" data-tono="revocado"><img class="img-ico" src="../../../apps/web/public/kit/estado-revocado.svg" alt="" aria-hidden="true">Revocado</span></button>
+              </div></td>
+              <td><div class="celda"><span class="tabular">2 nov 2026</span><span class="nota">hace 24 días</span></div></td>
+              <td><div class="celda"><span class="placa"><span class="placa__num">JHU 773</span></span><span class="nota">Kia Picanto · Automóvil</span></div></td>
+              <td><div class="celda"><span>Concesionario Sur</span><span class="nota tabular">NIT 900222</span></div></td>
+              <td><div class="celda"><span>STT Manizales</span></div></td>
+              <td><div class="celda"><span class="tenue">Descartado</span></div></td>
+              <td><div class="celda"><span class="tenue">Descartado</span></div></td>
+              <td><div class="celda"><a href="#" class="enlace">Ver soportes</a><a href="#" class="enlace">Factura de venta</a></div></td>
+            </tr>
+            <!-- 6 · moto (placa amarillo-naranja) -->
+            <tr>
+              <td><input type="checkbox" aria-label="Seleccionar MNB 22F"></td>
+              <td><div class="celda"><button type="button" class="id-tramite" aria-label="Ver el detalle del trámite 2026-000805">2026-000805</button><span>Traspaso</span>
+                <span class="kit-etiqueta" data-tono="info"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Asignado</span></div></td>
+              <td><div class="celda"><span class="tabular">12 nov 2026</span></div></td>
+              <td><div class="celda"><span class="placa placa--moto"><span class="placa__num">MNB 22F</span></span><span class="nota">Yamaha NMAX · Motocicleta</span></div></td>
+              <td><div class="celda"><span>Concesionario Sur</span><span class="nota tabular">NIT 900222</span></div></td>
+              <td><div class="celda"><span>STT Manizales</span></div></td>
+              <td><div class="celda"><span class="kit-etiqueta" data-tono="info"><span class="kit-etiqueta__punto" aria-hidden="true"></span>En adquisición</span></div></td>
+              <td><div class="celda"><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Pagado</span><span class="tabular">$ 980.000</span></div></td>
+              <td><div class="celda"><a href="#" class="enlace">Ver soportes</a></div></td>
+            </tr>
+            <!-- 7 · servicio público (placa blanca) -->
+            <tr>
+              <td><input type="checkbox" aria-label="Seleccionar TRE 664"></td>
+              <td><div class="celda"><button type="button" class="id-tramite" aria-label="Ver el detalle del trámite 2026-000802">2026-000802</button><span>Matrícula inicial</span>
+                <span class="kit-etiqueta" data-tono="info"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Asignado</span></div></td>
+              <td><div class="celda"><span class="tabular">11 nov 2026</span></div></td>
+              <td><div class="celda"><span class="placa placa--publico"><span class="placa__num">TRE 664</span></span><span class="nota">Hyundai Grand i10 · Taxi · Público</span></div></td>
+              <td><div class="celda"><span>Concesionario Norte</span><span class="nota tabular">NIT 900111</span></div></td>
+              <td><div class="celda"><span>STT Pereira</span></div></td>
+              <td><div class="celda"><span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Pendiente</span><button type="button" class="btn secondary sm" aria-label="Solicitar SOAT de TRE 664">Solicitar</button></div></td>
+              <td><div class="celda"><span class="kit-etiqueta" data-tono="danger"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Con novedad</span></div></td>
+              <td><div class="celda"><a href="#" class="enlace">Ver soportes</a></div></td>
+            </tr>
+            <!-- 8 · moto de servicio público (solo en la selección, para dar recorrido al scroll) -->
+            <tr data-solo="bandeja-seleccion">
+              <td><input type="checkbox" aria-label="Seleccionar KTR 18D"></td>
+              <td><div class="celda"><button type="button" class="id-tramite" aria-label="Ver el detalle del trámite 2026-000799">2026-000799</button><span>Traspaso</span>
+                <span class="kit-etiqueta" data-tono="info"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Asignado</span></div></td>
+              <td><div class="celda"><span class="tabular">10 nov 2026</span></div></td>
+              <td><div class="celda"><span class="placa placa--moto placa--publico"><span class="placa__num">KTR 18D</span></span><span class="nota">AKT 125 · Motocicleta · Público</span></div></td>
+              <td><div class="celda"><span>Concesionario Sur</span><span class="nota tabular">NIT 900222</span></div></td>
+              <td><div class="celda"><span>STT Manizales</span></div></td>
+              <td><div class="celda"><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Pagado</span><span class="tabular">$ 512.400</span></div></td>
+              <td><div class="celda"><span class="kit-etiqueta" data-tono="info"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Solicitado</span></div></td>
+              <td><div class="celda"><a href="#" class="enlace">Ver soportes</a></div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Vacío por filtro -->
+      <div data-solo="bandeja-vacio" style="margin-top:var(--space-24)">
+        <p class="demo-nota">Bloque B · con filtros puestos y sin coincidencias (la barra diría «0 trámites»)</p>
+        <div class="card kit-vacio" data-kit="vacio">
+          <p>Ningún trámite coincide con el filtro. Quita algún filtro de arriba o usa «Limpiar filtros».</p>
+        </div>
+      </div>
+
+      <!-- Paginación: abajo, única -->
+      <div class="kit-paginacion paginacion-centro" data-kit="paginacion" data-solo="bandeja bandeja-seleccion bandeja-filtros bandeja-filtros-desplegados bandeja-error detalle-tramite detalle-tramite-anulado detalle-tramite-error toast">
+        <button type="button" class="btn secondary sm" disabled>‹ Anterior</button>
+        <span>Página 1 de 26</span>
+        <button type="button" class="btn secondary sm">Siguiente ›</button>
+      </div>
+    </div>
+    <p class="demo-nota" data-solo="bandeja-seleccion">Tabla desplazada: la barra de selección queda fija bajo la barra superior de la app. Marcar no movió la tabla: la barra cambió de modo en el mismo sitio. Columnas, Orden y el conteo se ocultan mientras hay filas marcadas.</p>
+  </div>
+
+  <!-- ═══════════════ 7–9 · DETALLE DEL TRÁMITE (apaisado) ═══════════════ -->
+  <div class="kit-velo velo-centrado" data-vista="detalle-tramite detalle-tramite-anulado detalle-tramite-error">
+    <div class="kit-modal kit-modal--horizontal" role="dialog" aria-modal="true" aria-labelledby="titulo-tramite">
+      <div class="kit-modal__cabeza">
+        <div class="cabeza__texto">
+          <small class="kit-modal__ante" aria-live="polite">Gestión Trámites · 4 de 128</small>
+          <div class="cabeza__linea">
+            <h2 id="titulo-tramite" class="kit-modal__titulo tabular" data-solo="detalle-tramite detalle-tramite-error">2026-000812</h2>
+            <h2 id="titulo-tramite-anulado" class="kit-modal__titulo tabular" data-solo="detalle-tramite-anulado">2026-000815</h2>
+            <span class="kit-etiqueta" data-tono="neutro"><span class="kit-etiqueta__punto" aria-hidden="true"></span>FLIT 1</span>
+            <span class="kit-etiqueta" data-tono="info" data-solo="detalle-tramite detalle-tramite-error"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Asignado</span>
+            <span class="kit-etiqueta kit-etiqueta--icono" data-tono="anulado" data-solo="detalle-tramite-anulado"><img class="img-ico" src="../../../apps/web/public/kit/estado-anulado.svg" alt="" aria-hidden="true">Anulado</span>
+          </div>
+        </div>
+        <div class="cabeza__nav"><button type="button" class="btn ghost sm">‹ Anterior</button><button type="button" class="btn ghost sm">Siguiente ›</button></div>
+        <button type="button" class="kit-modal__cerrar" aria-label="Cerrar">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
+
+      <div class="kit-modal__columnas">
+        <section class="kit-modal__lateral flit-focus-inset" role="region" tabindex="0" aria-label="Estado y acciones del trámite">
+          <div class="lateral-bloque">
+            <h3 class="lateral-titulo">Estado de la gestión</h3>
+            <dl class="dl-lateral" data-solo="detalle-tramite detalle-tramite-error">
+              <dt>Para entregar</dt><dd>Falta: SOAT</dd>
+              <dt>Semáforo</dt><dd><span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Amarillo</span></dd>
+              <dt>SOAT</dt><dd><span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Pendiente</span></dd>
+              <dt>Impuestos</dt><dd><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Pagado</span></dd>
+              <dt>Logística</dt><dd>Registrada</dd>
+            </dl>
+            <dl class="dl-lateral" data-solo="detalle-tramite-anulado">
+              <dt>Para entregar</dt><dd><span class="tenue">No aplica</span></dd>
+              <dt>Semáforo</dt><dd><span class="tenue">Sin dato</span></dd>
+              <dt>SOAT</dt><dd><span class="tenue">Descartado</span></dd>
+              <dt>Impuestos</dt><dd><span class="tenue">Descartado</span></dd>
+              <dt>Logística</dt><dd>Sin registro</dd>
+            </dl>
+          </div>
+          <!-- El lateral queda con el estado de la gestión + el índice. Las acciones van arriba, en el bloque del vehículo. -->
+        </section>
+
+        <nav class="kit-modal__indice" aria-label="Secciones del trámite">
+          <ul class="indice-lista">
+            <li><button type="button" aria-current="true">Vehículo</button></li>
+            <li><button type="button">Resumen</button></li>
+            <li><button type="button">Propietario y gestora</button></li>
+            <li><button type="button">Soportes (3)</button></li>
+            <li><button type="button">Costos y facturación</button></li>
+            <li><button type="button">Historial</button></li>
+          </ul>
+        </nav>
+
+        <section class="kit-modal__contenido flit-focus-inset" role="region" tabindex="0" aria-label="Detalle del trámite 2026-000812">
+          <div class="kit-alerta" data-tono="warn" role="alert" tabindex="-1" data-solo="detalle-tramite-anulado">
+            <img src="../../../apps/web/public/kit/aviso-alerta.svg" alt="" aria-hidden="true" class="kit-alerta__icono">
+            <div><p class="m-0"><strong>Trámite anulado en FLIT</strong></p>
+            <p>Este trámite se anuló en FLIT, por eso en FLITO ya no tiene acciones: no se puede solicitar SOAT ni impuestos, ni entregar. Si tenía un SOAT o un impuesto en curso, se descartó y salió de su cola.</p></div>
+          </div>
+
+          <!-- Bloque del vehículo: arriba, con la fila compacta de acciones (una primaria). Un trámite muerto no la tiene (14707 §4). -->
+          <section class="card" aria-labelledby="s-vehiculo">
+            <div class="bloque-cabeza">
+              <h3 class="seccion__titulo" id="s-vehiculo">Vehículo</h3>
+              <div class="acciones-fila" data-solo="detalle-tramite detalle-tramite-error">
+                <button type="button" class="btn secondary sm">Solicitar SOAT</button>
+                <button type="button" class="btn secondary sm">Solicitar Impuestos</button>
+                <button type="button" class="btn secondary sm">Solicitar ambos</button>
+                <button type="button" class="btn sm">Entregar</button>
+              </div>
+            </div>
+            <div class="vehiculo" data-kit="vehiculo">
+              <span class="placa placa--grande" data-solo="detalle-tramite detalle-tramite-error"><span class="placa__num">KLM 482</span></span>
+              <span class="placa placa--grande" data-solo="detalle-tramite-anulado"><span class="placa__num">RTX 019</span></span>
+              <div class="vehiculo__datos">
+                <p class="vehiculo__nombre" data-solo="detalle-tramite detalle-tramite-error">Mazda 3</p>
+                <p class="vehiculo__nombre" data-solo="detalle-tramite-anulado">Renault Logan</p>
+                <p class="vehiculo__meta">Automóvil · Particular · VIN 9BW…4251</p>
+              </div>
+            </div>
+            <p class="error-accion" role="alert" data-solo="detalle-tramite-error">No se pudo solicitar el SOAT. Intenta de nuevo.</p>
+          </section>
+
+          <section class="card" aria-labelledby="s-resumen">
+            <h3 class="seccion__titulo" id="s-resumen">Resumen</h3>
+            <dl class="dl">
+              <div><dt>Tipo de trámite</dt><dd data-solo="detalle-tramite detalle-tramite-error">Traspaso</dd><dd data-solo="detalle-tramite-anulado">Traspaso</dd></div>
+              <div><dt>Creado</dt><dd class="tabular" data-solo="detalle-tramite detalle-tramite-error">12 nov 2026</dd><dd class="tabular" data-solo="detalle-tramite-anulado">13 nov 2026</dd></div>
+              <div><dt>Aprobado</dt><dd class="tabular">14 nov 2026</dd></div>
+              <div><dt>Ciudad</dt><dd>Pereira</dd></div>
+              <div><dt>Sincronizado</dt><dd class="tabular">24 nov 2026</dd></div>
+            </dl>
+          </section>
+
+          <section class="card" aria-labelledby="s-propietario">
+            <h3 class="seccion__titulo" id="s-propietario">Propietario y gestora</h3>
+            <dl class="dl">
+              <div><dt>Propietario</dt><dd>Comprador de ejemplo</dd></div>
+              <div><dt>Documento</dt><dd class="tabular">CC ••••</dd></div>
+              <div><dt>Empresa gestora</dt><dd>Concesionario Norte · NIT 900111</dd></div>
+              <div><dt>Tránsito</dt><dd>STT Pereira</dd></div>
+            </dl>
+          </section>
+
+          <section class="card" aria-labelledby="s-soportes">
+            <h3 class="seccion__titulo" id="s-soportes">Soportes (3)</h3>
+            <ul class="lista-simple">
+              <li><span>Factura de venta</span><a href="#" class="enlace-btn">Ver</a></li>
+              <li><span>Formulario de solicitud</span><a href="#" class="enlace-btn">Ver</a></li>
+              <li><span>Improntas</span><a href="#" class="enlace-btn">Ver</a></li>
+            </ul>
+          </section>
+
+          <section class="card" aria-labelledby="s-costos">
+            <h3 class="seccion__titulo" id="s-costos">Costos y facturación</h3>
+            <ul class="lista-simple">
+              <li><span>SOAT</span><span class="tabular">—</span></li>
+              <li><span>Impuesto vehicular</span><span class="tabular">$ 1.230.000</span></li>
+            </ul>
+          </section>
+
+          <section class="card" aria-labelledby="s-historial">
+            <h3 class="seccion__titulo" id="s-historial">Historial</h3>
+            <ul class="historial">
+              <li><span class="tabular">12 nov 09:10</span><strong>Recibido</strong><span>leído de FLIT 1</span></li>
+              <li><span class="tabular">14 nov 15:22</span><strong>Asignado</strong><span>empresa y secretaría emparejadas</span></li>
+              <li data-solo="detalle-tramite-anulado"><span class="tabular">24 nov 08:05</span><strong>Anulado</strong><span>estado en FLIT: Anulado</span></li>
+            </ul>
+          </section>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ 10–11 · DETALLE SOAT (apaisado, sin índice) · moto MNB 22F ═══════════════ -->
+  <p class="demo-nota" data-vista="detalle-soat detalle-soat-cliente detalle-impuesto">Detrás va la cola de SOAT o Impuestos (sin cambio en esta spec).</p>
+  <div class="kit-velo velo-centrado" data-vista="detalle-soat detalle-soat-cliente">
+    <div class="kit-modal kit-modal--horizontal" role="dialog" aria-modal="true" aria-label="SOAT · MNB22F">
+      <div class="kit-modal__cabeza">
+        <div class="cabeza__texto">
+          <div class="cabeza__linea">
+            <h2 class="kit-modal__titulo">SOAT</h2>
+            <span class="kit-etiqueta" data-tono="info" data-solo="detalle-soat"><span class="kit-etiqueta__punto" aria-hidden="true"></span>En adquisición</span>
+            <span class="kit-etiqueta" data-tono="neutro" data-solo="detalle-soat"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Sin gestión hace 3 días</span>
+            <span class="kit-etiqueta" data-tono="danger" data-solo="detalle-soat-cliente"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Con novedad</span>
+          </div>
+        </div>
+        <button type="button" class="kit-modal__cerrar" aria-label="Cerrar">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
+      <div class="kit-modal__columnas">
+        <!-- Lateral: aviso + comprobante + documentos, en texto y enlaces (sin pila de botones) -->
+        <section class="kit-modal__lateral flit-focus-inset" role="region" tabindex="0" aria-label="Estado del SOAT">
+          <div class="lateral-bloque" data-solo="detalle-soat-cliente">
+            <div class="aviso-motivo">
+              <p><img class="img-ico" src="../../../apps/web/public/kit/aviso-error.svg" alt="" aria-hidden="true">Motivo de la novedad</p>
+              <p>La factura de venta no corresponde al VIN del vehículo.</p>
+              <p class="secundario">Su solicitud sigue abierta: FLITO está resolviendo esta novedad con el gestor. No tiene que hacer nada por ahora.</p>
+            </div>
+          </div>
+          <div class="lateral-bloque">
+            <h3 class="lateral-titulo">Comprobante</h3>
+            <p class="tenue">Todavía no hay comprobante.</p>
+          </div>
+          <div class="lateral-bloque" data-solo="detalle-soat">
+            <h3 class="lateral-titulo">Documentos adicionales</h3>
+            <ul class="lista-simple">
+              <li><span>Cotización</span><a href="#" class="enlace-btn">Ver</a></li>
+              <li><span>Formulario del tomador</span><a href="#" class="enlace-btn">Ver</a></li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="kit-modal__contenido flit-focus-inset" role="region" tabindex="0" aria-label="Datos del SOAT MNB22F">
+          <!-- Bloque principal: acciones arriba (una primaria), vehículo y datos -->
+          <section class="card" aria-labelledby="s-soat-datos">
+            <div class="bloque-cabeza">
+              <h3 class="seccion__titulo" id="s-soat-datos">Datos</h3>
+              <div class="acciones-fila" data-solo="detalle-soat">
+                <button type="button" class="btn sm">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20V9m0 0-4 4m4-4 4 4M5 4h14"/></svg>
+                  Cargar comprobante de SOAT</button>
+                <button type="button" class="btn secondary sm">Rechazar</button>
+              </div>
+            </div>
+            <div class="vehiculo" data-kit="vehiculo">
+              <span class="placa placa--grande placa--moto"><span class="placa__num">MNB 22F</span></span>
+              <div class="vehiculo__datos">
+                <p class="vehiculo__nombre">Yamaha NMAX</p>
+                <p class="vehiculo__meta">Motocicleta · Particular · VIN 9BW…6120</p>
+              </div>
+            </div>
+            <dl class="detalle__fichas dl tres" data-kit="fichas" style="margin-top:var(--space-16)">
+              <div><dt>Compañía</dt><dd>Concesionario Sur</dd></div>
+              <div><dt>Organismo</dt><dd>STT Manizales</dd></div>
+              <div><dt>Trámite FLIT</dt><dd class="tabular">2026-000805</dd></div>
+              <div><dt>Trámite creado</dt><dd class="tabular">12 nov 2026</dd></div>
+              <div><dt>Trámite aprobado</dt><dd class="tabular">14 nov 2026</dd></div>
+              <div data-solo="detalle-soat"><dt>Gestiona</dt><dd>Aseguradora Sur</dd></div>
+              <div data-solo="detalle-soat"><dt>Enviado por</dt><dd>Operador de ejemplo</dd></div>
+              <div><dt>Enviado</dt><dd class="tabular">21 nov 2026</dd></div>
+              <div data-solo="detalle-soat"><dt>Valor pagado</dt><dd>—</dd></div>
+              <div><dt>Vigencia</dt><dd>—</dd></div>
+              <div data-solo="detalle-soat"><dt>Último dato RUNT</dt><dd>—</dd></div>
+            </dl>
+          </section>
+          <div class="zona">
+            <h3 class="seccion__titulo">Compradores</h3>
+            <ul class="lista-simple">
+              <li><span>Comprador de ejemplo · <span class="tabular">CC ••••</span></span><span class="tabular">100 %</span></li>
+            </ul>
+          </div>
+          <div class="zona" data-solo="detalle-soat">
+            <h3 class="seccion__titulo">Corregir el caso</h3>
+            <div class="fila">
+              <button type="button" class="btn ghost sm">Reversar</button>
+              <button type="button" class="btn ghost sm">Cambiar proveedor</button>
+              <button type="button" class="btn ghost sm">Asumir en Operaciones</button>
+            </div>
+          </div>
+          <div class="zona" data-solo="detalle-soat">
+            <h3 class="seccion__titulo">Historial</h3>
+            <ul class="historial">
+              <li><span class="tabular">14 nov 15:22</span><strong>Pendiente</strong><span>trámite aprobado en FLIT</span></li>
+              <li><span class="tabular">21 nov 10:05</span><strong>Solicitado</strong><span>por Operador de ejemplo</span></li>
+              <li><span class="tabular">23 nov 08:40</span><strong>En adquisición</strong><span>por Aseguradora Sur</span></li>
+            </ul>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ 12 · DETALLE IMPUESTO (apaisado, con novedad) · taxi público TRE 664 ═══════════════ -->
+  <div class="kit-velo velo-centrado" data-vista="detalle-impuesto">
+    <div class="kit-modal kit-modal--horizontal" role="dialog" aria-modal="true" aria-label="Impuesto · TRE664">
+      <div class="kit-modal__cabeza">
+        <div class="cabeza__texto">
+          <div class="cabeza__linea">
+            <h2 class="kit-modal__titulo">Impuesto</h2>
+            <span class="kit-etiqueta" data-tono="danger"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Con novedad</span>
+            <span class="kit-etiqueta" data-tono="warn"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Diferencia de valor</span>
+            <span class="kit-etiqueta" data-tono="neutro"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Docs: Liquidación</span>
+          </div>
+        </div>
+        <button type="button" class="kit-modal__cerrar" aria-label="Cerrar">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
+      <div class="kit-modal__columnas">
+        <section class="kit-modal__lateral flit-focus-inset" role="region" tabindex="0" aria-label="Estado del impuesto">
+          <div class="lateral-bloque">
+            <div class="aviso-motivo">
+              <p><img class="img-ico" src="../../../apps/web/public/kit/aviso-error.svg" alt="" aria-hidden="true">Motivo de rechazo</p>
+              <p>El valor no coincide con la liquidación de la secretaría.</p>
+            </div>
+          </div>
+          <div class="lateral-bloque">
+            <h3 class="lateral-titulo">Comprobante</h3>
+            <ul class="lista-simple">
+              <li><span>Comprobante de pago</span><a href="#" class="enlace-btn">Ver soporte</a></li>
+              <li><span>En FLIT 2</span><span class="tabular">Enviado el 22 nov 2026</span></li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="kit-modal__contenido flit-focus-inset" role="region" tabindex="0" aria-label="Datos del impuesto TRE664">
+          <!-- Bloque principal: acciones arriba, vehículo y datos (sin primaria: Reactivar es secundaria, como hoy) -->
+          <section class="card" aria-labelledby="s-imp-datos">
+            <div class="bloque-cabeza">
+              <h3 class="seccion__titulo" id="s-imp-datos">Datos</h3>
+              <div class="acciones-fila">
+                <button type="button" class="btn secondary sm">Reactivar</button>
+                <button type="button" class="btn secondary sm">Cargar comprobante</button>
+                <button type="button" class="btn secondary sm">Cargar recibo de caja</button>
+              </div>
+            </div>
+            <div class="vehiculo" data-kit="vehiculo">
+              <span class="placa placa--grande placa--publico"><span class="placa__num">TRE 664</span></span>
+              <div class="vehiculo__datos">
+                <p class="vehiculo__nombre">Hyundai Grand i10</p>
+                <p class="vehiculo__meta">Taxi · Servicio público · VIN 9BW…3318</p>
+              </div>
+            </div>
+            <dl class="detalle__fichas dl tres" data-kit="fichas" style="margin-top:var(--space-16)">
+              <div><dt>Trámite FLIT</dt><dd class="tabular">2026-000802</dd></div>
+              <div><dt>Modelo</dt><dd class="tabular">2026</dd></div>
+              <div><dt>Compañía</dt><dd>Concesionario Norte</dd></div>
+              <div><dt>Organismo</dt><dd>STT Pereira</dd></div>
+              <div><dt>Tipo de trámite</dt><dd>Matrícula inicial</dd></div>
+              <div><dt>Trámite creado</dt><dd class="tabular">11 nov 2026</dd></div>
+              <div><dt>Trámite aprobado</dt><dd class="tabular">13 nov 2026</dd></div>
+              <div><dt>Solicitado</dt><dd class="tabular">18 nov 2026</dd></div>
+              <div><dt>Enviado</dt><dd class="tabular">19 nov 2026</dd></div>
+              <div><dt>Gestiona</dt><dd>Gestor de ejemplo</dd></div>
+              <div><dt>Liquidado</dt><dd class="tabular">$ 1.230.000</dd></div>
+              <div><dt>Valor de la factura</dt><dd class="tabular">$ 1.180.000</dd></div>
+              <div><dt>Pagado</dt><dd>—</dd></div>
+              <div><dt>Vigencia</dt><dd class="tabular">2026</dd></div>
+            </dl>
+          </section>
+          <div class="zona">
+            <h3 class="seccion__titulo">Validación factura ↔ RUNT</h3>
+            <div class="tabla-wrap kit-matriz" data-kit="tabla">
+              <table class="kit-tabla-flit matriz" aria-label="Validación de la factura contra el RUNT">
+                <thead><tr><th scope="col">Dato</th><th scope="col">Factura</th><th scope="col">RUNT</th><th scope="col">Resultado</th></tr></thead>
+                <tbody>
+                  <tr><td>VIN</td><td class="tabular">9BW…3318</td><td class="tabular">9BW…3318</td><td><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Coincide</span></td></tr>
+                  <tr><td>Marca</td><td>Hyundai</td><td>Hyundai</td><td><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Coincide</span></td></tr>
+                  <tr><td>Línea</td><td>Grand i10</td><td>Grand i10</td><td><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Coincide</span></td></tr>
+                  <tr><td>Servicio</td><td>Público</td><td>Público</td><td><span class="kit-etiqueta" data-tono="ok"><span class="kit-etiqueta__punto" aria-hidden="true"></span>Coincide</span></td></tr>
+                  <tr><td>Valor base</td><td class="tabular">$ 59.000.000</td><td class="tabular">$ 61.500.000</td><td><span class="kit-etiqueta" data-tono="danger"><span class="kit-etiqueta__punto" aria-hidden="true"></span>No coincide</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="zona">
+            <h3 class="seccion__titulo">Documento de factura · Dirección del comprador</h3>
+            <dl class="detalle__fichas dl tres" data-kit="fichas">
+              <div><dt>Factura</dt><dd class="tabular">FE-000123 · 10 nov 2026</dd></div>
+              <div><dt>Dirección del comprador</dt><dd>Calle 00 # 00-00, Pereira</dd></div>
+            </dl>
+          </div>
+          <div class="zona">
+            <h3 class="seccion__titulo">Corregir el caso</h3>
+            <div class="fila">
+              <button type="button" class="btn ghost sm">Asumir en Operaciones</button>
+              <button type="button" class="btn ghost sm">Reversar</button>
+            </div>
+          </div>
+          <div class="zona">
+            <h3 class="seccion__titulo">Historial</h3>
+            <ul class="historial">
+              <li><span class="tabular">13 nov 11:02</span><strong>Pendiente</strong><span>trámite aprobado en FLIT</span></li>
+              <li><span class="tabular">18 nov 08:30</span><strong>Solicitado</strong><span>por Operador de ejemplo</span></li>
+              <li><span class="tabular">22 nov 16:12</span><strong>Con novedad</strong><span>por Gestor de ejemplo</span></li>
+            </ul>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ 13 · TOAST de la fila ═══════════════ -->
+  <div class="toast-pila" data-vista="toast">
+    <div role="alert" class="kit-aviso" data-tono="danger" data-kit="aviso">
+      <img src="../../../apps/web/public/kit/aviso-error.svg" alt="" aria-hidden="true" class="kit-aviso__icono">
+      <p class="kit-aviso__texto m-0">No se pudo abrir la factura de venta del trámite 2026-000812. Intenta de nuevo.
+        <button type="button" class="enlace-btn" style="margin:0 0 0 -6px">Reintentar</button></p>
+      <button type="button" aria-label="Cerrar aviso" title="Cerrar aviso" class="kit-aviso__cerrar">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </div>
+  </div>
+</main>
+<script>
+  const q = new URLSearchParams(location.search);
+  const vista = q.get('vista') || 'bandeja';
+  if (q.get('tema') === 'oscuro') document.documentElement.dataset.theme = 'dark';
+  document.querySelectorAll('[data-vista]').forEach((el) => {
+    if (el.dataset.vista.split(' ').includes(vista)) el.classList.add('activa');
+  });
+  document.querySelectorAll('[data-solo]').forEach((el) => {
+    if (!el.dataset.solo.split(' ').includes(vista)) el.style.display = 'none';
+  });
+  // Vista 3: el panel abierto.
+  if (vista === 'bandeja-filtros' || vista === 'bandeja-filtros-desplegados') document.getElementById('cabeza-filtros').setAttribute('aria-expanded', 'true');
+  if (vista === 'bandeja-filtros') document.getElementById('b-soat').setAttribute('aria-expanded', 'true');
+  // Vista 2: 4 marcadas y la tabla desplazada para ver la barra sticky.
+  if (vista === 'bandeja-seleccion') {
+    document.querySelectorAll('[data-marcar]').forEach((c) => { if (c.closest('tr').style.display !== 'none') c.checked = true; });
+    const t = document.getElementById('tarjeta-tabla');
+    requestAnimationFrame(() => window.scrollTo(0, t.getBoundingClientRect().top + window.scrollY + 260));
+  }
+  // Con un detalle abierto, la página de detrás no se desplaza.
+  if (vista.startsWith('detalle-')) document.body.style.overflow = 'hidden';
+  if (vista === 'detalle-tramite-anulado') {
+    document.querySelector('[aria-labelledby="titulo-tramite"]').setAttribute('aria-labelledby', 'titulo-tramite-anulado');
+    document.querySelector('[aria-label="Detalle del trámite 2026-000812"]').setAttribute('aria-label', 'Detalle del trámite 2026-000815');
+  }
+</script>
+</body>
+</html>

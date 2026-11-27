@@ -346,6 +346,26 @@ test.describe('AC3 — el motivo, la acción y quién lo resuelve', () => {
     await expect(page.getByRole('checkbox', { name: 'Seleccionar FLIT-2007' })).toHaveCount(0);
   });
 
+  test('Épica #14707 (D8): la factura de un trámite revocado lleva el chip «Revocado» y queda fuera del lote', async ({ page }) => {
+    const VIVO = { ...CASO_EMISION, tramites: [{ tramiteId: TRAMITE, idFlit: 'FLIT-2044', vigenciaTramite: 'vigente' }] };
+    // Mismo tipo de caso (emisión, admite lote): lo único que cambia es que FLIT revocó su trámite.
+    const REVOCADO = {
+      ...CASO_EMISION, refId: 'ffffffff-6666-4666-8666-666666666666', facturaId: 'f9999999-9999-4999-8999-999999999999',
+      colaId: 'c9999999-9999-4999-8999-999999999999',
+      tramites: [{ tramiteId: 'ffffffff-7777-4777-8777-777777777777', idFlit: 'FLIT-2050', vigenciaTramite: 'revocado' }],
+    };
+    await loginAs(page, ADMIN_USER);
+    await mockBandeja(page, { items: [VIVO, REVOCADO] });
+    await page.goto('/siigo/operacion');
+
+    const filaRevocada = page.getByRole('row').filter({ hasText: 'FLIT-2050' });
+    await expect(filaRevocada.getByText('Revocado', { exact: true })).toBeVisible();
+    await expect(page.getByRole('checkbox', { name: 'Seleccionar FLIT-2050' })).toHaveCount(0);
+    const filaViva = page.getByRole('row').filter({ hasText: 'FLIT-2044' });
+    await expect(filaViva.getByText('Revocado', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('checkbox', { name: 'Seleccionar FLIT-2044' })).toBeVisible();
+  });
+
   test('los filtros viajan en el CUERPO y la URL no cambia ni lleva PII', async ({ page }) => {
     const cuerpos: unknown[] = [];
     await loginAs(page, ADMIN_USER);

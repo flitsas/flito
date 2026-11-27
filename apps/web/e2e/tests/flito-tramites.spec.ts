@@ -1,5 +1,6 @@
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, funcionesDe, sobreDeMios, OPERACIONES_USER, AUDITOR_USER } from '../helpers/auth';
+import { abrirFiltros, alternarMulti, botonFiltros, controlMulti, panelFiltros } from '../helpers/filtrosTramites';
 
 // FLITO — Trámites unificado (Fase 6). Vista de despacho: una fila por trámite,
 // solicitud de SOAT/impuestos/ambos y entrega en lote. Operaciones muta; Auditoría
@@ -28,7 +29,7 @@ const TRAMITES = [
     excepcionesAutogestion: [],
     soatAutogestionado: false,
     impuesto: { id: 'i1', estado: 'pendiente', tieneFacturaVenta: false, valorPagado: null },
-    listoParaEntregar: false,
+    vigenciaTramite: 'vigente', listoParaEntregar: false,
   },
   {
     fechaCreacion: haceDias(10),
@@ -43,7 +44,7 @@ const TRAMITES = [
     excepcionesAutogestion: [],
     soatAutogestionado: false,
     impuesto: { id: 'i2', estado: 'pagado', tieneFacturaVenta: true, valorPagado: 120000 },
-    listoParaEntregar: true,
+    vigenciaTramite: 'vigente', listoParaEntregar: true,
   },
   {
     fechaCreacion: null, // trámite del que no se conoce la fecha (AC5)
@@ -60,7 +61,7 @@ const TRAMITES = [
     excepcionesAutogestion: [],
     soatAutogestionado: false,
     impuesto: { id: 'i3', estado: 'pendiente', tieneFacturaVenta: false, valorPagado: null },
-    listoParaEntregar: false,
+    vigenciaTramite: 'vigente', listoParaEntregar: false,
   },
 ];
 
@@ -93,9 +94,20 @@ test.describe('FLITO — Trámites unificado', () => {
     await expect(page.getByText('ABC123')).toBeVisible();
     // Un trámite listo para entregar muestra su chip.
     await expect(page.getByText('Listo para entregar')).toBeVisible();
-    // Filtros multiselect embebidos en el encabezado de columna (SOAT/Impuestos por estado).
-    await expect(page.getByRole('columnheader', { name: /SOAT/ }).getByText('Todos')).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: /Impuestos/ }).getByText('Todos')).toBeVisible();
+    // Épica #14707, bloque 4 (R11): las cabeceras van en texto plano, sin filtros; sin columna «Ver».
+    await expect(page.getByRole('columnheader', { name: 'SOAT', exact: true })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: 'Impuestos', exact: true })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: 'Detalle' })).toHaveCount(0);
+    // El ID es el enlace al detalle (botón con nombre que contiene el texto visible).
+    await expect(page.getByRole('button', { name: 'Ver el detalle del trámite FLIT-1001' })).toHaveText('FLIT-1001');
+    // Los filtros viven en el panel: 10 celdas (sin enlace) y SOAT/Impuestos en «Todos».
+    await abrirFiltros(page);
+    await expect(controlMulti(page, 'SOAT')).toHaveAccessibleName('SOAT Todos');
+    await expect(controlMulti(page, 'Impuestos')).toHaveAccessibleName('Impuestos Todos');
+    // Filtrar por SOAT desde el panel crea el chip y sube la cuenta de «Filtros» (UX §14.4).
+    await alternarMulti(page, 'SOAT', 'Pendiente');
+    await expect(panelFiltros(page).getByRole('button', { name: 'Quitar filtro SOAT: Pendiente' })).toBeVisible();
+    await expect(botonFiltros(page).getByLabel('1 filtros activos')).toHaveText('1');
   });
 
   test('seleccionar filas abre la barra de acciones y el diálogo de proveedor', async ({ page }) => {
@@ -109,7 +121,7 @@ test.describe('FLITO — Trámites unificado', () => {
 
     await page.goto('/flito/tramites');
     await page.getByLabel('Seleccionar ABC123').check();
-    await expect(page.getByText('1 seleccionado(s)')).toBeVisible();
+    await expect(page.getByText('1 seleccionado', { exact: true })).toBeVisible();
 
     // La barra rotula con el número de filas ACCIONABLES de lo marcado (HU #11910): «(1)» aquí, y
     // «(2 de 3)» cuando se marca algo que no lo es. El del diálogo sigue siendo «Solicitar SOAT».
@@ -161,7 +173,7 @@ test.describe('FLITO — Trámites unificado', () => {
 
     await page.goto('/flito/tramites');
     await page.getByLabel('Seleccionar las filas de esta página').check();
-    await expect(page.getByText('3 seleccionado(s)')).toBeVisible();
+    await expect(page.getByText('3 seleccionados', { exact: true })).toBeVisible();
     await expect(page.getByText(/De las 3 filas marcadas, 2 están Asignadas/)).toBeVisible();
 
     // ── El camino del diálogo (lo comparte «Solicitar ambos») ─────────────────────────────────
@@ -177,7 +189,7 @@ test.describe('FLITO — Trámites unificado', () => {
     // Solicitar vacía la selección y refresca (`ejecutar`), así que se vuelve a marcar.
     await page.getByRole('button', { name: 'Cerrar' }).click();
     await page.getByLabel('Seleccionar las filas de esta página').check();
-    await expect(page.getByText('3 seleccionado(s)')).toBeVisible();
+    await expect(page.getByText('3 seleccionados', { exact: true })).toBeVisible();
 
     // ── El camino directo, sin diálogo ────────────────────────────────────────────────────────
     await page.getByRole('button', { name: 'Solicitar Impuestos (2 de 3)', exact: true }).click();
@@ -258,7 +270,7 @@ test.describe('FLITO — Trámites unificado', () => {
     await mockLista(page);
 
     await page.goto('/flito/tramites');
-    await expect(page.getByRole('columnheader', { name: 'Correo' })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: 'Correo', exact: true })).toBeVisible();
 
     const conCorreo = page.getByRole('row').filter({ hasText: 'FLIT-1001' });
     await expect(conCorreo.getByRole('link', { name: 'ana.perez@acme.co' }))
@@ -300,8 +312,11 @@ test.describe('FLITO — Trámites unificado', () => {
     });
 
     await page.goto('/flito/tramites');
-    await page.locator('summary').filter({ hasText: 'Vista' }).click();
-    await page.getByRole('button', { name: /Recién llegados sin gestionar/ }).click();
+    // Épica #14707, bloque 4 (R12): la vista rápida está en la fila del encabezado de Filtros, también plegada.
+    const vista = page.getByRole('group', { name: 'Vistas rápidas' }).getByRole('button', { name: 'Recién llegados sin gestionar' });
+    await expect(vista).toHaveAttribute('aria-pressed', 'false');
+    await vista.click();
+    await expect(vista).toHaveAttribute('aria-pressed', 'true');
 
     // Cuatro condiciones. El orden cuenta tanto como los filtros: sin `antiguos`, lo que lleva más
     // esperando se queda en la última página, que es justo lo contrario de lo que se busca.
@@ -346,24 +361,21 @@ test.describe('FLITO — Trámites unificado', () => {
     await expect(page.getByText(/no tiene ningún documento cargado todavía/)).toBeVisible();
   });
 
-  // HU #11947 (AC7). Aquí el documento SÍ va en la tabla, no en un modal. El código llega resuelto
-  // del API; la celda lo antepone al número y nada más. Dos códigos distintos para que un prefijo
-  // constante no pase, y el caso sin código con `textContent` en vez de `toHaveText` —que normaliza
-  // espacios— porque el mutante a matar es el `${tipo} ${numero}` que deja « 30303030».
+  // HU #11947 (AC7) + Épica #14707, bloque 4 (UX §5.3, F6): el documento del titular ya NO va en la lista,
+  // va al detalle. La fila conserva el nombre; ningún documento (con o sin código) asoma en ella.
   for (const caso of [
-    { titular: 'Ana Pérez', esperado: 'CC 10101010' },
-    { titular: 'Luis Gómez', esperado: 'CE 20202020' },
+    { titular: 'Ana Pérez', esperado: '10101010' },
+    { titular: 'Luis Gómez', esperado: '20202020' },
     { titular: 'María Ruiz', esperado: '30303030' },
   ]) {
-    test(`AC7 — la fila de ${caso.titular} enseña el documento tal como lo resolvió el API`, async ({ page }) => {
+    test(`AC7 — la fila de ${caso.titular} enseña el nombre y deja el documento para el detalle`, async ({ page }) => {
       await loginAs(page, OPERACIONES_USER);
       await mockLista(page);
       await page.goto('/flito/tramites');
 
-      const doc = page.getByRole('row').filter({ hasText: caso.titular })
-        .getByRole('cell').filter({ hasText: caso.titular }).getByText(caso.esperado, { exact: true });
-      await expect(doc).toBeVisible();
-      expect(await doc.textContent()).toBe(caso.esperado);
+      const fila = page.getByRole('row').filter({ hasText: caso.titular });
+      await expect(fila).toHaveCount(1);
+      await expect(fila.getByText(caso.esperado)).toHaveCount(0);
     });
   }
 
@@ -413,6 +425,9 @@ test.describe('HU #12635 · ?placa= al montar (aditivo)', () => {
     expect(gets[0]).toContain('buscar=XYZ789');
 
     await page.goto('/flito/tramites?alerta=soat_sin_gestion');
+    // La alerta cuenta en «Filtros» y es un chip más del pie (UX §5.4).
+    await expect(botonFiltros(page).getByLabel('1 filtros activos')).toBeVisible();
+    await abrirFiltros(page);
     await expect(page.getByRole('button', { name: /^Quitar la alerta/ })).toBeVisible();
     await expect.poll(() => gets.at(-1)).toContain('alerta=soat_sin_gestion');
     expect(gets.at(-1)).not.toContain('buscar=');
@@ -442,8 +457,11 @@ test.describe('FLITO — Trámites: listas de apoyo por enlace (HU #13452)', () 
     await page.goto('/flito/tramites');
     await expect(page.getByText('FLIT-1001')).toBeVisible();
     // La secretaría sigue saliendo de las facetas del módulo.
-    await expect(page.getByRole('columnheader', { name: /Empresa gestora/ })).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: /Empresa gestora/ }).getByText('Todas')).toHaveCount(0);
+    await expect(page.getByRole('columnheader', { name: 'Empresa gestora', exact: true })).toBeVisible();
+    // Con enlace la celda Empresa gestora no se pinta en el panel; las demás conservan su orden (9 celdas).
+    await abrirFiltros(page);
+    await expect(controlMulti(page, 'Empresa gestora')).toHaveCount(0);
+    await expect(controlMulti(page, 'Tránsito')).toBeVisible();
     await expect(page.getByRole('button', { name: '+ Trámite demo' })).toHaveCount(0);
 
     await page.getByLabel('Seleccionar ABC123').check();
@@ -486,7 +504,8 @@ test.describe('FLITO — Trámites: listas de apoyo por enlace (HU #13452)', () 
 
     await page.goto('/flito/tramites');
     await expect(page.getByText('FLIT-1001')).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: /Empresa gestora/ }).getByText('Todas')).toBeVisible();
+    await abrirFiltros(page);
+    await expect(controlMulti(page, 'Empresa gestora')).toHaveAccessibleName('Empresa gestora Todas');
     await expect(page.getByRole('button', { name: '+ Trámite demo' })).toBeVisible();
     await page.getByLabel('Seleccionar ABC123').check();
     await expect(page.getByRole('button', { name: 'Solicitar SOAT (1)', exact: true })).toBeVisible();

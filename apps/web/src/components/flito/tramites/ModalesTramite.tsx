@@ -1,6 +1,7 @@
-// FLITO — Trámites: modales de la bandeja (trámite demo, historial, desbloqueo de autogestión, crear
+// FLITO — Trámites: modales de la bandeja (trámite demo, desbloqueo de autogestión, crear
 // empresa y elegir aseguradora). Movidos desde `pages/FlitoTramites.tsx` al partirla (rediseño UI Kit
-// 2026, Épica #14560): mismos hooks, mismas llamadas y mismos textos; piel del kit.
+// 2026, Épica #14560): mismos hooks, mismas llamadas y mismos textos; piel del kit. El historial suelto se
+// retiró (Épica #14707, bloque 4): el chip de la fila abre el detalle en su sección Historial.
 
 import { useEffect, useState } from 'react';
 import { parseLicenciaTransito } from '@operaciones/shared-types';
@@ -8,11 +9,10 @@ import { api, errorMessage } from '../../../lib/api';
 import FlitModal from '../../flit/FlitModal';
 import FlitSelect from '../../flit/FlitSelect';
 import GradientButton from '../../flit/GradientButton';
-import StatusChip from '../../flit/StatusChip';
 import { opcionesConEstado } from '../../flit/opcionesConEstado';
-import { FlitTable, FlitTh, FlitTr, FlitField, FlitEmpty, flitInp } from '../../flit/flitPageKit';
+import { FlitField, flitInp } from '../../flit/flitPageKit';
 import { SOAT_REINTENTO, mensajeSelectorSoat, type CatalogoSelector } from '../../clientes/proveedoresDatos';
-import type { HistorialItem, TramiteFila } from './tiposTramites';
+import type { TramiteFila } from './tiposTramites';
 
 const secundario = 'text-[color:var(--color-text-secondary)]';
 const tenue = 'text-[color:var(--color-text-tertiary)]';
@@ -124,38 +124,6 @@ export function ModalCrearTramiteDemo({ onCerrar, onCreado }: { onCerrar: () => 
           {busy ? 'Creando…' : 'Crear trámite'}
         </GradientButton>
       </div>
-    </FlitModal>
-  );
-}
-
-export function ModalHistorial({ idFlit, items, onCerrar }: { idFlit: string; items: HistorialItem[]; onCerrar: () => void }) {
-  const fh = (iso: string) => new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
-  return (
-    <FlitModal title={`Historial · ${idFlit}`} onClose={onCerrar} wide>
-      {items.length === 0 ? (
-        <FlitEmpty>Sin cambios registrados todavía.</FlitEmpty>
-      ) : (
-        <div className="max-h-[60vh] overflow-y-auto">
-          <FlitTable>
-            <thead>
-              <FlitTr><FlitTh>Fecha</FlitTh><FlitTh>Campo</FlitTh><FlitTh>Antes</FlitTh><FlitTh>Después</FlitTh><FlitTh>Origen</FlitTh><FlitTh>Usuario</FlitTh></FlitTr>
-            </thead>
-            <tbody>
-              {items.map((h) => (
-                <FlitTr key={h.id}>
-                  <td className={`whitespace-nowrap px-3 py-2 text-xs ${tenue}`}>{fh(h.creadoEn)}</td>
-                  <td className="px-3 py-2 text-sm font-medium">{h.campo}</td>
-                  <td className={`px-3 py-2 text-xs ${tenue}`}>{h.valorAnterior ?? '—'}</td>
-                  <td className="px-3 py-2 text-xs font-semibold">{h.valorNuevo ?? '—'}</td>
-                  <td className="px-3 py-2"><StatusChip tone={h.origen === 'api' ? 'neutral' : 'active'}>{h.origen === 'api' ? 'FLIT' : 'usuario'}</StatusChip></td>
-                  <td className="px-3 py-2 text-xs">{h.usuarioNombre ?? '—'}</td>
-                </FlitTr>
-              ))}
-            </tbody>
-          </FlitTable>
-        </div>
-      )}
-      <GradientButton variant="secondary" className="mt-3" onClick={onCerrar}>Cerrar</GradientButton>
     </FlitModal>
   );
 }

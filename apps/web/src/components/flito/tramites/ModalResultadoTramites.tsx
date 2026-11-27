@@ -22,6 +22,12 @@ function Linea({ tono, children }: { tono: ChipTone; children: ReactNode }) {
   );
 }
 
+/** Épica #14707 §6 (lote parcial): la segunda frase, la misma en SOAT, impuestos y entrega. */
+function NoVigentes({ n, verbo = 'no se enviaron' }: { n?: number; verbo?: string }) {
+  if (!n) return null;
+  return <Linea tono="warning">{n} {verbo} porque su trámite se anuló o se revocó en FLIT.</Linea>;
+}
+
 function DetalleSoat({ r }: { r: ResSoat }) {
   const vacio = !r.enviados && !r.yaEnviados && !r.autogestionados && !r.sinRegistro;
   return (
@@ -30,6 +36,7 @@ function DetalleSoat({ r }: { r: ResSoat }) {
       {r.yaEnviados > 0 && <Linea tono="neutral">{r.yaEnviados} ya solicitados o pagados: no se reenvían.</Linea>}
       {r.autogestionados > 0 && <Linea tono="neutral">{r.autogestionados} no llevan SOAT: su compañía lo autogestiona.</Linea>}
       {r.sinRegistro > 0 && <Linea tono="neutral">{r.sinRegistro} sin registro de SOAT todavía.</Linea>}
+      <NoVigentes n={r.noVigentes} />
       {vacio && <Linea tono="neutral">Ningún trámite tenía SOAT por enviar.</Linea>}
     </div>
   );
@@ -42,6 +49,7 @@ function DetalleImpuestos({ r }: { r: ResImpuestos }) {
       {r.enviados > 0 && <Linea tono="success">{r.enviados} impuesto(s) enviado(s): pasan a «Solicitado».</Linea>}
       {r.yaEnviados > 0 && <Linea tono="neutral">{r.yaEnviados} ya solicitados o pagados: no se reenvían.</Linea>}
       {r.noEnviables > 0 && <Linea tono="neutral">{r.noEnviables} no enviables: autogestionados o no están en Pendiente.</Linea>}
+      <NoVigentes n={r.noVigentes} />
       {vacio && <Linea tono="neutral">Ningún trámite tenía impuesto por enviar.</Linea>}
     </div>
   );
@@ -69,6 +77,7 @@ export default function ModalResultado({ resultado, onCerrar }: { resultado: Res
         {resultado.tipo === 'entrega' && (
           <div className="space-y-1.5">
             {resultado.entrega.entregados > 0 && <Linea tono="success">{resultado.entrega.entregados} trámite(s) entregado(s).</Linea>}
+            <NoVigentes n={resultado.entrega.noVigentes} verbo="no se entregaron" />
             {resultado.entrega.noHabilitados.length > 0 && (
               <div>
                 <Linea tono="warning">{resultado.entrega.noHabilitados.length} no estaban habilitados:</Linea>
