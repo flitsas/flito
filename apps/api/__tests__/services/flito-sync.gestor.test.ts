@@ -41,6 +41,17 @@ describe('FLIT 1 · aTramite con y sin gestor', () => {
     expect(tf.correoGestor).toHaveLength(MAX_GESTOR.correoGestor);
     expect(JSON.stringify(logMock.warn.mock.calls)).not.toContain(largo);
   });
+
+  it('el gestor no entra al raw (flit_raw): ni nombre ni correo, y el resto del ítem sí', () => {
+    const tf = aTramite(item({ nombreGestor: 'Marta Gómez', correoGestor: 'marta@gestora.co' }));
+    const crudo = JSON.stringify(tf.raw);
+    expect(crudo).not.toContain('Marta Gómez');
+    expect(crudo).not.toContain('marta@gestora.co');
+    expect(tf.raw).not.toHaveProperty('nombreGestor');
+    expect(tf.raw).not.toHaveProperty('correoGestor');
+    expect(tf.raw).toMatchObject({ Id: 'FLIT-099002', Placa: 'ZZZ002', CompaniaGestora: '901789698' });
+    expect(tf).toMatchObject({ nombreGestor: 'Marta Gómez', correoGestor: 'marta@gestora.co' });
+  });
 });
 
 describe('sync · el gestor ausente no pisa con null lo guardado', () => {
