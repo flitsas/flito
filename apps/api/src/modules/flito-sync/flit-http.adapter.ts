@@ -59,6 +59,8 @@ export interface ItemFlit {
   cilindraje?: string; carroceria?: string; tipoServicio?: string;
   /** Número de motor y de serie (Bug #12643). Nombres confirmados con FLIT; se tipan como el resto. */
   numeroMotor?: string; numeroSerie?: string;
+  /** Persona que gestiona el trámite (PII). Opcionales: el reporte puede no traerlos aún. */
+  nombreGestor?: string; correoGestor?: string;
 }
 const s = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
 
@@ -69,6 +71,20 @@ const s = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== 
  * dejarlos como números sueltos: un guardián que se separa de su columna no protege de nada.
  */
 export const MAX_DATOS_VEHICULO = { cilindraje: 10, carroceria: 60, tipoServicio: 30 } as const;
+
+/** Ancho de `flito_tramites.nombre_gestor` / `correo_gestor` (migración 0320); el test de paridad lo contrasta. */
+export const MAX_GESTOR = { nombreGestor: 200, correoGestor: 254 } as const;
+
+/** Como `acotado`, para el gestor: descarta a null (con warn sin el valor) lo que no cabe. */
+export function gestorAcotado(v: unknown, campo: keyof typeof MAX_GESTOR, idFlit: string): string | null {
+  const valor = s(v);
+  if (valor === null) return null;
+  if (valor.length > MAX_GESTOR[campo]) {
+    log.warn({ idFlit, campo, longitud: valor.length, max: MAX_GESTOR[campo] }, 'dato del gestor más largo que su columna: se descarta');
+    return null;
+  }
+  return valor;
+}
 
 /**
  * `s()` + tope de longitud. Lo que no cabe en la columna se DESCARTA a `null` con un warn; no se
@@ -102,6 +118,17 @@ function motorYSerie(it: ItemFlit): Pick<TramiteFlit, 'numMotor' | 'numSerie'> {
   return { numMotor: ms.numMotor ?? null, numSerie: ms.numSerie ?? null };
 }
 
+/**
+ * Copia del ítem para `flit_raw` sin el gestor (Habeas Data, AGENTS.md §14/§16): `nombreGestor` y
+ * `correoGestor` son PII y van solo a sus columnas tipadas. Mismo criterio que `rawSinPii` de FLIT 2.
+ */
+function rawSinGestor(it: ItemFlit): ItemFlit {
+  const copia: ItemFlit = { ...it };
+  delete copia.nombreGestor;
+  delete copia.correoGestor;
+  return copia;
+}
+
 export function aTramite(it: ItemFlit): TramiteFlit {
   const nombre = `${it.nombres ?? ''} ${it.apellidos ?? ''}`.trim();
   return {
@@ -128,6 +155,8 @@ export function aTramite(it: ItemFlit): TramiteFlit {
     // que RECORTA a 50: van a la misma columna de `vehicles` y un mismo dato no puede tener dos
     // destinos según quién lo traiga. El porqué de truncar está en `recortado()` del helper.
     ...motorYSerie(it),
+    nombreGestor: gestorAcotado(it.nombreGestor, 'nombreGestor', it.Id),
+    correoGestor: gestorAcotado(it.correoGestor, 'correoGestor', it.Id),
     tipoPropiedad: 'unico_propietario', // el reporte trae un titular por trámite.
     compradores: [{
       nombreCompleto: nombre || '(sin nombre)',
@@ -137,7 +166,7 @@ export function aTramite(it: ItemFlit): TramiteFlit {
       direccion: s(it.direccion),
     }],
     valorImpuestoLiquidado: null, // el reporte no lo trae.
-    raw: it,
+    raw: rawSinGestor(it),
   };
 }
 

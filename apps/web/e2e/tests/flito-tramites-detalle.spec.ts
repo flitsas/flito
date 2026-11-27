@@ -27,7 +27,7 @@ const detalleDe = (n: number) => ({
     nombreCompleto: `Propietaria Uno ${n}`, tipoDocumento: 'CC', numeroDocumento: '1010', correo: 'p@ejemplo.co',
     celular: '3000000000', direccion: 'Calle 1', orden: 1, porcentajeParticipacion: null,
   }],
-  gestora: { nombre: 'Concesionario Norte', nit: '900111', existe: true },
+  gestora: { nombre: 'Concesionario Norte', nit: '900111', existe: true, nombrePersona: 'Laura Gestora', correoPersona: 'laura.gestora@demo.test' },
   costos: {
     conceptos: [
       { concepto: 'soat', quienCobra: 'Aseguradora Sur', autogestionado: false, estado: 'pagado', valor: 500000, valorLiquidado: null },
@@ -111,6 +111,8 @@ test.describe('FLITO — Gestión Trámites: detalle en modal (ADR-0046)', () =>
       await expect(m.getByRole('region', { name: s, exact: true })).toBeVisible();
     }
     await expect(m.getByText('Propietaria Uno 1')).toBeVisible();
+    await expect(m.getByText('Laura Gestora')).toBeVisible();
+    await expect(m.getByText('laura.gestora@demo.test')).toBeVisible();
     await expect(m.getByText('VIN000000000001')).toBeVisible();
     await expect(m.getByText('Aseguradora Sur')).toBeVisible();
     await expect(m.getByRole('region', { name: 'Soportes (1)' })).toBeVisible();

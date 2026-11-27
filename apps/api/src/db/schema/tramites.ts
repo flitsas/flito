@@ -337,6 +337,13 @@ export const flitoTramites = pgTable('flito_tramites', {
   // sync: en la primera corrida masiva todos los históricos comparten esa fecha, así que no sirve
   // para medir antigüedad. Nullable porque el reporte solo empezó a traerla en 2026-07.
   fechaCreacionFlit: timestamp('fecha_creacion_flit', { withTimezone: true }),
+  // Persona que gestiona el trámite (PII). Llega del reporte de FLIT 1 y del feed de FLIT 2; null = la
+  // fuente no lo trajo. Anchos: MAX_GESTOR (flit-http.adapter.ts), con test de paridad.
+  // PII sin cifrado en reposo (texto plano). Nunca va a flit_raw (rawSinGestor / rawSinPii).
+  // retención: pendiente de política (AGENTS.md §16)
+  nombreGestor: varchar('nombre_gestor', { length: 200 }),
+  // PII sin cifrado en reposo (texto plano). retención: pendiente de política (AGENTS.md §16)
+  correoGestor: varchar('correo_gestor', { length: 254 }),
   // Payload completo de FLIT para trazabilidad/depuración.
   flitRaw: jsonb('flit_raw'),
   processStatus: integer('process_status'),

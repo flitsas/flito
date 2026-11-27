@@ -64,6 +64,9 @@ export interface TramiteDetalleGestora {
   nit: string | null;
   /** false = el NIT de FLIT no emparejó con ninguna compañía de FLITO. */
   existe: boolean;
+  /** Persona que gestiona el trámite (PII; null = la fuente no lo trajo). No es el nombre de la compañía. */
+  nombrePersona: string | null;
+  correoPersona: string | null;
 }
 
 export type TramiteDetalleConceptoId = 'soat' | 'impuesto' | 'derecho_transito';

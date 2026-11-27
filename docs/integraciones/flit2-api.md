@@ -303,6 +303,14 @@ Cada solicitud queda registrada en FLIT (cliente, rango de `syncVersion`, cantid
 tocadas, IP, duración, resultado), con una **retención de 12 meses**. El consumidor es responsable del tratamiento posterior de los datos
 personales conforme a la Ley 1581 de 2012 y de no exponerlos en logs ni documentación.
 
+### 6.1 Persona gestora del trámite (solicitud a FLIT 2) — pendiente de confirmar
+
+FLITO pide a FLIT 2 dos campos planos y opcionales en cada ítem del §4: `nombreGestor` (texto, ≤ 200) y
+`correoGestor` (texto, ≤ 254), la persona que gestiona el trámite. **Nombres y forma pendientes de
+confirmar con el equipo de FLIT 2**; hasta entonces FLITO los lee si vienen y, si no, los deja en `null`
+sin pisar lo ya guardado. Son datos personales: FLITO los guarda en columnas propias, nunca en `flit_raw`,
+y no los escribe en logs ni en la Bitácora en claro.
+
 ## 7. Envío de adjuntos (FLITO → FLIT 2)
 
 **Referencia del contrato:** `flitsas/flit@c2b7f68db` (PR flitsas/flit#513, `x-estado: anunciada`):

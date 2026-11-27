@@ -28,6 +28,8 @@ export interface TramiteFila {
    * `tipo` crudo de FLIT: la traducción vive en el backend y aquí no hay copia (HU #11947, AC6/AC7).
    */
   compradorPrincipal: { nombreCompleto: string; numeroDocumento: string; tipoDocumento: string | null; correo: string | null } | null;
+  /** Persona que gestiona el trámite (no la compañía). */
+  nombreGestor: string | null; correoGestor: string | null;
   compradores: unknown[]; soat: FilaSoat | null; soatAutogestionado: boolean; impuesto: FilaImpuesto | null; impuestosAutogestionado: boolean;
   soatResuelto: boolean; impuestosResueltos: boolean; listoParaEntregar: boolean;
   valorSoat: number | null; valorImpuesto: number | null; sincronizadoEn: string;

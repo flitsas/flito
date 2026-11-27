@@ -86,6 +86,9 @@ const itemSchema = z.object({
   compradores: z.array(compradorSchema).nullish(),
   factura: z.object({ adjuntoId: texto }).passthrough().nullish(),
   companiaGestora: z.object({ nit: texto }).passthrough().nullish(),
+  // Por confirmar con FLIT 2 (docs/integraciones/flit2-api.md): campos planos opcionales.
+  nombreGestor: texto,
+  correoGestor: texto,
 }).passthrough();
 
 /** HU #13095: respuesta 200 del endpoint de la URL del adjunto. */
@@ -188,6 +191,8 @@ export function aItemFlit2(crudo: unknown): ItemFlit2 | null {
     vehiculo: aVehiculo(it.vehiculo, it.id),
     organismo: org ? { codigoSecretaria: s(org.codigoSecretaria), ciudad: s(org.ciudad), nombre: s(org.nombre) } : null,
     companiaNit: s(it.companiaGestora?.nit),
+    nombreGestor: s(it.nombreGestor),
+    correoGestor: s(it.correoGestor),
     facturaAdjuntoId: s(it.factura?.adjuntoId),
     compradores: (it.compradores ?? []).map(aComprador),
     raw: rawSinPii(crudo as Record<string, unknown>),

@@ -73,7 +73,7 @@ const fila = {
   tipoTramite: 'Matrícula inicial', ciudad: 'Bogotá', transitoNombreFlit: 'STT Bogotá', organismoCodigo: '11001',
   fechaCreacionFlit: new Date('2026-10-01T10:00:00Z'), creadoEn: new Date('2026-10-02T10:00:00Z'),
   fechaAprobacion: null, derechoValor: '150000', tipoTitularFlit: 'cc', sincronizadoEn: new Date('2026-10-03T10:00:00Z'),
-  facturaVentaFlitId: 'FV-1',
+  facturaVentaFlitId: 'FV-1', nombreGestor: 'Marta Gómez', correoGestor: 'marta@gestora.co',
   soatId: '00000000-0000-0000-0000-00000000005a', soatEstado: 'pagado', soatValorPagado: '850000',
   soatProveedorId: null, soatProveedorNombre: 'Aseguradora X',
   impuestoId: null,
@@ -151,7 +151,9 @@ describe('ADR-0046 · GET /:id/detalle — 200', () => {
         nombreCompleto: 'Ana Pérez', numeroDocumento: '1012345678', correo: 'ana@correo.co', celular: '3001234567',
         direccion: 'Cra 1 # 2-3', orden: 1, porcentajeParticipacion: 100,
       }],
-      gestora: { nombre: 'Gestora Uno', nit: '900123456', existe: true },
+      gestora: {
+        nombre: 'Gestora Uno', nit: '900123456', existe: true, nombrePersona: 'Marta Gómez', correoPersona: 'marta@gestora.co',
+      },
       costos: {
         tieneFacturaVenta: true,
         conceptos: [
@@ -175,7 +177,7 @@ describe('ADR-0046 · GET /:id/detalle — 200', () => {
     const [, opts] = pii.logPiiAccess.mock.calls[0]!;
     expect(opts).toEqual({
       resourceTipo: 'flito_tramite', resourceId: null, accion: 'read',
-      camposAccedidos: ['nombre_completo', 'tipo_documento', 'numero_documento', 'correo', 'celular', 'direccion'],
+      camposAccedidos: ['nombre_completo', 'tipo_documento', 'numero_documento', 'correo', 'celular', 'direccion', 'nombre_gestor', 'correo_gestor'],
       motivo: `Lectura de detalle de trámite — tramite=${T1}`,
     });
     expect(JSON.stringify(opts)).not.toMatch(/Ana|1012345678|ana@correo|3001234567|Cra 1|QTQ100|9BWZZZ|FLIT-DEMO-101/);

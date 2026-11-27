@@ -57748,6 +57748,14 @@ paths:
                           type:
                             - string
                             - "null"
+                        nombreGestor:
+                          type:
+                            - string
+                            - "null"
+                        correoGestor:
+                          type:
+                            - string
+                            - "null"
                         vehiculo:
                           type: object
                           properties:
@@ -58005,6 +58013,8 @@ paths:
                         - secretariaEmparejada
                         - transitoNombre
                         - facturaVentaFlitId
+                        - nombreGestor
+                        - correoGestor
                         - vehiculo
                         - compradorPrincipal
                         - compradores
@@ -58402,10 +58412,20 @@ paths:
                           - "null"
                       existe:
                         type: boolean
+                      nombrePersona:
+                        type:
+                          - string
+                          - "null"
+                      correoPersona:
+                        type:
+                          - string
+                          - "null"
                     required:
                       - nombre
                       - nit
                       - existe
+                      - nombrePersona
+                      - correoPersona
                   costos:
                     type: object
                     properties:
