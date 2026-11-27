@@ -49,9 +49,9 @@ El informe deja abiertos tres hallazgos de severidad alta que **este visor no re
 
 Registradas por el humano en la sesión de desarrollo de la Épica. Quedan sujetas a la aprobación del Líder Técnico de este ADR.
 
-1. **Retención:** 3 meses para `ia_consumo_log` e `ia_consumo_detalle`, con la purga en un bloque aparte (ver «Consecuencias»).
+1. **Retención:** 3 meses para `ia_consumo_log` e `ia_consumo_detalle`, con la purga en un bloque aparte (ver «Consecuencias»). Mientras la purga no exista, subir `IA_CONSUMO_VISOR_VENTANA_MESES` por encima de 3 exige revisión de `security-agent`, porque el visor mostraría registros más antiguos que la retención declarada.
 2. **Cifrado:** sin cifrado de columna para `usuario_id`, `usuario_login`, `placa` y `entidad_id`, declarado aquí. Devops confirma si el volumen de la base ya va cifrado en reposo; si no va, es un hallazgo aparte.
-3. **`error_mensaje` en el detalle:** se acepta el residual de H4. Solo lo ve `admin`, con los campos auditados en `camposAccedidos`. Es un waiver explícito del humano y se reconsidera con `security-agent` antes de C2 en PDN.
+3. **`error_mensaje` en el detalle:** se acepta el residual de H4 (respuesta del humano el 27-nov-2026: «Aceptar el residual por escrito»). Por defecto solo lo ve `admin`; cualquier rol al que se conceda `accion.ia_consumo.ver` desde el panel hereda el mismo residual. Los campos quedan auditados en `camposAccedidos`. Es un waiver explícito del humano y se reconsidera con `security-agent` antes de C2 en PDN.
 4. **Catálogo de filtros:** incluye `desconocido` (proceso y módulo), porque el registro lo escribe cuando una llamada no trae contexto.
 5. **Verificación en base real:** el humano autoriza una base desechable con el historial de migraciones hasta la 0321, en un contenedor propio y sin tocar la base demo. Sirve para `verificarCatalogoAlArrancar` y para la paridad del catálogo (A-27, A-29).
 
