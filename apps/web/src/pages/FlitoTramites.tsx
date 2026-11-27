@@ -4,9 +4,10 @@
 // orquesta y reporta. Filas, celdas, modales y tipos viven en `components/flito/tramites/`.
 //
 // Épica #14707, bloque 4 (UX `docs/ux/flito-tramites-rediseno.md`, molde de cola): Filtros en acordeón con
-// la búsqueda y las vistas rápidas (`FiltrosTramites`, estado en `useFiltrosTramites`), barra de la tabla
-// que cambia a barra de selección (`BarraTablaTramites`), zona de avisos, tabla sin tarjeta y paginación
-// abajo. Un fallo del listado es un aviso en página con Reintentar; el de una acción de la bandeja, un
+// la búsqueda, las vistas rápidas, «Columnas» y «Orden» (`FiltrosTramites`, estado en `useFiltrosTramites`),
+// barra de lote que solo existe con selección y entonces queda fija (`BarraTablaTramites`), zona de avisos,
+// tabla sin tarjeta y, abajo, la paginación con el conteo (ajustes 14707: nada flota sobre la tabla sin
+// selección). Un fallo del listado es un aviso en página con Reintentar; el de una acción de la bandeja, un
 // toast cerrable con copy pulido (nunca el error crudo); el de una acción del detalle, `role="alert"` dentro
 // de la modal. Trámite muerto (14707): sin casilla accionable, «Seleccionar todos» lo salta, 409 → refresco.
 
@@ -24,7 +25,7 @@ import ModalFacturaVenta, { esNombrePlacaOrganismo, nombreFacturaVenta } from '.
 import SincronizacionTramites from '../components/flito/tramites/SincronizacionTramites';
 import AvisoNovedadesTramites from '../components/flito/tramites/AvisoNovedadesTramites';
 import { useNovedadesTramites } from '../components/flito/tramites/useNovedadesTramites';
-import { useFiltrosTramites } from '../components/flito/tramites/useFiltrosTramites';
+import { useFiltrosTramites, type Orden } from '../components/flito/tramites/useFiltrosTramites';
 import FiltrosTramites, { type FacetasTramites } from '../components/flito/tramites/FiltrosTramites';
 import BarraTablaTramites from '../components/flito/tramites/BarraTablaTramites';
 import FilaTramite from '../components/flito/tramites/FilaTramite';
@@ -194,11 +195,25 @@ export default function FlitoTramites() {
       {/* HU #13452: sincronizar con FLIT 1/FLIT 2 es operación interna: con enlace el bloque no se pinta. */}
       {sinEnlace && <SincronizacionTramites />}
 
-      <FiltrosTramites f={f} facetas={facetas} empresasOpc={sinEnlace ? empresasOpc : null} />
+      {/* Cambiar Orden recarga como cualquier filtro y por eso limpia la selección; Columnas solo muestra u oculta
+          celdas y la conserva. Ninguno se deshabilita con selección: así se comportan los filtros de al lado. */}
+      <FiltrosTramites f={f} facetas={facetas} empresasOpc={sinEnlace ? empresasOpc : null}
+        herramientas={(
+          <>
+            <PanelColumnas vc={vc} esAdmin={hasFuncion('tramites.vistas_columnas.administrar')} />
+            {/* Orden cronológico: el gestor trabaja de lo más viejo a lo más nuevo. */}
+            <label className="filtros__orden">
+              Orden
+              <select className="control" value={f.ordenSel} onChange={(e) => f.setOrdenSel(e.target.value as Orden)}>
+                <option value="recientes">Más recientes primero</option>
+                <option value="antiguos">Más antiguos primero</option>
+              </select>
+            </label>
+          </>
+        )} />
 
       <div>
-        <BarraTablaTramites total={total} cargando={cargando} orden={f.ordenSel} onOrden={f.setOrdenSel}
-          columnas={<PanelColumnas vc={vc} esAdmin={hasFuncion('tramites.vistas_columnas.administrar')} />}
+        <BarraTablaTramites
           seleccion={seleccionModo ? {
             n: seleccion.size, nAccionables: seleccionAccionable.length, puedePedirSoat, enProceso,
             onSolicitarSoat: () => setDialogo('soat'), onSolicitarAmbos: () => setDialogo('ambos'),
@@ -260,14 +275,8 @@ export default function FlitoTramites() {
           )}
         </div>
 
-        {/* Paginación abajo y en un solo lugar (UX §15). */}
-        {total > PAGE_SIZE && (
-          <nav className="paginacion-tramites" aria-label="Paginación de trámites">
-            <button type="button" className={claseBoton('secondary', 'sm')} disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Anterior</button>
-            <span>Página {page} de {totalPaginas}</span>
-            <button type="button" className={claseBoton('secondary', 'sm')} disabled={page >= totalPaginas} onClick={() => setPage((p) => Math.min(totalPaginas, p + 1))}>Siguiente ›</button>
-          </nav>
-        )}
+        {/* Pie de la tabla (UX §15; ajustes 14707): el conteo junto a la paginación, también con una sola página. */}
+        {!sinNada && !(errorListado && data === null) && <PieTramites total={total} cargando={cargando} page={page} totalPaginas={totalPaginas} setPage={setPage} />}
       </div>
 
       {dialogo && (
@@ -308,5 +317,27 @@ export default function FlitoTramites() {
         <ModalCrearTramiteDemo onCerrar={() => setCrearDemo(false)} onCreado={() => { setCrearDemo(false); refrescar(); }} />
       )}
     </div>
+  );
+}
+
+/** «‹ Anterior · 1.284 trámites · Página 1 de 26 · Siguiente ›»; con una sola página, solo el conteo. */
+function PieTramites({ total, cargando, page, totalPaginas, setPage }: {
+  total: number; cargando: boolean; page: number; totalPaginas: number; setPage: (fn: (p: number) => number) => void;
+}) {
+  const varias = totalPaginas > 1;
+  const Contenedor = varias ? 'nav' : 'div';
+  const sep = <span className="paginacion-tramites__sep" aria-hidden="true">·</span>;
+  return (
+    <Contenedor className="paginacion-tramites" data-testid="pie-tramites" aria-label={varias ? 'Paginación de trámites' : undefined}>
+      {varias && <button type="button" className={claseBoton('secondary', 'sm')} disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Anterior</button>}
+      {varias && sep}
+      <span className="paginacion-tramites__cuenta" role="status">
+        {cargando ? 'Actualizando…' : `${total.toLocaleString('es-CO')} ${total === 1 ? 'trámite' : 'trámites'}`}
+      </span>
+      {varias && sep}
+      {varias && <span>Página {page} de {totalPaginas}</span>}
+      {varias && sep}
+      {varias && <button type="button" className={claseBoton('secondary', 'sm')} disabled={page >= totalPaginas} onClick={() => setPage((p) => Math.min(totalPaginas, p + 1))}>Siguiente ›</button>}
+    </Contenedor>
   );
 }

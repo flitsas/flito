@@ -1,11 +1,12 @@
 // FLITO — Gestión Trámites: búsqueda y filtros en acordeón (Épica #14707, bloque 4; UX §5.4, R1/R8/R10–R12).
 //
-// Fila del encabezado, siempre visible: [› Filtros (n)] [buscador] [Vistas rápidas]. Desplegado: rejilla
+// Fila del encabezado, siempre visible: [› Filtros (n)] [buscador] [Vistas rápidas] [Columnas · Orden] (ajustes
+// 14707: Columnas y Orden suben aquí desde la barra de la tabla, que ya no existe sin selección). Desplegado: rejilla
 // simétrica de 10 `CampoFiltro` (Creado · Aprobado · Trámite · SOAT · Impuestos / Fuente · Autogestión ·
 // Empresa gestora · Tránsito · Ciudad) y, si hay algo puesto, el pie con los aplicados y «Limpiar filtros».
 // Se aplican en vivo. El acordeón se pliega en cada visita (estado local) y sigue abierto mientras se esté en
 // la página. Sin `empresasOpc` (usuario con enlace, HU #13452) la celda Empresa gestora no se pinta.
-import { useId, useState } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import {
   ALERTA_OPERATIVA_LABEL, ESTADO_IMPUESTO_LABEL, ESTADO_SOAT_LABEL, ESTADOS_IMPUESTO_OPERATIVOS, ESTADOS_SOAT_OPERATIVOS,
   type EstadoImpuesto, type EstadoSoat, type FuenteTramite,
@@ -46,8 +47,10 @@ const iconoCerrar = (
   </svg>
 );
 
-export default function FiltrosTramites({ f, facetas, empresasOpc }: {
+export default function FiltrosTramites({ f, facetas, empresasOpc, herramientas }: {
   f: EstadoFiltrosTramites;
+  /** «Columnas» y «Orden»: al final de la fila del encabezado, con la misma altura (40 px). */
+  herramientas?: ReactNode;
   facetas: FacetasTramites;
   /** Compañías de parametrización; `null` = usuario con enlace (sin celda Empresa gestora). */
   empresasOpc: { nit: string; nombre: string }[] | null;
@@ -96,6 +99,7 @@ export default function FiltrosTramites({ f, facetas, empresasOpc }: {
           <button type="button" className="chip chip--sm" aria-pressed={presetPuesto} title={PRESET_RECIEN_LLEGADOS.descripcion}
             onClick={f.alternarPreset}>{PRESET_RECIEN_LLEGADOS.nombre}</button>
         </div>
+        {herramientas && <div className="filtros__herramientas" data-testid="herramientas-tabla">{herramientas}</div>}
       </div>
 
       {abierto && (

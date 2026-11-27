@@ -49,6 +49,16 @@ export default function Placa({
 }
 
 /**
+ * Placa VACÍA (Épica #14707, ajustes de la bandeja): el trámite aún no tiene placa. Misma forma y tamaño que la
+ * `.placa` (filete, proporción 33/16) pero sin número y en tono neutro, para que no se lea como una placa real.
+ * Es una imagen con nombre «Sin placa» (`role="img"`); `data-variante="vacia"` es el gancho estable para E2E.
+ */
+export function PlacaVacia({ size = 'md', className = '' }: { size?: 'md' | 'lg'; className?: string }) {
+  const clases = ['placa', 'placa--vacia', size === 'lg' && 'placa--grande', className].filter(Boolean).join(' ');
+  return <span className={clases} data-kit="placa" data-variante="vacia" role="img" aria-label="Sin placa" />;
+}
+
+/**
  * Servicio del vehículo dicho en TEXTO para la meta del bloque (1.4.1: el color de la placa no basta). Lo interpreta
  * shared-types, no la pantalla: «Servicio público» / «Particular»; otro valor, tal cual; sin dato, null.
  */

@@ -1545,7 +1545,7 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await sinFoco(page);
 
     // Paso 3 — Buscar, filtrar y la tabla (Épica #14707, bloque 4): el panel de Filtros desplegado, con un
-    // filtro puesto para que se vean el borde azul y el pie de aplicados, y la barra de la tabla debajo.
+    // filtro puesto para que se vean el borde azul y el pie de aplicados, con Columnas y Orden en la misma fila.
     const botonFiltros = page.getByRole('region', { name: 'Búsqueda y filtros' }).getByRole('button', { name: /^Filtros/ });
     await expect(async () => {
       if ((await botonFiltros.getAttribute('aria-expanded')) !== 'true') await botonFiltros.click();

@@ -305,7 +305,7 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     // Bug #14532: Liquidación y Pagado en la ventana del ZIP (04-documentos-del-zip regenerada).
     // Épica #14560: columna Propietario, panel Columnas (03-columnas) y detalle en ventana (04-detalle); selección y ZIP pasan a 05 y 06.
     // Épica #14707 (PR A y PR B): bandeja rediseñada, trámite muerto y avisos de retiro.
-    flito_tramites: { version: '2.0', fecha: '2026-11-27', diagrama: 'camino-a-entregar.svg', capturas: [
+    flito_tramites: { version: '2.1', fecha: '2026-11-27', diagrama: 'camino-a-entregar.svg', capturas: [
       '01-sincronizacion.png', '02-filtros-y-tabla.png', '03-columnas.png', '04-detalle.png',
       '05-seleccion.png', '06-documentos-del-zip.png'] },
     // BUG #14569: buscador de trámite (1.3) y Reintentar lectura (1.4, 04-reintentar-lectura nueva); 1.6 = merge con el rediseño.
