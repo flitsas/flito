@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, FINANCIERA_USER } from '../helpers/auth';
+import { FUNCIONES_BOLSAS, abrirDetalleDesdeTabla, mockCatalogoBolsas } from '../helpers/bolsas';
 
 // HU #11128 — Detalle de movimientos con filtros, exportación y soportes. Backend mockeado.
 
@@ -85,6 +86,8 @@ const EXTRACTO = {
 };
 
 async function mock(page: import('@playwright/test').Page) {
+  // HU #13901: el listado y el detalle salen del catálogo (`/buscar`, `/bolsa/:id`).
+  await mockCatalogoBolsas(page, [BOLSA]);
   await page.route(/\/api\/clients/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 1, name: 'ACME SAS' }]) }));
   await page.route(/\/api\/flito\/bolsas\/consolidado/, (route) =>
@@ -109,7 +112,7 @@ async function mock(page: import('@playwright/test').Page) {
 /** Abre el detalle del cliente, que es donde vive la tabla de movimientos (modal desde la #11210). */
 async function abrirCliente(page: import('@playwright/test').Page, filas = 3) {
   await page.goto('/flito/bolsas');
-  await page.getByTestId('tarjeta-cliente-1').getByRole('button', { name: /Ver el detalle/ }).click();
+  await abrirDetalleDesdeTabla(page, 'ACME SAS');
   await expect(page.getByText(`Totales de lo filtrado (${filas} de ${filas})`)).toBeVisible();
 }
 
@@ -182,7 +185,7 @@ const libro = (page: import('@playwright/test').Page) =>
 
 test.describe('FLITO — Bolsas · movimientos', () => {
   test('la tabla trae cliente, OT, trámite, concepto, valor, saldo resultante, usuario y soporte', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page);
     await abrirCliente(page);
 
@@ -201,7 +204,7 @@ test.describe('FLITO — Bolsas · movimientos', () => {
   });
 
   test('el desglose por OT y por concepto acompaña a la tabla, y lo que no tiene OT se agrupa aparte', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page);
     await abrirCliente(page);
 
@@ -213,7 +216,7 @@ test.describe('FLITO — Bolsas · movimientos', () => {
   });
 
   test('los filtros se combinan y el total se recalcula sobre lo filtrado', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page);
     await abrirCliente(page);
 
@@ -239,7 +242,7 @@ test.describe('FLITO — Bolsas · movimientos', () => {
   });
 
   test('un movimiento sin soporte lo dice en vez de ofrecer un enlace roto', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page);
     await abrirCliente(page);
 
@@ -251,7 +254,7 @@ test.describe('FLITO — Bolsas · movimientos', () => {
   });
 
   test('la exportación contiene exactamente las filas filtradas, con formato de moneda', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page);
     await abrirCliente(page);
 
@@ -278,7 +281,7 @@ test.describe('FLITO — Bolsas · movimientos', () => {
   });
 
   test('un filtro sin resultados ofrece limpiarlo, no un error', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page);
     await abrirCliente(page);
 
@@ -296,7 +299,7 @@ test.describe('FLITO — Bolsas · movimientos', () => {
   // línea de GMF apareció sola cuando la HU #11160 lo añadió. Se fija aquí para que nadie retire el
   // gravamen del desglose creyendo que no es un concepto «de verdad».
   test('el GMF aparece como línea propia en el desglose por concepto', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page);
     await abrirCliente(page);
 
@@ -308,7 +311,7 @@ test.describe('FLITO — Bolsas · movimientos', () => {
   // ─────────────── HU #11681 · el origen «conciliación» en el libro de la bolsa ───────────────
 
   test('AC4 — la conciliación se etiqueta como tal, y con un tono propio frente al automático y al manual', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mockConConciliacion(page);
     await abrirCliente(page, 5);
 
@@ -328,7 +331,7 @@ test.describe('FLITO — Bolsas · movimientos', () => {
   });
 
   test('AC4 — el filtro de origen ofrece «Conciliación», y la exportación la nombra igual', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mockConConciliacion(page);
     await abrirCliente(page, 5);
 
@@ -355,7 +358,7 @@ test.describe('FLITO — Bolsas · movimientos', () => {
   });
 
   test('AC5 — el movimiento de conciliación no inventa un trámite: raya, y la boleta de la que viene', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mockConConciliacion(page);
     await abrirCliente(page, 5);
 

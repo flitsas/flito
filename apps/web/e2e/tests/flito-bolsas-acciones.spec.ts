@@ -1,5 +1,6 @@
 import { test, expect } from '../helpers/fixtures';
 import { loginAs, FINANCIERA_USER } from '../helpers/auth';
+import { FUNCIONES_BOLSAS, abrirDetalleDesdeTabla, mockCatalogoBolsas } from '../helpers/bolsas';
 
 // HU #11129 — Recargas, movimientos manuales y cierre de periodo. Backend mockeado.
 //
@@ -42,6 +43,8 @@ const PDF = { name: 'comprobante.pdf', mimeType: 'application/pdf', buffer: Buff
 
 /** `cierres` arranca vacío y se rellena cuando el test simula que el cierre ya se aplicó. */
 async function mock(page: import('@playwright/test').Page, estado: { cerrado: boolean } = { cerrado: false }) {
+  // HU #13901: el listado y el detalle salen del catálogo (`/buscar`, `/bolsa/:id`).
+  await mockCatalogoBolsas(page, [BOLSA]);
   await page.route(/\/api\/clients/, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 1, name: 'ACME SAS' }]) }));
   await page.route(/\/api\/flito\/bolsas\/consolidado/, (route) =>
@@ -73,13 +76,13 @@ async function mock(page: import('@playwright/test').Page, estado: { cerrado: bo
 /** Desde la HU #11210 el detalle se abre en un modal desde la tarjeta, no en una pestaña. */
 async function abrirCliente(page: import('@playwright/test').Page) {
   await page.goto('/flito/bolsas');
-  await page.getByTestId('tarjeta-cliente-1').getByRole('button', { name: /Ver el detalle/ }).click();
+  await abrirDetalleDesdeTabla(page, 'ACME SAS');
   await expect(page.getByRole('button', { name: 'Registrar una recarga' })).toBeVisible();
 }
 
 test.describe('FLITO — Bolsas · registrar y cerrar', () => {
   test('la clave de idempotencia se acuña al abrir el formulario y sobrevive al reintento', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page);
     const claves: string[] = [];
     await page.route(/\/api\/flito\/bolsas\/1\/recargas/, (route) => {
@@ -112,7 +115,7 @@ test.describe('FLITO — Bolsas · registrar y cerrar', () => {
   });
 
   test('un reenvío duplicado enseña el movimiento original y no anuncia un registro nuevo', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page);
     // 200 con `duplicado: true`: el servidor no acreditó nada.
     await page.route(/\/api\/flito\/bolsas\/1\/recargas/, (route) =>
@@ -131,7 +134,7 @@ test.describe('FLITO — Bolsas · registrar y cerrar', () => {
   });
 
   test('sin valor, con valor cero o sin soporte, el botón no envía la petición', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page);
     let peticiones = 0;
     await page.route(/\/api\/flito\/bolsas\/1\/recargas/, (route) => {
@@ -158,7 +161,7 @@ test.describe('FLITO — Bolsas · registrar y cerrar', () => {
   });
 
   test('el movimiento manual exige motivo y muestra el mensaje del servidor si lo rechaza', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     await mock(page);
     await page.route(/\/api\/flito\/bolsas\/1\/movimientos-manuales/, (route) =>
       route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'El periodo 2026-06 ya está cerrado' }) }));
@@ -183,7 +186,7 @@ test.describe('FLITO — Bolsas · registrar y cerrar', () => {
   });
 
   test('el cierre pide confirmación con entradas, salidas y saldo final, y deja descargar el reporte', async ({ page }) => {
-    await loginAs(page, FINANCIERA_USER);
+    await loginAs(page, FINANCIERA_USER, { funciones: FUNCIONES_BOLSAS });
     const estado = { cerrado: false };
     await mock(page, estado);
     await page.route(/\/api\/flito\/bolsas\/1\/cierres$/, (route) => {
