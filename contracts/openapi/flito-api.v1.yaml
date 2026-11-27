@@ -79,6 +79,8 @@ tags:
     description: Módulo flito-tramites de apps/api.
   - name: flito-vistas-columnas
     description: Módulo flito-vistas-columnas de apps/api.
+  - name: ia-consumo
+    description: Módulo ia-consumo de apps/api.
   - name: integraciones
     description: Módulo integraciones de apps/api.
   - name: jornadas
@@ -245,6 +247,7 @@ paths:
                             - torre_productos
                             - torre_logistica
                             - flito_ayuda
+                            - ia_consumo
                       funciones:
                         type: array
                         items:
@@ -481,6 +484,7 @@ paths:
                         - torre_productos
                         - torre_logistica
                         - flito_ayuda
+                        - ia_consumo
                   funciones:
                     type: array
                     items:
@@ -61296,6 +61300,678 @@ paths:
                   - pendingCandidates
                   - staleThresholdHours
                   - timestamp
+  /api/ia-consumo/catalogos:
+    get:
+      operationId: get-api-ia-consumo-catalogos
+      tags:
+        - ia-consumo
+      summary: GET /api/ia-consumo/catalogos
+      description: "Fuente: apps/api/src/modules/ia-consumo/ia-consumo.routes.ts. Exige la función: ia_consumo.registros.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - ia_consumo.registros.ver
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  origenes:
+                    type: array
+                    items:
+                      type: string
+                  resultados:
+                    type: array
+                    items:
+                      type: string
+                  tiposTarea:
+                    type: array
+                    items:
+                      type: string
+                  proveedores:
+                    type: array
+                    items:
+                      type: string
+                  procesos:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        proceso:
+                          type: string
+                        modulo:
+                          type: string
+                      required:
+                        - proceso
+                        - modulo
+                  modulos:
+                    type: array
+                    items:
+                      type: string
+                  ventana:
+                    type: object
+                    properties:
+                      desde:
+                        type: string
+                      hasta:
+                        type: string
+                      meses:
+                        type: number
+                    required:
+                      - desde
+                      - hasta
+                      - meses
+                required:
+                  - origenes
+                  - resultados
+                  - tiposTarea
+                  - proveedores
+                  - procesos
+                  - modulos
+                  - ventana
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    enum:
+                      - "Revisa los filtros: hay un valor que no es válido."
+                  codigo:
+                    type: string
+                required:
+                  - error
+                  - codigo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  codigo:
+                    type: string
+                    enum:
+                      - datos_invalidos
+                      - no_encontrado
+                      - rango_invalido
+                      - rango_demasiado_amplio
+                      - fuera_de_ventana
+                      - cursor_invalido
+                      - consulta_demasiado_lenta
+                      - auditoria_no_disponible
+                required:
+                  - error
+                  - codigo
+  "/api/ia-consumo/registros/{id}":
+    get:
+      operationId: get-api-ia-consumo-registros-id
+      tags:
+        - ia-consumo
+      summary: "GET /api/ia-consumo/registros/:id"
+      description: "Fuente: apps/api/src/modules/ia-consumo/ia-consumo.routes.ts. Exige la función: ia_consumo.registros.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - ia_consumo.registros.ver
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Parámetro id de la ruta.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorMensaje:
+                    type:
+                      - string
+                      - "null"
+                  metadatos:
+                    type:
+                      - object
+                      - "null"
+                    additionalProperties:
+                      description: "[por verificar] el código la tipa como `unknown`."
+                  metadatosBytes:
+                    type:
+                      - number
+                      - "null"
+                  tieneContenido:
+                    type: boolean
+                  bytesPrompt:
+                    type:
+                      - number
+                      - "null"
+                  bytesRespuesta:
+                    type:
+                      - number
+                      - "null"
+                  posiblementeRecortado:
+                    type: boolean
+                  relacionados:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Forma-06f51f4062"
+                  id:
+                    type: string
+                  correlacionId:
+                    type: string
+                  intento:
+                    type: number
+                  pasada:
+                    type: number
+                  fechaInicio:
+                    type: string
+                  fechaFin:
+                    type: string
+                  latenciaMs:
+                    type: number
+                  aplicativo:
+                    type: string
+                  servicio:
+                    type: string
+                  ambiente:
+                    type: string
+                  tenantId:
+                    type:
+                      - string
+                      - "null"
+                  usuarioId:
+                    type:
+                      - string
+                      - "null"
+                  usuarioLogin:
+                    type:
+                      - string
+                      - "null"
+                  origen:
+                    type: string
+                  modulo:
+                    type: string
+                  proceso:
+                    type: string
+                  tipoTarea:
+                    type: string
+                  placa:
+                    type:
+                      - string
+                      - "null"
+                  entidadTipo:
+                    type:
+                      - string
+                      - "null"
+                  entidadId:
+                    type:
+                      - string
+                      - "null"
+                  archivoMime:
+                    type:
+                      - string
+                      - "null"
+                  archivoBytes:
+                    type:
+                      - number
+                      - "null"
+                  archivoPaginas:
+                    type:
+                      - number
+                      - "null"
+                  archivoSha256:
+                    type:
+                      - string
+                      - "null"
+                  proveedor:
+                    type: string
+                  modeloSolicitado:
+                    type:
+                      - string
+                      - "null"
+                  modeloRespondido:
+                    type:
+                      - string
+                      - "null"
+                  idRespuestaProveedor:
+                    type:
+                      - string
+                      - "null"
+                  maxTokens:
+                    type:
+                      - number
+                      - "null"
+                  promptCodigo:
+                    type:
+                      - string
+                      - "null"
+                  promptVersion:
+                    type:
+                      - string
+                      - "null"
+                  promptHash:
+                    type:
+                      - string
+                      - "null"
+                  httpStatus:
+                    type: number
+                  resultado:
+                    type: string
+                  stopReason:
+                    type:
+                      - string
+                      - "null"
+                  errorCodigo:
+                    type:
+                      - string
+                      - "null"
+                  tokensEntrada:
+                    type: number
+                  tokensSalida:
+                    type: number
+                  tokensCacheLectura:
+                    type: number
+                  tokensCacheEscritura:
+                    type: number
+                  costoUsdEstimado:
+                    type:
+                      - string
+                      - "null"
+                required:
+                  - errorMensaje
+                  - metadatos
+                  - metadatosBytes
+                  - tieneContenido
+                  - bytesPrompt
+                  - bytesRespuesta
+                  - posiblementeRecortado
+                  - relacionados
+                  - id
+                  - correlacionId
+                  - intento
+                  - pasada
+                  - fechaInicio
+                  - fechaFin
+                  - latenciaMs
+                  - aplicativo
+                  - servicio
+                  - ambiente
+                  - tenantId
+                  - usuarioId
+                  - usuarioLogin
+                  - origen
+                  - modulo
+                  - proceso
+                  - tipoTarea
+                  - placa
+                  - entidadTipo
+                  - entidadId
+                  - archivoMime
+                  - archivoBytes
+                  - archivoPaginas
+                  - archivoSha256
+                  - proveedor
+                  - modeloSolicitado
+                  - modeloRespondido
+                  - idRespuestaProveedor
+                  - maxTokens
+                  - promptCodigo
+                  - promptVersion
+                  - promptHash
+                  - httpStatus
+                  - resultado
+                  - stopReason
+                  - errorCodigo
+                  - tokensEntrada
+                  - tokensSalida
+                  - tokensCacheLectura
+                  - tokensCacheEscritura
+                  - costoUsdEstimado
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    enum:
+                      - "Revisa los filtros: hay un valor que no es válido."
+                  codigo:
+                    type: string
+                required:
+                  - error
+                  - codigo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  codigo:
+                    type: string
+                    enum:
+                      - datos_invalidos
+                      - no_encontrado
+                      - rango_invalido
+                      - rango_demasiado_amplio
+                      - fuera_de_ventana
+                      - cursor_invalido
+                      - consulta_demasiado_lenta
+                      - auditoria_no_disponible
+                required:
+                  - error
+                  - codigo
+  /api/ia-consumo/registros/buscar:
+    post:
+      operationId: post-api-ia-consumo-registros-buscar
+      tags:
+        - ia-consumo
+      summary: POST /api/ia-consumo/registros/buscar
+      description: "Fuente: apps/api/src/modules/ia-consumo/ia-consumo.routes.ts. Exige la función: ia_consumo.registros.ver."
+      security:
+        - bearerAuth: []
+      x-flit-funciones:
+        - ia_consumo.registros.ver
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                desde:
+                  type: string
+                hasta:
+                  type: string
+                cursor:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                filtros:
+                  type: object
+                  properties:
+                    usuario:
+                      type: string
+                      minLength: 1
+                      maxLength: 80
+                    placa:
+                      type: string
+                    entidad:
+                      type: string
+                      minLength: 1
+                      maxLength: 64
+                    origen:
+                      type: string
+                      enum:
+                        - usuario
+                        - sistema
+                        - job
+                        - ciudadano
+                        - prueba_prompt
+                    modulo:
+                      type: string
+                    proceso:
+                      type: string
+                    tipoTarea:
+                      type: string
+                      enum:
+                        - validacion_identidad
+                        - ocr
+                        - clasificacion
+                        - orientacion
+                        - particion
+                        - chat
+                        - redaccion
+                        - captcha
+                        - recorte
+                        - salud
+                    proveedor:
+                      type: string
+                      enum:
+                        - anthropic
+                        - openai
+                        - kimi
+                        - deepseek
+                        - tesseract
+                    modelo:
+                      type: string
+                    resultado:
+                      type: string
+                      enum:
+                        - rechazado
+                        - timeout
+                        - red
+                        - no_configurado
+                        - exito
+                        - rate_limit
+                        - error_proveedor
+                        - respuesta_invalida
+                        - cancelado
+        description: Cuerpo que valida la ruta con su esquema de Zod.
+      responses:
+        "200":
+          description: Respuesta exitosa.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Forma-06f51f4062"
+                  siguienteCursor:
+                    type:
+                      - string
+                      - "null"
+                required:
+                  - items
+                  - siguienteCursor
+        "400":
+          description: Petición inválida.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    enum:
+                      - "Revisa los filtros: hay un valor que no es válido."
+                  codigo:
+                    type: string
+                required:
+                  - error
+                  - codigo
+        "401":
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                  - error
+        "403":
+          description: Sin permisos.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  funcion:
+                    type: string
+                  motivo:
+                    type: string
+                    enum:
+                      - sin_funcion
+                      - sin_modulo
+                      - no_reconocida
+                      - no_resuelto
+                required:
+                  - error
+                  - funcion
+                  - motivo
+        "429":
+          description: Límite de peticiones superado.
+          headers:
+            Retry-After:
+              description: Segundos que hay que esperar antes de reintentar.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        default:
+          description: Estado calculado en tiempo de ejecución.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  codigo:
+                    type: string
+                    enum:
+                      - datos_invalidos
+                      - no_encontrado
+                      - rango_invalido
+                      - rango_demasiado_amplio
+                      - fuera_de_ventana
+                      - cursor_invalido
+                      - consulta_demasiado_lenta
+                      - auditoria_no_disponible
+                required:
+                  - error
+                  - codigo
   /api/jornadas:
     get:
       operationId: get-api-jornadas
@@ -79784,6 +80460,7 @@ paths:
                             - torre_productos
                             - torre_logistica
                             - flito_ayuda
+                            - ia_consumo
                         legado:
                           type: boolean
                         derivado:
@@ -80829,6 +81506,7 @@ paths:
                             - torre_productos
                             - torre_logistica
                             - flito_ayuda
+                            - ia_consumo
                         legado:
                           type: boolean
                         derivado:
@@ -120928,6 +121606,7 @@ paths:
                             - torre_productos
                             - torre_logistica
                             - flito_ayuda
+                            - ia_consumo
                         derivado:
                           type: boolean
                         deprecado:
@@ -126000,6 +126679,174 @@ components:
         - sha256
         - enviadoAUiafAt
         - acuseUiaf
+    Forma-06f51f4062:
+      description: Forma que comparten varias operaciones.
+      type: object
+      properties:
+        id:
+          type: string
+        correlacionId:
+          type: string
+        intento:
+          type: number
+        pasada:
+          type: number
+        fechaInicio:
+          type: string
+        fechaFin:
+          type: string
+        latenciaMs:
+          type: number
+        aplicativo:
+          type: string
+        servicio:
+          type: string
+        ambiente:
+          type: string
+        tenantId:
+          type:
+            - string
+            - "null"
+        usuarioId:
+          type:
+            - string
+            - "null"
+        usuarioLogin:
+          type:
+            - string
+            - "null"
+        origen:
+          type: string
+        modulo:
+          type: string
+        proceso:
+          type: string
+        tipoTarea:
+          type: string
+        placa:
+          type:
+            - string
+            - "null"
+        entidadTipo:
+          type:
+            - string
+            - "null"
+        entidadId:
+          type:
+            - string
+            - "null"
+        archivoMime:
+          type:
+            - string
+            - "null"
+        archivoBytes:
+          type:
+            - number
+            - "null"
+        archivoPaginas:
+          type:
+            - number
+            - "null"
+        archivoSha256:
+          type:
+            - string
+            - "null"
+        proveedor:
+          type: string
+        modeloSolicitado:
+          type:
+            - string
+            - "null"
+        modeloRespondido:
+          type:
+            - string
+            - "null"
+        idRespuestaProveedor:
+          type:
+            - string
+            - "null"
+        maxTokens:
+          type:
+            - number
+            - "null"
+        promptCodigo:
+          type:
+            - string
+            - "null"
+        promptVersion:
+          type:
+            - string
+            - "null"
+        promptHash:
+          type:
+            - string
+            - "null"
+        httpStatus:
+          type: number
+        resultado:
+          type: string
+        stopReason:
+          type:
+            - string
+            - "null"
+        errorCodigo:
+          type:
+            - string
+            - "null"
+        tokensEntrada:
+          type: number
+        tokensSalida:
+          type: number
+        tokensCacheLectura:
+          type: number
+        tokensCacheEscritura:
+          type: number
+        costoUsdEstimado:
+          type:
+            - string
+            - "null"
+      required:
+        - id
+        - correlacionId
+        - intento
+        - pasada
+        - fechaInicio
+        - fechaFin
+        - latenciaMs
+        - aplicativo
+        - servicio
+        - ambiente
+        - tenantId
+        - usuarioId
+        - usuarioLogin
+        - origen
+        - modulo
+        - proceso
+        - tipoTarea
+        - placa
+        - entidadTipo
+        - entidadId
+        - archivoMime
+        - archivoBytes
+        - archivoPaginas
+        - archivoSha256
+        - proveedor
+        - modeloSolicitado
+        - modeloRespondido
+        - idRespuestaProveedor
+        - maxTokens
+        - promptCodigo
+        - promptVersion
+        - promptHash
+        - httpStatus
+        - resultado
+        - stopReason
+        - errorCodigo
+        - tokensEntrada
+        - tokensSalida
+        - tokensCacheLectura
+        - tokensCacheEscritura
+        - costoUsdEstimado
     Forma-08e08aea66:
       description: Forma que comparten varias operaciones.
       type: object

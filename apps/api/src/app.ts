@@ -120,6 +120,7 @@ import maintIndicatorsRoutes from './modules/maintenance/indicators.routes.js';
 import liquidacionRoutes from './modules/liquidacion/liquidacion.routes.js';
 import { montarConteoUsoLegacy } from './modules/uso-legacy/uso-legacy.middleware.js';
 import usoLegacyRoutes from './modules/uso-legacy/uso-legacy.routes.js';
+import iaConsumoRoutes from './modules/ia-consumo/ia-consumo.routes.js';
 import driversRoutes from './modules/drivers/drivers.routes.js';
 import driverDocumentsRoutes from './modules/drivers/documents.routes.js';
 import driverTrainingsRoutes from './modules/drivers/trainings.routes.js';
@@ -409,6 +410,8 @@ export function createApp() {
   app.use('/api/maintenance/indicators', maintIndicatorsRoutes);
   app.use('/api/liquidaciones', liquidacionRoutes); // TRAM-INNOV-B5-MVP: liquidación/pago manual
   app.use('/api/uso-legacy', usoLegacyRoutes); // HU #13989 (ADR-0033): sin `conAlcance`, nace cerrado para todo enlace
+  // Épica #14548 (ADR-0051): visor de solo lectura de consumo de IA. SIN `conAlcance`: cerrado a todo enlace (D1: admin).
+  app.use('/api/ia-consumo', iaConsumoRoutes);
   app.use('/api/drivers/documents', driverDocumentsRoutes);
   app.use('/api/drivers/trainings', driverTrainingsRoutes);
   app.use('/api/drivers/incidents', driverIncidentsRoutes);

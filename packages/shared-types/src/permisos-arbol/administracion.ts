@@ -34,6 +34,13 @@ export const ITEMS_ADMINISTRACION: readonly ItemDef[] = [
   // `legado.ts` bajo el mismo elemento). Sin nivel 3: el ítem concede `rum.resumen.ver` (lo expande
   // el API, `ITEMS_ADMINISTRACION_OPS`), como un ítem antiguo.
   { slug: 'admin_rendimiento', clave: 'rendimiento', nombre: 'Rendimiento', elemento: 'administracion', orden: 60, acciones: [] },
+  // Épica #14548 (ADR-0051): visor de solo lectura de los registros de consumo de IA. Orden 70 (libre en Administración).
+  // Solo `admin` recibe sus acciones por defecto (D4); las operaciones y la cadena están en `arbol/acciones-ia-consumo.ts`.
+  { slug: 'ia_consumo', clave: 'ia_consumo', nombre: 'Consumo de IA', elemento: 'administracion', orden: 70, acciones: [
+    { clave: 'ver', nombre: 'Ver los registros de consumo de IA', descripcion: 'Consultar la lista y el detalle de los registros de consumo de IA, sin su contenido.' },
+    { clave: 'exportar', nombre: 'Exportar los registros de consumo de IA', descripcion: 'Descargar en CSV los metadatos de los registros de consumo de IA, sin su contenido.' },
+    { clave: 'ver_contenido', nombre: 'Ver el contenido de un registro de consumo de IA', descripcion: 'Leer el prompt y la respuesta de un registro, con un motivo, dejando rastro en la auditoría.' },
+  ] },
 ];
 
 /** Ítems y acciones del área, padres antes que hijos. */

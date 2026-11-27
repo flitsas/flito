@@ -838,4 +838,7 @@ export const GUARDAS_MEDIDAS: GuardaLeida[] = [
   // función de origen en el detalle. Sin `/exportar` del tablero.
   { modulo: "torre", fichero: "flito-torre/flito-torre.tableros.routes.ts", metodo: "POST", ruta: "/operativa/equipo", roles: [], heredada: false },
   { modulo: "torre", fichero: "flito-torre/flito-torre.detalle.routes.ts", metodo: "POST", ruta: "*", condicion: "origen_equipo", roles: [], heredada: false },
+  { modulo: "ia_consumo", fichero: "ia-consumo/ia-consumo.routes.ts", metodo: "GET", ruta: "/catalogos", roles: [], heredada: false },
+  { modulo: "ia_consumo", fichero: "ia-consumo/ia-consumo.routes.ts", metodo: "POST", ruta: "/registros/buscar", roles: [], heredada: false },
+  { modulo: "ia_consumo", fichero: "ia-consumo/ia-consumo.routes.ts", metodo: "GET", ruta: "/registros/:id", roles: [], heredada: false },
 ];

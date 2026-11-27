@@ -96,6 +96,7 @@ export const MIGRACIONES_CON_REPARTO = [
   '0310_flito_torre_equipo.sql', // Épica #14590 (B5): acción «Ver la operación del equipo» (solo gerencia_general y admin)
   '0315_flito_menu_por_areas.sql', // Épica #14678 (ADR-0048): menú por áreas — 4 elementos nuevos, re-padre y su elemento al rol
   '0316_flito_menu_areas_proximamente.sql', // Épica #14678 PR 4: las 5 áreas sin pantallas, sin marca para ningún rol
+  '0321_flito_ia_consumo_permisos.sql', // Épica #14548 (ADR-0051): visor de consumo de IA (ítem y tres acciones; solo admin)
 ] as const;
 
 /**

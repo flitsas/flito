@@ -4,7 +4,8 @@
 //   npm run permisos:seed -w apps/api        → escupe el bloque SQL por stdout
 //   npm run permisos:seed -w apps/api -- --reagrupar
 //       → solo el UPDATE de `modulo` de la HU #12716 (lo pegado en 0205_permisos_reagrupar_modulos.sql)
-//   npm run permisos:seed -w apps/api -- --arbol gestion|finanzas|administracion|legado|dr-flit|torre [--reparto]
+//   npm run permisos:seed -w apps/api -- --arbol gestion|finanzas|administracion|legado|dr-flit|torre|ia-consumo [--reparto]
+//       → Épica #14548 (ADR-0051): `ia-consumo` (0321) siembra su ítem y reparte solo a `admin` (sin SQL de la Torre).
 //       → HU #12873 (ADR-0025): la siembra del árbol (0232) o su reparto «todos» (0233); `legado` (HU #13429):
 //         elementos, cadena e ítems antiguos (0238) y su reparto con el retiro de transitorios (0239)
 //
@@ -27,6 +28,7 @@ import { sqlRepartoArbol, sqlSiembraArbol } from '../modules/permisos/arbol/sql-
 import { sqlRepartoLegado, sqlSiembraLegado } from '../modules/permisos/arbol/sql-legado.js';
 import { sqlRepartoDrFlit, sqlSiembraDrFlit } from '../modules/permisos/arbol/sql-dr-flit.js';
 import { sqlRepartoTorre, sqlSiembraTorre } from '../modules/permisos/arbol/sql-torre.js';
+import { sqlRepartoIaConsumo, sqlSiembraIaConsumo } from '../modules/permisos/arbol/sql-ia-consumo.js';
 
 /** Literal SQL de una cadena: comilla simple doblada. Sin concatenar nada más (regla 3 de AGENTS). */
 const lit = (s: string): string => `'${s.replace(/'/g, "''")}'`;
@@ -102,8 +104,10 @@ function arbol(): string {
   if (area === 'dr-flit') return process.argv.includes('--reparto') ? sqlRepartoDrFlit() : sqlSiembraDrFlit();
   // Épica #14590: `torre` (0303) estrena sus ítems y reparte literal: generador propio.
   if (area === 'torre') return process.argv.includes('--reparto') ? sqlRepartoTorre() : sqlSiembraTorre();
+  // Épica #14548 (ADR-0051): `ia-consumo` (0321) estrena su ítem; reparte solo a `admin` (D4). Generador propio.
+  if (area === 'ia-consumo') return process.argv.includes('--reparto') ? sqlRepartoIaConsumo() : sqlSiembraIaConsumo();
   if (area !== 'gestion' && area !== 'finanzas' && area !== 'administracion') {
-    throw new Error(`--arbol: área no soportada «${area}» (soportadas: gestion, finanzas, administracion, legado, dr-flit, torre).`);
+    throw new Error(`--arbol: área no soportada «${area}» (soportadas: gestion, finanzas, administracion, legado, dr-flit, torre, ia-consumo).`);
   }
   return process.argv.includes('--reparto') ? sqlRepartoArbol(area) : sqlSiembraArbol(area);
 }

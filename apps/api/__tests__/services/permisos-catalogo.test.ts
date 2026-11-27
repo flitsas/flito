@@ -47,7 +47,7 @@ const paginas = catalogo.filter((f) => f.tipo === 'pagina');
 const operaciones = catalogo.filter((f) => f.tipo === 'operacion');
 
 describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo era', () => {
-  it('`PAGE_GROUPS` trae 85 entradas para 84 slugs únicos: `transito` está dos veces', () => {
+  it('`PAGE_GROUPS` trae 86 entradas para 85 slugs únicos: `transito` está dos veces', () => {
     // 44 → 45 / 43 → 44 desde la HU #12375: entra `flito_tarifas` en «Finanzas».
     // 45 → 46 / 44 → 45 desde la HU #12085: entra `roles_permisos` en «Administración».
     // 46 → 47 / 45 → 46 desde la HU #12542: entra `flito_servicios_adicionales` en «Finanzas».
@@ -62,9 +62,10 @@ describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo e
     // 82 → 83 / 81 → 82 desde el ADR-0047 (Épica #14590, B1): entra `torre_detalle` en «Torre de Control».
     // 83 → 84 / 82 → 83 desde la Épica #14590 (B3): entra `torre_productos` en «Torre de Control».
     // 84 → 85 / 83 → 84 desde la Épica #14590 (B4): entra `torre_logistica` en «Torre de Control».
+    // 85 → 86 / 84 → 85 desde la Épica #14548 (ADR-0051): entra `ia_consumo` en «Administración».
     const entradas = PAGE_GROUPS.flatMap((g) => g.pages);
-    expect(entradas).toHaveLength(85);
-    expect(new Set(entradas).size).toBe(84);
+    expect(entradas).toHaveLength(86);
+    expect(new Set(entradas).size).toBe(85);
     const repetidos = entradas.filter((s, i) => entradas.indexOf(s) !== i);
     expect(repetidos).toEqual(['transito']);
   });
@@ -90,15 +91,15 @@ describe('AC2-bis — los dos defectos del catálogo de origen, y el que no lo e
     expect(catalogo.map((f) => f.codigo)).not.toContain('pagina.flito_ayuda');
   });
 
-  it('las funciones de tipo `pagina` del mundo plano son 73: los 85 slugs de PAGES menos `flito_ayuda`, `admin_rendimiento`, `flito_dr_flit` y las nueve de la Torre', () => {
+  it('las funciones de tipo `pagina` del mundo plano son 73: los 86 slugs de PAGES menos `flito_ayuda`, `admin_rendimiento`, `flito_dr_flit`, las nueve de la Torre y `ia_consumo` (nacen en el árbol)', () => {
     // HU #13255: +1 (`perfil`). HU #13421: +21 (una por ítem del menú PESV). HU #13422: +3 (Mantenimiento).
     // HU #13588: +1 en PAGES (`admin_rendimiento`), que nace en el árbol (la 0240): no es del mundo plano (≤ 0231).
     // HU #13941: +1 en PAGES (`flito_dr_flit`), que también nace en el árbol (la 0254).
     // Épica #14590: +6 en PAGES (`torre_*`), que nacen en el árbol (la 0303); ADR-0047: +1 (`torre_detalle`, su migración).
-    // B3: +1 (`torre_productos`, la 0308). B4: +1 (`torre_logistica`, la 0309).
-    expect(Object.keys(PAGES)).toHaveLength(85);
+    // B3: +1 (`torre_productos`, la 0308). B4: +1 (`torre_logistica`, la 0309). Épica #14548 (ADR-0051): +1 (`ia_consumo`, la 0321).
+    expect(Object.keys(PAGES)).toHaveLength(86);
     expect(paginas).toHaveLength(73);
-    const esperados = Object.keys(PAGES).filter((s) => s !== 'flito_ayuda' && s !== 'admin_rendimiento' && s !== 'flito_dr_flit' && !s.startsWith('torre_')).sort();
+    const esperados = Object.keys(PAGES).filter((s) => s !== 'flito_ayuda' && s !== 'admin_rendimiento' && s !== 'flito_dr_flit' && s !== 'ia_consumo' && !s.startsWith('torre_')).sort();
     expect(paginas.map((f) => f.codigo.replace('pagina.', '')).sort()).toEqual(esperados);
   });
 });
@@ -227,6 +228,7 @@ describe('AC2/AC6 — las operaciones salen de la foto, y los montajes del fuent
       ['bolsas.movimientos.ver', 2], ['bolsas.recarga.registrar', 2],
       ['bolsas.transito.inactivar', 2],
       ['derechos.cola.ver', 2],
+      ['ia_consumo.registros.ver', 3], // Épica #14548 (ADR-0051): `GET /catalogos`, `POST /buscar` y `GET /:id`
       ['impuestos.certificacion_directa.gestionar', 12], ['impuestos.cola.ver', 2],
       ['impuestos.tramite.certificar', 3],
       ['logistica.actas.despachar', 3], ['logistica.actas.devolver', 2], ['logistica.actas.entregar', 2], // HU #14353: +GET /actas/:id/mensajeros

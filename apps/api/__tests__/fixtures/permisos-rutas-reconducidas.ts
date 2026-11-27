@@ -858,4 +858,8 @@ export const RUTAS_RECONDUCIDAS: RutaReconducida[] = [
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/financiera/bolsas', codigo: 'torre.tablero_financiero.ver' },
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/financiera/facturacion/exportar', codigo: 'torre.tablero_financiero.ver' },
   { fichero: 'flito-torre/flito-torre.tableros.routes.ts', metodo: 'POST', ruta: '/financiera/bolsas/exportar', codigo: 'torre.tablero_financiero.ver' },
+  // Épica #14548 (ADR-0051, bloque A): el visor de consumo de IA (solo lectura; `exigirFuncion` por ruta).
+  { fichero: 'ia-consumo/ia-consumo.routes.ts', metodo: 'GET', ruta: '/catalogos', codigo: 'ia_consumo.registros.ver' },
+  { fichero: 'ia-consumo/ia-consumo.routes.ts', metodo: 'POST', ruta: '/registros/buscar', codigo: 'ia_consumo.registros.ver' },
+  { fichero: 'ia-consumo/ia-consumo.routes.ts', metodo: 'GET', ruta: '/registros/:id', codigo: 'ia_consumo.registros.ver' },
 ];

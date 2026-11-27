@@ -483,6 +483,9 @@ const envSchema = z.object({
     (v) => (typeof v === 'string' && v.trim() !== '' ? v.trim().toLowerCase() : undefined),
     z.enum(['dev', 'qa', 'pdn', 'local']).optional(),
   ),
+  // Épica #14548 (ADR-0051, D8): ventana del visor de consumo de IA, en meses (entero 1..24; vacío = 3). Fuera de la
+  // ventana no hay lectura: el detalle responde 404 y la búsqueda 400 `fuera_de_ventana`.
+  IA_CONSUMO_VISOR_VENTANA_MESES: z.preprocess(vacioComoAusente, z.coerce.number().int().min(1).max(24).default(3)),
 }).superRefine((data, ctx) => {
   // Feature #13978 (ADR-0034 D2): etapa estática de las llaves PII. La de arranque, con BD, está en
   // `modules/privacy/rotacion/comprobar-llaves.ts`. `process.env` porque el esquema descarta `PII_ENC_KEY_V<n>`.

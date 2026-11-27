@@ -67,6 +67,7 @@ import {
 } from '../../src/shared/permisos-efectivos.js';
 import { ROLES_NUEVOS_TORRE } from '../../src/modules/permisos/arbol/sql-torre.js';
 import { OPERACIONES_TORRE } from '../../src/modules/permisos/arbol/acciones-torre.js';
+import { OPERACIONES_IA_CONSUMO } from '../../src/modules/permisos/arbol/acciones-ia-consumo.js'; // Épica #14548 (ADR-0051)
 
 const ROLES = [...USER_ROLES] as string[];
 /** Un `sub` por rol, fijo: el resolutor cachea por usuario y aquí cada rol es un usuario. */
@@ -257,6 +258,10 @@ describe('AC7 — las cuatro fuentes se corresponden una a una', () => {
       'flito-torre/flito-torre.tableros.routes.ts POST /financiera/bolsas',
       'flito-torre/flito-torre.tableros.routes.ts POST /financiera/facturacion/exportar',
       'flito-torre/flito-torre.tableros.routes.ts POST /financiera/bolsas/exportar',
+      // Épica #14548 (ADR-0051): el visor de consumo de IA nace en el árbol (0321) y no tiene reparto de partida.
+      'ia-consumo/ia-consumo.routes.ts GET /catalogos',
+      'ia-consumo/ia-consumo.routes.ts POST /registros/buscar',
+      'ia-consumo/ia-consumo.routes.ts GET /registros/:id',
     ]);
   });
 });
@@ -306,5 +311,6 @@ describe.skipIf(!URL_BASE)('AC7 — la misma matriz, leyendo permisos_rol_funcio
   // Épica #14590: la Torre no tiene «antes» (la foto la registra sin rol: nació en el árbol con la 0303), así que la
   // paridad con el `requireRole` no se puede medir; su reparto rol a rol (`REPARTO_TORRE`) lo fija
   // `flito-torre/flito-torre-permisos.test.ts` contra el SQL de la 0303.
-  matriz('base real', () => repartoDeLaBase, undefined, new Set(OPERACIONES_TORRE));
+  // Épica #14548 (ADR-0051): el visor de consumo de IA nace en el árbol (0321) y tampoco tiene «antes» con `requireRole`.
+  matriz('base real', () => repartoDeLaBase, undefined, new Set([...OPERACIONES_TORRE, ...OPERACIONES_IA_CONSUMO]));
 });

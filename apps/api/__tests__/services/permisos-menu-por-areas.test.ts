@@ -45,7 +45,7 @@ const MAPA: Record<string, readonly string[]> = {
     'rndc', 'rndc_admin', 'laft', 'laft_unusual', 'laft_trainings', 'laft_manual', 'laft_oficial', 'laft_audit_plan', 'laft_dashboard', 'tramite',
     'maintenance', 'soat', 'tax_reader', // sin entrada de menú: ítems antiguos (P-28), con el resto del legado
   ],
-  'menu.administracion': ['privacy', 'users', 'roles_permisos', 'drive', 'admin_rendimiento', 'transito_organismos'],
+  'menu.administracion': ['privacy', 'users', 'roles_permisos', 'drive', 'admin_rendimiento', 'transito_organismos', 'ia_consumo'], // Épica #14548 (ADR-0051)
   'menu.general': ['flito_dr_flit'],
   'menu.perfil': ['perfil'],
 };

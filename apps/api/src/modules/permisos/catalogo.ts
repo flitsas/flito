@@ -92,6 +92,7 @@ export const PAGINAS_NACIDAS_EN_EL_ARBOL: readonly PageSlug[] = [
   'torre_detalle', // ADR-0047: su propia migración
   'torre_productos', // B3: su propia migración (0308)
   'torre_logistica', // B4: su propia migración (0309)
+  'ia_consumo', // Épica #14548 (ADR-0051): su propia migración (0321), después del árbol de áreas (0315).
 ];
 
 /**
