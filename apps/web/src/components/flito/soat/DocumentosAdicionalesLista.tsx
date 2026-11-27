@@ -18,6 +18,7 @@ import { api } from '../../../lib/api';
 import { useAuth } from '../../../lib/auth';
 import { toastError, toastOk } from '../../flit/ToastFlito';
 import { flitBtnSecondary, flitBtnSecondaryStyle } from '../../flit/flitPageKit';
+import { claseBoton } from '../../flit/GradientButton';
 import CargarDocumentosAdicionales from './CargarDocumentosAdicionales';
 import ConfirmarEliminarAdicional, { BotonEliminarAdicional } from './ConfirmarEliminarAdicional';
 import {
@@ -140,9 +141,11 @@ export default function DocumentosAdicionalesLista({ lista, accionesExtra, reemp
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {vista && (
-                <a href={d.url} target="_blank" rel="noopener noreferrer" className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+                // Enlace, no botón: la sección vive en el lateral del detalle apaisado, que es consulta en texto y
+                // enlaces (UX `flito-tramites-rediseno.md` §8.1 y §10.1, Épica 14707).
+                <a href={d.url} target="_blank" rel="noopener noreferrer" className="enlace-btn"
                   aria-label={`Ver ${d.etiqueta}`}>
-                  <Icono nombre="ojo" size={16} className="shrink-0" />
+                  <Icono nombre="ojo" size={14} className="shrink-0" />
                   Ver
                 </a>
               )}
@@ -278,7 +281,7 @@ function SeccionConLista({ soatId, puedeCargar, puedeEliminar }: { soatId: strin
           Documentos adicionales
         </h3>
         {puedeCargar && !panelAbierto && (
-          <button type="button" data-abrir-carga className={flitBtnSecondary} style={flitBtnSecondaryStyle}
+          <button type="button" data-abrir-carga className={claseBoton('secondary', 'sm')}
             aria-expanded={false} onClick={abrirPanel}>
             <Icono nombre="nube-subir" size={16} className="shrink-0" />
             Cargar documentos

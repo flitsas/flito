@@ -10,7 +10,7 @@ const FILAS = ['flit', 'flit2'].map((fuente, i) => ({
   empresaExiste: true, empresaNit: null, secretariaEmparejada: true, transitoNombre: null, facturaVentaFlitId: null,
   companiaNombre: null, organismoNombre: null, vehiculo: { vin: null, placa: `MOV00${i}`, marca: null, linea: null, tipoVehiculo: null },
   compradorPrincipal: null, compradores: [], soat: null, soatAutogestionado: false, impuesto: null,
-  impuestosAutogestionado: false, excepcionesAutogestion: [], listoParaEntregar: false,
+  impuestosAutogestionado: false, excepcionesAutogestion: [], vigenciaTramite: 'vigente', listoParaEntregar: false,
 }));
 
 test('AC5: en móvil la fuente se ve sin desplazarse y el filtro se usa', async ({ page }) => {

@@ -468,7 +468,8 @@ test.describe('FLITO — Portal SOAT', () => {
     await page.goto('/flito/soat');
     await page.getByRole('row').filter({ hasText: 'PAG777' }).getByRole('button', { name: 'Ver' }).click();
 
-    const lineas = page.getByRole('dialog').getByRole('listitem');
+    // Los compradores viven en el contenido; el lateral (apaisado, Épica 14707) tiene su propia lista del comprobante.
+    const lineas = page.getByRole('dialog').getByRole('region', { name: 'Datos del SOAT PAG777' }).getByRole('listitem');
     await expect(lineas).toHaveCount(2);
     expect(await lineas.nth(0).locator('span').first().textContent()).toBe('Sara Ríos · 30303030');
     expect(await lineas.nth(1).locator('span').first().textContent()).toBe('Iván Ríos · PP 40404040');

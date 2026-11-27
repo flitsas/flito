@@ -318,7 +318,7 @@ test.describe('HU #14342 · Enviar SOAT', () => {
     compradorPrincipal: { nombreCompleto: 'Ana Pérez', numeroDocumento: '10101010', tipoDocumento: 'CC', correo: null },
     compradores: [{ nombreCompleto: 'Ana Pérez', numeroDocumento: '10101010' }],
     soat: null, excepcionesAutogestion: [], soatAutogestionado: false,
-    impuesto: { id: 'i1', estado: 'pendiente', tieneFacturaVenta: false, valorPagado: null }, listoParaEntregar: false,
+    impuesto: { id: 'i1', estado: 'pendiente', tieneFacturaVenta: false, valorPagado: null }, vigenciaTramite: 'vigente', listoParaEntregar: false,
   };
 
   async function montarTramites(page: Page, responder: (r: Route) => unknown) {

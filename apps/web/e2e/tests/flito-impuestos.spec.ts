@@ -1613,7 +1613,8 @@ test.describe('FLITO — Impuestos · patrón unificado de cola y detalle (Épic
     const detalle = await abrirDetalle(page, 'ABC123');
     const motivo = detalle.getByRole('alert').filter({ hasText: 'La factura no corresponde al VIN.' });
     await expect(motivo).toBeVisible();
-    const comprobante = detalle.getByRole('group', { name: 'Acciones del comprobante' });
+    // El comprobante en consulta vive en el lateral (apaisado, Épica 14707), debajo del aviso.
+    const comprobante = detalle.getByRole('region', { name: 'Estado del impuesto' }).getByRole('button', { name: 'Ver soporte' });
     await expect(comprobante).toBeVisible();
     expect(await antes(motivo, comprobante)).toBe(true);
   });
@@ -1624,7 +1625,8 @@ test.describe('FLITO — Impuestos · patrón unificado de cola y detalle (Épic
     const detalle = await abrirDetalle(page, 'OPS001');
     const aviso = detalle.getByRole('status').filter({ hasText: 'Solo lectura' });
     await expect(aviso).toBeVisible();
-    const comprobante = detalle.getByRole('group', { name: 'Acciones del comprobante' });
+    const comprobante = detalle.getByRole('region', { name: 'Estado del impuesto' }).getByRole('button', { name: 'Ver soporte' });
+    await expect(comprobante).toBeVisible();
     expect(await antes(aviso, comprobante)).toBe(true);
   });
 });

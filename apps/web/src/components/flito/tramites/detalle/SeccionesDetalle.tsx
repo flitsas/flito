@@ -1,29 +1,49 @@
 // FLITO — Gestión Trámites: secciones del detalle en modal (ADR-0046). Solo presentación: los datos
 // llegan de `GET /flito/tramites/:id/detalle` (y el historial de su propio endpoint). Se muestra solo
 // lo que viene; un campo nulo no se inventa, se dice «Sin dato».
+//
+// Rediseño apaisado (Épica #14707, bloque 4; UX `docs/ux/flito-tramites-rediseno.md` §9): Vehículo abre el
+// contenido con la fila de acciones; Resumen pierde estado y fuente (van en la cabecera) y lo de la gestión
+// (semáforo, para entregar, logística), que va al lateral. Un trámite revocado marca sus cobros «Revocado».
 
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   esFuenteTramite,
-  type TramiteDetalle as DetalleTramite, type TramiteDetalleConceptoId,
+  type TramiteDetalle as DetalleTramite, type TramiteDetalleConceptoId, type VigenciaTramite,
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../../../../lib/api';
 import StatusChip, { type ChipTone } from '../../../flit/StatusChip';
 import { claseBoton } from '../../../flit/GradientButton';
 import { FlitEmpty, FlitTable, FlitTh, FlitTr } from '../../../flit/flitPageKit';
-import { fecha, pesos, type HistorialItem } from '../tiposTramites';
+import { Vehiculo, textoServicioVehiculo } from '../../../flit/Placa';
+import { fecha, pesos, type HistorialItem, type TramiteFila } from '../tiposTramites';
 
 const tenue = 'text-[color:var(--color-text-tertiary)]';
 const secundario = 'text-[color:var(--color-text-secondary)]';
 
-/** Contenedor de una sección: es el destino del índice lateral (`id`) y su región accesible. */
-export function Seccion({ id, titulo, children }: { id: string; titulo: string; children: ReactNode }) {
+/**
+ * Contenedor de una sección (`card` del kit): es el destino del índice (`id`) y su región accesible. `acciones`
+ * pinta el `bloque-cabeza` (título a la izquierda, fila compacta de acciones a la derecha). `scroll-mt` deja
+ * sitio al índice sticky por debajo de `lg`.
+ */
+export function Seccion({ id, titulo, acciones, children }: { id: string; titulo: string; acciones?: ReactNode; children: ReactNode }) {
+  const h3 = <h3 id={`${id}-titulo`} className="seccion__titulo">{titulo}</h3>;
   return (
-    <section id={id} aria-labelledby={`${id}-titulo`}
-      className="scroll-mt-2 rounded-[9px] border border-[color:var(--color-border)] p-4">
-      <h3 id={`${id}-titulo`} className="m-0 mb-3 text-base font-semibold text-[color:var(--color-heading)]">{titulo}</h3>
+    <section id={id} aria-labelledby={`${id}-titulo`} className="card scroll-mt-14 lg:scroll-mt-2">
+      {acciones ? <div className="bloque-cabeza">{h3}{acciones}</div> : h3}
       {children}
     </section>
+  );
+}
+
+/** Chip de un trámite muerto (Épica #14707): «Anulado» (también el abortado) o «Revocado», con su ícono del kit. */
+export function ChipVigenciaTramite({ vigencia }: { vigencia: Exclude<VigenciaTramite, 'vigente'> }) {
+  const revocado = vigencia === 'revocado';
+  return (
+    <StatusChip tono={revocado ? 'revocado' : 'anulado'}
+      icono={<img src={revocado ? '/kit/estado-revocado.svg' : '/kit/estado-anulado.svg'} alt="" aria-hidden="true" className="kit-etiqueta__icono" />}>
+      {revocado ? 'Revocado' : 'Anulado'}
+    </StatusChip>
   );
 }
 
@@ -67,39 +87,56 @@ const SEMAFORO: Record<DetalleTramite['resumen']['semaforo'], { texto: string; t
   verde: { texto: 'Verde', tono: 'success' },
 };
 
+/** Semáforo del detalle como chip (lo pinta el lateral «Estado de la gestión»). */
+export function ChipSemaforo({ semaforo }: { semaforo: DetalleTramite['resumen']['semaforo'] }) {
+  const s = SEMAFORO[semaforo] ?? { texto: semaforo, tono: 'neutral' as ChipTone };
+  return <StatusChip tone={s.tono}>{s.texto}</StatusChip>;
+}
+
 export function ContenidoResumen({ d }: { d: DetalleTramite }) {
   const r = d.resumen;
-  const s = SEMAFORO[r.semaforo] ?? { texto: r.semaforo, tono: 'neutral' as ChipTone };
   return (
     <dl className={grid}>
-      <Dato etiqueta="Estado"><StatusChip tone={r.asignado ? 'active' : 'neutral'}>{r.estado}</StatusChip></Dato>
       <Dato etiqueta="Tipo de trámite">{o(r.tipoTramite)}</Dato>
-      <Dato etiqueta="Fuente"><EtiquetaFuente fuente={r.fuente} /></Dato>
       <Dato etiqueta="Creado">{r.creado ? fecha(r.creado) : sinDato}</Dato>
       <Dato etiqueta="Aprobado">{r.aprobado ? fecha(r.aprobado) : sinDato}</Dato>
       <Dato etiqueta="Ciudad">{o(r.ciudad)}</Dato>
-      <Dato etiqueta="Semáforo"><StatusChip tone={s.tono}>{s.texto}</StatusChip></Dato>
-      <Dato etiqueta="Para entregar">
-        {r.listoParaEntregar
-          ? <StatusChip tone="success">Listo para entregar</StatusChip>
-          : `Falta: ${r.pendientes.map((p) => (p === 'soat' ? 'SOAT' : 'Impuestos')).join(' y ') || 'sin dato'}`}
-      </Dato>
-      <Dato etiqueta="Logística (licencia)">{o(r.logisticaEstado)}</Dato>
       <Dato etiqueta="Sincronizado">{fecha(r.sincronizadoEn)}</Dato>
     </dl>
   );
 }
 
-export function ContenidoVehiculo({ d }: { d: DetalleTramite }) {
-  const v = d.vehiculo;
-  // Solo lo que viene (decisión del humano): un campo nulo no ocupa sitio.
-  const campos = ([['Placa', v.placa], ['VIN', v.vin], ['Marca', v.marca], ['Línea', v.linea], ['Clase', v.clase]] as const)
-    .filter(([, valor]) => valor && valor.trim());
-  if (campos.length === 0) return <FlitEmpty>FLIT no trajo datos del vehículo de este trámite.</FlitEmpty>;
+/**
+ * Bloque Vehículo: la PRIMERA sección. Se pinta desde la FILA (no espera al detalle), con su fila de acciones aunque
+ * el detalle cargue o falle (UX §9.3); del detalle solo toma la clase si llegó. El error de una acción va al pie,
+ * `role="alert"` en `--flit-danger-ink` (corrige D4: antes quedaba en la página, detrás del modal).
+ */
+export function BloqueVehiculo({ id, fila, detalle, acciones, errorAccion }: {
+  id: string; fila: TramiteFila; detalle: DetalleTramite | null; acciones?: ReactNode; errorAccion?: string | null;
+}) {
+  const v = fila.vehiculo;
+  const placa = detalle?.vehiculo.placa ?? v.placa;
+  const nombre = [v.marca ?? detalle?.vehiculo.marca, v.linea ?? detalle?.vehiculo.linea].filter((x) => x && x.trim()).join(' ');
+  const servicio = v.tipoServicio ?? detalle?.vehiculo.tipoServicio ?? null;
+  const vin = v.vin ?? detalle?.vehiculo.vin;
+  const meta = [v.tipoVehiculo ?? detalle?.vehiculo.clase, textoServicioVehiculo(servicio), vin ? `VIN ${vin}` : null]
+    .filter((x) => x && x.trim()).join(' · ');
   return (
-    <dl className={grid}>
-      {campos.map(([etiqueta, valor]) => <Dato key={etiqueta} etiqueta={etiqueta}><span className="tabular-nums">{valor}</span></Dato>)}
-    </dl>
+    <Seccion id={id} titulo="Vehículo" acciones={acciones}>
+      {placa ? (
+        <Vehiculo icono={null} placa={placa} tipoServicio={servicio} anunciarServicio={false}
+          nombre={nombre || <span className={`italic ${tenue}`}>Sin marca ni línea</span>} meta={meta || undefined} />
+      ) : nombre || vin ? (
+        <dl className={grid}>
+          <Dato etiqueta="Placa">{sinDato}</Dato>
+          {nombre && <Dato etiqueta="Vehículo">{nombre}</Dato>}
+          {meta && <Dato etiqueta="Datos">{meta}</Dato>}
+        </dl>
+      ) : (
+        <FlitEmpty>FLIT no trajo datos del vehículo de este trámite.</FlitEmpty>
+      )}
+      {errorAccion && <p role="alert" className="error-accion">{errorAccion}</p>}
+    </Seccion>
   );
 }
 
@@ -144,8 +181,11 @@ const CONCEPTO: Record<TramiteDetalleConceptoId, string> = {
   soat: 'SOAT', impuesto: 'Impuesto vehicular', derecho_transito: 'Derecho de tránsito',
 };
 
+/** Costos: un trámite REVOCADO conserva su cobro, su liquidación y su factura como histórico, marcados «Revocado» (14707 §7). */
 export function ContenidoCostos({ d }: { d: DetalleTramite }) {
   const c = d.costos;
+  const revocado = d.vigenciaTramite === 'revocado';
+  const marca = revocado ? <ChipVigenciaTramite vigencia="revocado" /> : null;
   return (
     <div className="space-y-3">
       <FlitTable>
@@ -158,7 +198,10 @@ export function ContenidoCostos({ d }: { d: DetalleTramite }) {
               <td className="px-3 py-2 text-sm font-medium">{CONCEPTO[k.concepto] ?? k.concepto}</td>
               <td className="px-3 py-2 text-sm">{o(k.quienCobra)}</td>
               <td className="px-3 py-2 text-sm">
-                {k.autogestionado ? <StatusChip tone="neutral">Autogestionado</StatusChip> : o(k.estado)}
+                <span className="flex flex-wrap items-center gap-2">
+                  {k.autogestionado ? <StatusChip tone="neutral">Autogestionado</StatusChip> : o(k.estado)}
+                  {marca}
+                </span>
               </td>
               <td className="whitespace-nowrap px-3 py-2 text-sm tabular-nums">
                 {k.valor !== null ? pesos(k.valor) : <span className={`italic ${tenue}`}>Sin valor</span>}
@@ -169,7 +212,9 @@ export function ContenidoCostos({ d }: { d: DetalleTramite }) {
         </tbody>
       </FlitTable>
       <dl className="m-0 flex flex-wrap gap-x-8 gap-y-2">
-        <Dato etiqueta="Factura de venta de FLIT">{c.tieneFacturaVenta ? 'Sí' : 'Todavía no'}</Dato>
+        <Dato etiqueta="Factura de venta de FLIT">
+          {c.tieneFacturaVenta ? <span className="flex flex-wrap items-center gap-2">Sí{marca}</span> : 'Todavía no'}
+        </Dato>
         <Dato etiqueta="Total"><strong className="tabular-nums">{c.total !== null ? pesos(c.total) : 'Sin valores todavía'}</strong></Dato>
       </dl>
     </div>

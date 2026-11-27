@@ -12,6 +12,8 @@ import StatusChip, { type ChipTone } from '../flit/StatusChip';
 export interface ImpuestoItem {
   id: string; tramiteId: string; idFlit: string; placa: string | null; vin: string;
   marca: string | null; linea: string | null;
+  /** Texto crudo de `vehicles.tipo_servicio` (Épica #14707, bloque 2); lo interpreta `Placa` vía shared-types. */
+  tipoServicio?: string | null;
   tipoTramite: string | null; fechaAprobacion: string | null; fechaCreacion: string | null;
   estado: EstadoImpuesto; compradorNombre: string | null; compradorDocumento: string | null;
   /**

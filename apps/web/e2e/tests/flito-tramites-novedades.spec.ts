@@ -19,7 +19,7 @@ const fila = (n: number, placa: string) => ({
   organismoNombre: 'STT Manizales', vehiculo: { vin: `VIN000000000000${n}`, placa, marca: 'Chevrolet', linea: 'Onix', tipoVehiculo: null },
   compradorPrincipal: { nombreCompleto: 'Comprador E2E', numeroDocumento: '10101010', tipoDocumento: 'CC', correo: null },
   compradores: [], soat: null, soatAutogestionado: false, impuesto: null, impuestosAutogestionado: false,
-  soatResuelto: false, impuestosResueltos: false, listoParaEntregar: false, valorSoat: null, valorImpuesto: null,
+  soatResuelto: false, impuestosResueltos: false, vigenciaTramite: 'vigente', listoParaEntregar: false, valorSoat: null, valorImpuesto: null,
   sincronizadoEn: MARCA, logistica: null, excepcionesAutogestion: [],
 });
 const A = fila(1, 'ABC123');

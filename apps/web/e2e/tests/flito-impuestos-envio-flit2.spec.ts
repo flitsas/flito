@@ -209,8 +209,10 @@ test.describe('FLITO — Impuestos · envío del comprobante a FLIT 2 y reemplaz
   test('AC3 · «Reemplazar comprobante» solo con la función, Pagado y comprobante de pago vigente', async ({ page }) => {
     await iniciar(page);
     let detalle = await abrirDetalle(page, 'ENV001');
-    const textos = await detalle.getByRole('group', { name: 'Acciones del comprobante' }).getByRole('button').allInnerTexts();
-    expect(textos.map((t) => t.trim())).toEqual(['Ver soporte', 'Reemplazar comprobante']);
+    // Apaisado (Épica 14707, UX §10.2): «Ver soporte» en el lateral; el reemplazo, en la fila del bloque Datos.
+    await expect(detalle.getByRole('region', { name: 'Estado del impuesto' }).getByRole('button', { name: 'Ver soporte' })).toBeVisible();
+    const textos = await detalle.getByRole('group', { name: 'Acciones del impuesto' }).getByRole('button').allInnerTexts();
+    expect(textos.map((t) => t.trim())).toEqual(['Reemplazar comprobante']);
     // Secundario: el detalle sigue sin primaria.
     await expect(detalle.getByRole('button', { name: 'Reemplazar comprobante' })).not.toHaveCSS('background-image', /gradient/);
     await page.keyboard.press('Escape');

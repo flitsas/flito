@@ -566,8 +566,8 @@ small { font-size: var(--text-micro); }
 :root:not([data-theme="dark"]) .badge[data-estado="preasignacion"] { --ct: #a54f00; }
 .btn.positiva { color: #162744; }
 :root:not([data-theme="dark"]) .btn.alerta { --b: #d44100; }
-.banner-kit__lamina--degradado, .banner-muestra--degradado { background: linear-gradient(160deg, #007d79 0%, #1670b8 55%, #1d53ff 100%); }
-.banner-kit__lamina--azul, .banner-muestra--azul { background: #1d53ff; }
+.banner-kit__lamina--degradado, .banner-muestra--degradado { background: linear-gradient(160deg, #007d79 0%, #1670b8 55%, var(--kit-azul-relleno) 100%); }
+.banner-kit__lamina--azul, .banner-muestra--azul { background: var(--kit-azul-relleno); }
 
 /* Ingreso: fondo de tinta y el avance real de un trámite en lugar de una ilustración. */
 .ingreso__marca { background: #162744; }
@@ -582,7 +582,7 @@ small { font-size: var(--text-micro); }
 .ingreso__pasos, .seg__pasos { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
 .ingreso__pasos li, .seg__pasos li { padding-top: 10px; border-top: 4px solid #c9d6ee; font-size: 0.8125rem; color: #546b7d; min-width: 0; }
 .ingreso__pasos li.hecho, .seg__pasos li.hecho { border-color: #4f7121; color: #162744; }
-.ingreso__pasos li.actual, .seg__pasos li.actual { border-color: #1d53ff; color: #1d53ff; font-weight: 700; }
+.ingreso__pasos li.actual, .seg__pasos li.actual { border-color: var(--kit-azul); color: var(--kit-azul); font-weight: 700; }
 .ingreso__hechos { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-12); }
 .ingreso__hechos li { display: flex; align-items: center; gap: var(--space-12); }
 .ingreso__hechos li > span:last-child { display: grid; min-width: 0; }
@@ -608,9 +608,9 @@ small { font-size: var(--text-micro); }
 @media (max-width: 640px) { .seg__pasos { grid-auto-flow: row; grid-auto-columns: auto; } .seg__pasos li { border-top: 0; border-left: 4px solid #c9d6ee; padding: 4px 0 4px 12px; } }
 /* Contraste en tema oscuro */
 /* En oscuro el azul se separa en dos: uno para rellenos con texto blanco y otro, más claro, para texto y trazos sobre el fondo. */
-[data-theme="dark"] .btn:not(.secondary):not(.ghost):not(.positiva):not(.alerta):not([disabled]), [data-theme="dark"] .saltar, [data-theme="dark"] .pildora-tramite, [data-theme="dark"] .dock__cabeza, [data-theme="dark"] .kico.estado-ico:not([class*="estado-ico--"]), [data-theme="dark"] .banner-kit__lamina--azul, [data-theme="dark"] .banner-muestra--azul { --b: #1d53ff; background-color: #1d53ff; color: #fff; }
+[data-theme="dark"] .btn:not(.secondary):not(.ghost):not(.positiva):not(.alerta):not([disabled]), [data-theme="dark"] .saltar, [data-theme="dark"] .pildora-tramite, [data-theme="dark"] .dock__cabeza, [data-theme="dark"] .kico.estado-ico:not([class*="estado-ico--"]), [data-theme="dark"] .banner-kit__lamina--azul, [data-theme="dark"] .banner-muestra--azul { --b: var(--kit-azul-relleno); background-color: var(--kit-azul-relleno); color: #fff; }
 [data-theme="dark"] .btn.alerta { --b: #d44100; }
-[data-theme="dark"] .persona__avatar { background-color: #1d53ff; color: #fff; }
+[data-theme="dark"] .persona__avatar { background-color: var(--kit-azul-relleno); color: #fff; }
 .ingreso__marca, .ingreso__form, .ingreso__texto, .ingreso__panel { min-width: 0; }
 .ingreso__titular { overflow-wrap: anywhere; }
 @media (max-width: 480px) {

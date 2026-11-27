@@ -10,12 +10,21 @@
 // verdad hay debajo, nunca comparar contra una lista de ratios copiada a mano (un gate que compara
 // contra su propia foto no protege nada). Si alguien cambia un hex del kit, este script remide.
 //
+// ── Waiver de contraste (ADR-0050) ──────────────────────────────────────────────────────────
+// Waiver de contraste — decisión de David, 2026-11-26, `docs/ux/flito-tramites-rediseno.md` §6 (R3), y
+// `docs/adr/ADR-0050-azul-557eff-waiver-contraste.md`. El azul de marca #557eff deja bajo AA una lista
+// CERRADA de pares, que vive en `scripts/contraste-waivers.json` (la lee también el helper de axe de E2E).
+// Reglas: `AA` no cambia; una entrada solo aplica si el texto o el fondo del par es exactamente el `color`
+// del waiver (si el azul se mueve, el par vuelve a medirse contra 4,5); por debajo de su `minimo` sigue
+// siendo FALLA; y TRINQUETE: una entrada que no corresponde a ningún caso medido, o cuyo par ya cumple AA,
+// hace fallar el gate («retira la entrada del waiver»). Cada caso lleva una `clave` estable para casarlo.
+//
 // Sigue existiendo por el mismo motivo de siempre: `axe` no es dependencia del repo y el CI no
 // ejecuta E2E, así que ningún otro gate del pipeline ve un contraste roto.
 //
 // ── Qué mide (AA 4,5:1, tema claro y oscuro) ────────────────────────────────────────────────
 //   1. Texto primario, secundario y terciario sobre fondo y superficie.
-//   2. Azul de texto (`--color-action`: #1D53FF claro / #8FB0FF oscuro) sobre fondo, superficie y hover.
+//   2. Azul de texto (`--color-action`: #557EFF claro, bajo waiver ADR-0050 / #8FB0FF oscuro) sobre fondo, superficie y hover.
 //   3. Blanco sobre botón azul, tinta y naranja (también el «Salir» del menú de usuario y las
 //      cabeceras azules del dock y del menú), y tinta sobre el botón verde.
 //   4. Cada `--ct` de `.kit-etiqueta` sobre su fondo `color-mix(--c 10 %, superficie)`.
@@ -41,6 +50,7 @@ const ARCHIVOS = [
   'index.css',
 ];
 const AA = 4.5;
+const WAIVER = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'contraste-waivers.json'), 'utf8'));
 
 // ---------- 1. Parser mínimo: reglas de primer nivel (sin @media / @theme / @font-face) ----------
 function reglas(css) {
@@ -197,34 +207,34 @@ function casosDe(tema) {
   const superficie = color('var(--color-surface-elevated)');
   const hover = sobre(color('var(--kit-hover)'), superficie);
   const casos = [];
-  const caso = (nombre, texto, bajo) => casos.push({ nombre, texto: sobre(texto, bajo), fondo: bajo });
+  const caso = (clave, nombre, texto, bajo) => casos.push({ clave, nombre, texto: sobre(texto, bajo), fondo: bajo });
 
   // 1. Texto
   for (const [n, t] of [['primario', '--color-text-primary'], ['secundario', '--color-text-secondary'], ['terciario', '--color-text-tertiary']]) {
-    caso(`texto ${n} / fondo`, color(`var(${t})`), fondo);
-    caso(`texto ${n} / superficie`, color(`var(${t})`), superficie);
+    caso(`texto-${n}/fondo`, `texto ${n} / fondo`, color(`var(${t})`), fondo);
+    caso(`texto-${n}/superficie`, `texto ${n} / superficie`, color(`var(${t})`), superficie);
   }
   // 2. Azul de texto
   const azul = color('var(--color-action)');
-  caso(`azul de texto ${hex(azul)} / fondo`, azul, fondo);
-  caso(`azul de texto ${hex(azul)} / superficie`, azul, superficie);
-  caso(`azul de texto ${hex(azul)} / hover`, azul, hover);
+  caso('azul-texto/fondo', `azul de texto ${hex(azul)} / fondo`, azul, fondo);
+  caso('azul-texto/superficie', `azul de texto ${hex(azul)} / superficie`, azul, superficie);
+  caso('azul-texto/hover', `azul de texto ${hex(azul)} / hover`, azul, hover);
 
   // 3. Botones (fondo = --b o background del componente; texto = su color)
-  const boton = (nombre, props, extraOscuro = {}) => {
+  const boton = (clave, nombre, props, extraOscuro = {}) => {
     const p = { ...props, ...(tema === 'oscuro' ? extraOscuro : {}) };
     const bg = color(p['background-color'] ?? p.background ?? 'var(--b)', p);
-    caso(nombre, color(p.color, p), sobre(bg, superficie));
+    caso(clave, nombre, color(p.color, p), sobre(bg, superficie));
   };
   const btn = propsDe('.btn', tema);
-  boton('blanco / botón azul', btn, propsOscuroQueEmpieza('.btn:not(.secondary)'));
-  boton('blanco / botón tinta', { ...btn, ...propsDe('.btn.secondary', tema) });
-  boton('blanco / botón naranja (.btn.alerta)', { ...btn, ...propsDe('.btn.alerta', tema) });
-  boton('blanco / «Salir» del menú de usuario', { ...btn, ...propsDe('.btn.secondary', tema), ...propsDe('.menu-flotante .menu-usuario__pie .btn', tema) });
-  boton('tinta / botón verde (.btn.positiva)', { ...btn, ...propsDe('.btn.positiva', tema) });
-  for (const sel of ['.menu-usuario__cabeza', '.dock__cabeza']) {
+  boton('blanco/boton-azul', 'blanco / botón azul', btn, propsOscuroQueEmpieza('.btn:not(.secondary)'));
+  boton('blanco/boton-tinta', 'blanco / botón tinta', { ...btn, ...propsDe('.btn.secondary', tema) });
+  boton('blanco/boton-naranja', 'blanco / botón naranja (.btn.alerta)', { ...btn, ...propsDe('.btn.alerta', tema) });
+  boton('blanco/salir-menu-usuario', 'blanco / «Salir» del menú de usuario', { ...btn, ...propsDe('.btn.secondary', tema), ...propsDe('.menu-flotante .menu-usuario__pie .btn', tema) });
+  boton('tinta/boton-verde', 'tinta / botón verde (.btn.positiva)', { ...btn, ...propsDe('.btn.positiva', tema) });
+  for (const [sel, clave] of [['.menu-usuario__cabeza', 'blanco/cabecera-menu-usuario'], ['.dock__cabeza', 'blanco/cabecera-dock']]) {
     const p = propsDe(sel, tema);
-    caso(`blanco / cabecera azul (${sel})`, color('var(--kit-sobre-relleno)'), color(p['background-color'] ?? p.background));
+    caso(clave, `blanco / cabecera azul (${sel})`, color('var(--kit-sobre-relleno)'), color(p['background-color'] ?? p.background));
   }
 
   // 4. Etiquetas: --ct sobre color-mix(--c 10 %, superficie)
@@ -237,36 +247,56 @@ function casosDe(tema) {
     const locales = { '--c': p['--c'] };
     if (p['--ct']) locales['--ct'] = p['--ct'];
     const bg = sobre(color(fondoEtiqueta, locales), superficie);
-    caso(`etiqueta «${tono}» --ct / su fondo`, color(p.color, locales), bg);
+    caso(`etiqueta/${tono}`, `etiqueta «${tono}» --ct / su fondo`, color(p.color, locales), bg);
   }
 
   // 5. CommandPalette (.kit-modal sobre superficie elevada)
   const modal = sobre(color(propsDe('.kit-modal', tema).background), fondo);
   const activo = sobre(color(propsDe('.resultado[aria-selected="true"]', tema).background), modal);
-  caso('paleta · ítem activo, título', color('var(--color-text-primary)'), activo);
-  caso('paleta · ítem activo, sección', color('var(--color-text-tertiary)'), activo);
-  caso('paleta · título de grupo', color(propsDe('.resultados .grupo', tema).color), modal);
+  caso('paleta/activo-titulo', 'paleta · ítem activo, título', color('var(--color-text-primary)'), activo);
+  caso('paleta/activo-seccion', 'paleta · ítem activo, sección', color('var(--color-text-tertiary)'), activo);
+  caso('paleta/grupo', 'paleta · título de grupo', color(propsDe('.resultados .grupo', tema).color), modal);
   const kbd = propsDe('.flit-shell-kbd', tema);
-  caso('paleta · teclas (↑↓ ↵ Esc)', color(kbd.color), sobre(color(kbd.background), modal));
+  caso('paleta/teclas', 'paleta · teclas (↑↓ ↵ Esc)', color(kbd.color), sobre(color(kbd.background), modal));
   return casos;
 }
 
 // ---------- 4. Informe ----------
+// Con 2 decimales, como se imprime: el `minimo` del JSON es la cifra que se lee en la salida.
+const r2 = (r) => Math.round(r * 100) / 100;
+const colorWaiver = WAIVER.color.toLowerCase();
+const usadas = new Set();
 let fallos = 0;
 let total = 0;
+let bajoWaiver = 0;
+const obsoletas = [];
 for (const tema of ['claro', 'oscuro']) {
   console.log(`\n── Tema ${tema} ──`);
   for (const c of casosDe(tema)) {
     total++;
     const r = ratio(c.texto, c.fondo);
     const ok = r >= AA;
+    const entrada = WAIVER.pares.find((w) => w.tema === tema && w.caso === c.clave);
+    const ref = `${c.texto && hex(c.texto)} sobre ${hex(c.fondo)}  ${c.nombre}`;
+    if (entrada) {
+      usadas.add(`${tema}|${c.clave}`);
+      if (ok) obsoletas.push(`${tema} · ${c.clave}: ya cumple AA (${r.toFixed(2)}:1)`);
+    }
+    const atado = entrada && (hex(c.texto) === colorWaiver || hex(c.fondo) === colorWaiver);
+    if (!ok && atado && r2(r) >= entrada.minimo && r2(r) >= WAIVER.piso) {
+      bajoWaiver++;
+      console.log(`WAIVER ${r.toFixed(2).padStart(5)}:1  ${ref}  (ADR-0050, mínimo ${entrada.minimo.toFixed(2)})`);
+      continue;
+    }
     if (!ok) fallos++;
-    console.log(`${ok ? 'OK  ' : 'FALLA'} ${r.toFixed(2).padStart(5)}:1  ${hex(c.texto)} sobre ${hex(c.fondo)}  ${c.nombre}`);
+    console.log(`${ok ? 'OK  ' : 'FALLA'} ${r.toFixed(2).padStart(5)}:1  ${ref}${!ok && entrada ? `  (en el waiver, pero ${atado ? `bajo su mínimo ${entrada.minimo}` : `ya no es ${colorWaiver}`})` : ''}`);
   }
 }
-console.log(`\n${total - fallos}/${total} pares cumplen AA ${AA}:1.`);
-if (fallos > 0) {
-  console.error(`check:contraste — ${fallos} par(es) por debajo de AA.`);
-  process.exit(1);
+for (const w of WAIVER.pares) if (!usadas.has(`${w.tema}|${w.caso}`)) obsoletas.push(`${w.tema} · ${w.caso}: no corresponde a ningún caso medido`);
+console.log(`\n${total - fallos - bajoWaiver}/${total} pares cumplen AA ${AA}:1 · ${bajoWaiver} bajo waiver ADR-0050.`);
+if (obsoletas.length > 0) {
+  for (const o of obsoletas) console.error(`WAIVER OBSOLETO — ${o}: retira la entrada del waiver (scripts/contraste-waivers.json).`);
 }
+if (fallos > 0) console.error(`check:contraste — ${fallos} par(es) por debajo de AA.`);
+if (fallos > 0 || obsoletas.length > 0) process.exit(1);
 console.log('check:contraste — OK.');

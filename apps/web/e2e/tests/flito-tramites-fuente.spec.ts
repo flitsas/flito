@@ -11,7 +11,7 @@ const fila = (n: number, fuente: string) => ({
   transitoNombre: 'STT Manizales', facturaVentaFlitId: null, companiaNombre: 'Concesionario Norte',
   organismoNombre: 'STT Manizales', vehiculo: { vin: `VIN00000000000${n}`, placa: `PLC00${n}`, marca: 'Mazda', linea: '2', tipoVehiculo: null },
   compradorPrincipal: null, compradores: [], soat: null, soatAutogestionado: false, impuesto: null,
-  impuestosAutogestionado: false, excepcionesAutogestion: [], listoParaEntregar: false,
+  impuestosAutogestionado: false, excepcionesAutogestion: [], vigenciaTramite: 'vigente', listoParaEntregar: false,
 });
 const TODAS = [fila(1, 'flit'), fila(2, 'flit'), fila(3, 'flit2')];
 

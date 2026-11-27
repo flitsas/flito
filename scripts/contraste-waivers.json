@@ -1,0 +1,18 @@
+{
+  "adr": "docs/adr/ADR-0050-azul-557eff-waiver-contraste.md",
+  "decision": "Waiver de contraste: decisión de David, 2026-11-26, docs/ux/flito-tramites-rediseno.md §6 (R3)",
+  "color": "#557eff",
+  "piso": 3.0,
+  "pares": [
+    { "tema": "claro",  "caso": "azul-texto/superficie",        "minimo": 3.61 },
+    { "tema": "claro",  "caso": "azul-texto/fondo",             "minimo": 3.14 },
+    { "tema": "claro",  "caso": "azul-texto/hover",             "minimo": 3.00 },
+    { "tema": "claro",  "caso": "etiqueta/info",                "minimo": 3.23 },
+    { "tema": "claro",  "caso": "blanco/boton-azul",            "minimo": 3.61 },
+    { "tema": "claro",  "caso": "blanco/cabecera-menu-usuario", "minimo": 3.61 },
+    { "tema": "claro",  "caso": "blanco/cabecera-dock",         "minimo": 3.61 },
+    { "tema": "oscuro", "caso": "blanco/boton-azul",            "minimo": 3.61 },
+    { "tema": "oscuro", "caso": "blanco/cabecera-menu-usuario", "minimo": 3.61 },
+    { "tema": "oscuro", "caso": "blanco/cabecera-dock",         "minimo": 3.61 }
+  ]
+}

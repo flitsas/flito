@@ -279,9 +279,9 @@
 :root { --ingreso-tarjeta-texto-2: #5d6b86; }
 :root { --kit-margen: clamp(16px, 2.2vw, 32px); --kit-gap: 16px; }
 :root:not([data-theme="dark"]) {
-  --kit-azul: #1d53ff; --kit-azul-hover: #1746e0; --kit-gris: #546b7d;
-  --color-action: #1d53ff; --gradient-action: linear-gradient(#1d53ff, #1d53ff); --gradient-action-hover: linear-gradient(#1746e0, #1746e0);
-  --color-highlight: #1d53ff; --color-highlight-display: #1d53ff; --color-heading: #1d53ff; --color-info: #1d53ff;
+  --kit-azul: #557eff; --kit-azul-hover: color-mix(in srgb, var(--kit-azul) 86%, var(--kit-tinta)); --kit-gris: #546b7d;
+  --color-action: var(--kit-azul); --gradient-action: linear-gradient(var(--kit-azul), var(--kit-azul)); --gradient-action-hover: linear-gradient(var(--kit-azul-hover), var(--kit-azul-hover));
+  --color-highlight: var(--kit-azul); --color-highlight-display: var(--kit-azul); --color-heading: var(--kit-azul); --color-info: var(--kit-azul);
   --color-text-tertiary: #546b7d;
 }
-[data-theme="dark"] { --kit-azul: #8fb0ff; --kit-azul-relleno: #1d53ff; --color-action: #8fb0ff; --color-heading: #a9c9fc; --color-highlight: #8fb0ff; --color-info: #8fb0ff; }
+[data-theme="dark"] { --kit-azul: #8fb0ff; --kit-azul-relleno: #557eff; --color-action: #8fb0ff; --color-heading: #a9c9fc; --color-highlight: #8fb0ff; --color-info: #8fb0ff; }

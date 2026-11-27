@@ -33,6 +33,14 @@ Capturas de S0 (claro/oscuro, 1280 y 375): `docs/ux/rediseno-2026/s0/` (incluye 
 Regenerar los CSS/íconos generados si la propuesta cambia: `docs/ux/rediseno-2026/generadores/` (`node gen-css.cjs <carpeta-propuesta> apps/web/src/styles/kit`, `node gen-iconos.cjs <flit>/packages/ui/src/iconos-kit.ts apps/web/src/components/flit/kit/iconos-kit.generated.ts`);
 si se vuelven a correr, revisar el diff completo.
 
+**El generador aplica la marca FLITO (ADR-0050).** Su tabla `MARCA_FLITO` devuelve todo el azul del tema claro a `#557eff`
+(`--kit-azul`, `--kit-azul-hover` = `color-mix(var(--kit-azul) 86%, var(--kit-tinta))`, `--color-action/-heading/-highlight(-display)/-info`,
+`--gradient-action(-hover)`, `--kit-azul-relleno` y los rellenos de `kit-ui.css`) y retira el cursor de `.kit-cuerpo`. Cada sustitución
+lleva su conteo esperado: si la propuesta se movió y no cuadra, el generador **aborta**; también aborta si queda `#1d53ff`/`#1746e0`.
+Los pares de contraste que el azul deja bajo AA están en `scripts/contraste-waivers.json` (waiver acotado de ADR-0050; lo leen
+`npm run check:contraste` y el helper de axe de E2E). `tokens.css` declara `--kit-azul-relleno: #557eff` **literal** (no `var(--kit-azul)`:
+en oscuro saldría `#8fb0ff`).
+
 ---
 
 ## 2. Mapeo «patrón viejo → kit nuevo»
@@ -43,9 +51,9 @@ Los `--flit-*` **siguen funcionando** (alias), pero código nuevo usa los roles 
 
 | Viejo | Nuevo | Claro / oscuro |
 |---|---|---|
-| `--flit-blue-text`, `--flit-blue-ink`, `--flit-pill-active-ink`, `--flit-chip-active-ink` | `--color-action` (texto y trazos azules) | #1D53FF / #8FB0FF |
-| `--flit-blue` | `--kit-azul` (rellenos de ícono, bordes de foco y activo) | #1D53FF / #8FB0FF |
-| `--flit-gradient-primary` (botón) | `--kit-azul-relleno` (relleno plano con texto blanco) | #1D53FF / #1D53FF |
+| `--flit-blue-text`, `--flit-blue-ink`, `--flit-pill-active-ink`, `--flit-chip-active-ink` | `--color-action` (texto y trazos azules) | #557EFF / #8FB0FF (ADR-0050) |
+| `--flit-blue` | `--kit-azul` (rellenos de ícono, bordes de foco y activo) | #557EFF / #8FB0FF (ADR-0050) |
+| `--flit-gradient-primary` (botón) | `--kit-azul-relleno` (relleno plano con texto blanco) | #557EFF / #557EFF (ADR-0050) |
 | `--flit-blue-dark` | `--kit-tinta-fija` (botón secundario, franjas) | #162744 / #162744 |
 | `--flit-text-primary` / `-secondary` | `--color-text-primary` / `--color-text-secondary` | #162744 / #E6F0FF |
 | `--flit-text-muted` | `--color-text-tertiary` (texto gris AA) | #546B7D / #A9B8D4 |
