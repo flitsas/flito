@@ -78,7 +78,7 @@ test.describe('Épica #14707 — trámite muerto en Gestión Trámites (layout d
     // Sin «Crear empresa» aunque la empresa no exista: el trámite no se opera.
     await expect(revocada.getByRole('button', { name: 'Crear empresa' })).toHaveCount(0);
     // Servicio público en texto (la placa no es la única señal).
-    await expect(revocada.getByText(/Público/)).toBeVisible();
+    await expect(revocada.getByText('Servicio público', { exact: true })).toBeVisible();
 
     const viva = fila(page, '2026-000812');
     await expect(viva.getByRole('checkbox')).toBeEnabled();
@@ -91,9 +91,12 @@ test.describe('Épica #14707 — trámite muerto en Gestión Trámites (layout d
     await page.getByLabel('Seleccionar las filas de esta página').check();
     await expect(page.getByText('1 seleccionado', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Entregar (1)', exact: true })).toBeVisible();
-    // La barra cambia de modo en el mismo sitio: sin «Columnas» ni «Orden» mientras hay selección.
-    await expect(page.getByRole('button', { name: /^Columnas/ })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Limpiar selección' })).toBeVisible();
+    // Ajustes 14707: la barra de lote solo existe con selección; Columnas y Orden siguen en la cabecera de Filtros,
+    // fuera de ella.
+    const barra = page.getByTestId('barra-tabla');
+    await expect(barra.getByRole('button', { name: 'Limpiar selección' })).toBeVisible();
+    await expect(barra.getByRole('button', { name: /^Columnas/ })).toHaveCount(0);
+    await expect(page.getByTestId('herramientas-tabla').getByRole('button', { name: /^Columnas/ })).toBeVisible();
   });
 
   test('409 TRAMITE_NO_VIGENTE desde la fila: toast cerrable con el copy de 14707 (sin el crudo) y la tabla se refresca', async ({ page }) => {

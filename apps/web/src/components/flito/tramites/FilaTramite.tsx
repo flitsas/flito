@@ -4,15 +4,14 @@
 //
 // Épica #14707, bloque 4 (UX §5.3): sin columna «Ver»: el ID es un botón con aspecto de enlace que abre el
 // detalle (conserva `atributoVer`, adonde vuelve el foco). El chip de estado abre el detalle en Historial.
-// Vehículo: la placa con su variante (moto / servicio público) y, debajo, marca y línea · tipo · «Público» en
-// texto; sin placa, «VIN …». El documento del propietario y el VIN con placa van al detalle; la factura de
-// venta, a Soportes. Fila muerta (14707 §3): chip Anulado/Revocado, casilla deshabilitada con el motivo,
+// Vehículo (ajustes 14707): la placa con su variante (moto / servicio público) —sin placa, la placa VACÍA del
+// kit—, y debajo «Marca Línea · tipo», el VIN y el servicio en texto. El documento del propietario va al
+// detalle; la factura de venta, a Soportes. Fila muerta (14707 §3): chip Anulado/Revocado, casilla deshabilitada con el motivo,
 // sin «Listo para entregar», Solicitar, Desbloquear ni Crear empresa. Sin atenuar la fila.
 
-import { normalizarTipoServicio } from '@operaciones/shared-types';
 import StatusChip from '../../flit/StatusChip';
 import AntiguedadPill from '../../flit/AntiguedadPill';
-import Placa from '../../flit/Placa';
+import Placa, { PlacaVacia, textoServicioVehiculo } from '../../flit/Placa';
 import { FlitTr } from '../../flit/flitPageKit';
 import { CeldaFuenteTramite } from '../../flito-tramites/FuenteTramite';
 import { CeldaFacturaVenta, CeldaImpuesto, CeldaSoat, TrackingLogistica } from './CeldasTramite';
@@ -22,9 +21,6 @@ import { ChipVigenciaTramite } from './detalle/SeccionesDetalle';
 
 const tenue = 'text-[color:var(--color-text-tertiary)]';
 const enlace = 'flit-focus rounded text-xs font-semibold text-[color:var(--color-action)] underline transition-colors hover:text-[color:var(--color-text-primary)]';
-
-/** «9BW…7781»: el VIN entero va al detalle; en la lista basta para reconocerlo. */
-const vinCorto = (vin: string) => (vin.length > 9 ? `${vin.slice(0, 3)}…${vin.slice(-4)}` : vin);
 
 export interface FilaTramiteProps {
   f: TramiteFila;
@@ -55,8 +51,12 @@ export default function FilaTramite({
   const muerto = vigencia !== 'vigente';
   const motivoMuerto = vigencia === 'revocado' ? 'revocado' : 'anulado';
   const operable = esOperaciones && !muerto;
-  const publico = normalizarTipoServicio(f.vehiculo.tipoServicio) === 'publico';
-  const noSeleccionable = `No se puede seleccionar ${f.vehiculo.placa ?? f.idFlit}: el trámite está ${motivoMuerto} en FLIT`;
+  const v = f.vehiculo;
+  const servicio = textoServicioVehiculo(v.tipoServicio);
+  const marcaLinea = [[v.marca, v.linea].filter(Boolean).join(' '), v.tipoVehiculo].filter(Boolean).join(' · ');
+  // Sin placa el nombre accesible usa el ID del trámite: nunca «Seleccionar null».
+  const quien = v.placa ?? `el trámite ${f.idFlit}`;
+  const noSeleccionable = `No se puede seleccionar ${quien}: el trámite está ${motivoMuerto} en FLIT`;
   return (
     <FlitTr marcada={seleccionada}>
       {esOperaciones && (
@@ -66,7 +66,7 @@ export default function FilaTramite({
           {muerto ? (
             <input type="checkbox" disabled checked={false} readOnly aria-label={noSeleccionable} title={noSeleccionable} className="cursor-not-allowed" />
           ) : (
-            <input type="checkbox" aria-label={`Seleccionar ${f.vehiculo.placa}`} checked={seleccionada} onChange={onAlternar} />
+            <input type="checkbox" aria-label={`Seleccionar ${quien}`} checked={seleccionada} onChange={onAlternar} />
           )}
         </td>
       )}
@@ -102,13 +102,14 @@ export default function FilaTramite({
       {ver('vehiculo') && (
         <td className="px-3 py-2 align-top">
           <div className="font-medium">
-            {f.vehiculo.placa
-              ? <Placa placa={f.vehiculo.placa} formatear={false} tipoServicio={f.vehiculo.tipoServicio} anunciarServicio={false} />
-              : f.vehiculo.vin ? <span className="text-sm font-semibold tabular-nums" title={f.vehiculo.vin}>VIN {vinCorto(f.vehiculo.vin)}</span> : '—'}
+            {/* La línea del servicio ya lo dice en texto: la placa pública no lo repite al lector (1.4.1). */}
+            {v.placa
+              ? <Placa placa={v.placa} formatear={false} tipoServicio={v.tipoServicio} anunciarServicio={!servicio} />
+              : <PlacaVacia />}
           </div>
-          <div className="mt-1 text-xs text-[color:var(--color-text-secondary)]">
-            {[[f.vehiculo.marca, f.vehiculo.linea].filter(Boolean).join(' '), f.vehiculo.tipoVehiculo, publico ? 'Público' : null].filter(Boolean).join(' · ')}
-          </div>
+          {marcaLinea && <div className="mt-1 text-xs text-[color:var(--color-text-secondary)]">{marcaLinea}</div>}
+          {v.vin && <div className={`text-xs tabular-nums whitespace-nowrap ${tenue}`}>{v.vin}</div>}
+          {servicio && <div className="text-xs text-[color:var(--color-text-secondary)]">{servicio}</div>}
         </td>
       )}
       {ver('comprador') && (
