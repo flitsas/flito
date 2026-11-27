@@ -19,19 +19,22 @@ export interface NavDetalleTramite {
   hayAnterior: boolean;
   haySiguiente: boolean;
   cargandoPagina: boolean;
-  abrir: (f: TramiteFila) => void;
+  /** Sección con la que se abrió (el chip de estado de la fila abre en `historial`); null = arriba del todo. */
+  seccion: 'historial' | null;
+  abrir: (f: TramiteFila, seccion?: 'historial') => void;
   anterior: () => void;
   siguiente: () => void;
   cerrar: () => void;
 }
 
-/** Selector del botón «Ver» de una fila: es adonde vuelve el foco al cerrar. */
+/** Selector del ID (botón) de una fila: es adonde vuelve el foco al cerrar. */
 export const atributoVer = 'data-ver-tramite';
 
 export function useDetalleTramite(
   data: TramiteFila[] | null, page: number, total: number, pageSize: number, setPage: (p: number) => void,
 ): NavDetalleTramite {
   const [actual, setActual] = useState<TramiteFila | null>(null);
+  const [seccion, setSeccion] = useState<'historial' | null>(null);
   const [pendiente, setPendiente] = useState<Pendiente>(null);
   const ultimoAbierto = useRef<string | null>(null);
   const filas = data ?? [];
@@ -68,18 +71,21 @@ export function useDetalleTramite(
     hayAnterior: idx > 0 || (idx === 0 && page > 1),
     haySiguiente: idx >= 0 && (idx < filas.length - 1 || page < totalPaginas),
     cargandoPagina: pendiente !== null,
-    abrir: (f) => { setPendiente(null); setActual(f); },
+    seccion,
+    abrir: (f, s) => { setPendiente(null); setSeccion(s ?? null); setActual(f); },
     anterior: () => {
+      setSeccion(null);
       if (idx > 0) setActual(filas[idx - 1]);
       else if (idx === 0 && page > 1) irPagina(page - 1, 'ultimo');
     },
     siguiente: () => {
+      setSeccion(null);
       if (idx >= 0 && idx < filas.length - 1) setActual(filas[idx + 1]);
       else if (idx === filas.length - 1 && page < totalPaginas) irPagina(page + 1, 'primero');
     },
     cerrar: () => {
       const id = ultimoAbierto.current;
-      setActual(null); setPendiente(null);
+      setActual(null); setPendiente(null); setSeccion(null);
       // Después del desmontaje (que restaura el foco al elemento previo): el foco vuelve al «Ver» de
       // la fila del trámite que se estaba mirando, que puede no ser el que abrió la modal.
       setTimeout(() => {

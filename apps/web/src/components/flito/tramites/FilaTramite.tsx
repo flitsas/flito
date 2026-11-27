@@ -1,26 +1,37 @@
 // FLITO — Trámites: una fila de la bandeja. JSX movido desde `pages/FlitoTramites.tsx` al partirla
 // (rediseño UI Kit 2026, Épica #14560). Sin estado propio: todo llega por props y los handlers son
 // los de la página.
+//
+// Épica #14707, bloque 4 (UX §5.3): sin columna «Ver»: el ID es un botón con aspecto de enlace que abre el
+// detalle (conserva `atributoVer`, adonde vuelve el foco). El chip de estado abre el detalle en Historial.
+// Vehículo: la placa con su variante (moto / servicio público) y, debajo, marca y línea · tipo · «Público» en
+// texto; sin placa, «VIN …». El documento del propietario y el VIN con placa van al detalle; la factura de
+// venta, a Soportes. Fila muerta (14707 §3): chip Anulado/Revocado, casilla deshabilitada con el motivo,
+// sin «Listo para entregar», Solicitar, Desbloquear ni Crear empresa. Sin atenuar la fila.
 
+import { normalizarTipoServicio } from '@operaciones/shared-types';
 import StatusChip from '../../flit/StatusChip';
 import AntiguedadPill from '../../flit/AntiguedadPill';
 import Placa from '../../flit/Placa';
 import { FlitTr } from '../../flit/flitPageKit';
-import { documentoConTipo } from '../../flit/columnasComunes';
 import { CeldaFuenteTramite } from '../../flito-tramites/FuenteTramite';
 import { CeldaFacturaVenta, CeldaImpuesto, CeldaSoat, TrackingLogistica } from './CeldasTramite';
 import { fecha, pesos, type TramiteFila } from './tiposTramites';
-import { claseBoton } from '../../flit/GradientButton';
 import { atributoVer } from './detalle/useDetalleTramite';
+import { ChipVigenciaTramite } from './detalle/SeccionesDetalle';
 
 const tenue = 'text-[color:var(--color-text-tertiary)]';
 const enlace = 'flit-focus rounded text-xs font-semibold text-[color:var(--color-action)] underline transition-colors hover:text-[color:var(--color-text-primary)]';
+
+/** «9BW…7781»: el VIN entero va al detalle; en la lista basta para reconocerlo. */
+const vinCorto = (vin: string) => (vin.length > 9 ? `${vin.slice(0, 3)}…${vin.slice(-4)}` : vin);
 
 export interface FilaTramiteProps {
   f: TramiteFila;
   esOperaciones: boolean;
   seleccionada: boolean;
   onAlternar: () => void;
+  /** El chip de estado: abre el detalle en la sección Historial. */
   onHistorial: (f: TramiteFila) => void;
   onFactura: (f: TramiteFila) => void;
   onDesbloqueo: (f: TramiteFila) => void;
@@ -28,8 +39,8 @@ export interface FilaTramiteProps {
   onSolicitarSoat?: () => void;
   onSolicitarImpuesto?: () => void;
   onSoportes: () => void;
-  /** ADR-0046: abre el detalle del trámite en modal. Sin prop, la columna no se pinta. */
-  onVer?: () => void;
+  /** ADR-0046: abre el detalle del trámite en modal (el ID de la fila). */
+  onVer: () => void;
   /** Vista de columnas activa (ADR-0045): `false` oculta la celda de esa clave. Sin prop, todas. */
   ver?: (clave: string) => boolean;
 }
@@ -40,34 +51,38 @@ export default function FilaTramite({
   f, esOperaciones, seleccionada, onAlternar, onHistorial, onFactura, onDesbloqueo, onCrearEmpresa,
   onSolicitarSoat, onSolicitarImpuesto, onSoportes, onVer, ver = todas,
 }: FilaTramiteProps) {
+  const vigencia = f.vigenciaTramite;
+  const muerto = vigencia !== 'vigente';
+  const motivoMuerto = vigencia === 'revocado' ? 'revocado' : 'anulado';
+  const operable = esOperaciones && !muerto;
+  const publico = normalizarTipoServicio(f.vehiculo.tipoServicio) === 'publico';
+  const noSeleccionable = `No se puede seleccionar ${f.vehiculo.placa ?? f.idFlit}: el trámite está ${motivoMuerto} en FLIT`;
   return (
     <FlitTr marcada={seleccionada}>
       {esOperaciones && (
         <td className="px-3 py-2">
-          {/* Sin `disabled` desde la HU #11910: el que estaba dejaba fuera a los
-              Entregados, que son justo los que tienen la evidencia completa que alguien
-              va a buscar. Lo que la fila admite lo dice ahora el rótulo de las acciones. */}
-          <input type="checkbox" aria-label={`Seleccionar ${f.vehiculo.placa}`}
-            checked={seleccionada}
-            onChange={onAlternar} />
-        </td>
-      )}
-      {onVer && (
-        <td className="px-3 py-2 align-top">
-          <button type="button" {...{ [atributoVer]: f.tramiteId }} onClick={onVer}
-            aria-label={`Ver el detalle del trámite ${f.idFlit}`} className={claseBoton('secondary', 'sm')}>Ver</button>
+          {/* HU #11910: la casilla se abre a toda fila VIVA (también las Entregadas). Una muerta (14707)
+              queda deshabilitada con el motivo: conserva la alineación y lo dice. */}
+          {muerto ? (
+            <input type="checkbox" disabled checked={false} readOnly aria-label={noSeleccionable} title={noSeleccionable} className="cursor-not-allowed" />
+          ) : (
+            <input type="checkbox" aria-label={`Seleccionar ${f.vehiculo.placa}`} checked={seleccionada} onChange={onAlternar} />
+          )}
         </td>
       )}
       {ver('tramite') && (
         <td className="px-3 py-2 align-top">
-          <div className={`text-xs tabular-nums ${tenue}`}>{f.idFlit}</div>
+          <button type="button" {...{ [atributoVer]: f.tramiteId }} onClick={onVer} aria-label={`Ver el detalle del trámite ${f.idFlit}`}
+            className="flit-focus rounded text-sm font-semibold tabular-nums text-[color:var(--color-action)] transition-colors hover:underline hover:underline-offset-2">
+            {f.idFlit}
+          </button>
           {f.tipoTramite && <div className="text-xs text-[color:var(--color-text-secondary)]">{f.tipoTramite}</div>}
-          {/* Estado del trámite: al hacer click abre el historial (cursor pointer + hover). */}
+          {/* El chip abre el detalle en Historial (consulta: también en un trámite muerto). */}
           <button type="button" onClick={() => onHistorial(f)} title="Ver historial del trámite"
             className="flit-focus mt-1 block cursor-pointer rounded transition-opacity hover:opacity-80">
-            <StatusChip tone={f.asignado ? 'active' : 'neutral'}>{f.estado}</StatusChip>
+            {muerto ? <ChipVigenciaTramite vigencia={vigencia} /> : <StatusChip tone={f.asignado ? 'active' : 'neutral'}>{f.estado}</StatusChip>}
           </button>
-          {f.listoParaEntregar && <div className="mt-1"><StatusChip tone="success">Listo para entregar</StatusChip></div>}
+          {!muerto && f.listoParaEntregar && <div className="mt-1"><StatusChip tone="success">Listo para entregar</StatusChip></div>}
         </td>
       )}
       {ver('fuente') && <CeldaFuenteTramite fuente={f.fuente} />}
@@ -86,18 +101,21 @@ export default function FilaTramite({
       )}
       {ver('vehiculo') && (
         <td className="px-3 py-2 align-top">
-          <div className="font-medium">{f.vehiculo.placa ? <Placa placa={f.vehiculo.placa} formatear={false} /> : '—'}</div>
-          <div className={`mt-1 text-xs ${tenue}`}>{f.vehiculo.marca} {f.vehiculo.linea}{f.vehiculo.tipoVehiculo ? ` · ${f.vehiculo.tipoVehiculo}` : ''}</div>
-          <div className={`text-xs tabular-nums ${tenue}`}>{f.vehiculo.vin}</div>
-          <div className="mt-1"><CeldaFacturaVenta fila={f} onVer={onFactura} /></div>
+          <div className="font-medium">
+            {f.vehiculo.placa
+              ? <Placa placa={f.vehiculo.placa} formatear={false} tipoServicio={f.vehiculo.tipoServicio} anunciarServicio={false} />
+              : f.vehiculo.vin ? <span className="text-sm font-semibold tabular-nums" title={f.vehiculo.vin}>VIN {vinCorto(f.vehiculo.vin)}</span> : '—'}
+          </div>
+          <div className="mt-1 text-xs text-[color:var(--color-text-secondary)]">
+            {[[f.vehiculo.marca, f.vehiculo.linea].filter(Boolean).join(' '), f.vehiculo.tipoVehiculo, publico ? 'Público' : null].filter(Boolean).join(' · ')}
+          </div>
         </td>
       )}
       {ver('comprador') && (
-        <td className="px-3 py-2 text-sm">
+        <td className="px-3 py-2 text-sm align-top">
           {f.compradorPrincipal ? (
             <>
               <div>{f.compradorPrincipal.nombreCompleto}</div>
-              <div className={`text-xs tabular-nums ${tenue}`}>{documentoConTipo(f.compradorPrincipal.tipoDocumento, f.compradorPrincipal.numeroDocumento)}</div>
               {f.compradores.length > 1 && <span className={`text-xs ${tenue}`}>{f.compradores.length} propietarios</span>}
             </>
           ) : '—'}
@@ -137,7 +155,7 @@ export default function FilaTramite({
               {f.empresaNit && <div className={`text-xs tabular-nums ${tenue}`}>NIT {f.empresaNit}</div>}
               {/* Solo cuando hay algo que desbloquear o que revocar: en la inmensa mayoría
                   de filas la compañía no autogestiona nada y el botón sería ruido. */}
-              {esOperaciones && (f.soatAutogestionado || f.impuestosAutogestionado || f.excepcionesAutogestion.length > 0) && (
+              {operable && (f.soatAutogestionado || f.impuestosAutogestionado || f.excepcionesAutogestion.length > 0) && (
                 <button className={`mt-1 block ${enlace}`}
                   onClick={() => onDesbloqueo(f)}>
                   {f.excepcionesAutogestion.length > 0 ? 'Autogestión desbloqueada' : 'Desbloquear'}
@@ -148,7 +166,7 @@ export default function FilaTramite({
             <>
               <div className={`text-xs tabular-nums ${tenue}`}>{f.empresaNit ? `NIT ${f.empresaNit}` : '—'}</div>
               <div className="mt-1"><StatusChip tone="danger">Empresa no existe</StatusChip></div>
-              {esOperaciones && f.empresaNit && (
+              {operable && f.empresaNit && (
                 <button className={`mt-1 block ${enlace}`}
                   onClick={() => onCrearEmpresa(f)}>Crear empresa</button>
               )}
@@ -194,9 +212,8 @@ export default function FilaTramite({
           había que irse al reporte de costos o a la tabla de derechos. */}
       {ver('soportes') && (
         <td className="px-3 py-2 align-top">
-          <button type="button" className={enlace} onClick={onSoportes}>
-            Ver soportes
-          </button>
+          <button type="button" className={`block ${enlace}`} onClick={onSoportes}>Ver soportes</button>
+          <div className="mt-1"><CeldaFacturaVenta fila={f} onVer={onFactura} /></div>
         </td>
       )}
     </FlitTr>

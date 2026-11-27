@@ -112,7 +112,7 @@ export default function BarraEnvioSoat({
   marcadas: number; enviables: string[]; descargables: string[]; puedeEnviar: boolean;
   puedeDescargar: boolean; proveedores: CatalogoSelector;
   zip: Pick<EstadoDescargaZip, 'ocupado' | 'descargar'>;
-  onEnviado: (enviados: number, aOperaciones: boolean) => void; onError: (texto: string) => void;
+  onEnviado: (enviados: number, aOperaciones: boolean) => void; onError: (texto: string, e?: unknown) => void;
   onQuitar: () => void;
 }) {
   const [destino, setDestino] = useState('');
@@ -134,7 +134,7 @@ export default function BarraEnvioSoat({
           ? { ids: enviables, gestionOperaciones: true }
           : { ids: enviables, proveedorSoatId: destino });
       onEnviado(enviables.length, aOperaciones);
-    } catch (e) { onError(textoErrorEnvio(e)); }
+    } catch (e) { onError(textoErrorEnvio(e), e); }
     finally { setEnviando(false); }
   };
   // UI Kit 2026: la `.barra-accion` del molde #tramites (azul al 10 % con borde azul). Sin el

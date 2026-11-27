@@ -17,8 +17,8 @@ consultas:
   - cómo elimino una certificación sin trámite
   - cómo corrijo el número, la fecha o el avalúo de la factura
   - cómo reintento la lectura del número, la fecha o el avalúo de la factura
-version: 1.20
-fecha: 2026-11-26
+version: 1.21
+fecha: 2026-11-27
 ---
 ## Qué es
 
@@ -70,6 +70,7 @@ En la barra de navegación al pie de la pantalla, pulse **Operaciones** y, en el
 - En **Certificar sin trámite**: cargando la lista, **Leyendo la factura…** al elegir un PDF y **Cargando la factura…** en la vista previa; error con **Reintentar**; vacío con **Todavía no hay certificaciones. Carga una factura de venta para empezar.**; con filtros que no dejan ninguna fila, **Ninguna certificación coincide con los filtros. Quita algún filtro o usa «Limpiar filtros».** (y, en el tope de 100, **La búsqueda solo cubre las 100 certificaciones más recientes.**); y lleno con la lista de **Vehículo** (placa o **Sin placa**, VIN y marca, línea y año), **Estado** (**Guardado**, **Certificado**, **No coincide**, **Sin vehículo** o **Sin respuesta**), **Propietario** y **Registrado**, con casillas de selección y, al marcar alguna, la barra de **Eliminar seleccionados** y **Descargar certificados**.
 - Error: mensaje en rojo sobre la tarjeta.
 - Vacío: **No hay impuestos en esta vista. Sincroniza desde el Tablero para traer trámites nuevos.** Un usuario con enlace ve en su lugar **No hay impuestos de su compañía en esta vista.** (o **de sus secretarías**). Con filtros: **Ningún impuesto coincide con los filtros.** Con **Liquidado, pendiente de pago** marcado: **No hay impuestos liquidados pendientes de pago con estos filtros.** Con **Con alertas**: **Ningún impuesto tiene alertas con estos filtros. Quita el preset para ver toda la cola.**
+- Aviso de retiros: si FLIT anuló o revocó el trámite de un impuesto que usted solicitó y que ya iba al gestor, arriba de la cola verá **Se retiraron 2 impuestos que solicitaste**, con la placa, el id del trámite, el motivo (**Trámite anulado en FLIT** o **Trámite revocado en FLIT**) y la fecha. No tiene que hacer nada más: pulse **Entendido** y el aviso no vuelve. Con más de cinco, **Ver los N** muestra el resto. Si no se pudo revisar, una línea lo dice con **Reintentar** y la cola funciona igual. Si al enviar o certificar su trámite acaba de anularse en FLIT, un aviso emergente se lo dice y la lista se actualiza sola.
 - Lleno: tabla con compañía, organismo, quién gestiona (**Gestor del organismo** u **Operaciones**), estado, fecha de solicitud con los días que lleva, fecha de pago, liquidado y pagado. Una diferencia de recibo muestra **Diferencia de valor**. Una fila asumida muestra **Operaciones**. El documento cargado se ve como **Liquidación**, **Pago** o **Ambos** bajo el estado. En la celda del trámite, **Analizando** o el semáforo de la validación contra el RUNT, y **Certificar** o el chip **Certificado** (también el automático).
 
 ## Qué no hace

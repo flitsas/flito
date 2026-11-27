@@ -46,9 +46,10 @@ export const esAccionable = (f: TramiteFila) =>
 
 export interface HistorialItem { id: string; campo: string; valorAnterior: string | null; valorNuevo: string | null; origen: string; usuarioNombre: string | null; creadoEn: string }
 
-export interface ResSoat { enviados: number; yaEnviados: number; autogestionados: number; sinRegistro: number }
-export interface ResImpuestos { enviados: number; yaEnviados: number; noEnviables: number }
-export interface ResEntrega { entregados: number; noHabilitados: Array<{ tramiteId: string; idFlit: string; placa: string; motivo: string }> }
+// Épica #14707: `noVigentes` = trámites del lote que FLIT anuló o revocó (subconjunto de los no enviados).
+export interface ResSoat { enviados: number; yaEnviados: number; autogestionados: number; sinRegistro: number; noVigentes?: number }
+export interface ResImpuestos { enviados: number; yaEnviados: number; noEnviables: number; noVigentes?: number }
+export interface ResEntrega { entregados: number; noVigentes?: number; noHabilitados: Array<{ tramiteId: string; idFlit: string; placa: string; motivo: string }> }
 export type Resultado =
   | { tipo: 'soat'; soat: ResSoat }
   | { tipo: 'impuestos'; impuestos: ResImpuestos }

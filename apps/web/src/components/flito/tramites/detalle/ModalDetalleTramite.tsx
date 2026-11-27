@@ -103,6 +103,9 @@ export default function ModalDetalleTramite({ nav, recarga, suspendido, enProces
     const c = contenidoRef.current;
     c?.scrollTo?.({ top: 0 });
     c?.closest('.kit-modal__columnas')?.scrollTo?.({ top: 0 });
+    // Abierta desde el chip de estado de la fila: va directo a Historial (bloque 4, UX §5.3).
+    if (nav.seccion) { const k = nav.seccion; requestAnimationFrame(() => irA(k)); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fila.tramiteId]);
 
   // 14707 §6: el mismo trámite pasa de vivo a muerto (409 + refresco) → el foco va al aviso, que lo anuncia.

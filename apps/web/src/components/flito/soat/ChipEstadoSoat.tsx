@@ -15,7 +15,8 @@ import { ESTADO_INCOMPLETA_LABEL } from './tipos';
 // tono «por si llega una fila antigua»: no puede llegar ninguna.
 export const TONO: Record<EstadoSoat, ChipTone> = {
   pendiente: 'draft', solicitado: 'active', con_novedad: 'danger', pagado: 'success',
-  descartado: 'neutral', // Épica #14707: su trámite murió en FLIT (la presentación final llega en el Bloque 3).
+  // Épica #14707: su trámite murió en FLIT. Cierre, no trabajo: el neutro del kit (`draft`), como «Descartada».
+  descartado: 'draft',
 };
 
 // Un glifo por estado (regla del kit). Claves con prefijo del módulo para no pisar las del kit.
@@ -26,6 +27,7 @@ registrarEstados({
   'soat-pagado': { tono: 'ok', glifo: 'doble-check' },
   'soat-incompleta': { tono: 'warn', glifo: 'espera' },
   'soat-descartada': { tono: 'neutro', glifo: 'menos' },
+  'soat-descartado': { tono: 'neutro', glifo: 'menos' }, // Épica #14707
   'soat-completada': { tono: 'ok', glifo: 'finalizado' },
 });
 

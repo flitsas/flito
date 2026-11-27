@@ -1544,10 +1544,20 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
     await cabecera.click();
     await sinFoco(page);
 
-    // Paso 3 — Buscar, filtrar y la tabla.
-    await page.getByText('FLIT-DEMO-101').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    // Paso 3 — Buscar, filtrar y la tabla (Épica #14707, bloque 4): el panel de Filtros desplegado, con un
+    // filtro puesto para que se vean el borde azul y el pie de aplicados, y la barra de la tabla debajo.
+    const botonFiltros = page.getByRole('region', { name: 'Búsqueda y filtros' }).getByRole('button', { name: /^Filtros/ });
+    await expect(async () => {
+      if ((await botonFiltros.getAttribute('aria-expanded')) !== 'true') await botonFiltros.click();
+      await expect(botonFiltros).toHaveAttribute('aria-expanded', 'true', { timeout: 1_000 });
+    }).toPass();
+    await page.getByRole('button', { name: /^Filtrar por fuente/ }).click();
+    await page.getByRole('radio', { name: 'FLIT 1', exact: true }).click();
+    await page.getByRole('region', { name: 'Búsqueda y filtros' }).evaluate((el) => el.scrollIntoView({ block: 'start' }));
     const mostrarBarra = await sinBarraFlotante(page);
     await capturar(page, dir, '02-filtros-y-tabla');
+    await page.getByRole('button', { name: 'Limpiar filtros' }).click();
+    await botonFiltros.click();
 
     // Pasos 4 y 5 — Marcar trámites: los botones dicen sobre cuántos actúan.
     for (const placa of DATOS_DEMO.placas) await page.getByLabel(`Seleccionar ${placa}`).check();
@@ -1600,6 +1610,8 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
       }],
       SELECTOR_PROVEEDORES_DEMO,
       [/\/api\/flito\/soat\/soat-demo-2\/documentos-adicionales$/, () => ({ body: SOAT_DOCUMENTOS_ADICIONALES_DEMO })],
+      // Épica #14707: la cola pide los avisos de retiro del usuario; sin retiros, el aviso no se pinta.
+      [/\/api\/flito\/avisos$/, () => ({ body: { avisos: [], noVistos: 0 } })],
     ]);
     await entrarComoAdminDemo(page);
 
@@ -1648,6 +1660,8 @@ test.describe('Ayuda FLITO — capturas con datos demo @capturas', () => {
       [/\/api\/flito\/impuestos$/, () => ({ body: { items: IMPUESTOS_COLA_DEMO, total: IMPUESTOS_COLA_DEMO.length, page: 1, pageSize: 50 } })],
       [/\/api\/flito\/impuestos\/facetas$/, () => ({ body: IMPUESTOS_FACETAS_DEMO })],
       [/\/api\/flito\/impuestos\/imp-demo-2$/, () => ({ body: IMPUESTO_DETALLE_DEMO })],
+      // Épica #14707: la cola pide los avisos de retiro del usuario; sin retiros, el aviso no se pinta.
+      [/\/api\/flito\/avisos$/, () => ({ body: { avisos: [], noVistos: 0 } })],
     ]);
     await entrarComoAdminDemo(page);
 
