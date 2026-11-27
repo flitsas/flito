@@ -32,7 +32,7 @@
   :root:not([data-theme]) {
     color-scheme: dark;
     --kit-hover: #22385e; --kit-linea: #3a5688; --kit-fondo: #0d1a30; --kit-sombra: 3px 3px 3px #00000059;
-    --kit-azul: #8fb0ff; --kit-azul-relleno: #1d53ff; --kit-gris: #a9b8d4;
+    --kit-azul: #8fb0ff; --kit-azul-relleno: #557eff; --kit-gris: #a9b8d4;
     --color-accent: #557eff; --color-accent-hover: #4669e0; --color-accent-soft: #557eff33; --color-on-accent: #ffffff;
     --color-action: #8fb0ff; --color-highlight: #8fb0ff; --color-highlight-display: #8fb0ff; --color-heading: #a9c9fc;
     --color-sky: #1c3158; --color-sky-line: #3a5688;
@@ -46,7 +46,7 @@
 
 /* ---------- 3. Roles derivados que el kit usa en sus piezas React (flit develop packages/ui) ---------- */
 :root {
-  --kit-azul-relleno: #1d53ff;     /* relleno de botón con texto blanco: igual en los dos temas */
+  --kit-azul-relleno: #557eff;     /* relleno de botón con texto blanco: igual en los dos temas. LITERAL a propósito (ADR-0050): con var(--kit-azul) el oscuro saldría #8fb0ff */
   --kit-naranja-boton: #d44100;    /* botón de alerta/destructivo con texto blanco (.btn.alerta) */
   --kit-tinta-fija: #162744;       /* botón secundario (tinta) y franjas: igual en los dos temas */
   --kit-verde-texto: #4f7121;
@@ -56,6 +56,9 @@
   --kit-amarillo-texto: #8b6000;
   --kit-velo: #557eff80;           /* velo de diálogos: azul al 50 % + blur 5 px */
   --kit-sobre-relleno: #ffffff;    /* texto sobre relleno azul/tinta/rojo */
+  /* Placas por tipo (UX rediseño Trámites §7): iguales en los dos temas, como el objeto real. */
+  --placa-fondo-moto: color-mix(in srgb, var(--placa-fondo) 72%, var(--kit-naranja));
+  --placa-fondo-publico: #ffffff;
   --kit-alto-barra: 64px;
   --kit-alto-dock: 96px;           /* espacio inferior que reserva el contenido para el dock flotante */
   /* Paleta categórica de gráficos (SERIE_KIT). Claro = la del kit salvo turquesa (#00dbd5 daba 1,74:1 sobre blanco,

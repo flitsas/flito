@@ -12,7 +12,7 @@ import { EstadoImpuesto, EstadoSoat } from '@operaciones/shared-types';
 import {
   ALERTA_OPERATIVA_LABEL, esAlertaOperativa, type AlertaOperativa,
 } from '@operaciones/shared-types';
-import { api, errorMessage } from '../lib/api';
+import { api, errorMessage, esTramiteNoVigente } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { vacioConEnlace } from '../lib/copyEnlace';
 import PageHeaderCard from '../components/flit/PageHeaderCard';
@@ -239,12 +239,24 @@ export default function FlitoTramites() {
   const hayFiltrosSinFuente = soatSel.length > 0 || impSel.length > 0 || empresasSel.length > 0 || estadosSel.length > 0 || ciudadesSel.length > 0 || transitosSel.length > 0 || autogestionSel !== '' || alertaSel !== '';
   const hayFiltros = hayFiltrosSinFuente || fuenteSel !== '';
 
+  // Una acción lanzada desde el detalle (con la modal abierta no se alcanza la tabla) falla DENTRO de la modal,
+  // `role="alert"` con copy pulido, y no en la página detrás de ella (corrige D4). Un 409 `TRAMITE_NO_VIGENTE`
+  // no lleva texto: se refresca y la modal pinta el aviso de 14707 (UX 14707 §6).
+  const [errorAccion, setErrorAccion] = useState<string | null>(null);
+  const queAccionModal = useRef('completar la acción');
+  useEffect(() => { setErrorAccion(null); }, [det.actual?.tramiteId]);
   const ejecutar = async (fn: () => Promise<Resultado>) => {
-    setEnProceso(true); setError(null);
+    const desdeModal = det.actual !== null;
+    setEnProceso(true); setError(null); setErrorAccion(null);
     try { setResultado(await fn()); limpiar(); refrescar(); }
-    catch (e) { setError(errorMessage(e)); }
+    catch (e) {
+      if (!desdeModal) setError(errorMessage(e));
+      else if (esTramiteNoVigente(e)) refrescar();
+      else setErrorAccion(`No se pudo ${queAccionModal.current}. Intenta de nuevo.`);
+    }
     finally { setEnProceso(false); }
   };
+  const desdeModal = (que: string, fn: (id: string) => void) => (id: string) => { queAccionModal.current = que; fn(id); };
 
   const solicitarImpuestosLote = (tramiteIds: string[]) => ejecutar(async () => ({ tipo: 'impuestos', impuestos: await api.post<ResImpuestos>('/flito/tramites/solicitar-impuestos', { tramiteIds }) }));
   const solicitarImpuestos = () => solicitarImpuestosLote(idsAccionables());
@@ -462,9 +474,11 @@ export default function FlitoTramites() {
       )}
 
       {det.actual && (
-        <ModalDetalleTramite nav={det} recarga={recarga} suspendido={!!dialogo || !!resultado} enProceso={enProceso}
-          acciones={{ soat: puedePedirSoat ? (id) => { setFilaSolicitud(id); setDialogo('soat'); } : undefined, ambos: puedePedirSoat ? (id) => { setFilaSolicitud(id); setDialogo('ambos'); } : undefined,
-            impuestos: esOperaciones ? (id) => solicitarImpuestosLote([id]) : undefined, entregar: esOperaciones ? (id) => entregar([id]) : undefined }} />
+        <ModalDetalleTramite nav={det} recarga={recarga} suspendido={!!dialogo || !!resultado} enProceso={enProceso} errorAccion={errorAccion}
+          acciones={{ soat: puedePedirSoat ? desdeModal('solicitar el SOAT', (id) => { setFilaSolicitud(id); setDialogo('soat'); }) : undefined,
+            ambos: puedePedirSoat ? desdeModal('solicitar el SOAT y los impuestos', (id) => { setFilaSolicitud(id); setDialogo('ambos'); }) : undefined,
+            impuestos: esOperaciones ? desdeModal('solicitar los impuestos', (id) => solicitarImpuestosLote([id])) : undefined,
+            entregar: esOperaciones ? desdeModal('entregar el trámite', (id) => entregar([id])) : undefined }} />
       )}
       {resultado && <ModalResultado resultado={resultado} onCerrar={() => setResultado(null)} />}
       {historial && <ModalHistorial idFlit={historial.idFlit} items={historial.items} onCerrar={() => setHistorial(null)} />}

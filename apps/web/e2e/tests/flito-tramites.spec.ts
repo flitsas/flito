@@ -28,7 +28,7 @@ const TRAMITES = [
     excepcionesAutogestion: [],
     soatAutogestionado: false,
     impuesto: { id: 'i1', estado: 'pendiente', tieneFacturaVenta: false, valorPagado: null },
-    listoParaEntregar: false,
+    vigenciaTramite: 'vigente', listoParaEntregar: false,
   },
   {
     fechaCreacion: haceDias(10),
@@ -43,7 +43,7 @@ const TRAMITES = [
     excepcionesAutogestion: [],
     soatAutogestionado: false,
     impuesto: { id: 'i2', estado: 'pagado', tieneFacturaVenta: true, valorPagado: 120000 },
-    listoParaEntregar: true,
+    vigenciaTramite: 'vigente', listoParaEntregar: true,
   },
   {
     fechaCreacion: null, // trámite del que no se conoce la fecha (AC5)
@@ -60,7 +60,7 @@ const TRAMITES = [
     excepcionesAutogestion: [],
     soatAutogestionado: false,
     impuesto: { id: 'i3', estado: 'pendiente', tieneFacturaVenta: false, valorPagado: null },
-    listoParaEntregar: false,
+    vigenciaTramite: 'vigente', listoParaEntregar: false,
   },
 ];
 

@@ -2,7 +2,7 @@
 // sus subcomponentes (filas, celdas y modales). Se movieron tal cual desde la página al partirla
 // (rediseño UI Kit 2026, Épica #14560): no cambia ningún contrato.
 
-import type { EstadoImpuesto, EstadoSoat } from '@operaciones/shared-types';
+import type { EstadoImpuesto, EstadoSoat, VigenciaTramite } from '@operaciones/shared-types';
 
 export interface FilaSoat {
   id: string; estado: EstadoSoat; proveedorSoatNombre: string | null; valorPagado: number | null;
@@ -22,7 +22,10 @@ export interface TramiteFila {
   companiaNombre: string | null; empresaExiste: boolean; empresaNit: string | null;
   organismoNombre: string | null; secretariaEmparejada: boolean; transitoNombre: string | null;
   facturaVentaFlitId: string | null;
-  vehiculo: { vin: string | null; placa: string | null; marca: string | null; linea: string | null; tipoVehiculo: string | null };
+  /** `tipoServicio`: texto crudo de `vehicles.tipo_servicio` (Épica #14707); lo interpreta `Placa` vía shared-types. */
+  vehiculo: { vin: string | null; placa: string | null; marca: string | null; linea: string | null; tipoVehiculo: string | null; tipoServicio: string | null };
+  /** Épica #14707 (ADR-0049): un trámite anulado, abortado o revocado en FLIT no existe en FLITO; se consulta, sin acciones. */
+  vigenciaTramite: VigenciaTramite;
   /**
    * `tipoDocumento` es el CÓDIGO ya resuelto por el API (`'CC' | 'NIT' | 'PP' | 'CE'`) o null, no el
    * `tipo` crudo de FLIT: la traducción vive en el backend y aquí no hay copia (HU #11947, AC6/AC7).
@@ -37,8 +40,9 @@ export interface TramiteFila {
   /** Conceptos desbloqueados excepcionalmente pese a que la compañía los autogestiona (HU #10980). */
   excepcionesAutogestion: string[];
 }
-// Un trámite habilita SOAT/impuestos solo si está Asignado y con empresa + secretaría emparejadas.
-export const esAccionable = (f: TramiteFila) => f.asignado && f.empresaExiste && f.secretariaEmparejada;
+// Un trámite habilita SOAT/impuestos solo si está vigente (Épica #14707), Asignado y con empresa + secretaría emparejadas.
+export const esAccionable = (f: TramiteFila) =>
+  f.vigenciaTramite === 'vigente' && f.asignado && f.empresaExiste && f.secretariaEmparejada;
 
 export interface HistorialItem { id: string; campo: string; valorAnterior: string | null; valorNuevo: string | null; origen: string; usuarioNombre: string | null; creadoEn: string }
 

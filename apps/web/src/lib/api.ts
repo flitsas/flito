@@ -1,3 +1,4 @@
+import { CODIGO_TRAMITE_NO_VIGENTE, MOTIVOS_DESCARTE, type MotivoDescarte } from '@operaciones/shared-types';
 import type {
   BolsaDetalleDto, BolsaResumenDto, CierreBolsaTransitoDto, MovimientoTransitoDto, BuscarBolsasDto, CrearBolsaDto, EditarBolsaDto,
   EstadoBolsaCompaniaConAutogestionDto,
@@ -142,6 +143,34 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Épica #14707 (ADR-0049, UX `docs/ux/epica-14707-tramite-muerto.md` §6): 409 `TRAMITE_NO_VIGENTE`. La pantalla aún
+ * mostraba el trámite vivo y FLIT lo anuló o revocó entre la carga y el clic. Nunca se muestra el mensaje ni el
+ * código del API: cada pantalla pone su copy y refresca la vista para que el estado real aparezca solo. Sigue
+ * siendo un `ApiError` (`instanceof ApiError` vale igual).
+ */
+export class TramiteNoVigenteError extends ApiError {
+  public readonly vigencia: MotivoDescarte | null;
+  constructor(message: string, rawDetails: unknown) {
+    super(409, message, undefined, rawDetails);
+    this.name = 'TramiteNoVigenteError';
+    const v = (rawDetails as { vigencia?: unknown } | null | undefined)?.vigencia;
+    this.vigencia = (MOTIVOS_DESCARTE as readonly unknown[]).includes(v) ? v as MotivoDescarte : null;
+  }
+}
+
+/** ¿Es el 409 `TRAMITE_NO_VIGENTE`? */
+export function esTramiteNoVigente(e: unknown): e is TramiteNoVigenteError {
+  return e instanceof TramiteNoVigenteError;
+}
+
+/** Un solo punto que construye el `ApiError` de una respuesta: tipa el 409 de trámite no vigente. */
+function errorDeRespuesta(status: number, message: string, fieldErrors: Record<string, string[]> | undefined, cuerpo: unknown): ApiError {
+  const codigo = (cuerpo as { code?: unknown } | null | undefined)?.code;
+  if (status === 409 && codigo === CODIGO_TRAMITE_NO_VIGENTE) return new TramiteNoVigenteError(message, cuerpo);
+  return new ApiError(status, message, fieldErrors, cuerpo);
+}
+
 function statusToMessage(status: number, backendMsg?: string): string {
   if (backendMsg) return backendMsg;
   if (status === 0) return 'Sin conexión con el servidor';
@@ -275,7 +304,7 @@ async function pedirYLeer<T>(path: string, opts: RequestInit, alRecibir?: Gancho
         ? data.message
         : undefined;
     const details = (data?.details ?? null) as { fieldErrors?: Record<string, string[]> } | null;
-    throw new ApiError(res.status, statusToMessage(res.status, backendMsg), details?.fieldErrors, data);
+    throw errorDeRespuesta(res.status, statusToMessage(res.status, backendMsg), details?.fieldErrors, data);
   }
 
   // 204 No Content (típicamente DELETE) y respuestas vacías: no parsear JSON.
@@ -372,7 +401,7 @@ async function errorVestidoDeArchivo(status: number, blob: Blob): Promise<ApiErr
     ? cuerpo.error
     : typeof cuerpo.message === 'string' ? cuerpo.message : undefined;
   const details = (cuerpo.details ?? null) as { fieldErrors?: Record<string, string[]> } | null;
-  return new ApiError(status, statusToMessage(status, backendMsg), details?.fieldErrors, cuerpo);
+  return errorDeRespuesta(status, statusToMessage(status, backendMsg), details?.fieldErrors, cuerpo);
 }
 
 export const api = {

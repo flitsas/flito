@@ -26,7 +26,7 @@
 .kit-etiqueta[data-tono="ok"] { --c: #8cc63f; --ct: #4f7121; }
 .kit-etiqueta[data-tono="warn"] { --c: #ff4e00; --ct: #bd3a00; }
 .kit-etiqueta[data-tono="danger"] { --c: #c10000; --ct: #c10000; }
-.kit-etiqueta[data-tono="info"] { --c: #1d53ff; --ct: #1d53ff; }
+.kit-etiqueta[data-tono="info"] { --c: var(--kit-azul); --ct: var(--color-action); }
 .kit-etiqueta[data-tono="neutro"] { --c: #5e6a7b; --ct: #5e6a7b; }
 .kit-etiqueta[data-tono="tinta"] { --c: #162744; --ct: #162744; }
 .kit-etiqueta[data-tono="radicado"], .kit-etiqueta[data-tono="entregado"] { --c: #00a99d; --ct: #00736b; }
@@ -181,8 +181,8 @@ button.kit-paso__boton:hover .kit-paso__etiqueta { color: var(--kit-azul); }
 .menu-usuario__seccion + li > .menu-usuario__entrada { border-top: 0; }
 .menu-flotante .menu-usuario__pie .btn, .menu-flotante .menu-usuario__pie .btn:hover { background: var(--kit-naranja-boton); color: var(--kit-sobre-relleno); }
 .menu-usuario { max-height: calc(100dvh - 84px); overflow-y: auto; }
-/* Cabeceras azules (menú de usuario y menús del dock): relleno #1D53FF en los dos temas, para que el texto blanco
-   cumpla AA también en oscuro (--kit-azul allí es #8FB0FF, color de texto, no de relleno). */
+/* Cabeceras azules (menú de usuario y menús del dock): relleno --kit-azul-relleno (#557eff) en los dos temas, no --kit-azul
+   (en oscuro es #8FB0FF, color de texto, no de relleno). Blanco encima a 3,61:1: par del waiver de ADR-0050. */
 .dock__cabeza, .menu-usuario__cabeza { background: var(--kit-azul-relleno); }
 /* Teléfono: el menú de usuario no se mete bajo el dock (barra 72 + dock ~96). */
 @media (max-width: 640px) { .menu-usuario { max-height: calc(100dvh - 72px - 104px); } }
@@ -478,3 +478,84 @@ html { scroll-padding-top: calc(var(--kit-alto-barra) + var(--space-8)); scroll-
   .tabla-wrap.kit-matriz table.matriz tfoot td,
   .tabla-wrap.kit-matriz table.matriz tfoot th[scope="row"] { border-top: 2px solid var(--color-border); }
 }
+
+/* ---------- Placas por tipo (Épica #14707, UX rediseño Trámites §7.1; tokens en tokens.css §3) ----------
+   Van aquí y no en kit-propuesta.css (generado): esta hoja carga después en la misma capa y gana por orden. Iguales en
+   los dos temas, como el objeto real. Moto: amarillo naranjado. Servicio público: blanca con filete (sin él desaparece
+   sobre una tarjeta blanca). Moto pública: blanca, con el doble filete que conserva la señal de moto. */
+.placa.placa--moto { background-image: none; background-color: var(--placa-fondo-moto); box-shadow: inset 0 0 0 2px var(--placa-texto); }
+.placa.placa--publico { background-image: none; background-color: var(--placa-fondo-publico); box-shadow: inset 0 0 0 2px var(--placa-texto); }
+.placa.placa--moto.placa--publico { box-shadow: inset 0 0 0 2px var(--placa-texto), inset 0 0 0 5px var(--placa-fondo-moto); }
+
+/* ---------- Modal de detalle apaisado (FlitModalHorizontal; UX rediseño Trámites §8.1; maqueta aprobada) ----------
+   < lg: pantalla completa y UN solo scroll (el de .kit-modal__columnas), en BLOQUE y no en grid: en un grid el
+   contenedor del índice sticky sería su propia celda y no se pegaría. ≥ lg: más ancho que alto, lateral (+ índice) y
+   contenido, cada columna con su scroll. Solo tokens: el oscuro hereda. */
+.kit-modal--horizontal { width: 100%; height: 100dvh; border-radius: 0; border: 0; overflow: hidden; }
+.kit-modal--horizontal .kit-modal__cabeza { flex-direction: row; flex-wrap: wrap; align-items: flex-start; justify-content: space-between;
+  gap: var(--space-8) var(--space-16); text-align: left; padding: var(--space-16) var(--space-24); border-bottom: 1px solid var(--color-border); }
+.kit-modal--horizontal .kit-modal__cerrar { position: static; flex: none; }
+.kit-modal__cabeza-texto { display: grid; gap: 4px; min-width: 0; flex: 1 1 24rem; }
+.kit-modal__cabeza-linea { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8) var(--space-10); }
+.kit-modal__cabeza-nav { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); }
+.kit-modal__columnas { flex: 1; min-height: 0; overflow-y: auto; display: block; }
+.kit-modal__lateral { padding: var(--space-16); border-bottom: 1px solid var(--color-border); }
+.kit-modal__indice { position: sticky; top: 0; z-index: 1; background: var(--color-surface-elevated); overflow-x: auto;
+  border-bottom: 1px solid var(--color-border); padding: var(--space-4) var(--space-16); }
+.kit-modal__contenido { padding: var(--space-16); min-width: 0; }
+.kit-modal__contenido > * + * { margin-top: var(--space-16); }
+.kit-modal__contenido .card { padding: var(--space-16) var(--space-20); box-shadow: none; }
+.kit-modal__contenido .card + .card { margin-top: var(--space-16); }
+.kit-modal__contenido .zona + .zona { margin-top: var(--space-16); padding-top: var(--space-16); border-top: 1px solid var(--color-divider); }
+@media (max-width: 1023.98px) {
+  .kit-modal__cabeza-nav { order: 3; flex-basis: 100%; }
+  .kit-modal--horizontal .kit-modal__cerrar { order: 2; }
+  .kit-modal__cabeza-texto { flex-basis: 0; }
+  /* La fila de acciones baja bajo el título en 2 columnas; la primaria (.btn sin variante) a todo el ancho. */
+  .kit-modal--horizontal .acciones-fila { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .kit-modal--horizontal .acciones-fila > * { width: 100%; min-width: 0; justify-content: center; white-space: normal; }
+  .kit-modal--horizontal .acciones-fila > .btn:not(.secondary):not(.ghost), .kit-modal--horizontal .acciones-fila > .acciones-fila__primaria { grid-column: 1 / -1; }
+}
+@media (min-width: 1024px) {
+  .kit-modal--horizontal { width: min(88rem, 94vw); height: min(44rem, 86dvh); border-radius: 9px; border: 1px solid var(--color-border); }
+  .kit-modal__columnas { display: grid; grid-template-columns: var(--kit-modal-lateral, 21rem) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); overflow: hidden; }
+  .kit-modal__lateral { grid-column: 1; grid-row: 1; overflow-y: auto; overflow-x: hidden; min-height: 0; border-bottom: 0;
+    border-right: 1px solid var(--color-border); padding: var(--space-16) var(--space-20); }
+  .kit-modal__columnas:not(:has(.kit-modal__indice)) .kit-modal__lateral { grid-row: 1 / span 2; }
+  .kit-modal__indice { position: static; grid-column: 1; grid-row: 2; overflow-x: visible; overflow-y: auto; min-height: 0;
+    border-bottom: 0; border-right: 1px solid var(--color-border); border-top: 1px solid var(--color-divider); padding: var(--space-12) var(--space-20); }
+  .kit-modal__contenido { grid-column: 2; grid-row: 1 / span 2; overflow-y: auto; min-height: 0; padding: var(--space-16) var(--space-24) var(--space-24); }
+}
+/* Bloque principal: título de sección a la izquierda y fila compacta de acciones (botones sm, con la primaria) a la derecha. */
+.bloque-cabeza { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-8) var(--space-16); margin-bottom: var(--space-12); }
+.bloque-cabeza .seccion__titulo { margin: 0; }
+.acciones-fila { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); }
+.seccion__titulo, .lateral-titulo { margin: 0 0 var(--space-10); font-size: var(--text-micro); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--color-text-secondary); }
+.lateral-bloque + .lateral-bloque { margin-top: var(--space-16); padding-top: var(--space-16); border-top: 1px solid var(--color-divider); }
+.dl-lateral { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-8) var(--space-12); align-items: center; margin: 0; font-size: var(--text-caption); }
+.dl-lateral dt { color: var(--color-text-tertiary); }
+.dl-lateral dd { margin: 0; font-weight: 600; color: var(--color-text-primary); min-width: 0; }
+.lista-simple { margin: 0; padding: 0; list-style: none; }
+.lista-simple > li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px var(--space-12); padding: 6px 0; font-size: var(--text-caption); border-top: 1px solid var(--color-divider); }
+.lista-simple > li:first-child { border-top: 0; }
+.indice-lista { display: flex; gap: 2px; margin: 0; padding: 0; list-style: none; white-space: nowrap; }
+.indice-lista button { border: 0; background: transparent; font: inherit; font-size: var(--text-caption); color: var(--color-text-secondary); text-align: left;
+  padding: 8px 10px; border-radius: 7px; cursor: pointer; transition: background-color var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease); }
+.indice-lista button:hover { background: var(--kit-hover); color: var(--color-text-primary); }
+.indice-lista button:focus-visible { outline: 2px solid var(--kit-azul); outline-offset: 2px; }
+.indice-lista button[aria-current="true"] { color: var(--color-action); font-weight: 600; background: var(--kit-hover); }
+@media (min-width: 1024px) { .indice-lista { flex-direction: column; } .indice-lista button { width: 100%; } }
+/* Enlace-botón (consulta en el lateral: «Ver soporte», «Descargar»): texto de acción, hover de fondo y subrayado, foco del kit. */
+.enlace-btn { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 4px 6px; margin: -4px -6px; border: 0; border-radius: 6px;
+  background: transparent; font: inherit; font-size: var(--text-caption); font-weight: 600; color: var(--color-action); text-decoration: none; cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease); }
+.enlace-btn:hover { background: var(--kit-hover); text-decoration: underline; text-underline-offset: 3px; }
+.enlace-btn:focus-visible { outline: 2px solid var(--kit-azul); outline-offset: 2px; }
+.enlace-btn[aria-disabled="true"] { color: var(--color-text-tertiary); cursor: not-allowed; text-decoration: none; }
+.enlace-btn[aria-disabled="true"]:hover { background: transparent; }
+.aviso-motivo { padding: var(--space-12); border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); font-size: var(--text-caption); }
+.aviso-motivo > p:first-child { display: flex; align-items: center; gap: var(--space-8); font-weight: 600; color: var(--kit-rojo-texto); }
+.aviso-motivo p + p { margin-top: 4px; }
+.error-accion { margin: var(--space-10) 0 0; font-size: 0.875rem; color: var(--flit-danger-ink); }
+.detalle__fichas.tres { grid-template-columns: repeat(auto-fill, minmax(min(12rem, 100%), 1fr)); }
+.lateral-bloque:empty { display: none; }

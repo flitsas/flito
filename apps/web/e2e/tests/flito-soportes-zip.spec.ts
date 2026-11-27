@@ -89,7 +89,7 @@ const filaTramite = (n: number, placa: string, estado: string, accionable: boole
   soat: { id: `s${n}`, estado: 'pagado', proveedorSoatNombre: 'Seguros Alfa', valorPagado: 450000 },
   excepcionesAutogestion: [], soatAutogestionado: false,
   impuesto: { id: `i${n}`, estado: 'pagado', tieneFacturaVenta: true, valorPagado: 120000 },
-  listoParaEntregar: true,
+  vigenciaTramite: 'vigente', listoParaEntregar: true,
 });
 
 /**

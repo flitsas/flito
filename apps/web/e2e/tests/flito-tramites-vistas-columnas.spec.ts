@@ -12,7 +12,7 @@ const fila = {
   transitoNombre: 'STT Manizales', facturaVentaFlitId: null, companiaNombre: 'Concesionario Norte',
   organismoNombre: 'STT Manizales', vehiculo: { vin: 'VIN000000000001', placa: 'PLC001', marca: 'Mazda', linea: '2', tipoVehiculo: null },
   compradorPrincipal: null, compradores: [], soat: null, soatAutogestionado: false, impuesto: null,
-  impuestosAutogestionado: false, excepcionesAutogestion: [], listoParaEntregar: false,
+  impuestosAutogestionado: false, excepcionesAutogestion: [], vigenciaTramite: 'vigente', listoParaEntregar: false,
 };
 
 const CATALOGO = [

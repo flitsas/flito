@@ -149,7 +149,7 @@ const TRAMITE_CON_FACTURA = {
   excepcionesAutogestion: [],
   soatAutogestionado: false,
   impuesto: { id: 'i2', estado: 'pagado', tieneFacturaVenta: true, valorPagado: 120000 },
-  listoParaEntregar: true,
+  vigenciaTramite: 'vigente', listoParaEntregar: true,
 };
 
 const VEHICULO = {
