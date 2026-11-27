@@ -4,6 +4,7 @@
 //   2. Las consultas no seleccionan texto. Prompt y respuesta viven en `ia_consumo_detalle` y aquí solo se miden
 //      (`octet_length`) o se comprueba si existen (`EXISTS`).
 //   3. Cada consulta corre en una transacción de solo lectura con `statement_timeout` de 10 s; SQLSTATE 57014 → 503.
+//      Cualquier otro fallo del driver → 500 `consulta_fallida`: su mensaje lleva los valores de los filtros, así que no se re-lanza.
 //   4. Los errores son `IaConsumoError`; la ruta los traduce a HTTP. El servicio no toca `req`.
 import { createHash } from 'node:crypto';
 import { and, desc, eq, ne, or, sql, type SQL } from 'drizzle-orm';
@@ -17,7 +18,7 @@ import { env } from '../../config/env.js';
 import { loggerFor } from '../../shared/logger.js';
 import { normalizarPlacaIa } from '../../shared/ia-consumo/contexto.js';
 import {
-  MODULO_DESCONOCIDO, ORIGENES_IA, PROCESOS_IA_FLITO, PROVEEDORES_IA, RESULTADOS_IA, TIPOS_TAREA_IA,
+  MODULO_DESCONOCIDO, ORIGENES_IA, PROCESO_DESCONOCIDO, PROCESOS_IA_FLITO, PROVEEDORES_IA, RESULTADOS_IA, TIPOS_TAREA_IA,
 } from '../../shared/ia-consumo/catalogo.js';
 import { aIso, createdInRangeCondition, hoyColombia } from '../../shared/utils/fecha-rango.js';
 import { esUuid } from '../../shared/utils/uuid.js';
@@ -126,8 +127,9 @@ async function enLecturaAcotada<R>(fn: (tx: Tx) => Promise<R>): Promise<R> {
   } catch (e) {
     const code = codigoPg(e);
     if (code === '57014') throw new IaConsumoError('consulta_demasiado_lenta', MENSAJES_IA.consulta_demasiado_lenta);
+    // El mensaje del driver lleva los parámetros (valores de filtros personales): no se re-lanza, solo se registra el código.
     log.error({ code }, 'consulta del visor de consumo de IA falló');
-    throw e;
+    throw new IaConsumoError('consulta_fallida', MENSAJES_IA.consulta_fallida);
   }
 }
 
@@ -236,8 +238,12 @@ function decodificarCursor(cursor: string, firma: string): { fecha: string; id: 
 
 /** Catálogos cerrados y la ventana vigente. Sin datos de registros. */
 export function catalogosVisor(ahora: Date = new Date()): IaCatalogos {
-  const procesos = Object.entries(PROCESOS_IA_FLITO).map(([proceso, { modulo }]) => ({ proceso, modulo }));
-  const modulos = [...new Set([...procesos.map((p) => p.modulo), MODULO_DESCONOCIDO])].sort();
+  // `desconocido` lo escribe el registro cuando una llamada no trae contexto: el visor debe poder filtrarlo con su par.
+  const procesos = [
+    ...Object.entries(PROCESOS_IA_FLITO).map(([proceso, { modulo }]) => ({ proceso, modulo })),
+    { proceso: PROCESO_DESCONOCIDO, modulo: MODULO_DESCONOCIDO },
+  ];
+  const modulos = [...new Set(procesos.map((p) => p.modulo))].sort();
   return {
     origenes: [...ORIGENES_IA],
     resultados: [...RESULTADOS_IA],

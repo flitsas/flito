@@ -5,7 +5,7 @@
 // Modelo: `sql-torre.ts`, pero SIN `padreAntesDeAreas` (V13): la 0321 es posterior a la 0315 y `pagina.ia_consumo` no
 // está en `ELEMENTO_ANTERIOR`, así que la cadena de cada acción es la de hoy (`ancestrosDe`).
 //
-// Reparto: SOLO `admin` (ADR-0022, D4). No hay reparto a otros roles: el resto lo concede el panel de permisos.
+// Reparto: SOLO `admin` (ADR-0051, D4). No hay reparto a otros roles: el resto lo concede el panel de permisos.
 // `JOIN permisos_roles`: un ambiente sin el rol recibe 0 filas, no una FK rota.
 import { catalogoCompleto, type FuncionCatalogo } from '../catalogo.js';
 import { ancestrosDe, ROL_CON_TODAS_LAS_ACCIONES } from './expansion.js';
@@ -39,7 +39,7 @@ export function sqlSiembraIaConsumo(catalogo: FuncionCatalogo[] = catalogoComple
   ].join('\n');
 }
 
-/** Los pares (rol, función) que siembra la 0321: `admin` con la cadena de cada acción (ADR-0022). */
+/** Los pares (rol, función) que siembra la 0321: `admin` con la cadena de cada acción (ADR-0022 AC2). */
 export function paresRepartoIaConsumo(): [string, string][] {
   return [...new Set(Object.keys(ACCIONES_IA_CONSUMO).flatMap(cadena))]
     .map((fn): [string, string] => [ROL_CON_TODAS_LAS_ACCIONES, fn])
@@ -49,7 +49,7 @@ export function paresRepartoIaConsumo(): [string, string][] {
 /** Reparto: solo `admin`, por `JOIN permisos_roles`. */
 export function sqlRepartoIaConsumo(): string {
   return [
-    '-- `admin` recibe las tres acciones y su cadena (ADR-0022, D4). Ningún otro rol: el resto lo concede el panel de',
+    '-- `admin` recibe las tres acciones y su cadena (ADR-0051, D4; ADR-0022 AC2). Ningún otro rol: el resto lo concede el panel de',
     '-- permisos. JOIN a permisos_roles: un ambiente sin el rol recibe 0 filas.',
     'INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo)',
     'SELECT v.rol, v.fn FROM (VALUES',

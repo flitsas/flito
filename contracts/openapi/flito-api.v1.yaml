@@ -61457,6 +61457,7 @@ paths:
                       - fuera_de_ventana
                       - cursor_invalido
                       - consulta_demasiado_lenta
+                      - consulta_fallida
                       - auditoria_no_disponible
                 required:
                   - error
@@ -61774,6 +61775,7 @@ paths:
                       - fuera_de_ventana
                       - cursor_invalido
                       - consulta_demasiado_lenta
+                      - consulta_fallida
                       - auditoria_no_disponible
                 required:
                   - error
@@ -61810,12 +61812,14 @@ paths:
                       type: string
                       minLength: 1
                       maxLength: 80
+                      pattern: "^[^\\u0000-\\u001f\\u007f]*$"
                     placa:
                       type: string
                     entidad:
                       type: string
                       minLength: 1
                       maxLength: 64
+                      pattern: "^[^\\u0000-\\u001f\\u007f]*$"
                     origen:
                       type: string
                       enum:
@@ -61968,6 +61972,7 @@ paths:
                       - fuera_de_ventana
                       - cursor_invalido
                       - consulta_demasiado_lenta
+                      - consulta_fallida
                       - auditoria_no_disponible
                 required:
                   - error

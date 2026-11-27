@@ -57,10 +57,16 @@ describe('ventana de consulta (D8, A-09)', () => {
     const { env } = await import('../../../src/config/env.js');
     expect(env.IA_CONSUMO_VISOR_VENTANA_MESES).toBe(3);
 
-    for (const valor of ['0', '25', 'abc']) {
+    // Cada valor malo falla con el mensaje de zod de su regla (zod 4, `int().min(1).max(24)` con coerción a número).
+    const motivos: [string, RegExp][] = [
+      ['0', /Too small: expected number to be >=1/],
+      ['25', /Too big: expected number to be <=24/],
+      ['abc', /Invalid input: expected number, received NaN/],
+    ];
+    for (const [valor, motivo] of motivos) {
       vi.resetModules();
       vi.stubEnv('IA_CONSUMO_VISOR_VENTANA_MESES', valor);
-      await expect(import('../../../src/config/env.js'), valor).rejects.toThrow();
+      await expect(import('../../../src/config/env.js'), valor).rejects.toThrow(motivo);
     }
   });
 });

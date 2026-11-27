@@ -19,10 +19,17 @@ const slug = z.string().regex(/^[a-z0-9_]{1,40}$/, 'Identificador no válido.');
 const modelo = z.string().regex(/^[a-z0-9.-]{1,60}$/, 'Modelo no válido.');
 const placa = z.string().max(40).refine((valor) => normalizarPlacaIa(valor) !== null, 'La placa no es válida.');
 
+/** Texto libre con caracteres de control (U+0000–U+001F y U+007F): PostgreSQL rechaza el U+0000 (22021) y el valor acabaría en el log. */
+const MENSAJE_SIN_CONTROL = 'El texto contiene caracteres no permitidos.';
+
 export const filtroIaSchema = z.object({
-  usuario: z.string().min(1).max(80).optional(),
+  // Cadena inline a propósito: `scripts/contratos/esquemas.mjs` lee min, max y el literal de `regex` del AST de la cadena,
+  // y el contrato OpenAPI debe conservar minLength/maxLength. Un helper o un `refine` los oculta.
+  // eslint-disable-next-line no-control-regex -- rechaza justo U+0000–U+001F y U+007F
+  usuario: z.string().min(1).max(80).regex(/^[^\u0000-\u001f\u007f]*$/, MENSAJE_SIN_CONTROL).optional(),
   placa: placa.optional(),
-  entidad: z.string().min(1).max(64).optional(),
+  // eslint-disable-next-line no-control-regex -- rechaza justo U+0000–U+001F y U+007F
+  entidad: z.string().min(1).max(64).regex(/^[^\u0000-\u001f\u007f]*$/, MENSAJE_SIN_CONTROL).optional(),
   origen: z.enum(ORIGENES_IA).optional(),
   modulo: slug.optional(),
   proceso: slug.optional(),

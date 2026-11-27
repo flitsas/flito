@@ -4,7 +4,7 @@
 //
 // Las operaciones NACEN en el árbol (no se siembran: `OPERACIONES_NACIDAS_EN_EL_ARBOL`) y las acciones son posteriores
 // a la siembra (`ACCIONES_NACIDAS_TRAS_LA_SIEMBRA`). `predecesores: []`: nadie las tenía. Solo `admin` las recibe por
-// defecto (D4, ADR-0022) y no hay reparto a otros roles en la migración: el resto lo concede el panel de permisos.
+// defecto (ADR-0051, D4; ADR-0022 AC2) y no hay reparto a otros roles en la migración: el resto lo concede el panel de permisos.
 // `apoyo` concede la lectura junto con la acción sin exigirla para recibirla (`arbol/acciones-gestion.ts`).
 import type { AccionArbol } from './acciones-gestion.js';
 

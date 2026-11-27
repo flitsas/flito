@@ -6,15 +6,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { PgDialect } from 'drizzle-orm/pg-core';
-import { sql, type SQL } from 'drizzle-orm';
+import { getTableColumns, sql, type SQL } from 'drizzle-orm';
 import { hoyColombia } from '../../../src/shared/utils/fecha-rango.js';
 import { calcularVentana } from '../../../src/modules/ia-consumo/ia-consumo.service.js';
+import { iaConsumoLog } from '../../../src/db/schema.js';
+import {
+  MODULO_DESCONOCIDO, ORIGENES_IA, PROCESO_DESCONOCIDO, PROCESOS_IA_FLITO, PROVEEDORES_IA, RESULTADOS_IA, TIPOS_TAREA_IA,
+} from '../../../src/shared/ia-consumo/catalogo.js';
+import { errorHandler } from '../../../src/shared/middleware/errorHandler.js';
 
 const { estado, logPiiAccessMock, fakeDb } = vi.hoisted(() => {
   type Registro = { cols?: Record<string, unknown>; where?: unknown; limit?: number; orden?: unknown[]; sql?: unknown };
   const estado = {
     consultas: [] as Registro[],
     respuestas: [] as unknown[][],
+    fallos: [] as unknown[],
     concedidas: new Set<string>(),
   };
   const selectFalso = (cols: Record<string, unknown>) => {
@@ -34,8 +40,12 @@ const { estado, logPiiAccessMock, fakeDb } = vi.hoisted(() => {
         registro.limit = n;
         return builder;
       },
-      then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
-        Promise.resolve(estado.respuestas.shift() ?? []).then(resolve, reject),
+      then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) => {
+        // Un fallo encolado simula el error del driver: Drizzle lo lanza con los parámetros en el mensaje.
+        const fallo = estado.fallos.shift();
+        const salida = fallo !== undefined ? Promise.reject(fallo) : Promise.resolve(estado.respuestas.shift() ?? []);
+        return salida.then(resolve, reject);
+      },
     };
     return builder;
   };
@@ -53,7 +63,16 @@ const { estado, logPiiAccessMock, fakeDb } = vi.hoisted(() => {
   };
 });
 
+// Espías de los cuatro niveles de `loggerFor`: el visor, la auditoría y el manejador general los usan (A-22, A-23, B1).
+const { logError, logWarn, logInfo, logDebug } = vi.hoisted(() => ({
+  logError: vi.fn(), logWarn: vi.fn(), logInfo: vi.fn(), logDebug: vi.fn(),
+}));
+
 vi.mock('../../../src/db/client.js', () => ({ db: fakeDb }));
+vi.mock('../../../src/shared/logger.js', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  loggerFor: () => ({ error: logError, warn: logWarn, info: logInfo, debug: logDebug }),
+}));
 vi.mock('../../../src/shared/pii-audit.js', () => ({
   logPiiAccess: (...args: unknown[]) => logPiiAccessMock(...args),
 }));
@@ -66,7 +85,8 @@ vi.mock('../../../src/shared/middleware/auth.js', () => ({
       res.status(401).json({ error: 'No autenticado' });
       return;
     }
-    (req as Request & { user?: unknown }).user = { sub: 7, username: 'ops@flit.io', role: 'admin' };
+    // `X-Prueba-Usuario` cambia el usuario del limitador (B2); sin cabecera, el usuario de siempre.
+    (req as Request & { user?: unknown }).user = { sub: Number(req.headers['x-prueba-usuario'] ?? 7), username: 'ops@flit.io', role: 'admin' };
     next();
   },
 }));
@@ -146,9 +166,14 @@ const ultimoDetalle = () => consultasConLimite().filter((c) => c.limit === 1).at
 beforeEach(() => {
   estado.consultas.length = 0;
   estado.respuestas.length = 0;
+  estado.fallos.length = 0;
   estado.concedidas.clear();
   estado.concedidas.add('ia_consumo.registros.ver');
   logPiiAccessMock.mockClear();
+  logError.mockClear();
+  logWarn.mockClear();
+  logInfo.mockClear();
+  logDebug.mockClear();
 });
 
 describe('permiso por ruta (A-01)', () => {
@@ -180,6 +205,22 @@ describe('catálogos (A-02)', () => {
     expect(r.body.modulos).toContain('desconocido');
     expect(r.body.ventana).toEqual(ventana);
     expect(estado.consultas).toHaveLength(0);
+  });
+
+  it('las listas son exactamente las del catálogo compartido, PROCESOS_IA_FLITO y el par `desconocido` (B6)', async () => {
+    const app = await buildApp();
+    const r = await pedirCatalogos(app);
+    expect(r.body.origenes).toEqual([...ORIGENES_IA]);
+    expect(r.body.resultados).toEqual([...RESULTADOS_IA]);
+    expect(r.body.tiposTarea).toEqual([...TIPOS_TAREA_IA]);
+    expect(r.body.proveedores).toEqual([...PROVEEDORES_IA]);
+    // El par `desconocido` va al final: lo escribe el registro cuando una llamada no trae contexto (decisión del 27-nov).
+    expect(r.body.procesos).toEqual([
+      ...Object.entries(PROCESOS_IA_FLITO).map(([proceso, { modulo }]) => ({ proceso, modulo })),
+      { proceso: PROCESO_DESCONOCIDO, modulo: MODULO_DESCONOCIDO },
+    ]);
+    const modulosDelCatalogo = [...new Set([...Object.values(PROCESOS_IA_FLITO).map((p) => p.modulo), MODULO_DESCONOCIDO])].sort();
+    expect(r.body.modulos).toEqual(modulosDelCatalogo);
   });
 });
 
@@ -263,6 +304,7 @@ describe('rango de fechas (A-05 … A-08)', () => {
   it('hasta posterior a hoy en Colombia: rango_invalido', async () => {
     const app = await buildApp();
     const r = await pedirBuscar(app, { desde: hoy, hasta: sumarDias(hoy, 1) });
+    expect(r.status).toBe(400);
     expect(r.body.codigo).toBe('rango_invalido');
   });
 
@@ -321,6 +363,11 @@ describe('detalle (A-11 … A-14, A-31)', () => {
     const caso = condicionDe(ultimoDetalle().cols?.metadatos);
     expect(caso.sql).toMatch(/CASE WHEN octet_length\("ia_consumo_log"\."metadatos"::text\) <= \$\d+ THEN "ia_consumo_log"\."metadatos" END/);
     expect(caso.params).toContain(4096);
+    // Por debajo de 4 096 bytes la fila trae el objeto y su tamaño (A-13, rama ≤ 4096).
+    estado.respuestas.push([filaDetalle({ metadatos: { cache: 'hit' }, metadatosBytes: 20 })], []);
+    const pequeno = await pedirDetalle(app, UUID);
+    expect(pequeno.body.metadatos).toEqual({ cache: 'hit' });
+    expect(pequeno.body.metadatosBytes).toBe(20);
   });
 
   it('el SQL del detalle solo mide el texto dentro de octet_length y nunca lo proyecta (A-14)', async () => {
@@ -335,6 +382,10 @@ describe('detalle (A-11 … A-14, A-31)', () => {
     }
     const texto = Object.values(ultimoDetalle().cols ?? {}).map((v) => condicionDe(sql`${v}`).sql).join('\n');
     expect(texto).toMatch(/EXISTS \(SELECT 1 FROM "ia_consumo_detalle"/);
+    // Los bytes se miden con octet_length sobre el texto, en el SQL del detalle (N5, A-14).
+    const cols = ultimoDetalle().cols!;
+    expect(condicionDe(cols.bytesPrompt).sql).toContain('octet_length("ia_consumo_detalle"."prompt_texto")');
+    expect(condicionDe(cols.bytesRespuesta).sql).toContain('octet_length("ia_consumo_detalle"."respuesta_texto")');
   });
 
   it('los relacionados se buscan dentro de la ventana y sin el propio registro (A-31)', async () => {
@@ -344,6 +395,23 @@ describe('detalle (A-11 … A-14, A-31)', () => {
     await pedirDetalle(app, UUID);
     const relacionados = consultasConLimite().find((c) => c.limit === 20)!;
     expect(condicionDe(relacionados.where).params).toEqual(expect.arrayContaining([ventana.desde, ventana.hasta, UUID, CORRELACION]));
+    // El propio registro se excluye con `<>` (ne), no con `=` (A-31, B7).
+    const sqlRelacionados = condicionDe(relacionados.where).sql;
+    expect(sqlRelacionados).toMatch(/"ia_consumo_log"\."id" <> \$\d+/);
+    expect(sqlRelacionados).not.toMatch(/"ia_consumo_log"\."id" = \$\d+/);
+  });
+
+  it('el SELECT del detalle proyecta las 43 columnas de ia_consumo_log y las cuatro medidas, y ninguna otra (A-11, B5)', async () => {
+    estado.respuestas.push([filaDetalle()], []);
+    const app = await buildApp();
+    await pedirDetalle(app, UUID);
+    const cols = ultimoDetalle().cols!;
+    const esquema = getTableColumns(iaConsumoLog) as Record<string, unknown>;
+    const nombres = Object.keys(esquema);
+    expect(nombres).toHaveLength(43);
+    expect(Object.keys(cols).sort()).toEqual([...nombres, 'bytesPrompt', 'bytesRespuesta', 'tieneContenido', 'metadatosBytes'].sort());
+    // Cada columna del esquema sale tal cual, salvo `metadatos`, que sale por su CASE de tamaño (A-13).
+    for (const nombre of nombres.filter((n) => n !== 'metadatos')) expect(cols[nombre], nombre).toBe(esquema[nombre]);
   });
 });
 
@@ -436,6 +504,19 @@ describe('auditoría de lectura (A-21 … A-23)', () => {
     expect((opts as { motivo: string }).motivo).toBe('filas=0 filtros_pii=usuario');
   });
 
+  it('usuario y placa no llegan a la auditoría ni a ningún log del módulo, aunque la búsqueda devuelva filas (B4)', async () => {
+    estado.respuestas.push([filaLista({ id: uuidDe(1) })]);
+    const app = await buildApp();
+    const r = await pedirBuscar(app, cuerpo({ filtros: { usuario: 'ana@ejemplo.co', placa: 'abc123' } }));
+    expect(r.status).toBe(200);
+    // Se serializan solo las opciones de la auditoría (el primer argumento es el `req` de Express, circular).
+    const registrado = JSON.stringify([
+      logPiiAccessMock.mock.calls.map(([, opciones]) => opciones),
+      logError.mock.calls, logWarn.mock.calls, logInfo.mock.calls, logDebug.mock.calls,
+    ]);
+    for (const valor of ['ana@ejemplo.co', 'abc123', 'ABC123']) expect(registrado, valor).not.toContain(valor);
+  });
+
   it('el detalle se audita como read con su id; un 404 no se audita', async () => {
     const app = await buildApp();
     estado.respuestas.push([filaDetalle()], []);
@@ -450,13 +531,68 @@ describe('auditoría de lectura (A-21 … A-23)', () => {
     expect(logPiiAccessMock).toHaveBeenCalledTimes(1);
   });
 
-  it('si la escritura de auditoría falla, la respuesta sale igual (vía abierta)', async () => {
+  it('si la escritura de auditoría falla, la respuesta sale igual y el fallo queda en el log (vía abierta, B3)', async () => {
     logPiiAccessMock.mockRejectedValueOnce(new Error('pool agotado'));
     estado.respuestas.push([filaDetalle()], []);
     const app = await buildApp();
     const r = await pedirDetalle(app, UUID);
     expect(r.status).toBe(200);
     expect(r.body.id).toBe(UUID);
+    expect(logError).toHaveBeenCalledWith({ err: 'pool agotado' }, 'fallo escribiendo pii_access_log (visor de IA)');
+  });
+});
+
+describe('regresión de seguridad B1: un valor de filtro no sale por el error de la base (A-26)', () => {
+  it('un fallo del driver con usuario y placa en el mensaje responde 500 consulta_fallida sin el valor', async () => {
+    const usuario = 'ana@ejemplo.co';
+    // Drizzle y el driver incluyen los parámetros en el mensaje del error (`Failed query: … params: …`).
+    estado.fallos.push(Object.assign(new Error(`Failed query: select ... params: ${usuario},ABC123`), { code: '22021' }));
+    const app = await buildApp();
+    // Como en producción: el manejador general va detrás de la ruta y es quien registraba el mensaje del driver.
+    app.use(errorHandler);
+    const r = await pedirBuscar(app, cuerpo({ filtros: { usuario, placa: 'abc123' } }));
+    expect(r.status).toBe(500);
+    expect(r.body).toEqual({ error: 'No se pudo consultar el registro. Inténtalo de nuevo.', codigo: 'consulta_fallida' });
+    expect(r.text).not.toContain(usuario);
+    expect(r.text).not.toContain('ABC123');
+    const logs = JSON.stringify([logError.mock.calls, logWarn.mock.calls, logInfo.mock.calls, logDebug.mock.calls]);
+    expect(logs).not.toContain(usuario);
+    expect(logs).not.toContain('ABC123');
+  });
+
+  it('usuario o entidad con un carácter de control es un 400 datos_invalidos y no llega a la base', async () => {
+    const app = await buildApp();
+    for (const filtros of [{ usuario: 'ana\u0000@ejemplo.co' }, { usuario: 'ana\u007f' }, { entidad: 'ent-1\u0001' }]) {
+      const r = await pedirBuscar(app, cuerpo({ filtros }));
+      expect(r.status, JSON.stringify(filtros)).toBe(400);
+      expect(r.body.codigo, JSON.stringify(filtros)).toBe('datos_invalidos');
+    }
+    expect(estado.consultas).toHaveLength(0);
+  });
+});
+
+// Cada ruta monta el limitador (60 por minuto y usuario): 60 consultas pasan y la 61.ª responde 429 (A-20, B2).
+// Un usuario distinto por ruta: el cupo de una no cuenta en las otras.
+describe('límite de consultas por ruta (A-20, B2)', () => {
+  it.each([
+    ['GET /catalogos', 43, (app: express.Express, usuario: string) =>
+      request(app).get(`${BASE}/catalogos`).set('Authorization', AUTH).set('X-Prueba-Usuario', usuario)],
+    ['POST /registros/buscar', 44, (app: express.Express, usuario: string) =>
+      request(app).post(`${BASE}/registros/buscar`).set('Authorization', AUTH).set('X-Prueba-Usuario', usuario).send(cuerpo())],
+    ['GET /registros/:id', 45, (app: express.Express, usuario: string) =>
+      request(app).get(`${BASE}/registros/${UUID}`).set('Authorization', AUTH).set('X-Prueba-Usuario', usuario)],
+  ])('%s: 60 consultas responden 200 y la 61.ª 429 con no-store', async (_ruta, usuario, pedir) => {
+    const app = await buildApp();
+    // El detalle gasta dos consultas por petición (la fila y sus relacionados): se dejan respuestas de sobra.
+    for (let i = 0; i < 61; i++) estado.respuestas.push([filaDetalle()], []);
+    for (let i = 1; i <= 60; i++) {
+      const r = await pedir(app, String(usuario));
+      expect(r.status, `consulta ${i}`).toBe(200);
+    }
+    const bloqueada = await pedir(app, String(usuario));
+    expect(bloqueada.status).toBe(429);
+    expect(bloqueada.body.error).toBe('Demasiadas consultas seguidas. Espera un minuto.');
+    expect(bloqueada.headers['cache-control']).toBe('no-store');
   });
 });
 

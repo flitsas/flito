@@ -41,13 +41,23 @@ El informe deja abiertos tres hallazgos de severidad alta que **este visor no re
 - **El visor audita; no depura.** H1, H2, H3 y H4 (`error_mensaje` solo enmascara números de 6 a 12 dígitos y correos) siguen abiertos. D6 cierra la **lectura** de contenido de los dos procesos de identidad, no su escritura, y no cubre H1 ni los procesos OCR con documentos.
 - **Fallo cerrado en contenido y exportación,** más estricto que AGENTS §16, que pide fallo abierto para colas y bandejas. Un visor que no puede registrar una lectura no entrega el dato. Es una decisión de diseño, no un incumplimiento.
 - **Motivo libre en `pii_access_log.motivo`** (`varchar(200)`). Se valida que no haya 6 o más dígitos seguidos ni correos, pero un nombre propio puede colarse. Se asume: quien escribe el motivo ya tiene el permiso y el texto queda registrado.
-- **Orden estricto en la reversión.** Revertir la imagen con 0321 aplicada deja la API sin arrancar. Se ejecuta primero `docs/arquitectura/epica-14548-0321-rollback.sql`, con `psql -1`.
-- **Retención sin decidir.** El visor solo muestra tres meses; no borra nada. AGENTS §16 pide una política de retención declarada; hoy la declarada es «ninguna» (H3). Sigue siendo una decisión humana.
+- **Orden de la reversión.** Con la imagen 0321 y sin los permisos en la base, la API no se detiene: `verificarCatalogoAlArrancar` solo registra la incoherencia (`apps/api/src/server.ts:70-80`). El orden seguro es otro: primero se revierte la imagen a una anterior a la 0321 y se espera el rollout; después se ejecuta `docs/arquitectura/epica-14548-0321-rollback.sql` con `psql -1`. Si se borrara antes la fila del ledger con la imagen 0321 aún desplegada, un pod recreado volvería a aplicar la 0321 desde el disco (db-apply del initContainer) y deshacería la reversión.
+- **Retención declarada: 3 meses** para `ia_consumo_log` e `ia_consumo_detalle` (decisión del humano, 27-nov-2026). La purga no está en esta Épica: es un bloque aparte, con su propio gate (db-review y security). Hasta entonces los datos se acumulan (H3). `pii_access_log` no se puede purgar: su trigger es append-only (migración 0059), así que su plazo es una decisión de plataforma, pendiente.
 - **Número de ADR.** ADR-0050 está reclamado por la Épica #14707 (rama de la kit); este ADR toma el 0051. Se comprobó en todo el historial de Git que no existe ninguna migración 0321 ni ADR 0051 o posterior.
+
+## Decisiones del humano (27-nov-2026)
+
+Registradas por el humano en la sesión de desarrollo de la Épica. Quedan sujetas a la aprobación del Líder Técnico de este ADR.
+
+1. **Retención:** 3 meses para `ia_consumo_log` e `ia_consumo_detalle`, con la purga en un bloque aparte (ver «Consecuencias»).
+2. **Cifrado:** sin cifrado de columna para `usuario_id`, `usuario_login`, `placa` y `entidad_id`, declarado aquí. Devops confirma si el volumen de la base ya va cifrado en reposo; si no va, es un hallazgo aparte.
+3. **`error_mensaje` en el detalle:** se acepta el residual de H4. Solo lo ve `admin`, con los campos auditados en `camposAccedidos`. Es un waiver explícito del humano y se reconsidera con `security-agent` antes de C2 en PDN.
+4. **Catálogo de filtros:** incluye `desconocido` (proceso y módulo), porque el registro lo escribe cuando una llamada no trae contexto.
+5. **Verificación en base real:** el humano autoriza una base desechable con el historial de migraciones hasta la 0321, en un contenedor propio y sin tocar la base demo. Sirve para `verificarCatalogoAlArrancar` y para la paridad del catálogo (A-27, A-29).
 
 ## Decisiones pendientes antes de activar el contenido en PDN
 
-Ver «Riesgos abiertos» del diseño. Antes de desplegar el bloque C2 (botón de contenido) en PDN, el Líder Técnico debe decidir: (a) si la denylist se amplía más allá de `validar_identidad` y `recortar_cedula` (OCR de cédula y de documentos, chat de Dr. Flit, H1); (b) si `error_mensaje` se revisa con `security-agent` (H4); y (c) el plazo de retención (H3).
+Ver «Riesgos abiertos» del diseño. Antes de desplegar el bloque C2 (botón de contenido) en PDN, el Líder Técnico debe decidir: (a) si la denylist se amplía más allá de `validar_identidad` y `recortar_cedula` (OCR de cédula y de documentos, chat de Dr. Flit, H1); (b) si el waiver de `error_mensaje` (decisión 3) sigue siendo válido tras la revisión de `security-agent`; y (c) el plazo de retención de `pii_access_log`, que fija la plataforma.
 
 ## Estado de la aprobación
 

@@ -144,7 +144,7 @@ Cada fila apunta a los IDs de §6. Los IDs de prueba son los de los criterios, p
 - **A-13** Dado un registro con `metadatos` de más de 4 096 bytes, entonces `metadatos` es null y `metadatosBytes` está informado. Con 4 096 o menos, `metadatos` es el objeto.
 - **A-14** Las consultas de lista y detalle no seleccionan ninguna columna de `ia_consumo_detalle`. Prueba sobre el SQL generado con `PgDialect`: no aparecen `prompt_texto` ni `respuesta_texto`.
 - **A-15** La lista no incluye `error_mensaje` ni `metadatos`.
-- **A-16** Dado el filtro `modelo` = `claude-haiku-4-5`, cuando se busca, entonces casa `coalesce(modelo_respondido, modelo_solicitado)` con `claude-haiku-4-5-20251001` y no con `claude-haiku-4-5x`. Un modelo con `.` o `+` se escapa antes de bindearlo.
+- **A-16** Dado el filtro `modelo` = `claude-haiku-4-5`, cuando se busca, entonces casa `coalesce(modelo_respondido, modelo_solicitado)` con `claude-haiku-4-5-20251001` y no con `claude-haiku-4-5x`. Solo `.` se escapa dentro del patrón de modelo; un modelo con `+` se rechaza con 400 `datos_invalidos` (`filtroIaSchema`).
 - **A-17** Dado un valor fuera de catálogo (`origen`, `resultado`, `tipoTarea`, `proveedor`) o un `proceso`/`modulo` que no cumple `^[a-z0-9_]{1,40}$`, entonces responde 400 `datos_invalidos`.
 - **A-18** No existe búsqueda por `GET` con query: `GET /registros?usuario=…` responde 404 de Express, y la búsqueda solo acepta `POST`.
 - **A-19** Todas las respuestas del módulo llevan `Cache-Control: no-store`, incluidas las 4xx y la 429.
@@ -307,7 +307,7 @@ Nota: `POST /registros/exportar` en lugar de `/export` (comparendos) porque el p
 ### 8.4 Catálogos cerrados (`GET /catalogos`)
 
 - `origenes`, `resultados`, `tiposTarea`, `proveedores`: de `shared/ia-consumo/catalogo.ts` (`ORIGENES_IA`, `RESULTADOS_IA`, `TIPOS_TAREA_IA`, `PROVEEDORES_IA`).
-- `procesos`: de `PROCESOS_IA_FLITO`, con su `modulo`.
+- `procesos`: de `PROCESOS_IA_FLITO`, con su `modulo`, más el par `desconocido` (`PROCESO_DESCONOCIDO` / `MODULO_DESCONOCIDO`) que escribe el registro cuando una llamada no trae contexto.
 - `modulos`: los `modulo` de `PROCESOS_IA_FLITO` más `MODULO_DESCONOCIDO` (`'desconocido'`), que el registro también escribe.
 - `ventana`: `{ desde, hasta, meses }`, calculada en el servidor.
 - Los catálogos solo rellenan los selects. La validación del servidor los usa, pero no depende de que la UI los muestre.
@@ -327,6 +327,7 @@ Nota: `POST /registros/exportar` en lugar de `/export` (comparendos) porque el p
 | `export_demasiado_grande` | 422 | Más filas que el tope | «El filtro supera las {tope} filas que admite una exportación. Acota el rango o los filtros y vuelve a intentarlo.» (mismo código que comparendos, `flito-comparendos.errors.ts:500`) |
 | `auditoria_no_disponible` | 503 | `pii_access_log` no escribe, en contenido o exportación | «No pudimos registrar el acceso a datos personales, así que no mostramos la información. Intenta de nuevo en un momento.» |
 | `consulta_demasiado_lenta` | 503 | SQLSTATE 57014 (`statement_timeout`) | «La consulta tardó demasiado. Reduce el rango de fechas y vuelve a intentarlo.» |
+| `consulta_fallida` | 500 | Cualquier otro error del driver (distinto de 57014). Su mensaje lleva los valores de los filtros: no se devuelve ni se registra | «No se pudo consultar el registro. Inténtalo de nuevo.» |
 | (límite) | 429 | Limitador | «Demasiadas consultas seguidas. Espera un minuto.» |
 
 Los 403 de `exigirFuncion` (`sin_funcion`, `sin_modulo`, `no_reconocida`, `no_resuelto`) los produce la guarda, no el módulo.
@@ -355,7 +356,7 @@ Los 403 de `exigirFuncion` (`sin_funcion`, `sin_modulo`, `no_reconocida`, `no_re
 
 ### 9.1 Piezas que se mueven juntas
 
-El arranque aborta si el catálogo del código y el de la base no coinciden (`permisos.service.ts:61-85`).
+El arranque no aborta si el catálogo del código y el de la base no coinciden: lo registra («CATÁLOGO DE PERMISOS INCOHERENTE», `server.ts:72-77`) y sigue (`verificarCatalogoAlArrancar`, `permisos.service.ts:61`).
 
 | Pieza | Archivo:línea | Cambio |
 |---|---|---|
@@ -394,7 +395,7 @@ El arranque aborta si el catálogo del código y el de la base no coinciden (`pe
 
 ### 9.4 Rollback
 
-`docs/arquitectura/epica-14548-0321-rollback.sql`: borra reparto, excepciones de usuario, acciones, página y la fila del ledger (V16–V18). Se corre antes de revertir la imagen, con `psql -1`.
+`docs/arquitectura/epica-14548-0321-rollback.sql`: borra reparto, excepciones de usuario, acciones, página y la fila del ledger (V16–V18). Se corre después de revertir la imagen a una anterior a la 0321 y con `psql -1` (el orden y su razón, en la cabecera del fichero).
 
 ## 10. Reglas PII
 

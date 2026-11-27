@@ -3,8 +3,8 @@
 -- Siembra el ítem «Consumo de IA» (Administración, orden 70) y sus tres acciones: ver los registros
 -- (`accion.ia_consumo.ver`, de lectura), exportarlos en CSV (`accion.ia_consumo.exportar`, NO es lectura) y ver el
 -- contenido de un registro (`accion.ia_consumo.ver_contenido`, NO es lectura: deja rastro). Reparto: solo `admin`
--- (ADR-0022, D4); el resto de roles lo recibe desde el panel de permisos.
--- Solo INSERT idempotentes (`ON CONFLICT`) en `permisos_funciones` y `permisos_rol_funcion`. Las tablas `ia_consumo_*`
+-- (ADR-0051, D4; ADR-0022 AC2); el resto de roles lo recibe desde el panel de permisos.
+-- INSERT idempotentes (ON CONFLICT DO NOTHING, y un DO UPDATE acotado a sus cuatro códigos) en `permisos_funciones` y `permisos_rol_funcion`. Las tablas `ia_consumo_*`
 -- no se tocan (D2). Las operaciones nacen en el árbol (no se siembran). El runner aplica este fichero en una
 -- transacción (`migrations/README.md`): no abre ninguna propia.
 
@@ -24,7 +24,7 @@ ON CONFLICT (codigo) DO UPDATE SET modulo = EXCLUDED.modulo, nombre_negocio = EX
     IS DISTINCT FROM (EXCLUDED.modulo, EXCLUDED.nombre_negocio, EXCLUDED.descripcion,
          EXCLUDED.tipo, EXCLUDED.padre_codigo, EXCLUDED.nivel, EXCLUDED.orden);
 
--- `admin` recibe las tres acciones y su cadena (ADR-0022, D4). Ningún otro rol: el resto lo concede el panel de
+-- `admin` recibe las tres acciones y su cadena (ADR-0051, D4; ADR-0022 AC2). Ningún otro rol: el resto lo concede el panel de
 -- permisos. JOIN a permisos_roles: un ambiente sin el rol recibe 0 filas.
 INSERT INTO permisos_rol_funcion (rol_codigo, funcion_codigo)
 SELECT v.rol, v.fn FROM (VALUES

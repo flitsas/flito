@@ -11,6 +11,7 @@ export type CodigoErrorIa =
   | 'cursor_invalido'
   | 'no_encontrado'
   | 'consulta_demasiado_lenta'
+  | 'consulta_fallida'
   | 'auditoria_no_disponible';
 
 const ESTADO: Record<CodigoErrorIa, number> = {
@@ -21,6 +22,7 @@ const ESTADO: Record<CodigoErrorIa, number> = {
   cursor_invalido: 400,
   no_encontrado: 404,
   consulta_demasiado_lenta: 503,
+  consulta_fallida: 500,
   auditoria_no_disponible: 503,
 };
 
@@ -32,6 +34,7 @@ export const MENSAJES_IA = {
   cursor_invalido: 'La página ya no es válida. Vuelve a buscar desde el principio.',
   no_encontrado: 'No encontramos ese registro.',
   consulta_demasiado_lenta: 'La consulta tardó demasiado. Reduce el rango de fechas y vuelve a intentarlo.',
+  consulta_fallida: 'No se pudo consultar el registro. Inténtalo de nuevo.',
   auditoria_no_disponible: 'No pudimos registrar el acceso a datos personales, así que no mostramos la información. Intenta de nuevo en un momento.',
 } as const satisfies Record<Exclude<CodigoErrorIa, 'fuera_de_ventana'>, string>;
 
