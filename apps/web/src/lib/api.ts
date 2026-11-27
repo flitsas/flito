@@ -1,4 +1,6 @@
-import { CODIGO_TRAMITE_NO_VIGENTE, MOTIVOS_DESCARTE, type MotivoDescarte } from '@operaciones/shared-types';
+import {
+  CODIGO_TRAMITE_NO_VIGENTE, MOTIVOS_DESCARTE, type AvisosUsuarioRespuesta, type MarcarAvisosVistosRespuesta, type MotivoDescarte,
+} from '@operaciones/shared-types';
 import type {
   BolsaDetalleDto, BolsaResumenDto, CierreBolsaTransitoDto, MovimientoTransitoDto, BuscarBolsasDto, CrearBolsaDto, EditarBolsaDto,
   EstadoBolsaCompaniaConAutogestionDto,
@@ -640,6 +642,17 @@ export const impuestosApi = {
    */
   reemplazarComprobantePago: (impuestoId: string, archivo: File) =>
     api.upload<RespuestaReemplazoComprobante>(`/flito/impuestos/${encodeURIComponent(impuestoId)}/recibos/reemplazar-pago`, archivo, 'archivo'),
+};
+
+/**
+ * Avisos del usuario (Épica #14707, módulo `flito-avisos`): las solicitudes de SOAT/impuesto que se retiraron
+ * porque FLIT anuló o revocó su trámite. Sin query: el servidor lee el usuario del token (también con enlace).
+ * «Marcar visto» manda la lista EXACTA de ids mostrados, no «todos»: un retiro que llegó después de pintar el
+ * aviso no se oculta sin haberse visto.
+ */
+export const avisosApi = {
+  listar: () => api.get<AvisosUsuarioRespuesta>('/flito/avisos'),
+  marcarVisto: (ids: string[]) => api.post<MarcarAvisosVistosRespuesta>('/flito/avisos/visto', { ids }),
 };
 
 // ── Bolsas: catálogo (HU #13901, contrato de la HU #13900) ─────────────────────

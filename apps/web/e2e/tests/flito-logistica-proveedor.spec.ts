@@ -28,7 +28,8 @@ const fila = (o: Record<string, unknown>) => ({
   tramiteId: 'tr-1', idFlit: 'FLIT-DEMO-1', placa: 'ZZA101', vin: 'VINDEMO0000000001', companiaId: 5,
   companiaNombre: 'Concesionario Demo Norte', companiaNit: '900111', organismoCodigo: '17001', organismoNombre: 'Secretaría de Movilidad de Manizales',
   docId: 'doc-1', estado: 'recogido', estadoLabel: 'Registrada', estadoSimple: 'registrada', estadoSimpleLabel: 'Registrada',
-  numeroLicencia: '100381', numeroLt: 'LT90000000101', actaId: null, motivo: null, actualizadoEn: null, ...o,
+  numeroLicencia: '100381', numeroLt: 'LT90000000101', actaId: null, motivo: null, actualizadoEn: null,
+  vigenciaTramite: 'vigente', ...o, // Épica #14707: el DTO real siempre lo trae; sin él la fila se pinta como no vigente.
 });
 const TRAMITES = [fila({}), fila({ tramiteId: 'tr-2', idFlit: 'FLIT-DEMO-2', placa: 'ZZB202', docId: null, estadoSimple: 'pendiente', estadoSimpleLabel: 'Pendiente', numeroLt: null })];
 

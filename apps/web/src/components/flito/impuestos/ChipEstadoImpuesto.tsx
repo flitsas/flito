@@ -12,6 +12,7 @@ registrarEstados({
   'impuesto-solicitado': { tono: 'info', glifo: 'reloj' },
   'impuesto-con_novedad': { tono: 'danger', glifo: 'alerta' },
   'impuesto-pagado': { tono: 'ok', glifo: 'doble-check' },
+  'impuesto-descartado': { tono: 'neutro', glifo: 'menos' }, // Épica #14707: su trámite murió en FLIT
 });
 
 export default function ChipEstadoImpuesto({ estado }: { estado: EstadoImpuesto }) {

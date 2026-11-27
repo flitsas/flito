@@ -33,6 +33,12 @@ export const test = base.extend({
         }),
       });
     });
+    // Épica #14707: las colas SOAT e Impuestos piden los avisos de retiro del usuario al montar. Un `[]` es
+    // una respuesta mal formada y pintaría la línea de error del aviso en todos los specs de esas colas.
+    await page.route(/\/api\/flito\/avisos$/, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ avisos: [], noVistos: 0 }) });
+    });
     await use(page);
   },
 });

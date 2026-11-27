@@ -299,11 +299,13 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
   const SOAT_13771: Record<string, { version: string; capturas: string[]; diagrama: string | null; fecha?: string }> = {
     // HU #13968: SOAT sin trámite por proveedor (soat y clients cambiaron de nuevo).
     // Épica #14560: pastillas de estado con ícono y la primaria junto a Exportar a Excel (1.17; 1.16 venía del merge).
-    soat: { version: '1.22', fecha: '2026-11-26', diagrama: 'ciclo-soat.svg', capturas: [
+    // Épica #14707 (PR A y PR B): bandeja rediseñada, trámite muerto y avisos de retiro.
+    soat: { version: '1.23', fecha: '2026-11-27', diagrama: 'ciclo-soat.svg', capturas: [
       '01-cola.png', '02-enviar-al-gestor.png', '03-detalle.png', '04-solicitar-soat.png'] },
     // Bug #14532: Liquidación y Pagado en la ventana del ZIP (04-documentos-del-zip regenerada).
     // Épica #14560: columna Propietario, panel Columnas (03-columnas) y detalle en ventana (04-detalle); selección y ZIP pasan a 05 y 06.
-    flito_tramites: { version: '1.11', fecha: '2026-11-26', diagrama: 'camino-a-entregar.svg', capturas: [
+    // Épica #14707 (PR A y PR B): bandeja rediseñada, trámite muerto y avisos de retiro.
+    flito_tramites: { version: '2.0', fecha: '2026-11-27', diagrama: 'camino-a-entregar.svg', capturas: [
       '01-sincronizacion.png', '02-filtros-y-tabla.png', '03-columnas.png', '04-detalle.png',
       '05-seleccion.png', '06-documentos-del-zip.png'] },
     // BUG #14569: buscador de trámite (1.3) y Reintentar lectura (1.4, 04-reintentar-lectura nueva); 1.6 = merge con el rediseño.
@@ -372,7 +374,8 @@ test.describe('FLITO — Ayuda · artefactos AC6/AC7', () => {
     // fuera del encuadre de 05-detalle.png.
     // HU #14665: «Certificar sin trámite» al patrón unificado (cabecera, embudo, búsqueda, columnas) — 1.18,
     // sin capturas nuevas: la ficha no cita capturas de esa pestaña.
-    flito_impuestos: { version: '1.20', fecha: '2026-11-26', diagrama: 'ciclo-impuesto.svg', capturas: [
+    // Épica #14707 (PR A y PR B): bandeja rediseñada, trámite muerto y avisos de retiro.
+    flito_impuestos: { version: '1.21', fecha: '2026-11-27', diagrama: 'ciclo-impuesto.svg', capturas: [
       '01-cola.png', '02-seleccion.png', '03-carga-masiva.png', '04-validacion-runt.png', '05-detalle.png'] },
     flito_derechos: { version: '1.6', fecha: '2026-11-25', diagrama: 'canastas-de-carga.svg', capturas: [
       '01-resultado-de-la-carga.png', '02-drive.png', '03-registrados.png'] },

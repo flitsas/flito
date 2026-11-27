@@ -9,7 +9,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   ANS_OPERATIVO, EstadoSoat, type FiltroVigenciaCola, type SolicitudIncompletaFila,
 } from '@operaciones/shared-types';
-import { api, errorMessage } from '../lib/api';
+import { api, errorMessage, esTramiteNoVigente } from '../lib/api';
 import { puedeSolicitarSoat, useAuth } from '../lib/auth';
 import { TarjetaCanalDeshabilitado } from '../components/flito/soat-cliente/TarjetaCanal';
 import PageContentSkeleton from '../components/flit/PageContentSkeleton';
@@ -27,6 +27,7 @@ import { FlitCard, FlitEmpty } from '../components/flit/flitPageKit';
 import GradientButton, { claseBoton } from '../components/flit/GradientButton';
 import { Icono } from '../components/flit/kit/Icono';
 import { toastError, toastOk } from '../components/flit/ToastFlito';
+import AvisosUsuario, { copyColaNoVigente } from '../components/flit/AvisosUsuario';
 // Las piezas de la cola viven en `components/flito/soat/` desde la HU 12819 (techo de 800 líneas).
 import {
   ESTADOS_ADMIN, ESTADOS_CLIENTE, ESTADOS_GESTOR, esPastillaIncompleta,
@@ -453,6 +454,9 @@ export default function FlitoSoat() {
         )}
       />
 
+      {/* Épica #14707 (UX §5): retiros de SOAT que este usuario solicitó; el Cliente lo lee en usted. */}
+      <AvisosUsuario concepto="soat" usted={esCliente} recarga={recarga} />
+
       {/* La banda se monta solo donde se monta el botón: un `role="alert"` colgado en la pantalla
           del auditor no puede dispararse, pero sí sale en el árbol de accesibilidad. */}
       {puedeExportar && (
@@ -544,7 +548,11 @@ export default function FlitoSoat() {
               setSeleccion(new Set()); refrescar();
             }}
             // El error NO toca el estado de la página: la selección se conserva para reintentar.
-            onError={(texto) => toastError(texto)} />
+            // Épica #14707 §6: 409 de trámite no vigente → copy propio y la cola se refresca (sin reintento).
+            onError={(texto, e) => {
+              if (!esTramiteNoVigente(e)) { toastError(texto); return; }
+              toastError(copyColaNoVigente('soat', enviables.length)); setSeleccion(new Set()); refrescar();
+            }} />
         </div>
       )}
 

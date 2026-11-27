@@ -118,7 +118,7 @@ test.describe('HU #13684 — aviso de trámites nuevos o actualizados', () => {
     await expect.poll(() => esc.urlsLista.at(-1)?.searchParams.get('page')).toBe('2');
     await page.getByLabel('Seleccionar ABC123').check();
     await page.getByLabel('Seleccionar XYZ789').check();
-    await expect(page.getByText('2 seleccionado(s)')).toBeVisible();
+    await expect(page.getByText('2 seleccionados', { exact: true })).toBeVisible();
     const query = esc.urlsLista.at(-1)!.search;
 
     await page.clock.runFor(SONDEO);
@@ -129,7 +129,7 @@ test.describe('HU #13684 — aviso de trámites nuevos o actualizados', () => {
 
     await expect(page.getByText('XYZ789')).toBeHidden();
     expect(esc.urlsLista.at(-1)!.search).toBe(query);
-    await expect(page.getByText('1 seleccionado(s)')).toBeVisible();
+    await expect(page.getByText('1 seleccionado', { exact: true })).toBeVisible();
     await expect(page.getByLabel('Seleccionar ABC123')).toBeChecked();
     await expect(page.getByText('Página 2 de 3')).toBeVisible();
     await expect(aviso(page)).not.toContainText('Hay');
@@ -262,7 +262,7 @@ test.describe('HU #13684 — aviso de trámites nuevos o actualizados', () => {
       body: JSON.stringify({ nuevos: 1, actualizados: 0 }) }));
     await page.clock.install({ time: new Date('2026-10-19T10:00:00-05:00') });
     await page.goto('/flito/tramites');
-    await expect(page.getByText(/No hay trámites/)).toBeVisible();
+    await expect(page.getByText(/Todavía no hay trámites/)).toBeVisible();
     await page.clock.runFor(SONDEO);
     await expect(aviso(page)).toContainText('Hay 1 trámite nuevo');
   });

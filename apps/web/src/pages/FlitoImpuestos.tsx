@@ -8,7 +8,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ESTADO_IMPUESTO_LABEL, ESTADOS_IMPUESTO_CERTIFICABLES, EstadoImpuesto, ResultadoCertificacion, TOPE_LOTE_CERTIFICACION,
 } from '@operaciones/shared-types';
-import { ApiError, api, errorMessage } from '../lib/api';
+import { ApiError, api, errorMessage, esTramiteNoVigente } from '../lib/api';
 import {
   AccionCertificacion, ModalResultadoCertificacion, ModalResultadoLote,
   type CertificacionCola, type ResultadoIntento, type ResultadoLote,
@@ -19,6 +19,8 @@ import GradientButton, { claseBoton } from '../components/flit/GradientButton';
 import DataTable from '../components/flit/DataTable';
 import Paginacion from '../components/flit/Paginacion';
 import InlineAlert from '../components/flit/InlineAlert';
+import AvisosUsuario, { copyColaNoVigente } from '../components/flit/AvisosUsuario';
+import { toastError } from '../components/flit/ToastFlito';
 import { BarraAccion } from '../components/flit/Bloques';
 import { Icono } from '../components/flit/kit/Icono';
 import type { Preset } from '../components/flit/FiltrosInteligentes';
@@ -435,6 +437,8 @@ export default function FlitoImpuestos() {
 
       {/* La banda se monta solo donde se monta el botón: un `role="alert"` colgado en la pantalla
           del auditor no puede dispararse, pero sí sale en el árbol de accesibilidad. */}
+      {/* Épica #14707 (UX §5): retiros de impuestos que este usuario solicitó. Sin retiros, nada. */}
+      <AvisosUsuario concepto="impuesto" recarga={recarga} />
       <AvisoAnalisis envio={envioAnalisis} onActualizar={refrescar} onCerrar={() => setEnvioAnalisis(null)} />
 
       {puedeExportar && (
@@ -486,7 +490,11 @@ export default function FlitoImpuestos() {
           puedeCertificarFila={puedeCertificarFila}
           onListo={() => { setSeleccion(new Set()); refrescar(); }}
           onEnviados={setEnvioAnalisis}
-          onError={setError}
+          // Épica #14707 §6: un 409 de trámite no vigente es un toast cerrable sin el error crudo y la cola se refresca.
+          onError={(m, e) => {
+            if (!esTramiteNoVigente(e)) { setError(m); return; }
+            toastError(copyColaNoVigente('impuesto', seleccion.size)); setSeleccion(new Set()); refrescar();
+          }}
           descargas={puedeDescargarSoportes && puedeDescargarCertificados
             ? 'Descargar soportes y certificados usan'
             : puedeDescargarSoportes ? 'Descargar soportes usa' : 'Descargar certificados usa'}
@@ -619,7 +627,7 @@ function BarraSeleccion({ filasSeleccionadas, puedeEnviarFila, puedeCertificarFi
   puedeCertificarFila: (f: ImpuestoItem) => boolean;
   onListo: () => void;
   onEnviados: (e: EnvioAnalisis) => void;
-  onError: (m: string) => void;
+  onError: (m: string, e?: unknown) => void;
   descarga: ReactNode;
   /** Cómo se nombran las descargas visibles en la línea de desajuste («Descargar soportes usa»). */
   descargas: string;
@@ -652,14 +660,14 @@ function BarraSeleccion({ filasSeleccionadas, puedeEnviarFila, puedeCertificarFi
       onEnviados({ n: r?.enviados?.length ?? enviables.length, aOperaciones });
       onListo();
     }
-    catch (e) { onError(errorMessage(e)); }
+    catch (e) { onError(errorMessage(e), e); }
     finally { setEnviando(null); }
   };
 
   const certificarLote = async () => {
     setCertificando(true);
     try { setResultado(await api.post<ResultadoLote>('/flito/impuestos/certificar', { ids: certificables })); }
-    catch (e) { onError(errorMessage(e)); }
+    catch (e) { onError(errorMessage(e), e); }
     finally { setCertificando(false); }
   };
 

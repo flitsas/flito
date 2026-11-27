@@ -5,6 +5,7 @@ import {
   FlitCard, FlitEmpty, FlitField, FlitPillButton, FlitPillGroup, FlitTable, FlitTh, FlitTr, flitBtnSecondary, flitBtnSecondaryStyle, flitInp,
 } from '../../flit/flitPageKit';
 import StatusChip from '../../flit/StatusChip';
+import ChipVigenciaTramite from '../../flit/ChipVigenciaTramite';
 import { AvisoNoActualizado, BarraEsqueleto, BotonFila, BotonTarjetaPeligro, EsqueletoTarjetas, TONO_SIMPLE, TarjetaError, useDesdeLg } from './consolaLogistica';
 
 const ESTADOS_SIMPLE: EstadoLogisticaSimple[] = ['pendiente', 'registrada', 'en_flit', 'despachada', 'entregada', 'novedad'];
@@ -107,7 +108,9 @@ export default function TabTramites(p: Props) {
   );
 }
 
-const hayNovedad = (f: TramiteFilaLogistica, puede: boolean) => puede && !!f.docId && f.estadoSimple === 'registrada';
+// Épica #14707 (D8): un trámite anulado/revocado queda como histórico, con chip y sin Novedad.
+const hayNovedad = (f: TramiteFilaLogistica, puede: boolean) => puede && f.vigenciaTramite === 'vigente' && !!f.docId && f.estadoSimple === 'registrada';
+const chipVigencia = (f: TramiteFilaLogistica) => (f.vigenciaTramite === 'vigente' ? null : <ChipVigenciaTramite vigencia={f.vigenciaTramite} />);
 
 function Tabla({ filas, verPropietario, verDetalle, puedeNovedad, onDetalle, onNovedad }: Props & { filas: TramiteFilaLogistica[] }) {
   return (
@@ -134,6 +137,7 @@ function Tabla({ filas, verPropietario, verDetalle, puedeNovedad, onDetalle, onN
                 <td className="px-4 py-2 text-sm tabular-nums">{f.numeroLt ?? '—'}</td>
                 <td className="px-4 py-2">
                   <StatusChip tone={TONO_SIMPLE[f.estadoSimple]}>{f.estadoSimpleLabel}</StatusChip>
+                  {chipVigencia(f) && <div className="mt-1">{chipVigencia(f)}</div>}
                   {f.motivo && <div className="mt-1 text-xs" style={{ color: 'var(--kit-rojo-texto)' }}>{f.motivo}</div>}
                 </td>
                 <td className="px-4 py-2">
@@ -161,7 +165,10 @@ function Tarjetas({ filas, verPropietario, verDetalle, puedeNovedad, onDetalle, 
             <article className="rounded-xl border bg-flit-card p-3" style={{ borderColor: 'var(--color-border)' }}>
               <div className="flex items-start justify-between gap-2">
                 <span className="font-semibold tabular-nums" style={{ color: 'var(--color-text-primary)' }}>{f.placa ?? '—'}</span>
-                <StatusChip tone={TONO_SIMPLE[f.estadoSimple]}>{f.estadoSimpleLabel}</StatusChip>
+                <span className="flex flex-wrap justify-end gap-1">
+                  <StatusChip tone={TONO_SIMPLE[f.estadoSimple]}>{f.estadoSimpleLabel}</StatusChip>
+                  {chipVigencia(f)}
+                </span>
               </div>
               <div className="mt-1 text-xs tabular-nums" style={{ color: 'var(--color-text-tertiary)' }}>{f.idFlit} · {f.numeroLt ?? '—'}</div>
               <div className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{f.companiaNombre ?? f.companiaNit ?? '—'}</div>

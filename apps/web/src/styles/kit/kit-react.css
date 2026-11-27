@@ -559,3 +559,72 @@ html { scroll-padding-top: calc(var(--kit-alto-barra) + var(--space-8)); scroll-
 .error-accion { margin: var(--space-10) 0 0; font-size: 0.875rem; color: var(--flit-danger-ink); }
 .detalle__fichas.tres { grid-template-columns: repeat(auto-fill, minmax(min(12rem, 100%), 1fr)); }
 .lateral-bloque:empty { display: none; }
+
+/* ═════════ Gestión Trámites: filtros desplegables (Épica #14707 bloque 4, UX §5.4 / R10–R12) ═════════
+   Misma piel que el acordeón de Sincronización. Fila del encabezado: [› Filtros (n)] [buscador 1fr] [Vistas rápidas];
+   por debajo de 1024 px las vistas bajan a todo el ancho. Solo tokens: el oscuro hereda. */
+.acordeon-filtros { border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-elevated); }
+.acordeon-fila { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-8) var(--space-12); padding: var(--space-8) var(--space-16); }
+@media (min-width: 1024px) { .acordeon-fila { grid-template-columns: auto minmax(0, 1fr) auto; } }
+.acordeon-cabeza--compacta { display: inline-flex; align-items: center; gap: var(--space-8); height: 40px; padding: 0 var(--space-8); margin-left: calc(var(--space-8) * -1);
+  border: 0; border-radius: 9px; background: transparent; font: inherit; color: var(--color-text-primary); cursor: pointer; transition: background-color var(--motion-fast) var(--ease); }
+.acordeon-cabeza--compacta:hover { background: var(--kit-hover); }
+.acordeon-cabeza--compacta:focus-visible { outline: 2px solid var(--kit-azul); outline-offset: 2px; }
+.acordeon-cabeza--compacta .chev { flex: none; color: var(--color-text-tertiary); transition: transform var(--motion-fast) var(--ease); }
+.acordeon-cabeza--compacta[aria-expanded="true"] .chev { transform: rotate(90deg); color: var(--color-action); }
+@media (prefers-reduced-motion: reduce) { .acordeon-cabeza--compacta .chev { transition: none; } }
+/* El kit oculta la cuenta ≤480 px; aquí es la única pista de que hay filtros puestos. */
+.acordeon-filtros .acordeon__cuenta { display: inline-grid; min-width: 24px; height: 24px; padding: 0 6px; font-size: var(--text-micro); font-weight: 700; }
+.acordeon-fila .filtros__buscar { min-width: 0; }
+.acordeon-fila .filtros__buscar .control { height: 40px; min-height: 0; width: 100%; }
+.vistas-cabecera { grid-column: 1 / -1; display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-8); overflow-x: auto; min-width: 0; }
+@media (min-width: 1024px) { .vistas-cabecera { grid-column: auto; } }
+.vistas-cabecera .chip--sm { height: 40px; min-height: 0; white-space: nowrap; }
+.filtros-rotulo { font-size: var(--text-micro); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--color-text-secondary); white-space: nowrap; }
+.acordeon-filtros .acordeon__cuerpo { display: grid; gap: var(--space-16); padding: var(--space-16); border-top: 1px solid var(--color-divider); }
+.filtros-rejilla { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-16); }
+@media (min-width: 640px) { .filtros-rejilla { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1280px) { .filtros-rejilla { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+.campo-filtro { display: grid; grid-template-rows: auto 40px; gap: 6px; min-width: 0; }
+.campo-filtro--ancla { position: relative; }
+.campo-filtro__rotulo { font-size: var(--text-caption); font-weight: 600; line-height: 1.3; color: var(--color-text-secondary); }
+.control.control-filtro { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); width: 100%; height: 40px; min-height: 0;
+  padding: 0 var(--space-12); font-size: 0.875rem; text-align: left; cursor: pointer; background-color: var(--color-surface-elevated); color: var(--color-text-primary);
+  transition: background-color var(--motion-fast) var(--ease), border-color var(--motion-fast) var(--ease); }
+.control.control-filtro:hover { background-color: var(--kit-hover); }
+.control.control-filtro:focus-visible { outline: 2px solid var(--kit-azul); outline-offset: 2px; }
+.control.control-filtro[data-puesto] { border-color: var(--kit-azul); color: var(--color-action); font-weight: 600; }
+.control.control-filtro > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.control.control-filtro svg { flex: none; color: var(--color-text-tertiary); }
+/* `position: absolute` explícito: en teléfono el kit convierte todo `.menu-flotante` en una hoja fija bajo la barra
+   (kit-propuesta, menú de usuario); el de un filtro se queda anclado a su celda, que está en el flujo de la página. */
+.menu-filtro { position: absolute; left: 0; right: auto; top: calc(100% + 4px); width: 100%; min-width: min(15rem, 100%); max-height: 18rem; overflow: auto; display: grid; gap: 2px; }
+.menu-filtro--fechas { width: max-content; min-width: 18rem; max-width: calc(100vw - 2rem); overflow: visible; max-height: none; }
+.menu-filtro--fechas .kit-rango > summary { display: none; }
+.menu-filtro--fechas .kit-rango__panel { position: static; width: 100%; max-width: 100%; margin: 0; border: 0; box-shadow: none; padding: 0; }
+.opcion-filtro { display: flex; align-items: center; gap: var(--space-8); padding: 6px 8px; border-radius: 7px; font-size: var(--text-caption); color: var(--color-text-primary);
+  cursor: pointer; transition: background-color var(--motion-fast) var(--ease); }
+.opcion-filtro:hover { background: var(--kit-hover); }
+.opcion-filtro--vacia { cursor: default; color: var(--color-text-tertiary); }
+.opcion-filtro--vacia:hover { background: transparent; }
+.filtros-pie { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8) var(--space-12); padding-top: var(--space-12); border-top: 1px solid var(--color-divider); }
+.filtros-pie .filtros__activos { display: flex; flex-wrap: wrap; gap: var(--space-8); flex: 1 1 20rem; min-width: 0; }
+.filtros-pie__limpiar { margin-left: auto; }
+
+/* Barra de la tabla de Trámites (UX §5.5): sticky y opaca; con selección, tinte de acción y texto en tinta (ADR-0050 P2). */
+.barra-tabla { position: sticky; top: calc(var(--kit-alto-barra) + 0.5rem); z-index: 20; padding: var(--space-8) 0; background: var(--color-surface); }
+.barra-tabla[data-modo="seleccion"] { padding: var(--space-8) var(--space-12); border-radius: var(--radius-md); background: color-mix(in srgb, var(--color-action) 10%, var(--color-surface)); }
+.barra-tabla__fila { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8) var(--space-10); }
+.barra-tabla__der { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8) var(--space-10); }
+.barra-tabla__cuenta { font-size: var(--text-caption); font-weight: 600; color: var(--color-text-secondary); }
+.barra-tabla[data-modo="seleccion"] .barra-tabla__cuenta { color: var(--color-text-primary); }
+.barra-tabla__desajuste { margin: var(--space-8) 0 0; font-size: 0.875rem; color: var(--color-text-primary); }
+.barra-tabla__acciones { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); }
+@media (max-width: 1023.98px) {
+  .barra-tabla__acciones { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .barra-tabla__acciones > * { min-width: 0; width: 100%; }
+  .barra-tabla__acciones > .btn, .barra-tabla__acciones > button { white-space: normal; height: auto; min-height: 40px; justify-content: center; text-align: center; }
+  .barra-tabla__acciones .barra-tabla__primaria { grid-column: 1 / -1; }
+}
+.paginacion-tramites { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--space-12); padding-top: var(--space-16); font-size: var(--text-caption); }
+.paginacion-tramites span { font-weight: 600; color: var(--color-text-secondary); }

@@ -9,10 +9,11 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   esFuenteTramite,
-  type TramiteDetalle as DetalleTramite, type TramiteDetalleConceptoId, type VigenciaTramite,
+  type TramiteDetalle as DetalleTramite, type TramiteDetalleConceptoId,
 } from '@operaciones/shared-types';
 import { api, errorMessage } from '../../../../lib/api';
 import StatusChip, { type ChipTone } from '../../../flit/StatusChip';
+import ChipVigenciaTramite from '../../../flit/ChipVigenciaTramite';
 import { claseBoton } from '../../../flit/GradientButton';
 import { FlitEmpty, FlitTable, FlitTh, FlitTr } from '../../../flit/flitPageKit';
 import { Vehiculo, textoServicioVehiculo } from '../../../flit/Placa';
@@ -36,16 +37,8 @@ export function Seccion({ id, titulo, acciones, children }: { id: string; titulo
   );
 }
 
-/** Chip de un trámite muerto (Épica #14707): «Anulado» (también el abortado) o «Revocado», con su ícono del kit. */
-export function ChipVigenciaTramite({ vigencia }: { vigencia: Exclude<VigenciaTramite, 'vigente'> }) {
-  const revocado = vigencia === 'revocado';
-  return (
-    <StatusChip tono={revocado ? 'revocado' : 'anulado'}
-      icono={<img src={revocado ? '/kit/estado-revocado.svg' : '/kit/estado-anulado.svg'} alt="" aria-hidden="true" className="kit-etiqueta__icono" />}>
-      {revocado ? 'Revocado' : 'Anulado'}
-    </StatusChip>
-  );
-}
+/** Chip de un trámite muerto (Épica #14707): vive en el kit porque lo comparten Siigo y Logística. */
+export { ChipVigenciaTramite };
 
 export function Cargando({ que }: { que: string }) {
   return <p role="status" className={`m-0 text-sm ${tenue}`}>Cargando {que}…</p>;
